@@ -1,0 +1,63 @@
+name: Container
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container:
+    name: Build and smoke test image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Build image
+        run: docker build --tag convia:ci .
+
+      - name: Verify non-root runtime user
+        shell: bash
+        run: |
+          runtime_user="$(docker image inspect --format '{{.Config.User}}' convia:ci)"
+          if [[ "${runtime_user}" != "65532:65532" ]]; then
+            echo "Unexpected container user: ${runtime_user}"
+            exit 1
+          fi
+
+      - name: Smoke test health endpoint
+        shell: bash
+        run: |
+          container_id="$(docker run --detach --publish 127.0.0.1::8080 convia:ci)"
+          cleanup() {
+            docker logs "${container_id}" || true
+            docker rm --force "${container_id}" >/dev/null
+          }
+          trap cleanup EXIT
+
+          host_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' "${container_id}")"
+          for attempt in {1..20}; do
+            if response="$(curl --fail --silent --show-error "http://127.0.0.1:${host_port}/health")"; then
+              if [[ "${response}" != '{"status":"ok"}' ]]; then
+                echo "Unexpected health response: ${response}"
+                exit 1
+              fi
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Convia did not become healthy within 20 seconds"
+          exit 1
+

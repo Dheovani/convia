@@ -1,0 +1,17 @@
+# Build output
+/convia
+/convia.exe
+*.test
+
+# Test and coverage output
+coverage.out
+
+# Local environment
+.env
+
+# Editor and operating system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
