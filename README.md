@@ -6,7 +6,9 @@ Convia owns its public API and domain model. Media infrastructure, including the
 
 ## Status
 
-The project currently contains only the Go backend foundation: environment-based HTTP configuration, process lifecycle management, graceful shutdown, and a health endpoint. Calls, rooms, authentication, persistence, real-time events, and media integration are intentionally not implemented yet.
+The project currently contains the Go backend foundation and its HTTP transport baseline: environment-based configuration, process lifecycle management, graceful shutdown, a health endpoint, request correlation identifiers, structured access logs, panic recovery, and a single JSON error schema. Calls, rooms, authentication, persistence, real-time events, and media integration are intentionally not implemented yet.
+
+The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 
 ## Prerequisites
 
@@ -30,6 +32,22 @@ Check the running service:
 
 ```sh
 curl http://localhost:8080/health
+```
+
+The health endpoint is operational rather than public, so it is served outside the `/v1` public API prefix. Every response carries an `X-Request-ID` header, and every failure uses the JSON error schema:
+
+```sh
+curl -i http://localhost:8080/v1/rooms
+```
+
+```json
+{
+  "error": {
+    "code": "not_found",
+    "message": "The requested resource does not exist.",
+    "request_id": "MXHJAY4MJNX2FO22XWJ3XNCKHT"
+  }
+}
 ```
 
 ## Test

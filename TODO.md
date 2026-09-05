@@ -22,9 +22,9 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M01 — Repository Governance and Hosted CI
-- **Next implementation milestone:** M02 — HTTP and API Baseline
-- **Current backend capability:** process startup, environment configuration, graceful shutdown, and `GET /health`
+- **Current milestone:** M02 — HTTP and API Baseline. The remaining M01 work is repository administration in GitHub settings rather than code.
+- **Next implementation milestone:** M03 — API Specification and Compatibility Policy
+- **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** none
 - **Current authentication capability:** none
 - **Current communication capability:** none
@@ -35,9 +35,9 @@ This document is the operational development plan for Convia. It tracks what exi
 
 Complete these in order before starting feature development:
 
-1. [ ] **NEXT-001:** Initialize Git in this directory if it will be the repository root.
-2. [ ] **NEXT-002:** Create or select the canonical GitHub repository without changing the Go module path until the repository path is known.
-3. [ ] **NEXT-003:** Push the current foundation to a non-protected branch.
+1. [x] **NEXT-001:** Initialize Git in this directory if it will be the repository root.
+2. [x] **NEXT-002:** Create or select the canonical GitHub repository without changing the Go module path until the repository path is known.
+3. [x] **NEXT-003:** Push the current foundation to a non-protected branch.
 4. [ ] **NEXT-004:** Confirm that the `CI`, `Security`, and `Container` workflows all start on GitHub.
 5. [ ] **NEXT-005:** Resolve any hosted-runner incompatibility, especially Go 1.26.5 or CodeQL availability.
 6. [ ] **NEXT-006:** Enable GitHub code scanning where the repository plan and visibility support it.
@@ -52,9 +52,9 @@ Complete these in order before starting feature development:
 
 ### M00 — Backend Foundation
 
-**Priority:** P0  
-**Status:** Complete locally  
-**Depends on:** Nothing  
+**Priority:** P0
+**Status:** Complete locally
+**Depends on:** Nothing
 **Goal:** Establish the smallest executable and testable Go service foundation.
 
 - [x] **M00-001:** Preserve the repository engineering instructions in `AGENTS.md`.
@@ -76,9 +76,9 @@ Complete these in order before starting feature development:
 
 ### M01 — Repository Governance and Hosted CI
 
-**Priority:** P0  
-**Status:** In progress  
-**Depends on:** M00  
+**Priority:** P0
+**Status:** In progress
+**Depends on:** M00
 **Goal:** Make every proposed change pass repeatable quality, security, and container checks before merge.
 
 - [x] **M01-001:** Add a CI workflow for formatting, `go vet`, tests, coverage, and build.
@@ -98,7 +98,7 @@ Complete these in order before starting feature development:
 - [x] **M01-015:** Add job timeouts to prevent stuck runners.
 - [x] **M01-016:** Configure weekly Dependabot updates for GitHub Actions.
 - [x] **M01-017:** Configure weekly Dependabot updates for Go modules.
-- [ ] **M01-018:** Initialize the Git repository and publish it to GitHub.
+- [x] **M01-018:** Initialize the Git repository and publish it to GitHub.
 - [ ] **M01-019:** Confirm all workflows pass on the first GitHub push.
 - [ ] **M01-020:** Confirm workflows run correctly for pull requests from branches and forks.
 - [ ] **M01-021:** Enable Dependabot alerts and security updates in repository settings.
@@ -121,39 +121,40 @@ Complete these in order before starting feature development:
 
 ### M02 — HTTP and API Baseline
 
-**Priority:** P0  
-**Status:** Not started  
-**Depends on:** M01  
+**Priority:** P0
+**Status:** In progress. Every item is complete except M02-018, which stays open by its own condition until the standalone UI origin model exists in M18.
+**Depends on:** M01
 **Goal:** Define consistent HTTP behavior before adding public domain endpoints.
+**Contract:** [`docs/api-conventions.md`](docs/api-conventions.md), implemented by `internal/api` and `internal/server`.
 
-- [ ] **M02-001:** Decide the initial public API prefix, expected to be `/v1` unless an ADR selects another scheme.
-- [ ] **M02-002:** Keep operational endpoints such as health outside public API versioning.
-- [ ] **M02-003:** Define the standard JSON success envelope policy, including whether simple resources are returned directly.
-- [ ] **M02-004:** Define a Convia-owned JSON error schema with stable machine-readable codes.
-- [ ] **M02-005:** Add a request ID middleware that accepts or generates safe correlation IDs.
-- [ ] **M02-006:** Return the request ID in response headers and structured logs.
-- [ ] **M02-007:** Add panic recovery that logs internal context without exposing stack traces to clients.
-- [ ] **M02-008:** Add bounded request body handling.
-- [ ] **M02-009:** Reject unsupported content types on endpoints that accept JSON.
-- [ ] **M02-010:** Reject malformed JSON and unknown fields consistently.
-- [ ] **M02-011:** Define pagination fields and upper bounds before the first list endpoint.
-- [ ] **M02-012:** Define timestamp serialization as UTC RFC 3339 with documented precision.
-- [ ] **M02-013:** Define public identifier formatting without leaking future database internals.
-- [ ] **M02-014:** Add server-level read, write, idle, and header timeout tests where behavior is non-trivial.
-- [ ] **M02-015:** Add route-not-found and method-not-allowed JSON responses if public API consistency requires them.
-- [ ] **M02-016:** Add tests for every middleware success and failure path.
-- [ ] **M02-017:** Document reverse-proxy assumptions and trusted forwarded-header behavior.
+- [x] **M02-001:** Decide the initial public API prefix, expected to be `/v1` unless an ADR selects another scheme.
+- [x] **M02-002:** Keep operational endpoints such as health outside public API versioning.
+- [x] **M02-003:** Define the standard JSON success envelope policy, including whether simple resources are returned directly.
+- [x] **M02-004:** Define a Convia-owned JSON error schema with stable machine-readable codes.
+- [x] **M02-005:** Add a request ID middleware that accepts or generates safe correlation IDs.
+- [x] **M02-006:** Return the request ID in response headers and structured logs.
+- [x] **M02-007:** Add panic recovery that logs internal context without exposing stack traces to clients.
+- [x] **M02-008:** Add bounded request body handling.
+- [x] **M02-009:** Reject unsupported content types on endpoints that accept JSON.
+- [x] **M02-010:** Reject malformed JSON and unknown fields consistently.
+- [x] **M02-011:** Define pagination fields and upper bounds before the first list endpoint.
+- [x] **M02-012:** Define timestamp serialization as UTC RFC 3339 with documented precision.
+- [x] **M02-013:** Define public identifier formatting without leaking future database internals.
+- [x] **M02-014:** Add server-level read, write, idle, and header timeout tests where behavior is non-trivial.
+- [x] **M02-015:** Add route-not-found and method-not-allowed JSON responses if public API consistency requires them.
+- [x] **M02-016:** Add tests for every middleware success and failure path.
+- [x] **M02-017:** Document reverse-proxy assumptions and trusted forwarded-header behavior.
 - [ ] **M02-018:** Decide CORS behavior only after the standalone UI origin model is known.
-- [ ] **M02-019:** Ensure operational endpoints cannot accidentally inherit public authentication requirements.
-- [ ] **M02-020:** Document an endpoint implementation checklist for later milestones.
+- [x] **M02-019:** Ensure operational endpoints cannot accidentally inherit public authentication requirements.
+- [x] **M02-020:** Document an endpoint implementation checklist for later milestones.
 
 **Exit criteria:** New endpoints can follow one documented transport contract for errors, IDs, JSON, limits, and logging.
 
 ### M03 — API Specification and Compatibility Policy
 
-**Priority:** P0  
-**Status:** Not started  
-**Depends on:** M02  
+**Priority:** P0
+**Status:** Not started
+**Depends on:** M02
 **Goal:** Treat Convia's public API as a stable product interface from its first domain endpoint.
 
 - [ ] **M03-001:** Select OpenAPI as the REST contract format or record a justified alternative.
@@ -176,9 +177,9 @@ Complete these in order before starting feature development:
 
 ### M04 — PostgreSQL Foundation
 
-**Priority:** P0  
-**Status:** Not started  
-**Depends on:** M03 and the first persistence-requiring domain decision  
+**Priority:** P0
+**Status:** Not started
+**Depends on:** M03 and the first persistence-requiring domain decision
 **Goal:** Introduce PostgreSQL only when a real durable resource is ready to be implemented.
 
 - [ ] **M04-001:** Select a PostgreSQL driver based on current Go support and operational requirements.
@@ -201,9 +202,9 @@ Complete these in order before starting feature development:
 
 ### M05 — Applications and Tenancy
 
-**Priority:** P0  
-**Status:** Not started  
-**Depends on:** M04  
+**Priority:** P0
+**Status:** Not started
+**Depends on:** M04
 **Goal:** Represent standalone Convia and external consumers as isolated Convia-owned applications.
 
 - [ ] **M05-001:** Define the `Application` domain concept and invariants.
@@ -226,9 +227,9 @@ Complete these in order before starting feature development:
 
 ### M06 — External Users and Identity Mapping
 
-**Priority:** P0  
-**Status:** Not started  
-**Depends on:** M05  
+**Priority:** P0
+**Status:** Not started
+**Depends on:** M05
 **Goal:** Let each consuming application map its own users to stable Convia identities without sharing identity namespaces.
 
 - [ ] **M06-001:** Define Convia's internal user identity and application-scoped external subject.
@@ -251,9 +252,9 @@ Complete these in order before starting feature development:
 
 ### M07 — Authentication, Credentials, and Authorization
 
-**Priority:** P0  
-**Status:** Not started  
-**Depends on:** M05 and M06  
+**Priority:** P0
+**Status:** Not started
+**Depends on:** M05 and M06
 **Goal:** Authenticate applications and users with explicit, least-privilege permissions.
 
 - [ ] **M07-001:** Write a threat model for application credentials, user sessions, and media grants.
@@ -283,9 +284,9 @@ Complete these in order before starting feature development:
 
 ### M08 — Room Domain
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M07  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M07
 **Goal:** Introduce Convia-owned rooms without any LiveKit terminology in public or domain contracts.
 
 - [ ] **M08-001:** Define room purpose, lifecycle, visibility, and capacity invariants.
@@ -308,9 +309,9 @@ Complete these in order before starting feature development:
 
 ### M09 — Call Lifecycle
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M08  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M08
 **Goal:** Model calls as Convia control-plane resources independently from media infrastructure.
 
 - [ ] **M09-001:** Define call states and allowed transitions.
@@ -333,9 +334,9 @@ Complete these in order before starting feature development:
 
 ### M10 — Participants and Invitations
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M09  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M09
 **Goal:** Represent who may join and who actually participates in a call.
 
 - [ ] **M10-001:** Distinguish room membership, invitation, and call participation.
@@ -358,9 +359,9 @@ Complete these in order before starting feature development:
 
 ### M11 — Internal Media Boundary
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M09 and M10  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M09 and M10
 **Goal:** Create the smallest internal abstraction that prevents LiveKit from leaking into the domain or public API.
 
 - [ ] **M11-001:** Enumerate the exact media operations required by implemented call flows.
@@ -380,9 +381,9 @@ Complete these in order before starting feature development:
 
 ### M12 — LiveKit Adapter
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M11  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M11
 **Goal:** Implement the initial media plane behind the internal boundary.
 
 - [ ] **M12-001:** Pin a supported LiveKit server and Go SDK version.
@@ -405,9 +406,9 @@ Complete these in order before starting feature development:
 
 ### M13 — Client Session Bootstrap
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M10 and M12  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M10 and M12
 **Goal:** Provide clients one Convia endpoint for joining a call and receiving short-lived connection instructions.
 
 - [ ] **M13-001:** Define the public join-session response without provider-specific field names.
@@ -427,9 +428,9 @@ Complete these in order before starting feature development:
 
 ### M14 — Real-Time Control Events
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M09 and M10  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M09 and M10
 **Goal:** Use WebSocket only for control-plane events that materially require low-latency delivery.
 
 - [ ] **M14-001:** Enumerate events that cannot be handled adequately through REST polling or webhooks.
@@ -451,9 +452,9 @@ Complete these in order before starting feature development:
 
 ### M15 — Webhooks for External Applications
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** Stable domain events from M09 and M10  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** Stable domain events from M09 and M10
 **Goal:** Notify server-side consumers of durable Convia events reliably and securely.
 
 - [ ] **M15-001:** Define webhook endpoint registration and lifecycle.
@@ -476,9 +477,9 @@ Complete these in order before starting feature development:
 
 ### M16 — Redis and Distributed Ephemeral State
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** A demonstrated distributed-state requirement from M14, M15, or M17  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** A demonstrated distributed-state requirement from M14, M15, or M17
 **Goal:** Introduce Redis for justified ephemeral coordination, never as the durable source of truth.
 
 - [ ] **M16-001:** Document the first concrete Redis use case before adding the dependency.
@@ -498,9 +499,9 @@ Complete these in order before starting feature development:
 
 ### M17 — Presence
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M14 and M16  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M14 and M16
 **Goal:** Expose useful, privacy-aware presence derived from ephemeral signals.
 
 - [ ] **M17-001:** Define presence states and their exact semantics.
@@ -524,9 +525,9 @@ Complete these in order before starting feature development:
 
 ### M18 — Standalone Web Application
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** M07, M08, M09, M10, and M13  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M07, M08, M09, M10, and M13
 **Goal:** Deliver Convia's own user interface on top of the same public platform concepts offered to external consumers.
 
 - [ ] **M18-001:** Choose the frontend stack based on team capability and long-term maintenance.
@@ -549,9 +550,9 @@ Complete these in order before starting feature development:
 
 ### M19 — TypeScript Client SDK
 
-**Priority:** P1  
-**Status:** Not started  
-**Depends on:** Stable M03 and M13 contracts  
+**Priority:** P1
+**Status:** Not started
+**Depends on:** Stable M03 and M13 contracts
 **Goal:** Let browser applications integrate with Convia without directly implementing its HTTP and event protocols.
 
 - [ ] **M19-001:** Define supported browser and TypeScript versions.
@@ -573,9 +574,9 @@ Complete these in order before starting feature development:
 
 ### M20 — Server SDKs and Integration Examples
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** Stable M03, M07, M08, M09, and M15 contracts  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** Stable M03, M07, M08, M09, and M15 contracts
 **Goal:** Make server-to-server integration safe, idiomatic, and well documented.
 
 - [ ] **M20-001:** Prioritize SDK languages using confirmed consumer requirements.
@@ -595,9 +596,9 @@ Complete these in order before starting feature development:
 
 ### M21 — Administration and Operations Surface
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** M05 through M17 as applicable  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** M05 through M17 as applicable
 **Goal:** Give authorized operators safe visibility and control without direct database manipulation.
 
 - [ ] **M21-001:** Define operator roles separately from tenant application roles.
@@ -621,9 +622,9 @@ Complete these in order before starting feature development:
 
 ### M22 — OpenTelemetry and Structured Observability
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** Meaningful domain and infrastructure behavior  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** Meaningful domain and infrastructure behavior
 **Goal:** Make failures and performance understandable across HTTP, database, Redis, webhooks, and media adapters.
 
 - [ ] **M22-001:** Define service name, environment, version, and instance resource attributes.
@@ -645,9 +646,9 @@ Complete these in order before starting feature development:
 
 ### M23 — Security and Privacy Hardening
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** Threat models for implemented features  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** Threat models for implemented features
 **Goal:** Systematically reduce application, infrastructure, supply-chain, and privacy risk.
 
 - [ ] **M23-001:** Maintain a living threat model for each trust boundary.
@@ -673,9 +674,9 @@ Complete these in order before starting feature development:
 
 ### M24 — Test Strategy and Reliability
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** Each implemented domain milestone  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** Each implemented domain milestone
 **Goal:** Build confidence through deterministic layers of tests and explicit failure-mode coverage.
 
 - [ ] **M24-001:** Maintain unit tests for every domain invariant and transition.
@@ -699,9 +700,9 @@ Complete these in order before starting feature development:
 
 ### M25 — Performance and Horizontal Scaling
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** Stable critical flows and production-like observability  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** Stable critical flows and production-like observability
 **Goal:** Validate that the control plane scales without relying on premature optimization.
 
 - [ ] **M25-001:** Define expected tenant, user, room, call, participant, and connection volumes.
@@ -723,9 +724,9 @@ Complete these in order before starting feature development:
 
 ### M26 — Deployment and Operations
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** M22 through M25  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** M22 through M25
 **Goal:** Deploy, operate, recover, and roll back Convia predictably.
 
 - [ ] **M26-001:** Select the initial deployment environment based on actual operational requirements.
@@ -748,9 +749,9 @@ Complete these in order before starting feature development:
 
 ### M27 — Release and Compatibility Management
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** Stable API and deployment process  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** Stable API and deployment process
 **Goal:** Release the service, contracts, images, and SDKs as one governed platform.
 
 - [ ] **M27-001:** Define semantic versioning boundaries for service, API, events, and SDKs.
@@ -774,9 +775,9 @@ Complete these in order before starting feature development:
 
 ### M28 — Screen Sharing
 
-**Priority:** P3  
-**Status:** Not started  
-**Depends on:** Stable video calls and client SDK  
+**Priority:** P3
+**Status:** Not started
+**Depends on:** Stable video calls and client SDK
 **Goal:** Add screen sharing as a Convia capability with explicit authorization and user feedback.
 
 - [ ] **M28-001:** Define who may start screen sharing.
@@ -794,9 +795,9 @@ Complete these in order before starting feature development:
 
 ### M29 — Recording, Transcription, and Derived Media
 
-**Priority:** P3  
-**Status:** Not started  
-**Depends on:** Legal, privacy, storage, and product approval  
+**Priority:** P3
+**Status:** Not started
+**Depends on:** Legal, privacy, storage, and product approval
 **Goal:** Add derived-media features only with explicit consent, retention, and access controls.
 
 - [ ] **M29-001:** Confirm product requirements and applicable consent laws.
@@ -814,9 +815,9 @@ Complete these in order before starting feature development:
 
 ### M30 — General Availability Readiness
 
-**Priority:** P2  
-**Status:** Not started  
-**Depends on:** All P0, P1, and selected P2 milestones  
+**Priority:** P2
+**Status:** Not started
+**Depends on:** All P0, P1, and selected P2 milestones
 **Goal:** Verify that Convia is supportable as both a standalone product and an external platform.
 
 - [ ] **M30-001:** Freeze and review the initial stable public API surface.
