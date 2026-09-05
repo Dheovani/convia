@@ -18,12 +18,15 @@ Convia is source-available rather than open source: it is free for personal and 
 - No media server is required yet.
 
 ```sh
+cp .env.example .env
+set -a && . ./.env && set +a
 docker compose up -d
-export CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable"
 go run ./cmd/convia migrate up
 go run ./cmd/convia
 curl http://localhost:8080/ready
 ```
+
+`.env` is ignored by Git. Convia reads the process environment rather than the file, so load it into your shell as shown. Never put a production credential in it.
 
 [`docs/database.md`](docs/database.md) covers the migration conventions and the testing model.
 

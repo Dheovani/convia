@@ -6,7 +6,9 @@ Convia owns its public API and domain model. Media infrastructure, including the
 
 ## Status
 
-The project currently contains the Go backend foundation, its HTTP transport baseline, and its PostgreSQL foundation: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, and reversible schema migrations. Calls, rooms, authentication, real-time events, and media integration are intentionally not implemented yet.
+The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and the first domain resource: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and administrative endpoints for applications, Convia's tenants.
+
+Calls, rooms, authentication, real-time events, and media integration are intentionally not implemented yet. Because authentication does not exist, the administrative endpoints are disabled by default and refused in production; [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 
@@ -26,15 +28,19 @@ The public API is specified in [`api/openapi.yaml`](api/openapi.yaml), an OpenAP
 Convia requires PostgreSQL. Start it, apply the migrations, then start the service on its development defaults (`0.0.0.0:8080`):
 
 ```sh
+cp .env.example .env
+set -a && . ./.env && set +a
 docker compose up -d
-export CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable"
 go run ./cmd/convia migrate up
 go run ./cmd/convia
 ```
 
+Convia reads configuration from the process environment rather than from a file, so `.env` has to be loaded into the shell as shown above. `.env` is ignored by Git and must never hold a production credential.
+
 Configuration is available through these environment variables:
 
 - `CONVIA_ENVIRONMENT` selects `development` or `production` validation. The default is `development`.
+- `CONVIA_ADMIN_API` serves the administrative endpoints when set to `enabled`. The default is `disabled`, and `enabled` is refused in production.
 - `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
 - `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
 - `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.

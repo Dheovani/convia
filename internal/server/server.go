@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/applications"
 )
 
 const (
@@ -35,11 +36,23 @@ type Prober interface {
 	Ping(ctx context.Context) error
 }
 
+/*
+Dependencies are the collaborators the HTTP layer serves.
+
+Applications is nil when the administrative API is disabled, which is the
+default until authentication exists. The routes are then not registered at all,
+so an unauthenticated tenant endpoint cannot be reached by accident.
+*/
+type Dependencies struct {
+	Database     Prober
+	Applications *applications.Handler
+}
+
 // New constructs the Convia HTTP server.
-func New(address string, logger *slog.Logger, database Prober) *http.Server {
+func New(address string, logger *slog.Logger, dependencies Dependencies) *http.Server {
 	return &http.Server{
 		Addr:              address,
-		Handler:           handler(logger, database),
+		Handler:           handler(logger, dependencies),
 		ReadHeaderTimeout: readHeaderTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -56,9 +69,9 @@ The chain is ordered so that every request carries a correlation identifier
 before it is logged, and so that a recovered panic is still reported by the
 access log with its final status.
 */
-func handler(logger *slog.Logger, database Prober) http.Handler {
+func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	rt := newRoutes(logger)
-	for _, entry := range routeTable(logger, database) {
+	for _, entry := range routeTable(logger, dependencies) {
 		rt.handle(entry.method, entry.path, entry.handler)
 	}
 
@@ -78,16 +91,28 @@ routeTable returns every route the service serves.
 It is the single source of truth for routing, which lets the contract test
 compare the implemented surface with the OpenAPI document in api/.
 */
-func routeTable(logger *slog.Logger, database Prober) []route {
-	return []route{
+func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
+	table := []route{
 		/*
 			Operational endpoints stay outside api.Prefix: they are owned by
 			operators, not by public API consumers, and must not be versioned or
 			authenticated together with the public API.
 		*/
 		{method: http.MethodGet, path: "/health", handler: healthHandler(logger)},
-		{method: http.MethodGet, path: "/ready", handler: readinessHandler(logger, database)},
+		{method: http.MethodGet, path: "/ready", handler: readinessHandler(logger, dependencies.Database)},
 	}
+
+	if dependencies.Applications != nil {
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/applications",
+				handler: http.HandlerFunc(dependencies.Applications.Create)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications",
+				handler: http.HandlerFunc(dependencies.Applications.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}",
+				handler: http.HandlerFunc(dependencies.Applications.Get)},
+		)
+	}
+	return table
 }
 
 // healthResponse is the stable body of the health endpoint.

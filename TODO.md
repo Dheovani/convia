@@ -22,9 +22,10 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M04 — PostgreSQL Foundation. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
+- **Current milestone:** M05 — Applications and Tenancy. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** M05 — Applications and Tenancy, building the domain, repository, service, and administrative endpoints on top of the applications table
+- **Next implementation milestone:** the remainder of M05 — application lifecycle transitions, renaming with optimistic concurrency, and idempotent creation — followed by M06 and M07
+- **Current tenancy capability:** applications can be created, retrieved, and listed through the administrative API, which is disabled by default and refused in production until authentication exists
 - **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health endpoint and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` table
@@ -209,25 +210,26 @@ Complete these in order before starting feature development:
 ### M05 — Applications and Tenancy
 
 **Priority:** P0
-**Status:** Not started
+**Status:** In progress. The domain, its persistence, and the create, read, and list surface are implemented; lifecycle transitions and the isolation of tenant-scoped resources follow.
 **Depends on:** M04
 **Goal:** Represent standalone Convia and external consumers as isolated Convia-owned applications.
+**Documentation:** [`docs/applications.md`](docs/applications.md), implemented by `internal/applications`.
 
-- [ ] **M05-001:** Define the `Application` domain concept and invariants.
-- [ ] **M05-002:** Decide whether standalone Convia is represented by a first-party application record.
-- [ ] **M05-003:** Define application lifecycle states.
-- [ ] **M05-004:** Define immutable public application IDs.
+- [x] **M05-001:** Define the `Application` domain concept and invariants.
+- [x] **M05-002:** Decide whether standalone Convia is represented by a first-party application record. It is an ordinary first-party record, so the standalone product exercises the same tenancy paths as external consumers.
+- [x] **M05-003:** Define application lifecycle states. `active`, `suspended`, and `deleted`.
+- [x] **M05-004:** Define immutable public application IDs.
 - [x] **M05-005:** Add the applications database migration. The schema encodes the identifier format, the name bounds, and the lifecycle states; the transitions between them are implemented with the service.
-- [ ] **M05-006:** Add repository behavior for create, get, list, update, and lifecycle transitions.
-- [ ] **M05-007:** Add an application service enforcing invariants independently of HTTP.
-- [ ] **M05-008:** Add administrative HTTP endpoints only for immediately required operations.
-- [ ] **M05-009:** Ensure every application-scoped query includes tenant isolation.
-- [ ] **M05-010:** Test cross-application access denial.
-- [ ] **M05-011:** Define application display metadata separately from security credentials.
-- [ ] **M05-012:** Define safe deletion, suspension, and retention semantics.
-- [ ] **M05-013:** Add audit events for security-relevant application changes.
-- [ ] **M05-014:** Document bootstrap of the first administrative application.
-- [ ] **M05-015:** Add API contract coverage for application responses and errors.
+- [ ] **M05-006:** Add repository behavior for create, get, list, update, and lifecycle transitions. Create, get, and keyset-paginated list are implemented; update and transitions are not.
+- [x] **M05-007:** Add an application service enforcing invariants independently of HTTP.
+- [ ] **M05-008:** Add administrative HTTP endpoints only for immediately required operations. Create, retrieve, and list are implemented; the lifecycle endpoints land with the transitions.
+- [ ] **M05-009:** Ensure every application-scoped query includes tenant isolation. Nothing is application-scoped yet; this becomes testable with the first tenant-scoped resource in M08.
+- [ ] **M05-010:** Test cross-application access denial. Blocked on M07 credentials and the first tenant-scoped resource.
+- [x] **M05-011:** Define application display metadata separately from security credentials.
+- [x] **M05-012:** Define safe deletion, suspension, and retention semantics.
+- [x] **M05-013:** Add audit events for security-relevant application changes. Structured log events; durable audit storage is M21.
+- [x] **M05-014:** Document bootstrap of the first administrative application.
+- [x] **M05-015:** Add API contract coverage for application responses and errors.
 
 **Exit criteria:** Applications are durable, isolated tenants with tested lifecycle rules and no media-provider coupling.
 

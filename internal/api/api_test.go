@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWriteEncodesPayload(t *testing.T) {
@@ -23,6 +24,29 @@ func TestWriteEncodesPayload(t *testing.T) {
 	}
 	if body := strings.TrimSpace(response.Body.String()); body != `{"status":"ok"}` {
 		t.Errorf("body = %q, want %q", body, `{"status":"ok"}`)
+	}
+}
+
+// Timestamps are published in UTC with millisecond precision, whatever the input.
+func TestFormatTimestamp(t *testing.T) {
+	saoPaulo := time.FixedZone("-03", -3*60*60)
+
+	tests := map[string]struct {
+		value time.Time
+		want  string
+	}{
+		"utc":             {time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC), "2026-09-05T14:04:56.154Z"},
+		"other zone":      {time.Date(2026, time.September, 5, 11, 4, 56, 154_000_000, saoPaulo), "2026-09-05T14:04:56.154Z"},
+		"whole second":    {time.Date(2026, time.September, 5, 14, 4, 56, 0, time.UTC), "2026-09-05T14:04:56.000Z"},
+		"sub millisecond": {time.Date(2026, time.September, 5, 14, 4, 56, 154_999_999, time.UTC), "2026-09-05T14:04:56.154Z"},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			if formatted := FormatTimestamp(test.value); formatted != test.want {
+				t.Errorf("FormatTimestamp() = %q, want %q", formatted, test.want)
+			}
+		})
 	}
 }
 

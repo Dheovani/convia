@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"convia/internal/api"
+	"convia/internal/applications"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/server"
@@ -99,7 +101,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	httpServer := server.New(cfg.Address(), logger, pool)
+	dependencies := server.Dependencies{Database: pool}
+	if cfg.AdminAPI {
+		dependencies.Applications = applications.NewHandler(logger, applications.NewService(applications.NewStore(pool), logger))
+		logger.Warn("the administrative API is enabled and is not authenticated yet",
+			"endpoints", api.Prefix+"/applications")
+	}
+
+	httpServer := server.New(cfg.Address(), logger, dependencies)
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- httpServer.ListenAndServe()

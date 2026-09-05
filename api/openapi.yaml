@@ -27,6 +27,14 @@ tags:
       Operational endpoints for operators and deployment infrastructure. They
       are served outside the versioned public API prefix and are not part of the
       public product interface.
+  - name: Applications
+    description: |
+      Administrative endpoints for Convia's tenants.
+
+      These endpoints have no authentication yet, so they are served only when
+      an operator explicitly sets `CONVIA_ADMIN_API=enabled`, which is refused
+      in production. They exist to bootstrap the first applications and will
+      require credentials and administrative scopes once M07 lands.
 
 paths:
   /health:
@@ -104,8 +112,177 @@ paths:
                 checks:
                   database: unavailable
 
+  /v1/applications:
+    post:
+      operationId: createApplication
+      tags: [Applications]
+      summary: Create an application
+      description: |
+        Registers a new tenant.
+
+        Convia assigns the identifier, the status, and the timestamps: a client
+        can neither choose an identifier nor backdate a tenant. Creation is not
+        idempotent yet, so a repeated request creates a second application.
+      x-lifecycle: experimental
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateApplicationRequest"
+            example:
+              name: Workspace Town
+      responses:
+        "201":
+          description: The application was created.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listApplications
+      tags: [Applications]
+      summary: List applications
+      description: |
+        Returns one page of applications, newest first. Deleted applications are
+        not returned.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of applications.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}:
+    get:
+      operationId: getApplication
+      tags: [Applications]
+      summary: Retrieve an application
+      description: |
+        Returns one application.
+
+        An identifier that does not exist, is malformed, or belongs to a deleted
+        application is reported the same way, so that probing reveals nothing
+        about which applications exist.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+      responses:
+        "200":
+          description: The requested application.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   schemas:
+    Application:
+      type: object
+      description: A Convia tenant.
+      required: [id, name, status, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ApplicationId"
+        name:
+          type: string
+          description: Display name. It carries no security meaning.
+          minLength: 1
+          maxLength: 120
+          example: Workspace Town
+        status:
+          type: string
+          description: |
+            Lifecycle state. `active` is served normally, `suspended` retains
+            data while refusing new work, and `deleted` is gone from the API.
+          enum: [active, suspended, deleted]
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    ApplicationPage:
+      type: object
+      description: One page of applications.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Application"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that returns the next page. Absent on the last page.
+            Clients must not decode or construct it.
+
+    CreateApplicationRequest:
+      type: object
+      description: The accepted body when creating an application.
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: |
+            Display name. Surrounding whitespace is insignificant, and control
+            characters are rejected.
+          minLength: 1
+          maxLength: 120
+
+    ApplicationId:
+      type: string
+      description: |
+        Opaque, immutable public identifier. Clients store it as a reference and
+        must never parse it.
+      pattern: "^app_[A-Z2-7]{26}$"
+      example: app_MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    Timestamp:
+      type: string
+      format: date-time
+      description: UTC RFC 3339 timestamp with millisecond precision.
+      example: "2026-09-05T14:04:56.154Z"
+
     Readiness:
       type: object
       description: Readiness of Convia and of each dependency it requires.
@@ -176,6 +353,14 @@ components:
                 `X-Request-ID` response header. Quote it in support requests.
 
   parameters:
+    ApplicationID:
+      name: application_id
+      in: path
+      required: true
+      description: Identifier of the application.
+      schema:
+        $ref: "#/components/schemas/ApplicationId"
+
     Limit:
       name: limit
       in: query

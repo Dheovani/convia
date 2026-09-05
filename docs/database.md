@@ -29,13 +29,14 @@ Connection failure at startup is fatal. A process that starts without a usable d
 ## Local Development
 
 ```sh
+cp .env.example .env
+set -a && . ./.env && set +a
 docker compose up -d
-export CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable"
 go run ./cmd/convia migrate up
 go run ./cmd/convia
 ```
 
-The credentials in `docker-compose.yml` are development-only.
+The credentials in `docker-compose.yml` and `.env.example` are development-only. `.env` is ignored by Git, and Convia reads the process environment rather than the file, so it must be loaded into the shell.
 
 Migration commands:
 

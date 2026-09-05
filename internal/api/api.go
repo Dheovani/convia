@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 )
 
 // Prefix is the path prefix of Convia's versioned public API. Operational
@@ -22,6 +23,19 @@ const Prefix = "/v1"
 
 // ContentTypeJSON is the media type used by every JSON request and response.
 const ContentTypeJSON = "application/json"
+
+/*
+timestampLayout is the serialization of every public timestamp.
+
+Convia publishes UTC RFC 3339 with millisecond precision, so that clients see
+one stable shape regardless of the precision PostgreSQL happens to store.
+*/
+const timestampLayout = "2006-01-02T15:04:05.000Z07:00"
+
+// FormatTimestamp renders a timestamp in Convia's public representation.
+func FormatTimestamp(value time.Time) string {
+	return value.UTC().Format(timestampLayout)
+}
 
 /*
 Write sends payload as a JSON response body with the given status code.

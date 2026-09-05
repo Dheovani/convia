@@ -20,6 +20,7 @@ func useDefaults(t *testing.T) {
 
 	for _, name := range []string{
 		environmentEnvironment,
+		adminAPIEnvironment,
 		httpHostEnvironment,
 		httpPortEnvironment,
 		databaseMaxConnectionsEnvironment,
@@ -120,6 +121,56 @@ func TestLoadRejectsUnknownEnvironment(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Fatal("Load() error = nil, want an unknown environment error")
+	}
+}
+
+/*
+TestAdminAPIIsDisabledByDefault proves that the unauthenticated administrative
+endpoints are never served unless an operator asks for them.
+*/
+func TestAdminAPIIsDisabledByDefault(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.AdminAPI {
+		t.Error("AdminAPI = true, want the administrative API disabled by default")
+	}
+}
+
+func TestAdminAPICanBeEnabledOutsideProduction(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(adminAPIEnvironment, adminAPIEnabled)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !config.AdminAPI {
+		t.Error("AdminAPI = false, want it enabled")
+	}
+}
+
+// Production must not serve an unauthenticated tenant API, even by request.
+func TestAdminAPIIsRefusedInProduction(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(environmentEnvironment, string(Production))
+	t.Setenv(databaseURLEnvironment, "postgres://convia:convia@db:5432/convia?sslmode=verify-full")
+	t.Setenv(adminAPIEnvironment, adminAPIEnabled)
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want the administrative API to be refused in production")
+	}
+}
+
+func TestAdminAPIRejectsUnknownValues(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(adminAPIEnvironment, "true")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want an unknown administrative API value to be rejected")
 	}
 }
 

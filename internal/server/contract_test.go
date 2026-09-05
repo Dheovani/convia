@@ -10,11 +10,13 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"convia/internal/api"
+	"convia/internal/applications"
 )
 
 // specificationPath locates the API contract relative to this package.
@@ -63,7 +65,7 @@ func TestSpecificationMatchesRoutes(t *testing.T) {
 		}
 	}
 
-	for _, entry := range routeTable(logger, stubProber{}) {
+	for _, entry := range routeTable(logger, testDependencies()) {
 		key := entry.method + " " + entry.path
 		if _, exists := documented[key]; !exists {
 			t.Errorf("route %s is implemented but missing from %s", key, specificationPath)
@@ -180,6 +182,77 @@ func TestErrorResponsesMatchSpecification(t *testing.T) {
 			assertBodyMatchesSchema(t, errorSchema, response.Body.Bytes())
 		})
 	}
+}
+
+/*
+TestApplicationResponsesMatchSpecification validates the administrative
+endpoints against the contract, including the failure a client will meet most
+often.
+*/
+func TestApplicationResponsesMatchSpecification(t *testing.T) {
+	document := loadSpecification(t)
+	collection := document.Paths.Find(api.Prefix + "/applications")
+	item := document.Paths.Find(api.Prefix + "/applications/{application_id}")
+
+	tests := map[string]struct {
+		request   *http.Request
+		stub      stubApplications
+		status    int
+		operation *openapi3.Operation
+	}{
+		"create": {
+			request:   jsonRequest(http.MethodPost, api.Prefix+"/applications", `{"name":"Workspace Town"}`),
+			stub:      stubApplications{application: sampleApplication()},
+			status:    http.StatusCreated,
+			operation: collection.Post,
+		},
+		"list": {
+			request: httptest.NewRequest(http.MethodGet, api.Prefix+"/applications?limit=2", nil),
+			stub: stubApplications{page: applications.Page{
+				Applications: []applications.Application{sampleApplication()},
+				NextCursor:   "b3BhcXVl",
+			}},
+			status:    http.StatusOK,
+			operation: collection.Get,
+		},
+		"get": {
+			request:   httptest.NewRequest(http.MethodGet, api.Prefix+"/applications/"+sampleApplication().ID, nil),
+			stub:      stubApplications{application: sampleApplication()},
+			status:    http.StatusOK,
+			operation: item.Get,
+		},
+		"missing": {
+			request:   httptest.NewRequest(http.MethodGet, api.Prefix+"/applications/"+sampleApplication().ID, nil),
+			stub:      stubApplications{err: applications.ErrNotFound},
+			status:    http.StatusNotFound,
+			operation: item.Get,
+		},
+		"invalid body": {
+			request:   jsonRequest(http.MethodPost, api.Prefix+"/applications", `{"name":""}`),
+			stub:      stubApplications{err: applications.ValidationError{Field: "name", Message: "The name must not be empty."}},
+			status:    http.StatusBadRequest,
+			operation: collection.Post,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+				newDependencies(test.stub)).Handler.ServeHTTP(response, test.request)
+
+			if response.Code != test.status {
+				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
+			}
+			assertBodyMatchesSchema(t, responseSchema(t, test.operation.Responses.Status(test.status)), response.Body.Bytes())
+		})
+	}
+}
+
+func jsonRequest(method, target, body string) *http.Request {
+	request := httptest.NewRequest(method, target, strings.NewReader(body))
+	request.Header.Set("Content-Type", api.ContentTypeJSON)
+	return request
 }
 
 // responseSchema returns the JSON schema of a documented response.

@@ -11,8 +11,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"convia/internal/api"
+	"convia/internal/applications"
 )
 
 /*
@@ -29,12 +31,92 @@ func (probe stubProber) Ping(context.Context) error {
 	return probe.err
 }
 
+/*
+stubApplications satisfies the application service that the handler consumes.
+
+Routing and contract tests only need the routes to exist and to answer, so the
+behavior lives in the applications package tests instead.
+*/
+type stubApplications struct {
+	application applications.Application
+	page        applications.Page
+	err         error
+}
+
+func (stub stubApplications) Create(context.Context, string) (applications.Application, error) {
+	return stub.application, stub.err
+}
+
+func (stub stubApplications) Get(context.Context, string) (applications.Application, error) {
+	return stub.application, stub.err
+}
+
+func (stub stubApplications) List(context.Context, applications.ListOptions) (applications.Page, error) {
+	return stub.page, stub.err
+}
+
+// sampleApplication is a realistic application for transport-level tests.
+func sampleApplication() applications.Application {
+	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
+
+	return applications.Application{
+		ID:        "app_MXHJAY4MJNX2FO22XWJ3XNCKHT",
+		Name:      "Workspace Town",
+		Status:    applications.StatusActive,
+		CreatedAt: created,
+		UpdatedAt: created,
+	}
+}
+
+// testDependencies serves every route, including the administrative API.
+func testDependencies() Dependencies {
+	return newDependencies(stubApplications{
+		application: sampleApplication(),
+		page: applications.Page{
+			Applications: []applications.Application{sampleApplication()},
+			NextCursor:   "b3BhcXVl",
+		},
+	})
+}
+
+func newDependencies(stub stubApplications) Dependencies {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	return Dependencies{
+		Database:     stubProber{},
+		Applications: applications.NewHandler(logger, stub),
+	}
+}
+
 func newTestHandler() http.Handler {
 	return newTestServer(stubProber{}).Handler
 }
 
 func newTestServer(database Prober) *http.Server {
-	return New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), database)
+	dependencies := testDependencies()
+	dependencies.Database = database
+
+	return New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), dependencies)
+}
+
+/*
+TestAdministrativeRoutesAreOptional proves that the administrative endpoints
+are absent unless they are wired in, which is what keeps an unauthenticated
+tenant API from being reachable by default.
+*/
+func TestAdministrativeRoutesAreOptional(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Dependencies{Database: stubProber{}}).Handler
+
+	for _, target := range []string{api.Prefix + "/applications", api.Prefix + "/applications/app_MXHJAY4MJNX2FO22XWJ3XNCKHT"} {
+		request := httptest.NewRequest(http.MethodGet, target, nil)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+
+		if response.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want %d", target, response.Code, http.StatusNotFound)
+		}
+	}
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -163,7 +245,7 @@ the instance from rotation without exposing why it failed.
 func TestReadinessReportsUnreachableDatabase(t *testing.T) {
 	failure := errors.New("dial tcp 10.0.0.5:5432: connection refused")
 	logs := &bytes.Buffer{}
-	handler := New("127.0.0.1:0", slog.New(slog.NewJSONHandler(logs, nil)), stubProber{err: failure}).Handler
+	handler := New("127.0.0.1:0", slog.New(slog.NewJSONHandler(logs, nil)), Dependencies{Database: stubProber{err: failure}}).Handler
 
 	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
 	response := httptest.NewRecorder()
@@ -185,7 +267,7 @@ func TestReadinessReportsUnreachableDatabase(t *testing.T) {
 
 // Liveness must not depend on a dependency, or an outage restarts healthy processes.
 func TestHealthIgnoresDependencyFailures(t *testing.T) {
-	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), stubProber{err: errors.New("down")}).Handler
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), Dependencies{Database: stubProber{err: errors.New("down")}}).Handler
 
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 	response := httptest.NewRecorder()

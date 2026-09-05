@@ -170,6 +170,9 @@ func TestMigrateIsRepeatable(t *testing.T) {
 /*
 TestRollbackRevertsAndReapplies covers the recovery path an operator needs
 after a failed deployment: revert the schema, then move forward again.
+
+Every migration is reverted, one at a time, so that a migration whose Down
+section is missing or broken fails here rather than during an incident.
 */
 func TestRollbackRevertsAndReapplies(t *testing.T) {
 	databaseURL := newTestDatabase(t)
@@ -178,21 +181,39 @@ func TestRollbackRevertsAndReapplies(t *testing.T) {
 	if err := Migrate(ctx, databaseURL, discardLogger()); err != nil {
 		t.Fatalf("Migrate() error = %v", err)
 	}
-	if err := Rollback(ctx, databaseURL, discardLogger()); err != nil {
-		t.Fatalf("Rollback() error = %v", err)
-	}
 
 	pool := openTestPool(t, databaseURL)
+	if !tableExists(t, pool, "applications") {
+		t.Fatal("applications is missing after migrating")
+	}
+
+	for reverted := range countMigrations(t) {
+		if err := Rollback(ctx, databaseURL, discardLogger()); err != nil {
+			t.Fatalf("Rollback() number %d error = %v", reverted+1, err)
+		}
+	}
+
 	if tableExists(t, pool, "applications") {
-		t.Error("applications still exists after a rollback")
+		t.Error("applications still exists after reverting every migration")
 	}
 
 	if err := Migrate(ctx, databaseURL, discardLogger()); err != nil {
 		t.Fatalf("Migrate() after rollback error = %v", err)
 	}
 	if !tableExists(t, pool, "applications") {
-		t.Error("applications is missing after reapplying the migration")
+		t.Error("applications is missing after reapplying the migrations")
 	}
+}
+
+// countMigrations reports how many migrations the binary carries.
+func countMigrations(t *testing.T) int {
+	t.Helper()
+
+	entries, err := migrationFiles.ReadDir(migrationDirectory)
+	if err != nil {
+		t.Fatalf("read the embedded migrations: %v", err)
+	}
+	return len(entries)
 }
 
 func TestStatusReportsMigrations(t *testing.T) {

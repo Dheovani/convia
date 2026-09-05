@@ -22,6 +22,10 @@ const (
 	maxDatabaseConnections = 500
 
 	environmentEnvironment = "CONVIA_ENVIRONMENT"
+	adminAPIEnvironment    = "CONVIA_ADMIN_API"
+
+	adminAPIEnabled  = "enabled"
+	adminAPIDisabled = "disabled"
 
 	httpHostEnvironment = "CONVIA_HTTP_HOST"
 	httpPortEnvironment = "CONVIA_HTTP_PORT"
@@ -48,6 +52,7 @@ const (
 // Config contains process-level service configuration.
 type Config struct {
 	Environment Environment
+	AdminAPI    bool
 	HTTPHost    string
 	HTTPPort    int
 	Database    Database
@@ -74,6 +79,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	adminAPI, err := loadAdminAPI(environment)
+	if err != nil {
+		return Config{}, err
+	}
+
 	host := environmentOrDefault(httpHostEnvironment, defaultHTTPHost)
 	if host == "" {
 		return Config{}, fmt.Errorf("%s must not be empty", httpHostEnvironment)
@@ -92,10 +102,36 @@ func Load() (Config, error) {
 
 	return Config{
 		Environment: environment,
+		AdminAPI:    adminAPI,
 		HTTPHost:    host,
 		HTTPPort:    port,
 		Database:    database,
 	}, nil
+}
+
+/*
+loadAdminAPI decides whether the administrative endpoints are served.
+
+Convia has no authentication yet, so the administrative API would let anyone
+who reaches the port create and read tenants. It is therefore disabled by
+default and refused outright in production until M07 introduces credentials.
+Enabling it is an explicit, local decision made to bootstrap the first
+application.
+*/
+func loadAdminAPI(environment Environment) (bool, error) {
+	switch environmentOrDefault(adminAPIEnvironment, adminAPIDisabled) {
+	case adminAPIDisabled:
+		return false, nil
+	case adminAPIEnabled:
+		if environment == Production {
+			return false, fmt.Errorf(
+				"%s must not be %q in production while the administrative API is unauthenticated",
+				adminAPIEnvironment, adminAPIEnabled)
+		}
+		return true, nil
+	default:
+		return false, fmt.Errorf("%s must be %q or %q", adminAPIEnvironment, adminAPIEnabled, adminAPIDisabled)
+	}
 }
 
 // Address returns the configured host and port as a network address.
