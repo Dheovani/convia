@@ -94,6 +94,24 @@ func (service *Service) Get(ctx context.Context, id string) (Application, error)
 	return application, nil
 }
 
+/*
+Exists reports whether Convia serves an application.
+
+Other packages depend on this narrow question rather than on the application
+record itself, so that a tenant-scoped resource can refuse work for an unknown
+or deleted application without reading data it has no reason to see.
+*/
+func (service *Service) Exists(ctx context.Context, id string) (bool, error) {
+	_, err := service.Get(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // List returns one page of applications, newest first.
 func (service *Service) List(ctx context.Context, options ListOptions) (Page, error) {
 	limit, err := pageSize(options.Limit)

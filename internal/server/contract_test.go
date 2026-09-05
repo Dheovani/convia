@@ -17,6 +17,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/users"
 )
 
 // specificationPath locates the API contract relative to this package.
@@ -332,6 +333,75 @@ func TestDeleteSendsNoBody(t *testing.T) {
 	}
 	if response.Body.Len() != 0 {
 		t.Errorf("body = %q, want an empty body", response.Body.String())
+	}
+}
+
+/*
+TestUserResponsesMatchSpecification validates the tenant-scoped endpoints,
+including the two outcomes of resolving an identity.
+*/
+func TestUserResponsesMatchSpecification(t *testing.T) {
+	document := loadSpecification(t)
+	collection := document.Paths.Find(api.Prefix + "/applications/{application_id}/users")
+	item := document.Paths.Find(api.Prefix + "/applications/{application_id}/users/{user_id}")
+	target := api.Prefix + "/applications/" + sampleApplication().ID + "/users"
+
+	tests := map[string]struct {
+		request   *http.Request
+		stub      stubUsers
+		status    int
+		operation *openapi3.Operation
+	}{
+		"created": {
+			request:   jsonRequest(http.MethodPost, target, `{"external_subject":"customer-42"}`),
+			stub:      stubUsers{user: sampleUser(), created: true},
+			status:    http.StatusCreated,
+			operation: collection.Post,
+		},
+		"already existed": {
+			request:   jsonRequest(http.MethodPost, target, `{"external_subject":"customer-42"}`),
+			stub:      stubUsers{user: sampleUser()},
+			status:    http.StatusOK,
+			operation: collection.Post,
+		},
+		"list": {
+			request:   httptest.NewRequest(http.MethodGet, target+"?limit=2", nil),
+			stub:      stubUsers{page: users.Page{Users: []users.User{sampleUser()}, NextCursor: "b3BhcXVl"}},
+			status:    http.StatusOK,
+			operation: collection.Get,
+		},
+		"get": {
+			request:   httptest.NewRequest(http.MethodGet, target+"/"+sampleUser().ID, nil),
+			stub:      stubUsers{user: sampleUser()},
+			status:    http.StatusOK,
+			operation: item.Get,
+		},
+		"missing user": {
+			request:   httptest.NewRequest(http.MethodGet, target+"/"+sampleUser().ID, nil),
+			stub:      stubUsers{err: users.ErrNotFound},
+			status:    http.StatusNotFound,
+			operation: item.Get,
+		},
+		"missing application": {
+			request:   httptest.NewRequest(http.MethodGet, target+"/"+sampleUser().ID, nil),
+			stub:      stubUsers{err: users.ErrApplicationNotFound},
+			status:    http.StatusNotFound,
+			operation: item.Get,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+				newFullDependencies(stubApplications{application: sampleApplication()}, test.stub)).
+				Handler.ServeHTTP(response, test.request)
+
+			if response.Code != test.status {
+				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
+			}
+			assertBodyMatchesSchema(t, responseSchema(t, test.operation.Responses.Status(test.status)), response.Body.Bytes())
+		})
 	}
 }
 
