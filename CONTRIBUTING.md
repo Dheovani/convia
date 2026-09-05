@@ -106,9 +106,8 @@ Branch protection on `main` requires these checks:
 | `CI`        | `Validate Go project`        | Actionlint, formatting, `go vet`, Staticcheck, race tests, coverage, build |
 | `CI`        | `Integration tests`          | Tests against PostgreSQL, and migrations applied, reverted, and reapplied  |
 | `Security`  | `Go vulnerability scan`      | `govulncheck` against the module and the Go toolchain                       |
-| `Container` | `Build and smoke test image` | Image build, non-root runtime user, containerized health check              |
-
-`Security / CodeQL analysis` is opt-in: it runs only when the repository variable `ENABLE_CODE_SCANNING` is set to `true`, because publishing results requires a public repository or GitHub Advanced Security. Add it to the required checks once it is enabled.
+| `Security`  | `CodeQL analysis`            | Static analysis with the extended security queries                          |
+| `Container` | `Build and smoke test image` | Image build, non-root runtime user, containerized health and readiness check |
 
 ## Security Issues
 

@@ -29,6 +29,9 @@ const (
 	// CodeMethodNotAllowed reports a known route addressed with an
 	// unsupported HTTP method.
 	CodeMethodNotAllowed ErrorCode = "method_not_allowed"
+	// CodePreconditionFailed reports a conditional request whose If-Match no
+	// longer describes the current state of the resource.
+	CodePreconditionFailed ErrorCode = "precondition_failed"
 	// CodeInternal reports an unexpected server-side condition.
 	CodeInternal ErrorCode = "internal_error"
 )
@@ -47,6 +50,7 @@ func ErrorCodes() []ErrorCode {
 		CodePayloadTooLarge,
 		CodeNotFound,
 		CodeMethodNotAllowed,
+		CodePreconditionFailed,
 		CodeInternal,
 	}
 }

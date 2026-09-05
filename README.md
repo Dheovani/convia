@@ -107,10 +107,8 @@ docker build -t convia .
 GitHub Actions validates the project through three workflows:
 
 - `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package.
-- `Security` runs Go vulnerability analysis on pushes, pull requests, a weekly schedule, and manual requests.
-- `Container` builds the production image, verifies its non-root user, and smoke tests the health endpoint.
-
-The `Security` workflow also contains a CodeQL job with extended security queries. Publishing CodeQL results requires code scanning, which needs a public repository or GitHub Advanced Security, so the job is opt-in: enable code scanning in the repository settings, then set the repository variable `ENABLE_CODE_SCANNING` to `true`.
+- `Security` runs Go vulnerability analysis and CodeQL with extended security queries on pushes, pull requests, a weekly schedule, and manual requests.
+- `Container` builds the production image, verifies its non-root user, and smoke tests the health and readiness endpoints against a real PostgreSQL instance.
 
 Workflow actions are pinned to full commit SHAs. Dependabot checks GitHub Actions and Go module updates every week.
 

@@ -43,9 +43,39 @@ Three states are enough for tenancy. Anything richer — trials, plans, billing 
 
 **Deletion** is a soft delete. The row is retained, the application disappears from the API, and the data becomes eligible for erasure at the end of the retention window. This is what makes deletion recoverable from an operational mistake and what allows an erasure obligation to be satisfied on a defined schedule rather than instantly and irreversibly.
 
-Deletion is not yet implemented. When it is, it must cascade to every tenant-scoped resource, and the retention window must be documented alongside the personal-data workflows in M23.
+Cascading deletion to tenant-scoped resources is not implemented, because no tenant-scoped resource exists yet. The retention window is documented alongside the personal-data workflows in M23.
 
-The lifecycle transitions themselves — the endpoints and the rules governing which transitions are legal — are implemented in the iteration that follows the initial create, read, and list surface.
+### Transitions
+
+| From | To | Operation | Result |
+| --- | --- | --- | --- |
+| `active` | `suspended` | `POST /suspend` | Suspended |
+| `suspended` | `active` | `POST /activate` | Active |
+| `active` or `suspended` | `deleted` | `DELETE` | Deleted, row retained |
+| `active` | `active` | `POST /activate` | Unchanged, success |
+| `suspended` | `suspended` | `POST /suspend` | Unchanged, success |
+| `deleted` | anything | any | `404`, the application has left the API |
+
+**Every transition is repeatable.** Asking for a state an application is already in changes nothing, touches no timestamp, and reports success. A client that times out can retry without first reading the current state, and a repeated `DELETE` succeeds rather than failing.
+
+There is deliberately no error for an "illegal" transition. A deleted application is reported as missing, exactly as an unknown identifier is, and every other combination is either a real change or a no-op. This keeps the public error vocabulary smaller and gives clients less to branch on.
+
+## Concurrent Updates
+
+Every response carrying an application also carries an `ETag`: an opaque version covering the identifier, name, status, and last-updated time. Any change produces a different value.
+
+A client may send that value back as `If-Match` when renaming:
+
+```http
+PATCH /v1/applications/app_MXHJAY4MJNX2FO22XWJ3XNCKHT
+If-Match: "9f2c1d4b8a3e5f60"
+```
+
+The rename then applies only while the application still carries that version. If someone else changed it first, the request is rejected with `412 precondition_failed` and **nothing is modified** — the client re-reads and decides what to do.
+
+The check is enforced inside the update statement itself, not by reading and then hoping, so a change arriving between the read and the write is refused as well.
+
+`If-Match` is **optional** here. A lost rename is visible and easy to repair, so requiring the header on every call would cost more than it protects. `*` and weak validators are treated as no condition, because neither identifies an exact revision. The lifecycle actions do not accept `If-Match`: `suspend`, `activate`, and `delete` express an intended end state, so the last request wins by design.
 
 ## Display Metadata and Security
 
@@ -72,7 +102,15 @@ Two limitations are deliberate and temporary:
 
 ## The Administrative API
 
-The administrative endpoints are `POST /v1/applications`, `GET /v1/applications`, and `GET /v1/applications/{application_id}`.
+| Operation | Endpoint |
+| --- | --- |
+| Create | `POST /v1/applications` |
+| List | `GET /v1/applications` |
+| Retrieve | `GET /v1/applications/{application_id}` |
+| Rename | `PATCH /v1/applications/{application_id}` |
+| Suspend | `POST /v1/applications/{application_id}/suspend` |
+| Activate | `POST /v1/applications/{application_id}/activate` |
+| Delete | `DELETE /v1/applications/{application_id}` |
 
 **They have no authentication yet.** Convia gains credentials in M07, which depends on this milestone. Until then, anyone able to reach the port could create and enumerate tenants, so the endpoints are:
 
@@ -112,9 +150,8 @@ An oversized `limit` is rejected rather than silently reduced, so a client never
 
 ## Not Yet Implemented
 
-- lifecycle transition endpoints, and the rules governing legal transitions;
-- renaming an application, and the optimistic concurrency that guards it;
-- idempotent creation through `Idempotency-Key`;
+- idempotent creation through `Idempotency-Key`, which needs durable key storage and lands with the first resource that requires it in M08;
+- cascading deletion to tenant-scoped resources, and the erasure job that acts at the end of the retention window;
 - authentication, authorization, and per-application credentials, which are M07;
 - cross-tenant isolation of *other* resources, which becomes testable once a tenant-scoped resource exists in M08;
 - durable audit storage and administrative search, which are M21.

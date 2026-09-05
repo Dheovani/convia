@@ -24,8 +24,8 @@ This document is the operational development plan for Convia. It tracks what exi
 
 - **Current milestone:** M05 — Applications and Tenancy. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** the remainder of M05 — application lifecycle transitions, renaming with optimistic concurrency, and idempotent creation — followed by M06 and M07
-- **Current tenancy capability:** applications can be created, retrieved, and listed through the administrative API, which is disabled by default and refused in production until authentication exists
+- **Next implementation milestone:** M06 — External Users and Identity Mapping
+- **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the administrative API, which is disabled by default and refused in production until authentication exists
 - **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health endpoint and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` table
@@ -43,8 +43,8 @@ Complete these in order before starting feature development:
 3. [x] **NEXT-003:** Push the current foundation to a non-protected branch.
 4. [x] **NEXT-004:** Confirm that the `CI`, `Security`, and `Container` workflows all start on GitHub.
 5. [x] **NEXT-005:** Resolve any hosted-runner incompatibility, especially Go 1.26.5 or CodeQL availability. The toolchain moved to the patched Go 1.26.6, the container smoke-test script was rewritten for the runner's ShellCheck version, and the CodeQL job became opt-in through the `ENABLE_CODE_SCANNING` repository variable.
-6. [ ] **NEXT-006:** Enable GitHub code scanning where the repository plan and visibility support it.
-7. [ ] **NEXT-007:** Configure branch protection to require successful CI, security, and container checks.
+6. [x] **NEXT-006:** Enable GitHub code scanning where the repository plan and visibility support it. The repository is public, so the CodeQL job runs unconditionally.
+7. [x] **NEXT-007:** Configure branch protection to require successful CI, security, and container checks.
 8. [ ] **NEXT-008:** Enable Dependabot alerts and review the first scheduled update run.
 9. [ ] **NEXT-009:** Decide whether pull requests require one approving review before merge.
 10. [ ] **NEXT-010:** Begin M02 only after the default branch has a green hosted build.
@@ -105,9 +105,9 @@ Complete these in order before starting feature development:
 - [ ] **M01-019:** Confirm all workflows pass on the first GitHub push.
 - [ ] **M01-020:** Confirm workflows run correctly for pull requests from branches and forks.
 - [ ] **M01-021:** Enable Dependabot alerts and security updates in repository settings.
-- [ ] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab. The CodeQL job now runs only when the repository variable `ENABLE_CODE_SCANNING` is `true`, because uploads require a public repository or GitHub Advanced Security.
-- [ ] **M01-023:** Configure default-branch protection with required status checks.
-- [ ] **M01-024:** Require branches to be current before merge.
+- [x] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab. The CodeQL job now runs only when the repository variable `ENABLE_CODE_SCANNING` is `true`, because uploads require a public repository or GitHub Advanced Security.
+- [x] **M01-023:** Configure default-branch protection with required status checks.
+- [x] **M01-024:** Require branches to be current before merge.
 - [ ] **M01-025:** Decide whether signed commits or signed tags are required.
 - [x] **M01-026:** Add a pull request template with test, security, API, migration, and documentation checkboxes.
 - [x] **M01-027:** Add issue templates for bugs, features, and security-safe reports.
@@ -210,7 +210,7 @@ Complete these in order before starting feature development:
 ### M05 — Applications and Tenancy
 
 **Priority:** P0
-**Status:** In progress. The domain, its persistence, and the create, read, and list surface are implemented; lifecycle transitions and the isolation of tenant-scoped resources follow.
+**Status:** In progress. The domain, its persistence, and the full administrative surface are implemented. M05-009 and M05-010 stay open until a tenant-scoped resource and authentication exist.
 **Depends on:** M04
 **Goal:** Represent standalone Convia and external consumers as isolated Convia-owned applications.
 **Documentation:** [`docs/applications.md`](docs/applications.md), implemented by `internal/applications`.
@@ -220,9 +220,9 @@ Complete these in order before starting feature development:
 - [x] **M05-003:** Define application lifecycle states. `active`, `suspended`, and `deleted`.
 - [x] **M05-004:** Define immutable public application IDs.
 - [x] **M05-005:** Add the applications database migration. The schema encodes the identifier format, the name bounds, and the lifecycle states; the transitions between them are implemented with the service.
-- [ ] **M05-006:** Add repository behavior for create, get, list, update, and lifecycle transitions. Create, get, and keyset-paginated list are implemented; update and transitions are not.
+- [x] **M05-006:** Add repository behavior for create, get, list, update, and lifecycle transitions.
 - [x] **M05-007:** Add an application service enforcing invariants independently of HTTP.
-- [ ] **M05-008:** Add administrative HTTP endpoints only for immediately required operations. Create, retrieve, and list are implemented; the lifecycle endpoints land with the transitions.
+- [x] **M05-008:** Add administrative HTTP endpoints only for immediately required operations. Create, list, retrieve, rename, suspend, activate, and delete.
 - [ ] **M05-009:** Ensure every application-scoped query includes tenant isolation. Nothing is application-scoped yet; this becomes testable with the first tenant-scoped resource in M08.
 - [ ] **M05-010:** Test cross-application access denial. Blocked on M07 credentials and the first tenant-scoped resource.
 - [x] **M05-011:** Define application display metadata separately from security credentials.

@@ -13,6 +13,8 @@ package applications
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -29,10 +31,20 @@ const (
 	idRandomLength = 26
 
 	maxNameLength = 120
+
+	// versionLength is how many bytes of the revision digest are published.
+	versionLength = 16
 )
 
 // ErrNotFound reports that no application matches the requested identifier.
 var ErrNotFound = errors.New("application not found")
+
+/*
+ErrPreconditionFailed reports a conditional update whose expected version no
+longer matches the stored application, which means someone else changed it
+first. The update is refused instead of overwriting that change.
+*/
+var ErrPreconditionFailed = errors.New("application was modified by another request")
 
 /*
 Status is the lifecycle state of an application.
@@ -67,6 +79,24 @@ type Application struct {
 	Status    Status
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+/*
+Version returns an opaque token identifying this revision of an application.
+
+A caller that read an application can send its version back with a later update
+so that the update applies only while nothing else changed. The token covers
+every mutable field, so any change produces a different one. Its encoding is an
+implementation detail: callers compare it, never parse it.
+*/
+func (application Application) Version() string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%s\x00%s\x00%d",
+		application.ID,
+		application.Name,
+		application.Status,
+		application.UpdatedAt.UTC().UnixMicro(),
+	))
+	return hex.EncodeToString(sum[:versionLength])
 }
 
 /*
