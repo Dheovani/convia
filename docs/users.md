@@ -68,7 +68,11 @@ The operation is **create-or-resolve**, and it is idempotent by the external sub
 
 **An existing user is returned unchanged.** A routine resolve never overwrites a display name or metadata, so a correction made by an operator survives the next login. Changing stored attributes is an explicit update.
 
-Concurrency is handled in the database, not by checking first: the insert and the lookup are a single statement, and the unique index decides which of several simultaneous callers creates the user while the others read the row it wrote. A test drives twelve concurrent callers and asserts that exactly one reports a creation and all twelve receive the same identifier.
+Concurrency is handled in the database, not by checking first: the insert and the lookup are a single statement, and the unique index decides which of several simultaneous callers creates the user.
+
+A caller that loses that race does not necessarily see the winner's row in the same statement. PostgreSQL evaluates the whole statement against the snapshot it took before the insert began waiting for the winner to commit, so a row committed during that wait is invisible to the lookup and the statement resolves nothing at all. That is a lost race and not a missing user, so the statement is repeated against a new snapshot, which does include the winner's row.
+
+Two tests cover this. One drives twelve concurrent callers and asserts that exactly one reports a creation and all twelve receive the same identifier. The other holds a user uncommitted until a resolve is demonstrably blocked on it, which reproduces the lost race on every run rather than by luck.
 
 ## Isolation
 

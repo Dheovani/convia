@@ -77,14 +77,53 @@ func displayName(name string) *string {
 }
 
 /*
+resolveAttempts bounds how often Resolve repeats a statement that lost a race.
+
+One repetition is enough in principle, because a statement that neither
+inserted nor found a user must have conflicted with a row that is committed by
+the time it returns. The further attempts cost nothing in the common case and
+keep an unforeseen interleaving from failing a request.
+*/
+const resolveAttempts = 3
+
+/*
+errResolveRaced reports that a resolving statement neither inserted a user nor
+saw one. It never leaves this file: Resolve repeats the statement instead.
+*/
+var errResolveRaced = errors.New("resolve raced with a concurrent creation")
+
+/*
 Resolve returns the user an external subject maps to, creating it when the
 mapping does not exist yet.
 
 The insert and the lookup are one statement so that two concurrent requests for
-the same subject cannot create two users: the unique index decides the winner,
-and the loser reads the row the winner wrote.
+the same subject cannot create two users: the unique index decides the winner.
+
+The loser cannot always read the winner's row in that same statement, though.
+PostgreSQL evaluates the whole statement against the snapshot it took before
+the insert began waiting for the winner to commit, so a row committed during
+that wait is invisible to the lookup and the statement returns nothing at all.
+That is a lost race rather than a failure, and repeating the statement reads a
+new snapshot which does include the winner's row.
 */
 func (store *Store) Resolve(ctx context.Context, candidate User) (User, bool, error) {
+	for range resolveAttempts {
+		user, created, err := store.resolve(ctx, candidate)
+		if errors.Is(err, errResolveRaced) {
+			continue
+		}
+		if err != nil {
+			return User{}, false, err
+		}
+		return user, created, nil
+	}
+
+	return User{}, false, fmt.Errorf("resolve user: lost the race to a concurrent creation %d times",
+		resolveAttempts)
+}
+
+// resolve is one attempt at resolving an identity, against one snapshot.
+func (store *Store) resolve(ctx context.Context, candidate User) (User, bool, error) {
 	const statement = `
 		WITH inserted AS (
 		    INSERT INTO users (` + columns + `)
@@ -117,6 +156,9 @@ func (store *Store) Resolve(ctx context.Context, candidate User) (User, bool, er
 	}
 
 	result, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[resolved])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, false, errResolveRaced
+	}
 	if err != nil {
 		return User{}, false, fmt.Errorf("read resolved user: %w", err)
 	}

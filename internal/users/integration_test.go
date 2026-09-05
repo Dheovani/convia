@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
 	"convia/internal/config"
@@ -33,6 +34,7 @@ const testDatabaseURLEnvironment = "CONVIA_TEST_DATABASE_URL"
 // fixture is a service under test together with two applications to isolate.
 type fixture struct {
 	service *Service
+	pool    *pgxpool.Pool
 	first   string
 	second  string
 	logs    *bytes.Buffer
@@ -84,6 +86,7 @@ func newFixture(t *testing.T) fixture {
 	logs.Reset()
 	return fixture{
 		service: NewService(NewStore(pool), applicationService, logger),
+		pool:    pool,
 		first:   first,
 		second:  second,
 		logs:    logs,
@@ -209,6 +212,103 @@ func TestResolveIsSafeUnderConcurrency(t *testing.T) {
 	if created != 1 {
 		t.Errorf("%d callers reported creating the user, want exactly 1", created)
 	}
+}
+
+/*
+TestResolveReadsAUserCommittedWhileItWaited covers the race that the shuffled
+concurrency test above only finds by luck.
+
+A resolve that conflicts with an uncommitted user waits for that transaction to
+finish, but PostgreSQL evaluates its lookup against the snapshot taken before
+that wait began, so the winner's row is invisible to it and the statement
+returns nothing. Resolving has to notice that and read again, rather than
+report a user that plainly exists as missing.
+*/
+func TestResolveReadsAUserCommittedWhileItWaited(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+
+	const subject = "contended-subject"
+	winner := NewID()
+
+	holder, err := setup.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin the holding transaction: %v", err)
+	}
+	defer func() { _ = holder.Rollback(ctx) }()
+
+	moment := time.Now().UTC().Truncate(time.Microsecond)
+	if _, err := holder.Exec(ctx, `INSERT INTO users (`+columns+`) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		winner, setup.first, subject, nil, map[string]string{}, StatusActive, moment, moment); err != nil {
+		t.Fatalf("insert the uncommitted user: %v", err)
+	}
+
+	type outcome struct {
+		user  User
+		isNew bool
+		err   error
+	}
+
+	/*
+		The resolve is cancellable so that a failure to reach the blocked state
+		releases its pooled connection: closing the pool waits for it, and the
+		fixture cannot drop its database until then.
+	*/
+	resolving, abandon := context.WithCancel(ctx)
+	defer abandon()
+
+	resolved := make(chan outcome, 1)
+	go func() {
+		user, isNew, err := setup.service.Resolve(resolving, setup.first, Identity{ExternalSubject: subject})
+		resolved <- outcome{user: user, isNew: isNew, err: err}
+	}()
+
+	waitForBlockedStatement(t, setup.pool)
+
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatalf("commit the holding transaction: %v", err)
+	}
+
+	result := <-resolved
+	if result.err != nil {
+		t.Fatalf("Resolve() error = %v, want the user committed during the wait", result.err)
+	}
+	if result.isNew {
+		t.Error("the losing resolve reported creating the user")
+	}
+	if result.user.ID != winner {
+		t.Errorf("ID = %q, want the committed %q", result.user.ID, winner)
+	}
+}
+
+/*
+waitForBlockedStatement waits until a statement in the test database is waiting
+on a lock.
+
+That is the point where the resolve under test is stalled on the uncommitted
+row and its snapshot is already older than the commit that follows. Failing
+here rather than carrying on keeps the test from passing without ever having
+created the race it exists to cover.
+*/
+func waitForBlockedStatement(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+
+	const statement = `SELECT count(*) FROM pg_stat_activity
+	                   WHERE datname = current_database() AND wait_event_type = 'Lock'`
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		var blocked int
+		if err := pool.QueryRow(context.Background(), statement).Scan(&blocked); err != nil {
+			t.Fatalf("read pg_stat_activity: %v", err)
+		}
+		if blocked > 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatal("no statement ever waited on a lock, so the race was never created")
 }
 
 /*
