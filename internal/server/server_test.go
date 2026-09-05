@@ -55,6 +55,22 @@ func (stub stubApplications) List(context.Context, applications.ListOptions) (ap
 	return stub.page, stub.err
 }
 
+func (stub stubApplications) Rename(context.Context, string, string, string) (applications.Application, error) {
+	return stub.application, stub.err
+}
+
+func (stub stubApplications) Suspend(context.Context, string) (applications.Application, error) {
+	return stub.application, stub.err
+}
+
+func (stub stubApplications) Activate(context.Context, string) (applications.Application, error) {
+	return stub.application, stub.err
+}
+
+func (stub stubApplications) Delete(context.Context, string) error {
+	return stub.err
+}
+
 // sampleApplication is a realistic application for transport-level tests.
 func sampleApplication() applications.Application {
 	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)

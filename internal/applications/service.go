@@ -2,6 +2,7 @@ package applications
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -58,13 +59,13 @@ func (service *Service) Create(ctx context.Context, name string) (Application, e
 		return Application{}, err
 	}
 
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	created := now()
 	application := Application{
 		ID:        NewID(),
 		Name:      normalized,
 		Status:    StatusActive,
-		CreatedAt: now,
-		UpdatedAt: now,
+		CreatedAt: created,
+		UpdatedAt: created,
 	}
 
 	if err := service.store.Create(ctx, application); err != nil {
@@ -120,6 +121,137 @@ func (service *Service) List(ctx context.Context, options ListOptions) (Page, er
 		result.NextCursor = Cursor{CreatedAt: last.CreatedAt, ID: last.ID}.Encode()
 	}
 	return result, nil
+}
+
+/*
+Rename changes the display name of an application.
+
+When expectedVersion is set, the rename applies only while the application
+still carries that version, so a client that read a stale copy is refused
+rather than silently overwriting a concurrent change. When it is empty, the
+rename is unconditional and the last write wins.
+*/
+func (service *Service) Rename(ctx context.Context, id, name, expectedVersion string) (Application, error) {
+	normalized, err := NormalizeName(name)
+	if err != nil {
+		return Application{}, err
+	}
+
+	current, err := service.Get(ctx, id)
+	if err != nil {
+		return Application{}, err
+	}
+
+	guard, err := precondition(current, expectedVersion)
+	if err != nil {
+		return Application{}, err
+	}
+
+	renamed, err := service.store.Rename(ctx, current.ID, normalized, now(), guard)
+	if err != nil {
+		return Application{}, wrapUpdate(err)
+	}
+
+	service.audit(ctx, "application.renamed", renamed)
+	return renamed, nil
+}
+
+/*
+Suspend withdraws access without losing data.
+
+Suspending an already-suspended application changes nothing and reports
+success, so that a repeated request is safe.
+*/
+func (service *Service) Suspend(ctx context.Context, id string) (Application, error) {
+	return service.transition(ctx, id, StatusSuspended, "application.suspended")
+}
+
+// Activate restores a suspended application to normal service.
+func (service *Service) Activate(ctx context.Context, id string) (Application, error) {
+	return service.transition(ctx, id, StatusActive, "application.activated")
+}
+
+/*
+Delete removes an application from the API surface.
+
+The record is retained for the erasure window rather than destroyed, so the
+deletion stays recoverable. Deleting an already-deleted application succeeds.
+*/
+func (service *Service) Delete(ctx context.Context, id string) error {
+	if !ValidID(id) {
+		return ErrNotFound
+	}
+
+	deleted, err := service.store.Delete(ctx, id, now())
+	if err != nil {
+		return wrapUpdate(err)
+	}
+	if !deleted {
+		return nil
+	}
+
+	service.audit(ctx, "application.deleted", Application{ID: id, Status: StatusDeleted})
+	return nil
+}
+
+// transition moves an application to a lifecycle state, or leaves it unchanged.
+func (service *Service) transition(ctx context.Context, id string, status Status, event string) (Application, error) {
+	current, err := service.Get(ctx, id)
+	if err != nil {
+		return Application{}, err
+	}
+	if current.Status == status {
+		return current, nil
+	}
+
+	updated, err := service.store.SetStatus(ctx, current.ID, status, now(), nil)
+	if err != nil {
+		return Application{}, wrapUpdate(err)
+	}
+
+	service.audit(ctx, event, updated)
+	return updated, nil
+}
+
+/*
+precondition converts a client-supplied version into a storage guard.
+
+The comparison happens here so that a stale version is refused before any write
+is attempted, and the guard repeats the check inside the update itself so that
+a change arriving in between is refused too.
+*/
+func precondition(current Application, expectedVersion string) (*time.Time, error) {
+	if expectedVersion == "" {
+		return nil, nil
+	}
+	if expectedVersion != current.Version() {
+		return nil, ErrPreconditionFailed
+	}
+
+	guard := current.UpdatedAt
+	return &guard, nil
+}
+
+/*
+wrapUpdate preserves the domain errors a caller must distinguish.
+
+Anything else is an infrastructure failure and keeps its context for the logs.
+*/
+func wrapUpdate(err error) error {
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrPreconditionFailed) {
+		return err
+	}
+	return fmt.Errorf("update application: %w", err)
+}
+
+/*
+now returns the timestamp Convia stores for a change.
+
+It is truncated to microseconds because that is the precision PostgreSQL keeps,
+which makes a stored application compare equal to the one returned to a caller.
+*/
+func now() time.Time {
+	return time.Now().UTC().Truncate(time.Microsecond)
 }
 
 /*

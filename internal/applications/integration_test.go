@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -296,6 +297,260 @@ func TestListExcludesDeletedApplications(t *testing.T) {
 	if _, err := service.Get(ctx, removed.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Get() error = %v, want ErrNotFound", err)
 	}
+}
+
+func TestRenameChangesTheNameAndVersion(t *testing.T) {
+	service, _ := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	renamed, err := service.Rename(ctx, created.ID, "  Workspace Village  ", "")
+	if err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+
+	if renamed.Name != "Workspace Village" {
+		t.Errorf("Name = %q, want the trimmed new name", renamed.Name)
+	}
+	if renamed.ID != created.ID {
+		t.Errorf("ID = %q, want it unchanged at %q", renamed.ID, created.ID)
+	}
+	if !renamed.CreatedAt.Equal(created.CreatedAt) {
+		t.Errorf("CreatedAt = %s, want it unchanged", renamed.CreatedAt)
+	}
+	if !renamed.UpdatedAt.After(created.UpdatedAt) {
+		t.Errorf("UpdatedAt = %s, want it after %s", renamed.UpdatedAt, created.UpdatedAt)
+	}
+	if renamed.Version() == created.Version() {
+		t.Error("the version did not change with the rename")
+	}
+}
+
+/*
+TestRenameRefusesAStaleVersion is the point of optimistic concurrency: a client
+that read an application, then lost the race, must not silently overwrite the
+change it never saw.
+*/
+func TestRenameRefusesAStaleVersion(t *testing.T) {
+	service, _ := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	stale := created.Version()
+
+	if _, err := service.Rename(ctx, created.ID, "Renamed By Someone Else", stale); err != nil {
+		t.Fatalf("Rename() with a current version error = %v", err)
+	}
+
+	_, err = service.Rename(ctx, created.ID, "Renamed Too Late", stale)
+	if !errors.Is(err, ErrPreconditionFailed) {
+		t.Fatalf("Rename() error = %v, want ErrPreconditionFailed", err)
+	}
+
+	current, err := service.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if current.Name != "Renamed By Someone Else" {
+		t.Errorf("Name = %q, want the refused rename to have changed nothing", current.Name)
+	}
+}
+
+func TestRenameRejectsInvalidNames(t *testing.T) {
+	service, _ := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if _, err := service.Rename(ctx, created.ID, "  ", ""); err == nil {
+		t.Error("Rename() error = nil, want a validation error")
+	}
+}
+
+/*
+TestSuspendAndActivateAreRepeatable walks the lifecycle and proves that
+repeating a transition is safe, which is what lets a client retry after a
+timeout without checking first.
+*/
+func TestSuspendAndActivateAreRepeatable(t *testing.T) {
+	service, _ := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	suspended, err := service.Suspend(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Suspend() error = %v", err)
+	}
+	if suspended.Status != StatusSuspended {
+		t.Errorf("Status = %q, want %q", suspended.Status, StatusSuspended)
+	}
+
+	again, err := service.Suspend(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Suspend() repeated error = %v", err)
+	}
+	if again.Version() != suspended.Version() {
+		t.Error("repeating a suspension changed the application")
+	}
+
+	activated, err := service.Activate(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Activate() error = %v", err)
+	}
+	if activated.Status != StatusActive {
+		t.Errorf("Status = %q, want %q", activated.Status, StatusActive)
+	}
+}
+
+/*
+TestDeleteRemovesFromTheAPIAndIsRepeatable covers the deletion semantics: the
+application leaves the API surface, its row is retained, and a repeated delete
+succeeds.
+*/
+func TestDeleteRemovesFromTheAPIAndIsRepeatable(t *testing.T) {
+	service, logs := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	if err := service.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if err := service.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete() repeated error = %v", err)
+	}
+
+	if _, err := service.Get(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Get() error = %v, want ErrNotFound", err)
+	}
+
+	// A repeated deletion must not appear in the audit trail as a second deletion.
+	deletions := 0
+	for _, event := range auditEvents(t, logs, created.ID) {
+		if event == "application.deleted" {
+			deletions++
+		}
+	}
+	if deletions != 1 {
+		t.Errorf("audit recorded %d deletions, want exactly 1", deletions)
+	}
+
+	var status string
+	err = service.store.pool.QueryRow(ctx, `SELECT status FROM applications WHERE id = $1`, created.ID).Scan(&status)
+	if err != nil {
+		t.Fatalf("read the retained row: %v", err)
+	}
+	if status != string(StatusDeleted) {
+		t.Errorf("stored status = %q, want %q", status, StatusDeleted)
+	}
+}
+
+func TestDeleteReportsUnknownApplications(t *testing.T) {
+	service, _ := newTestService(t)
+
+	if err := service.Delete(context.Background(), NewID()); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Delete() error = %v, want ErrNotFound", err)
+	}
+	if err := service.Delete(context.Background(), "not-an-identifier"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Delete() error = %v, want ErrNotFound", err)
+	}
+}
+
+// A deleted application has left the API, so it can no longer be changed.
+func TestDeletedApplicationsCannotBeChanged(t *testing.T) {
+	service, _ := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if err := service.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	if _, err := service.Rename(ctx, created.ID, "Revived", ""); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Rename() error = %v, want ErrNotFound", err)
+	}
+	if _, err := service.Activate(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Activate() error = %v, want ErrNotFound", err)
+	}
+	if _, err := service.Suspend(ctx, created.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("Suspend() error = %v, want ErrNotFound", err)
+	}
+}
+
+// Every lifecycle change is security relevant, so each leaves an audit record.
+func TestLifecycleChangesRecordAuditEvents(t *testing.T) {
+	service, logs := newTestService(t)
+	ctx := context.Background()
+
+	created, err := service.Create(ctx, "Workspace Town")
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if _, err := service.Rename(ctx, created.ID, "Workspace Village", ""); err != nil {
+		t.Fatalf("Rename() error = %v", err)
+	}
+	if _, err := service.Suspend(ctx, created.ID); err != nil {
+		t.Fatalf("Suspend() error = %v", err)
+	}
+	if _, err := service.Activate(ctx, created.ID); err != nil {
+		t.Fatalf("Activate() error = %v", err)
+	}
+	if err := service.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	recorded := auditEvents(t, logs, created.ID)
+	for _, event := range []string{
+		"application.created",
+		"application.renamed",
+		"application.suspended",
+		"application.activated",
+		"application.deleted",
+	} {
+		if !slices.Contains(recorded, event) {
+			t.Errorf("audit events = %v, want them to include %q", recorded, event)
+		}
+	}
+}
+
+// auditEvents collects the audit event names logged for one application.
+func auditEvents(t *testing.T, logs *bytes.Buffer, id string) []string {
+	t.Helper()
+
+	var events []string
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var entry map[string]any
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry["application_id"] != id {
+			continue
+		}
+		if event, isString := entry["event"].(string); isString {
+			events = append(events, event)
+		}
+	}
+	return events
 }
 
 func markDeleted(t *testing.T, pool *pgxpool.Pool, id string) {

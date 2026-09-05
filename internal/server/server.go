@@ -110,6 +110,14 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Applications.List)},
 			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}",
 				handler: http.HandlerFunc(dependencies.Applications.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}",
+				handler: http.HandlerFunc(dependencies.Applications.Rename)},
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}",
+				handler: http.HandlerFunc(dependencies.Applications.Delete)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/suspend",
+				handler: http.HandlerFunc(dependencies.Applications.Suspend)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/activate",
+				handler: http.HandlerFunc(dependencies.Applications.Activate)},
 		)
 	}
 	return table

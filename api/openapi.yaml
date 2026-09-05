@@ -201,10 +201,138 @@ paths:
           headers:
             X-Request-ID:
               $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Application"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: renameApplication
+      tags: [Applications]
+      summary: Rename an application
+      description: |
+        Changes the display name of an application.
+
+        The name is display metadata and carries no security meaning, so
+        renaming an application never changes what it may do.
+
+        Send the `ETag` from a previous read as `If-Match` to make the change
+        conditional: the rename then applies only while nothing else has
+        changed, and is rejected with `412` otherwise. The header is optional,
+        and without it the last write wins.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RenameApplicationRequest"
+            example:
+              name: Workspace Town
+      responses:
+        "200":
+          description: The renamed application.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Application"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteApplication
+      tags: [Applications]
+      summary: Delete an application
+      description: |
+        Removes an application from the API surface.
+
+        The record is retained for the erasure window rather than destroyed, so
+        the deletion stays recoverable. Deleting an application that is already
+        deleted succeeds, because a repeated delete must not fail.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+      responses:
+        "204":
+          description: The application was deleted.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/suspend:
+    post:
+      operationId: suspendApplication
+      tags: [Applications]
+      summary: Suspend an application
+      description: |
+        Withdraws access without losing data. A suspended application is not
+        served, and its data is retained until it is activated again.
+
+        Suspending an already-suspended application changes nothing and reports
+        success, so a repeated request is safe.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/activate:
+    post:
+      operationId: activateApplication
+      tags: [Applications]
+      summary: Activate an application
+      description: |
+        Restores a suspended application to normal service.
+
+        Activating an already-active application changes nothing and reports
+        success, so a repeated request is safe.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+      responses:
+        "200":
+          $ref: "#/components/responses/ApplicationState"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -254,6 +382,20 @@ components:
           description: |
             Opaque token that returns the next page. Absent on the last page.
             Clients must not decode or construct it.
+
+    RenameApplicationRequest:
+      type: object
+      description: The accepted body when renaming an application.
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: |
+            New display name. Surrounding whitespace is insignificant, and
+            control characters are rejected.
+          minLength: 1
+          maxLength: 120
 
     CreateApplicationRequest:
       type: object
@@ -324,6 +466,7 @@ components:
         - payload_too_large
         - not_found
         - method_not_allowed
+        - precondition_failed
         - internal_error
 
     Error:
@@ -360,6 +503,18 @@ components:
       description: Identifier of the application.
       schema:
         $ref: "#/components/schemas/ApplicationId"
+
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      description: |
+        Entity tag from a previous read. When present, the update applies only
+        while the resource still carries that version. Only a strong validator
+        is honored; `*` and weak validators are treated as no condition.
+      schema:
+        type: string
+      example: '"9f2c1d4b8a3e5f60"'
 
     Limit:
       name: limit
@@ -398,6 +553,14 @@ components:
 
     Allow:
       description: Methods supported by the requested resource.
+      required: true
+      schema:
+        type: string
+
+    ETag:
+      description: |
+        Opaque version of the returned resource. Send it back as `If-Match` to
+        make a later update conditional. Clients compare it, never parse it.
       required: true
       schema:
         type: string
@@ -466,6 +629,35 @@ components:
             error:
               code: method_not_allowed
               message: The requested method is not supported by this resource.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    ApplicationState:
+      description: The application, after the requested lifecycle change.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+        ETag:
+          $ref: "#/components/headers/ETag"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Application"
+
+    PreconditionFailed:
+      description: |
+        The `If-Match` version no longer describes the stored resource, so
+        another request changed it first. Nothing was modified.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: precondition_failed
+              message: The application was modified by another request. Read it again and retry.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     PayloadTooLarge:

@@ -81,8 +81,11 @@ jobs:
           POSTGRES_DB: convia
         ports:
           - 5432:5432
+        # The health check connects over TCP rather than the local socket: the
+        # postgres image runs initdb against a temporary socket-only server, so
+        # a socket probe reports ready while TCP connections are still refused.
         options: >-
-          --health-cmd "pg_isready --username=convia --dbname=convia"
+          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=convia"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10

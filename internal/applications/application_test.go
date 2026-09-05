@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNewIDIsUniqueAndWellFormed(t *testing.T) {
@@ -110,6 +111,74 @@ func TestNormalizeNameCountsCharactersNotBytes(t *testing.T) {
 
 	if _, err := NormalizeName(strings.Repeat("é", 121)); err == nil {
 		t.Error("NormalizeName() error = nil, want the name to be rejected")
+	}
+}
+
+/*
+TestVersionChangesWithEveryMutableField proves the token can be used as a
+concurrency guard: any change a client could miss produces a different version.
+*/
+func TestVersionChangesWithEveryMutableField(t *testing.T) {
+	base := Application{
+		ID:        "app_MXHJAY4MJNX2FO22XWJ3XNCKHT",
+		Name:      "Workspace Town",
+		Status:    StatusActive,
+		CreatedAt: testTime(),
+		UpdatedAt: testTime(),
+	}
+
+	renamed := base
+	renamed.Name = "Workspace Village"
+
+	suspended := base
+	suspended.Status = StatusSuspended
+
+	touched := base
+	touched.UpdatedAt = testTime().Add(time.Microsecond)
+
+	other := base
+	other.ID = NewID()
+
+	for name, changed := range map[string]Application{
+		"name":       renamed,
+		"status":     suspended,
+		"updated at": touched,
+		"identifier": other,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if changed.Version() == base.Version() {
+				t.Errorf("Version() = %q for both, want the change to produce a different version", base.Version())
+			}
+		})
+	}
+
+	if base.Version() != (Application{
+		ID:        base.ID,
+		Name:      base.Name,
+		Status:    base.Status,
+		CreatedAt: testTime().Add(time.Hour),
+		UpdatedAt: base.UpdatedAt,
+	}).Version() {
+		t.Error("Version() changed for an immutable field")
+	}
+}
+
+// The version is opaque and safe to place in a header.
+func TestVersionIsOpaqueAndStable(t *testing.T) {
+	application := Application{ID: NewID(), Name: "Orbit", Status: StatusActive, UpdatedAt: testTime()}
+
+	version := application.Version()
+	if version == "" {
+		t.Fatal("Version() = empty string")
+	}
+	if version != application.Version() {
+		t.Error("Version() is not stable across calls")
+	}
+	if strings.ContainsAny(version, `" ,`) {
+		t.Errorf("Version() = %q, want a value safe for an ETag header", version)
+	}
+	if strings.Contains(version, application.Name) || strings.Contains(version, application.ID) {
+		t.Errorf("Version() = %q, want it to reveal no field values", version)
 	}
 }
 

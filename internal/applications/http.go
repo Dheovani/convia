@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"convia/internal/api"
 )
@@ -20,6 +21,10 @@ type service interface {
 	Create(ctx context.Context, name string) (Application, error)
 	Get(ctx context.Context, id string) (Application, error)
 	List(ctx context.Context, options ListOptions) (Page, error)
+	Rename(ctx context.Context, id, name, expectedVersion string) (Application, error)
+	Suspend(ctx context.Context, id string) (Application, error)
+	Activate(ctx context.Context, id string) (Application, error)
+	Delete(ctx context.Context, id string) error
 }
 
 // Handler exposes applications over HTTP.
@@ -34,6 +39,11 @@ func NewHandler(logger *slog.Logger, service service) *Handler {
 
 // createRequest is the accepted body of a creation request.
 type createRequest struct {
+	Name string `json:"name"`
+}
+
+// renameRequest is the accepted body of a rename request.
+type renameRequest struct {
 	Name string `json:"name"`
 }
 
@@ -76,7 +86,19 @@ func (handler *Handler) Create(response http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	handler.write(response, request, http.StatusCreated, represent(application))
+	handler.writeApplication(response, request, http.StatusCreated, application)
+}
+
+/*
+writeApplication returns one application together with its entity tag.
+
+The tag is what a client sends back as If-Match to make a later update
+conditional, so every response carrying an application carries its version.
+*/
+func (handler *Handler) writeApplication(response http.ResponseWriter, request *http.Request,
+	status int, application Application) {
+	response.Header().Set("ETag", `"`+application.Version()+`"`)
+	handler.write(response, request, status, represent(application))
 }
 
 // Get returns one application.
@@ -87,7 +109,78 @@ func (handler *Handler) Get(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	handler.write(response, request, http.StatusOK, represent(application))
+	handler.writeApplication(response, request, http.StatusOK, application)
+}
+
+/*
+Rename changes the display name of an application.
+
+A client may send the ETag it last read as If-Match to make the change
+conditional. The header is optional here: a lost rename is visible and easy to
+repair, so requiring it on every call would cost more than it protects.
+*/
+func (handler *Handler) Rename(response http.ResponseWriter, request *http.Request) {
+	var body renameRequest
+	if failure := api.DecodeJSON(response, request, &body); failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	application, err := handler.service.Rename(request.Context(),
+		request.PathValue("application_id"), body.Name, expectedVersion(request))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.writeApplication(response, request, http.StatusOK, application)
+}
+
+// Suspend withdraws access to an application without losing its data.
+func (handler *Handler) Suspend(response http.ResponseWriter, request *http.Request) {
+	handler.transition(response, request, handler.service.Suspend)
+}
+
+// Activate restores a suspended application to normal service.
+func (handler *Handler) Activate(response http.ResponseWriter, request *http.Request) {
+	handler.transition(response, request, handler.service.Activate)
+}
+
+// Delete removes an application from the API surface.
+func (handler *Handler) Delete(response http.ResponseWriter, request *http.Request) {
+	if err := handler.service.Delete(request.Context(), request.PathValue("application_id")); err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) transition(response http.ResponseWriter, request *http.Request,
+	apply func(context.Context, string) (Application, error)) {
+	application, err := apply(request.Context(), request.PathValue("application_id"))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.writeApplication(response, request, http.StatusOK, application)
+}
+
+/*
+expectedVersion reads the entity tag a client is making its update conditional on.
+
+Only a single strong validator is honored. `*` means "any current version",
+which is the same as sending no condition for an update to an existing
+resource, and a weak validator is not accepted because it does not identify an
+exact revision.
+*/
+func expectedVersion(request *http.Request) string {
+	value := strings.TrimSpace(request.Header.Get("If-Match"))
+	if value == "" || value == "*" || strings.HasPrefix(value, "W/") {
+		return ""
+	}
+	return strings.Trim(value, `"`)
 }
 
 // List returns one page of applications.
@@ -136,6 +229,11 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 	case errors.Is(err, ErrNotFound):
 		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The requested application does not exist."))
+
+	case errors.Is(err, ErrPreconditionFailed):
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusPreconditionFailed, api.CodePreconditionFailed,
+				"The application was modified by another request. Read it again and retry."))
 
 	default:
 		handler.logger.Error("application request failed",

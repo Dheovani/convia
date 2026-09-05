@@ -32,13 +32,16 @@ It keeps every transport path testable without PostgreSQL, including the paths
 a real database would make hard to reach, such as an unexpected failure.
 */
 type fakeService struct {
-	application  Application
-	page         Page
-	err          error
-	createdName  string
-	requestedID  string
-	listOptions  ListOptions
-	createCalled bool
+	application     Application
+	page            Page
+	err             error
+	createdName     string
+	requestedID     string
+	expectedVersion string
+	transitioned    Status
+	listOptions     ListOptions
+	createCalled    bool
+	deleted         bool
 }
 
 func (fake *fakeService) Create(_ context.Context, name string) (Application, error) {
@@ -55,6 +58,31 @@ func (fake *fakeService) Get(_ context.Context, id string) (Application, error) 
 func (fake *fakeService) List(_ context.Context, options ListOptions) (Page, error) {
 	fake.listOptions = options
 	return fake.page, fake.err
+}
+
+func (fake *fakeService) Rename(_ context.Context, id, name, expectedVersion string) (Application, error) {
+	fake.requestedID = id
+	fake.createdName = name
+	fake.expectedVersion = expectedVersion
+	return fake.application, fake.err
+}
+
+func (fake *fakeService) Suspend(_ context.Context, id string) (Application, error) {
+	fake.requestedID = id
+	fake.transitioned = StatusSuspended
+	return fake.application, fake.err
+}
+
+func (fake *fakeService) Activate(_ context.Context, id string) (Application, error) {
+	fake.requestedID = id
+	fake.transitioned = StatusActive
+	return fake.application, fake.err
+}
+
+func (fake *fakeService) Delete(_ context.Context, id string) error {
+	fake.requestedID = id
+	fake.deleted = true
+	return fake.err
 }
 
 func newTestHandler(fake *fakeService) *Handler {
@@ -249,6 +277,150 @@ func TestListRejectsInvalidQueryParameters(t *testing.T) {
 			assertError(t, response, http.StatusBadRequest, api.CodeInvalidRequest)
 		})
 	}
+}
+
+// A response carrying an application also carries the version to send back.
+func TestApplicationResponsesCarryAnEntityTag(t *testing.T) {
+	fake := &fakeService{application: sampleApplication()}
+	response := postJSON(t, newTestHandler(fake), `{"name":"Workspace Town"}`)
+
+	want := `"` + sampleApplication().Version() + `"`
+	if tag := response.Header().Get("ETag"); tag != want {
+		t.Errorf("ETag = %q, want %q", tag, want)
+	}
+}
+
+func TestRenameChangesTheName(t *testing.T) {
+	fake := &fakeService{application: sampleApplication()}
+	request := applicationRequest(http.MethodPatch, "", `{"name":"Workspace Village"}`)
+	response := httptest.NewRecorder()
+
+	newTestHandler(fake).Rename(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
+	}
+	if fake.createdName != "Workspace Village" {
+		t.Errorf("name = %q, want %q", fake.createdName, "Workspace Village")
+	}
+	if fake.expectedVersion != "" {
+		t.Errorf("expected version = %q, want no condition", fake.expectedVersion)
+	}
+}
+
+/*
+TestRenameHonorsIfMatch proves that a conditional rename reaches the service
+with the version the client supplied, and that unusable conditions are treated
+as no condition rather than as a version.
+*/
+func TestRenameHonorsIfMatch(t *testing.T) {
+	tests := map[string]struct {
+		header string
+		want   string
+	}{
+		"strong validator": {`"9f2c1d4b8a3e5f60"`, "9f2c1d4b8a3e5f60"},
+		"unquoted":         {"9f2c1d4b8a3e5f60", "9f2c1d4b8a3e5f60"},
+		"padded":           {`  "9f2c1d4b8a3e5f60"  `, "9f2c1d4b8a3e5f60"},
+		"any version":      {"*", ""},
+		"weak validator":   {`W/"9f2c1d4b8a3e5f60"`, ""},
+		"absent":           {"", ""},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeService{application: sampleApplication()}
+			request := applicationRequest(http.MethodPatch, test.header, `{"name":"Orbit"}`)
+			newTestHandler(fake).Rename(httptest.NewRecorder(), request)
+
+			if fake.expectedVersion != test.want {
+				t.Errorf("expected version = %q, want %q", fake.expectedVersion, test.want)
+			}
+		})
+	}
+}
+
+func TestRenameReportsAStaleVersion(t *testing.T) {
+	fake := &fakeService{err: ErrPreconditionFailed}
+	response := httptest.NewRecorder()
+
+	newTestHandler(fake).Rename(response, applicationRequest(http.MethodPatch, `"stale"`, `{"name":"Orbit"}`))
+
+	assertError(t, response, http.StatusPreconditionFailed, api.CodePreconditionFailed)
+}
+
+func TestTransitionsCallTheService(t *testing.T) {
+	tests := map[string]struct {
+		invoke func(*Handler, http.ResponseWriter, *http.Request)
+		want   Status
+	}{
+		"suspend":  {(*Handler).Suspend, StatusSuspended},
+		"activate": {(*Handler).Activate, StatusActive},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeService{application: sampleApplication()}
+			response := httptest.NewRecorder()
+
+			test.invoke(newTestHandler(fake), response, applicationRequest(http.MethodPost, "", ""))
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
+			}
+			if fake.transitioned != test.want {
+				t.Errorf("transitioned to %q, want %q", fake.transitioned, test.want)
+			}
+			if fake.requestedID != sampleApplication().ID {
+				t.Errorf("requested id = %q, want the path value", fake.requestedID)
+			}
+		})
+	}
+}
+
+// A deletion returns no content, so it must not write a body.
+func TestDeleteReturnsNoContent(t *testing.T) {
+	fake := &fakeService{}
+	response := httptest.NewRecorder()
+
+	newTestHandler(fake).Delete(response, applicationRequest(http.MethodDelete, "", ""))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if response.Body.Len() != 0 {
+		t.Errorf("body = %q, want an empty body", response.Body.String())
+	}
+	if !fake.deleted {
+		t.Error("the service was not asked to delete the application")
+	}
+}
+
+func TestDeleteReportsMissingApplications(t *testing.T) {
+	fake := &fakeService{err: ErrNotFound}
+	response := httptest.NewRecorder()
+
+	newTestHandler(fake).Delete(response, applicationRequest(http.MethodDelete, "", ""))
+
+	assertError(t, response, http.StatusNotFound, api.CodeNotFound)
+}
+
+// applicationRequest builds a request addressed to the sample application.
+func applicationRequest(method, ifMatch, body string) *http.Request {
+	target := "/v1/applications/" + sampleApplication().ID
+
+	var request *http.Request
+	if body == "" {
+		request = httptest.NewRequest(method, target, nil)
+	} else {
+		request = httptest.NewRequest(method, target, strings.NewReader(body))
+		request.Header.Set("Content-Type", api.ContentTypeJSON)
+	}
+
+	request.SetPathValue("application_id", sampleApplication().ID)
+	if ifMatch != "" {
+		request.Header.Set("If-Match", ifMatch)
+	}
+	return request
 }
 
 func decodeBody(t *testing.T, response *httptest.ResponseRecorder, target any) {

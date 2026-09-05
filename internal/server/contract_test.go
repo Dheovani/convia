@@ -249,6 +249,92 @@ func TestApplicationResponsesMatchSpecification(t *testing.T) {
 	}
 }
 
+/*
+TestApplicationMutationsMatchSpecification covers the lifecycle operations,
+including the conditional-update failure that clients must handle.
+*/
+func TestApplicationMutationsMatchSpecification(t *testing.T) {
+	document := loadSpecification(t)
+	item := document.Paths.Find(api.Prefix + "/applications/{application_id}")
+	target := api.Prefix + "/applications/" + sampleApplication().ID
+
+	suspend := document.Paths.Find(api.Prefix + "/applications/{application_id}/suspend").Post
+	activate := document.Paths.Find(api.Prefix + "/applications/{application_id}/activate").Post
+
+	tests := map[string]struct {
+		request   *http.Request
+		stub      stubApplications
+		status    int
+		operation *openapi3.Operation
+	}{
+		"rename": {
+			request:   jsonRequest(http.MethodPatch, target, `{"name":"Workspace Village"}`),
+			stub:      stubApplications{application: sampleApplication()},
+			status:    http.StatusOK,
+			operation: item.Patch,
+		},
+		"stale rename": {
+			request:   jsonRequest(http.MethodPatch, target, `{"name":"Workspace Village"}`),
+			stub:      stubApplications{err: applications.ErrPreconditionFailed},
+			status:    http.StatusPreconditionFailed,
+			operation: item.Patch,
+		},
+		"suspend": {
+			request:   httptest.NewRequest(http.MethodPost, target+"/suspend", nil),
+			stub:      stubApplications{application: sampleApplication()},
+			status:    http.StatusOK,
+			operation: suspend,
+		},
+		"activate": {
+			request:   httptest.NewRequest(http.MethodPost, target+"/activate", nil),
+			stub:      stubApplications{application: sampleApplication()},
+			status:    http.StatusOK,
+			operation: activate,
+		},
+		"delete missing": {
+			request:   httptest.NewRequest(http.MethodDelete, target, nil),
+			stub:      stubApplications{err: applications.ErrNotFound},
+			status:    http.StatusNotFound,
+			operation: item.Delete,
+		},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+				newDependencies(test.stub)).Handler.ServeHTTP(response, test.request)
+
+			if response.Code != test.status {
+				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
+			}
+			assertBodyMatchesSchema(t, responseSchema(t, test.operation.Responses.Status(test.status)), response.Body.Bytes())
+		})
+	}
+}
+
+// A deletion documents no body, so it must not send one.
+func TestDeleteSendsNoBody(t *testing.T) {
+	document := loadSpecification(t)
+	deletion := document.Paths.Find(api.Prefix + "/applications/{application_id}").Delete
+
+	if content := deletion.Responses.Status(http.StatusNoContent).Value.Content; len(content) != 0 {
+		t.Errorf("the specification documents a body for 204: %v", content)
+	}
+
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodDelete, api.Prefix+"/applications/"+sampleApplication().ID, nil)
+	New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newDependencies(stubApplications{})).Handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if response.Body.Len() != 0 {
+		t.Errorf("body = %q, want an empty body", response.Body.String())
+	}
+}
+
 func jsonRequest(method, target, body string) *http.Request {
 	request := httptest.NewRequest(method, target, strings.NewReader(body))
 	request.Header.Set("Content-Type", api.ContentTypeJSON)
