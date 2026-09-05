@@ -25,6 +25,8 @@
 
 - [ ] No public contract exposes LiveKit, database, or other infrastructure concepts
 - [ ] New endpoints follow `docs/api-conventions.md`, including the shared error schema
+- [ ] `api/openapi.yaml` describes the change, and the contract test passes
+- [ ] Compatibility follows `docs/api-compatibility.md`
 - [ ] Changes to existing endpoints are additive, or the breaking change is called out below
 - [ ] Not applicable
 

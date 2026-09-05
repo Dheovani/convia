@@ -1,0 +1,268 @@
+openapi: 3.0.3
+
+info:
+  title: Convia API
+  version: 0.1.0
+  description: |
+    Convia is a real-time communication platform. This document is the contract
+    for its public HTTP API and for the operational endpoints that surround it.
+
+    Media transport is an internal implementation detail. No field, schema, or
+    error in this contract may expose a media provider concept.
+
+    The transport rules that every endpoint follows are described in
+    `docs/api-conventions.md`. The compatibility rules that govern changes to
+    this document are described in `docs/api-compatibility.md`.
+  license:
+    name: PolyForm Noncommercial License 1.0.0
+    url: https://polyformproject.org/licenses/noncommercial/1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development instance.
+
+tags:
+  - name: Operations
+    description: |
+      Operational endpoints for operators and deployment infrastructure. They
+      are served outside the versioned public API prefix and are not part of the
+      public product interface.
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [Operations]
+      summary: Report service health
+      description: |
+        Reports that the process is running and able to serve HTTP requests.
+
+        This endpoint does not check downstream dependencies. A readiness
+        endpoint that distinguishes process health from dependency availability
+        will be introduced with the first durable dependency.
+      x-lifecycle: stable
+      responses:
+        "200":
+          description: The service is running.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              example:
+                status: ok
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  schemas:
+    Health:
+      type: object
+      description: Health of the Convia process.
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: Always `ok` when the process can serve requests.
+          enum: [ok]
+
+    ErrorCode:
+      type: string
+      description: |
+        Stable, machine-readable identifier of a failure. Clients branch on this
+        value rather than on the human-readable message. Adding a code is an
+        additive change; changing the meaning of an existing code is breaking.
+      enum:
+        - invalid_request
+        - malformed_json
+        - unsupported_media_type
+        - payload_too_large
+        - not_found
+        - method_not_allowed
+        - internal_error
+
+    Error:
+      type: object
+      description: |
+        The single error representation used by every Convia failure, including
+        failures produced by routing and middleware.
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              $ref: "#/components/schemas/ErrorCode"
+            message:
+              type: string
+              description: |
+                Human-readable description for developers. It may change at any
+                time and must never be parsed or matched by clients.
+            request_id:
+              type: string
+              description: |
+                Correlation identifier of the failed request, matching the
+                `X-Request-ID` response header. Quote it in support requests.
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Maximum number of items to return in one page. Values above the maximum
+        are rejected with `invalid_request` rather than silently clamped.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 25
+
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque continuation token returned by a previous page. Clients must not
+        construct, decode, or persist cursors beyond the paging sequence.
+      schema:
+        type: string
+        maxLength: 512
+
+  headers:
+    RequestId:
+      description: |
+        Correlation identifier of the request. Convia echoes a safe
+        client-supplied `X-Request-ID` and otherwise generates one.
+      required: true
+      schema:
+        type: string
+        maxLength: 128
+
+    Allow:
+      description: Methods supported by the requested resource.
+      required: true
+      schema:
+        type: string
+
+    Deprecation:
+      description: |
+        Present when the operation is deprecated. Carries the date the
+        deprecation took effect, as an IMF-fixdate.
+      required: false
+      schema:
+        type: string
+
+    Sunset:
+      description: |
+        Present when a removal date has been announced. Carries the earliest
+        date the operation may stop working, as an IMF-fixdate.
+      required: false
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: |
+        The request violates the endpoint contract, or its body is not valid
+        JSON. Returned with `invalid_request` or `malformed_json`.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: invalid_request
+              message: The request body must not be empty.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    NotFound:
+      description: The requested route or resource does not exist.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: not_found
+              message: The requested resource does not exist.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    MethodNotAllowed:
+      description: The route exists but does not support the request method.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+        Allow:
+          $ref: "#/components/headers/Allow"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: method_not_allowed
+              message: The requested method is not supported by this resource.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    PayloadTooLarge:
+      description: The request body exceeds the accepted size.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: payload_too_large
+              message: The request body must not exceed 1048576 bytes.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    UnsupportedMediaType:
+      description: The request does not declare an `application/json` body.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unsupported_media_type
+              message: The request Content-Type must be application/json.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    InternalError:
+      description: |
+        The server encountered an unexpected condition. The response never
+        contains internal detail; the `request_id` correlates it with the logs.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: internal_error
+              message: The server encountered an unexpected condition.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT

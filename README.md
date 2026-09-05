@@ -10,6 +10,12 @@ The project currently contains the Go backend foundation and its HTTP transport 
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 
+## API contract
+
+The public API is specified in [`api/openapi.yaml`](api/openapi.yaml), an OpenAPI 3.0.3 document. It is authoritative: `go test` validates the document, compares it against the implemented routes in both directions, checks that the documented error codes are exactly the ones the service can return, and validates real responses against the documented schemas.
+
+[`docs/api-compatibility.md`](docs/api-compatibility.md) governs how the contract may change: naming, additive versus breaking changes, lifecycle states, deprecation periods, idempotency, optimistic concurrency, cursor opacity, and how SDKs consume the contract.
+
 ## Prerequisites
 
 - Go 1.26.6, as declared in `go.mod`

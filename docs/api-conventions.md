@@ -115,4 +115,5 @@ When adding a public endpoint:
 7. Return timestamps and identifiers in the documented formats.
 8. Apply the documented pagination fields and bounds to list endpoints.
 9. Add tests for the success path and for every failure path the endpoint can produce.
-10. Update the API specification and this document when the endpoint introduces a new convention.
+10. Describe the endpoint in [`api/openapi.yaml`](../api/openapi.yaml) in the same change, reusing the shared parameters, headers, and error responses. The contract test fails when the specification and the implementation disagree.
+11. Follow [`api-compatibility.md`](api-compatibility.md) when the change touches an operation that already exists, and update this document when the endpoint introduces a new convention.

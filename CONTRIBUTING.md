@@ -8,7 +8,7 @@ Convia is source-available rather than open source: it is free for personal and 
 
 - Read [`AGENTS.md`](AGENTS.md). It is the authoritative engineering guide: architecture boundaries, Go style, error handling, testing, and the rules about which infrastructure may be introduced and when.
 - Read [`TODO.md`](TODO.md). Work follows the roadmap, and every task has a stable ID such as `M02-005`. Reference that ID in your branch, commit, and pull request.
-- Read [`docs/api-conventions.md`](docs/api-conventions.md) before touching anything that serves HTTP.
+- Read [`docs/api-conventions.md`](docs/api-conventions.md) before touching anything that serves HTTP, and [`docs/api-compatibility.md`](docs/api-compatibility.md) before changing the public API contract in [`api/openapi.yaml`](api/openapi.yaml).
 - For a substantial change, open an issue first and agree on the approach. A pull request that introduces a database, a dependency, or an abstraction that the current milestone does not require will be asked to justify it or to shrink.
 
 ## Development Environment
@@ -54,6 +54,7 @@ A change is ready for review when:
 - new behavior has tests, and a bug fix has a regression test;
 - errors are returned with context rather than logged and swallowed;
 - public HTTP behavior follows `docs/api-conventions.md`, including the shared error schema;
+- a new or changed endpoint updates `api/openapi.yaml` in the same commit, since the contract test fails when the specification and the implementation disagree;
 - no LiveKit, database, or other infrastructure concept leaks into a public contract;
 - no credential, key, token, or environment-specific address is committed;
 - documentation is updated when the change alters documented behavior or architecture;

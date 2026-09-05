@@ -22,9 +22,10 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M02 — HTTP and API Baseline. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
+- **Current milestone:** M03 — API Specification and Compatibility Policy. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** M03 — API Specification and Compatibility Policy
+- **Next implementation milestone:** M04 — PostgreSQL Foundation, which starts together with the first persistence-requiring domain decision in M05
+- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health endpoint and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** none
 - **Current authentication capability:** none
@@ -156,25 +157,26 @@ Complete these in order before starting feature development:
 ### M03 — API Specification and Compatibility Policy
 
 **Priority:** P0
-**Status:** Not started
+**Status:** In progress. Every item is complete except M03-010, which cannot start until a released baseline exists.
 **Depends on:** M02
 **Goal:** Treat Convia's public API as a stable product interface from its first domain endpoint.
+**Contract:** [`api/openapi.yaml`](api/openapi.yaml), governed by [`docs/api-compatibility.md`](docs/api-compatibility.md) and validated by `internal/server/contract_test.go`.
 
-- [ ] **M03-001:** Select OpenAPI as the REST contract format or record a justified alternative.
-- [ ] **M03-002:** Add the initial API specification containing shared schemas and errors.
-- [ ] **M03-003:** Document naming conventions for resources, fields, actions, and enums.
-- [ ] **M03-004:** Document additive versus breaking API changes.
-- [ ] **M03-005:** Define deprecation headers and minimum deprecation periods.
-- [ ] **M03-006:** Define idempotency expectations for mutation endpoints.
-- [ ] **M03-007:** Define optimistic concurrency behavior where updates can conflict.
-- [ ] **M03-008:** Define pagination cursor opacity and stability requirements.
-- [ ] **M03-009:** Add OpenAPI syntax validation to CI.
+- [x] **M03-001:** Select OpenAPI as the REST contract format or record a justified alternative.
+- [x] **M03-002:** Add the initial API specification containing shared schemas and errors.
+- [x] **M03-003:** Document naming conventions for resources, fields, actions, and enums.
+- [x] **M03-004:** Document additive versus breaking API changes.
+- [x] **M03-005:** Define deprecation headers and minimum deprecation periods.
+- [x] **M03-006:** Define idempotency expectations for mutation endpoints.
+- [x] **M03-007:** Define optimistic concurrency behavior where updates can conflict.
+- [x] **M03-008:** Define pagination cursor opacity and stability requirements.
+- [x] **M03-009:** Add OpenAPI syntax validation to CI. Validation runs inside `go test`, so it needs no separate toolchain.
 - [ ] **M03-010:** Add a breaking-change detector once a released baseline exists.
-- [ ] **M03-011:** Add contract tests that compare implemented routes with the specification.
-- [ ] **M03-012:** Document API lifecycle states: experimental, preview, stable, deprecated, removed.
-- [ ] **M03-013:** Define public error code ownership and review requirements.
-- [ ] **M03-014:** Define how SDK generation or handwritten SDKs consume the contract.
-- [ ] **M03-015:** Record that media-provider-specific fields are forbidden in public contracts.
+- [x] **M03-011:** Add contract tests that compare implemented routes with the specification.
+- [x] **M03-012:** Document API lifecycle states: experimental, preview, stable, deprecated, removed.
+- [x] **M03-013:** Define public error code ownership and review requirements.
+- [x] **M03-014:** Define how SDK generation or handwritten SDKs consume the contract.
+- [x] **M03-015:** Record that media-provider-specific fields are forbidden in public contracts.
 
 **Exit criteria:** The API contract is machine-readable, CI-validated, versioned, and governed by an explicit compatibility policy.
 

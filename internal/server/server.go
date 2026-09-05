@@ -34,20 +34,42 @@ func New(address string, logger *slog.Logger) *http.Server {
 	}
 }
 
-// handler builds the routed handler wrapped by the transport middleware.
-//
-// The chain is ordered so that every request carries a correlation identifier
-// before it is logged, and so that a recovered panic is still reported by the
-// access log with its final status.
+/*
+Handler builds the routed handler wrapped by the transport middleware.
+
+The chain is ordered so that every request carries a correlation identifier
+before it is logged, and so that a recovered panic is still reported by the
+access log with its final status.
+*/
 func handler(logger *slog.Logger) http.Handler {
 	rt := newRoutes(logger)
-
-	// Operational endpoints stay outside api.Prefix: they are owned by
-	// operators, not by public API consumers, and must not be versioned or
-	// authenticated together with the public API.
-	rt.handle(http.MethodGet, "/health", healthHandler(logger))
+	for _, entry := range routeTable(logger) {
+		rt.handle(entry.method, entry.path, entry.handler)
+	}
 
 	return requestID(logRequest(logger, recoverPanic(logger, rt.handler())))
+}
+
+// route describes one HTTP route served by Convia.
+type route struct {
+	method  string
+	path    string
+	handler http.Handler
+}
+
+/*
+RouteTable returns every route the service serves.
+
+It is the single source of truth for routing, which lets the contract test
+compare the implemented surface with the OpenAPI document in api/.
+*/
+func routeTable(logger *slog.Logger) []route {
+	return []route{
+		// Operational endpoints stay outside api.Prefix: they are owned by
+		// operators, not by public API consumers, and must not be versioned or
+		// authenticated together with the public API.
+		{method: http.MethodGet, path: "/health", handler: healthHandler(logger)},
+	}
 }
 
 // healthResponse is the stable body of the health endpoint.

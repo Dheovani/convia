@@ -3,11 +3,12 @@ package api
 import (
 	"net/http"
 )
+/*
+ErrorCode is a stable, machine-readable identifier for a public failure.
 
-// ErrorCode is a stable, machine-readable identifier for a public failure.
-//
-// Codes are part of Convia's public contract: clients may branch on them, so
-// existing codes must not change meaning. Adding a code is an additive change.
+Codes are part of Convia's public contract: clients may branch on them, so
+existing codes must not change meaning. Adding a code is an additive change.
+*/
 type ErrorCode string
 
 const (
@@ -31,6 +32,24 @@ const (
 	CodeInternal ErrorCode = "internal_error"
 )
 
+/*
+ErrorCodes returns every error code Convia can return.
+
+The contract test uses it to prove that the API specification and the
+implementation describe the same set of failures.
+*/
+func ErrorCodes() []ErrorCode {
+	return []ErrorCode{
+		CodeInvalidRequest,
+		CodeMalformedJSON,
+		CodeUnsupportedMediaType,
+		CodePayloadTooLarge,
+		CodeNotFound,
+		CodeMethodNotAllowed,
+		CodeInternal,
+	}
+}
+
 // ErrorBody is the public representation of a single failure.
 type ErrorBody struct {
 	Code      ErrorCode `json:"code"`
@@ -38,16 +57,17 @@ type ErrorBody struct {
 	RequestID string    `json:"request_id,omitempty"`
 }
 
-// errorResponse wraps ErrorBody so that error responses never collide with
-// resource representations.
+// errorResponse wraps ErrorBody so that error responses never collide with resource representations.
 type errorResponse struct {
 	Error ErrorBody `json:"error"`
 }
 
-// Failure describes a public API failure together with its HTTP status.
-//
-// It is returned by helpers that detect transport-level problems so that
-// handlers can decide when to respond without restating status codes.
+/*
+Failure describes a public API failure together with its HTTP status.
+
+It is returned by helpers that detect transport-level problems so that
+handlers can decide when to respond without restating status codes.
+*/
 type Failure struct {
 	Status  int
 	Code    ErrorCode
@@ -76,6 +96,7 @@ func WriteError(response http.ResponseWriter, request *http.Request, status int,
 		Code:    code,
 		Message: message,
 	}}
+	
 	if request != nil {
 		body.Error.RequestID = RequestIDFromContext(request.Context())
 	}
