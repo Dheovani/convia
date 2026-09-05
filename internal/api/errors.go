@@ -32,6 +32,12 @@ const (
 	// CodePreconditionFailed reports a conditional request whose If-Match no
 	// longer describes the current state of the resource.
 	CodePreconditionFailed ErrorCode = "precondition_failed"
+	/*
+		CodeConflict reports a request that is valid on its own but cannot be
+		satisfied in the current state of the resource, and that retrying
+		unchanged will not fix.
+	*/
+	CodeConflict ErrorCode = "conflict"
 	// CodeInternal reports an unexpected server-side condition.
 	CodeInternal ErrorCode = "internal_error"
 )
@@ -51,6 +57,7 @@ func ErrorCodes() []ErrorCode {
 		CodeNotFound,
 		CodeMethodNotAllowed,
 		CodePreconditionFailed,
+		CodeConflict,
 		CodeInternal,
 	}
 }

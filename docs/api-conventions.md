@@ -46,9 +46,13 @@ Adding a code is an additive change. Changing the meaning of an existing code is
 | `malformed_json`         | 400    | Body that is not valid JSON, or a value with an unexpected JSON type    |
 | `not_found`              | 404    | Unknown route or missing resource                                       |
 | `method_not_allowed`     | 405    | Known route addressed with an unsupported method; `Allow` is returned   |
+| `conflict`               | 409    | Valid request that the current state of the resource cannot satisfy      |
+| `precondition_failed`    | 412    | `If-Match` no longer describes the stored resource; nothing was modified |
 | `unsupported_media_type` | 415    | Body sent without an `application/json` content type                    |
 | `payload_too_large`      | 413    | Body above the accepted size limit                                      |
 | `internal_error`         | 500    | Unexpected server-side condition                                        |
+
+`conflict` differs from `precondition_failed`: a precondition failure means the client acted on a stale copy and should re-read and retry, while a conflict means the request cannot be satisfied in the current state at all, so repeating it unchanged will not help.
 
 ## Request correlation
 
@@ -78,7 +82,7 @@ A panic in a handler is recovered, logged with the request ID, method, path, pan
 
 ## Timestamps
 
-Timestamps are strings in UTC RFC 3339 format with millisecond precision and a `Z` suffix, for example `2026-09-05T14:04:56.154Z`. Timestamp fields end with `_at`. No endpoint currently returns a timestamp; the format applies to the first one that does.
+Timestamps are strings in UTC RFC 3339 format with millisecond precision and a `Z` suffix, for example `2026-09-05T14:04:56.154Z`. Timestamp fields end with `_at`. Applications and users return `created_at` and `updated_at` in this format.
 
 ## Public identifiers
 

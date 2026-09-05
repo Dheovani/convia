@@ -222,6 +222,117 @@ func (store *Store) List(ctx context.Context, applicationID string, cursor *Curs
 	return page, false, nil
 }
 
+/*
+UpdateAttributes replaces the attributes an application owns.
+
+The caller supplies the complete new values rather than a partial change, so
+that the stored shape is always exactly what the service decided, and metadata
+never ends up half-merged by the database.
+*/
+func (store *Store) UpdateAttributes(ctx context.Context, applicationID, id, name string,
+	metadata map[string]string, updatedAt time.Time, guard *time.Time) (User, error) {
+	return store.update(ctx, `UPDATE users SET display_name = $1, metadata = $2, updated_at = $3`,
+		[]any{displayName(name), metadata, updatedAt}, applicationID, id, guard)
+}
+
+// SetStatus moves a user to a new lifecycle state.
+func (store *Store) SetStatus(ctx context.Context, applicationID, id string, status Status,
+	updatedAt time.Time, guard *time.Time) (User, error) {
+	return store.update(ctx, `UPDATE users SET status = $1, updated_at = $2`,
+		[]any{status, updatedAt}, applicationID, id, guard)
+}
+
+/*
+update applies one conditional change and returns the stored result.
+
+The application is part of the WHERE clause rather than a filter applied
+afterwards, so an update cannot reach another tenant's user even with a valid
+identifier. A deleted user is never updated: it has left the API surface, so it
+is reported as missing rather than silently revived.
+
+When guard is set, the update applies only while the stored row still carries
+that timestamp, which makes the check and the write one atomic step rather than
+a read followed by a hopeful write.
+*/
+func (store *Store) update(ctx context.Context, statement string, arguments []any,
+	applicationID, id string, guard *time.Time) (User, error) {
+	arguments = append(arguments, applicationID, id, StatusDeleted)
+	statement += ` WHERE application_id = $` + strconv.Itoa(len(arguments)-2) +
+		` AND id = $` + strconv.Itoa(len(arguments)-1) +
+		` AND status <> $` + strconv.Itoa(len(arguments))
+
+	if guard != nil {
+		arguments = append(arguments, *guard)
+		statement += ` AND updated_at = $` + strconv.Itoa(len(arguments))
+	}
+	statement += ` RETURNING ` + columns
+
+	rows, err := store.pool.Query(ctx, statement, arguments...)
+	if err != nil {
+		return User{}, fmt.Errorf("update user: %w", err)
+	}
+
+	record, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, store.explainMissingUpdate(ctx, applicationID, id, guard)
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("read updated user: %w", err)
+	}
+	return record.user(), nil
+}
+
+/*
+explainMissingUpdate decides why a conditional update matched no row.
+
+A guarded update that matches nothing means either the user is gone or another
+request changed it first, and the two must be reported differently.
+*/
+func (store *Store) explainMissingUpdate(ctx context.Context, applicationID, id string, guard *time.Time) error {
+	if guard == nil {
+		return ErrNotFound
+	}
+
+	if _, err := store.Get(ctx, applicationID, id); err != nil {
+		return err
+	}
+	return ErrPreconditionFailed
+}
+
+/*
+Delete removes a user from the API surface.
+
+The row is retained so that the deletion stays recoverable and the data can be
+erased on a schedule. Deleting an already-deleted user succeeds, because a
+repeated delete must not fail; it reports that nothing changed, so that the
+audit trail records one deletion rather than one per attempt.
+*/
+func (store *Store) Delete(ctx context.Context, applicationID, id string, updatedAt time.Time) (bool, error) {
+	_, err := store.SetStatus(ctx, applicationID, id, StatusDeleted, updatedAt, nil)
+	if errors.Is(err, ErrNotFound) {
+		return false, store.confirmAlreadyDeleted(ctx, applicationID, id)
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// confirmAlreadyDeleted distinguishes a repeated delete from an unknown user.
+func (store *Store) confirmAlreadyDeleted(ctx context.Context, applicationID, id string) error {
+	var exists bool
+	err := store.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM users WHERE application_id = $1 AND id = $2)`,
+		applicationID, id).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check user existence: %w", err)
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Cursor is the position of a keyset page.
 type Cursor struct {
 	CreatedAt time.Time

@@ -26,15 +26,18 @@ It keeps every transport path testable without PostgreSQL, including the paths
 a real database would make hard to reach.
 */
 type fakeService struct {
-	user        User
-	page        Page
-	err         error
-	created     bool
-	identity    Identity
-	application string
-	requestedID string
-	options     ListOptions
-	called      bool
+	user            User
+	page            Page
+	err             error
+	created         bool
+	identity        Identity
+	application     string
+	requestedID     string
+	options         ListOptions
+	attributes      Attributes
+	expectedVersion string
+	transitionedTo  Status
+	called          bool
 }
 
 func (fake *fakeService) Resolve(_ context.Context, applicationID string, identity Identity) (User, bool, error) {
@@ -54,6 +57,40 @@ func (fake *fakeService) List(_ context.Context, applicationID string, options L
 	fake.application = applicationID
 	fake.options = options
 	return fake.page, fake.err
+}
+
+func (fake *fakeService) Update(_ context.Context, applicationID, id string,
+	attributes Attributes, expectedVersion string) (User, error) {
+	fake.called = true
+	fake.application = applicationID
+	fake.requestedID = id
+	fake.attributes = attributes
+	fake.expectedVersion = expectedVersion
+	return fake.user, fake.err
+}
+
+func (fake *fakeService) Suspend(_ context.Context, applicationID, id string) (User, error) {
+	return fake.record(applicationID, id, StatusSuspended)
+}
+
+func (fake *fakeService) Activate(_ context.Context, applicationID, id string) (User, error) {
+	return fake.record(applicationID, id, StatusActive)
+}
+
+func (fake *fakeService) Delete(_ context.Context, applicationID, id string) error {
+	fake.called = true
+	fake.application = applicationID
+	fake.requestedID = id
+	return fake.err
+}
+
+// record captures a lifecycle transition so a test can assert which one ran.
+func (fake *fakeService) record(applicationID, id string, status Status) (User, error) {
+	fake.called = true
+	fake.application = applicationID
+	fake.requestedID = id
+	fake.transitionedTo = status
+	return fake.user, fake.err
 }
 
 func newTestHandler(fake *fakeService) *Handler {
@@ -345,5 +382,184 @@ func assertError(t *testing.T, response *httptest.ResponseRecorder, status int, 
 	}
 	if body.Error.Message == "" {
 		t.Error("error message is empty")
+	}
+}
+
+/*
+TestUpdateSeparatesAbsentFromEmpty proves the transport preserves the
+difference a partial update depends on.
+
+An omitted field must reach the service as nil so it keeps its stored value,
+while an explicitly empty one must arrive as a present, empty value. Collapsing
+the two would silently erase attributes a client never mentioned.
+*/
+func TestUpdateSeparatesAbsentFromEmpty(t *testing.T) {
+	tests := map[string]struct {
+		body        string
+		wantName    *string
+		hasMetadata bool
+	}{
+		"only display name": {`{"display_name":"Ada King"}`, pointerTo("Ada King"), false},
+		"only metadata":     {`{"metadata":{"plan":"pro"}}`, nil, true},
+		"cleared name":      {`{"display_name":""}`, pointerTo(""), false},
+		"cleared metadata":  {`{"metadata":{}}`, nil, true},
+		"both together":     {`{"display_name":"Ada","metadata":{}}`, pointerTo("Ada"), true},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeService{user: sampleUser()}
+			response := httptest.NewRecorder()
+
+			newTestHandler(fake).Update(response,
+				userRequest(http.MethodPatch, "/v1/applications/"+testApplicationID+"/users/"+testUserID, test.body))
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
+			}
+
+			switch {
+			case test.wantName == nil && fake.attributes.DisplayName != nil:
+				t.Errorf("DisplayName = %q, want it absent", *fake.attributes.DisplayName)
+			case test.wantName != nil && fake.attributes.DisplayName == nil:
+				t.Error("DisplayName is absent, want it present")
+			case test.wantName != nil && *fake.attributes.DisplayName != *test.wantName:
+				t.Errorf("DisplayName = %q, want %q", *fake.attributes.DisplayName, *test.wantName)
+			}
+
+			if (fake.attributes.Metadata != nil) != test.hasMetadata {
+				t.Errorf("metadata present = %t, want %t", fake.attributes.Metadata != nil, test.hasMetadata)
+			}
+		})
+	}
+}
+
+func pointerTo[T any](value T) *T {
+	return &value
+}
+
+/*
+TestUpdateForwardsTheEntityTag proves a conditional update reaches the service
+as a condition rather than being dropped at the transport layer.
+*/
+func TestUpdateForwardsTheEntityTag(t *testing.T) {
+	tests := map[string]struct {
+		header string
+		want   string
+	}{
+		"strong validator": {`"abc123"`, "abc123"},
+		"unquoted":         {"abc123", "abc123"},
+		"any version":      {"*", ""},
+		"weak validator":   {`W/"abc123"`, ""},
+		"absent":           {"", ""},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeService{user: sampleUser()}
+			request := userRequest(http.MethodPatch,
+				"/v1/applications/"+testApplicationID+"/users/"+testUserID, `{"display_name":"Ada"}`)
+			if test.header != "" {
+				request.Header.Set("If-Match", test.header)
+			}
+
+			newTestHandler(fake).Update(httptest.NewRecorder(), request)
+
+			if fake.expectedVersion != test.want {
+				t.Errorf("expectedVersion = %q, want %q", fake.expectedVersion, test.want)
+			}
+		})
+	}
+}
+
+// TestLifecycleHandlersApplyTheirOwnTransition guards against the two endpoints
+// being wired to the same service method.
+func TestLifecycleHandlersApplyTheirOwnTransition(t *testing.T) {
+	tests := map[string]struct {
+		invoke func(*Handler, http.ResponseWriter, *http.Request)
+		want   Status
+	}{
+		"suspend":  {(*Handler).Suspend, StatusSuspended},
+		"activate": {(*Handler).Activate, StatusActive},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeService{user: sampleUser()}
+			response := httptest.NewRecorder()
+
+			test.invoke(newTestHandler(fake), response,
+				userRequest(http.MethodPost, "/v1/applications/"+testApplicationID+"/users/"+testUserID+"/"+name, ""))
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
+			}
+			if fake.transitionedTo != test.want {
+				t.Errorf("transitioned to %q, want %q", fake.transitionedTo, test.want)
+			}
+			if response.Header().Get("ETag") == "" {
+				t.Error("no ETag, want the new version so a client can make its next update conditional")
+			}
+		})
+	}
+}
+
+// TestDeleteAnswersWithoutABody proves deletion reports success by status alone.
+func TestDeleteAnswersWithoutABody(t *testing.T) {
+	fake := &fakeService{}
+	response := httptest.NewRecorder()
+
+	newTestHandler(fake).Delete(response,
+		userRequest(http.MethodDelete, "/v1/applications/"+testApplicationID+"/users/"+testUserID, ""))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if response.Body.Len() != 0 {
+		t.Errorf("body = %q, want it empty", response.Body.String())
+	}
+	if fake.requestedID != testUserID {
+		t.Errorf("requested %q, want the path value %q", fake.requestedID, testUserID)
+	}
+}
+
+/*
+TestDomainErrorsBecomeTheirPublicStatus proves each declared domain error keeps
+its own public meaning instead of collapsing into a generic failure.
+*/
+func TestDomainErrorsBecomeTheirPublicStatus(t *testing.T) {
+	tests := map[string]struct {
+		err    error
+		status int
+		code   api.ErrorCode
+	}{
+		"stale version":   {ErrPreconditionFailed, http.StatusPreconditionFailed, api.CodePreconditionFailed},
+		"deleted subject": {ErrSubjectDeleted, http.StatusConflict, api.CodeConflict},
+		"missing user":    {ErrNotFound, http.StatusNotFound, api.CodeNotFound},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			fake := &fakeService{err: test.err}
+			response := httptest.NewRecorder()
+
+			newTestHandler(fake).Update(response,
+				userRequest(http.MethodPatch,
+					"/v1/applications/"+testApplicationID+"/users/"+testUserID, `{"display_name":"Ada"}`))
+
+			if response.Code != test.status {
+				t.Fatalf("status code = %d, want %d", response.Code, test.status)
+			}
+
+			var body struct {
+				Error api.ErrorBody `json:"error"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode the error body: %v", err)
+			}
+			if body.Error.Code != test.code {
+				t.Errorf("code = %q, want %q", body.Error.Code, test.code)
+			}
+		})
 	}
 }

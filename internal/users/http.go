@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"convia/internal/api"
 )
@@ -20,6 +21,10 @@ type service interface {
 	Resolve(ctx context.Context, applicationID string, identity Identity) (User, bool, error)
 	Get(ctx context.Context, applicationID, id string) (User, error)
 	List(ctx context.Context, applicationID string, options ListOptions) (Page, error)
+	Update(ctx context.Context, applicationID, id string, attributes Attributes, expectedVersion string) (User, error)
+	Suspend(ctx context.Context, applicationID, id string) (User, error)
+	Activate(ctx context.Context, applicationID, id string) (User, error)
+	Delete(ctx context.Context, applicationID, id string) error
 }
 
 // Handler exposes an application's users over HTTP.
@@ -37,6 +42,18 @@ type resolveRequest struct {
 	ExternalSubject string            `json:"external_subject"`
 	DisplayName     string            `json:"display_name"`
 	Metadata        map[string]string `json:"metadata"`
+}
+
+/*
+updateRequest is the accepted body when changing a user's attributes.
+
+The fields are pointers so that an absent field is distinguishable from an
+empty one: omitting display_name leaves it as stored, while sending an empty
+string clears it.
+*/
+type updateRequest struct {
+	DisplayName *string            `json:"display_name"`
+	Metadata    *map[string]string `json:"metadata"`
 }
 
 // userResponse is the public representation of a user.
@@ -120,6 +137,86 @@ func (handler *Handler) Get(response http.ResponseWriter, request *http.Request)
 	handler.writeUser(response, request, http.StatusOK, user)
 }
 
+/*
+Update changes the attributes an application owns.
+
+A client may send the ETag it last read as If-Match to make the change
+conditional. The header is optional: a lost attribute update is visible and
+easy to repair, so requiring it on every call would cost more than it protects.
+*/
+func (handler *Handler) Update(response http.ResponseWriter, request *http.Request) {
+	var body updateRequest
+	if failure := api.DecodeJSON(response, request, &body); failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	/*
+		The request body and the attributes carry the same fields, so the
+		conversion keeps them in step: adding a field to one without the other
+		fails to compile rather than silently dropping it.
+	*/
+	user, err := handler.service.Update(request.Context(),
+		request.PathValue("application_id"), request.PathValue("user_id"),
+		Attributes(body), expectedVersion(request))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.writeUser(response, request, http.StatusOK, user)
+}
+
+// Suspend withdraws a user's access without losing data.
+func (handler *Handler) Suspend(response http.ResponseWriter, request *http.Request) {
+	handler.transition(response, request, handler.service.Suspend)
+}
+
+// Activate restores a suspended user to normal service.
+func (handler *Handler) Activate(response http.ResponseWriter, request *http.Request) {
+	handler.transition(response, request, handler.service.Activate)
+}
+
+// Delete removes a user from the API surface.
+func (handler *Handler) Delete(response http.ResponseWriter, request *http.Request) {
+	err := handler.service.Delete(request.Context(),
+		request.PathValue("application_id"), request.PathValue("user_id"))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (handler *Handler) transition(response http.ResponseWriter, request *http.Request,
+	apply func(context.Context, string, string) (User, error)) {
+	user, err := apply(request.Context(),
+		request.PathValue("application_id"), request.PathValue("user_id"))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.writeUser(response, request, http.StatusOK, user)
+}
+
+/*
+expectedVersion reads the entity tag a client is making its update conditional on.
+
+Only a single strong validator is honored. `*` means "any current version",
+which is the same as sending no condition for an update to an existing
+resource, and a weak validator is not accepted because it does not identify an
+exact revision.
+*/
+func expectedVersion(request *http.Request) string {
+	value := strings.TrimSpace(request.Header.Get("If-Match"))
+	if value == "" || value == "*" || strings.HasPrefix(value, "W/") {
+		return ""
+	}
+	return strings.Trim(value, `"`)
+}
+
 // List returns one page of an application's users.
 func (handler *Handler) List(response http.ResponseWriter, request *http.Request) {
 	options := ListOptions{Cursor: request.URL.Query().Get("cursor")}
@@ -181,6 +278,16 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 	case errors.Is(err, ErrNotFound):
 		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The requested user does not exist."))
+
+	case errors.Is(err, ErrPreconditionFailed):
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusPreconditionFailed, api.CodePreconditionFailed,
+				"The user was modified by another request. Read it again and retry."))
+
+	case errors.Is(err, ErrSubjectDeleted):
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusConflict, api.CodeConflict,
+				"The external subject belongs to a deleted user and stays reserved until erasure."))
 
 	default:
 		handler.logger.Error("user request failed",
