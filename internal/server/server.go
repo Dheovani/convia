@@ -9,6 +9,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/users"
 )
 
 const (
@@ -46,6 +47,7 @@ so an unauthenticated tenant endpoint cannot be reached by accident.
 type Dependencies struct {
 	Database     Prober
 	Applications *applications.Handler
+	Users        *users.Handler
 }
 
 // New constructs the Convia HTTP server.
@@ -118,6 +120,22 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Applications.Suspend)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/activate",
 				handler: http.HandlerFunc(dependencies.Applications.Activate)},
+		)
+	}
+
+	if dependencies.Users != nil {
+		/*
+			Users are nested under their application because Convia cannot yet
+			infer the tenant: authentication arrives in M07, and until then the
+			owning application has to be explicit in the path.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users",
+				handler: http.HandlerFunc(dependencies.Users.Resolve)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/users",
+				handler: http.HandlerFunc(dependencies.Users.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/users/{user_id}",
+				handler: http.HandlerFunc(dependencies.Users.Get)},
 		)
 	}
 	return table

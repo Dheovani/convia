@@ -15,6 +15,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/users"
 )
 
 /*
@@ -71,6 +72,47 @@ func (stub stubApplications) Delete(context.Context, string) error {
 	return stub.err
 }
 
+/*
+stubUsers satisfies the user service the handler consumes.
+
+Routing and contract tests only need the routes to exist and to answer with a
+realistic body; the behavior lives in the users package tests.
+*/
+type stubUsers struct {
+	user    users.User
+	page    users.Page
+	err     error
+	created bool
+}
+
+func (stub stubUsers) Resolve(context.Context, string, users.Identity) (users.User, bool, error) {
+	return stub.user, stub.created, stub.err
+}
+
+func (stub stubUsers) Get(context.Context, string, string) (users.User, error) {
+	return stub.user, stub.err
+}
+
+func (stub stubUsers) List(context.Context, string, users.ListOptions) (users.Page, error) {
+	return stub.page, stub.err
+}
+
+// sampleUser is a realistic user for transport-level tests.
+func sampleUser() users.User {
+	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
+
+	return users.User{
+		ID:              "usr_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		ApplicationID:   sampleApplication().ID,
+		ExternalSubject: "customer-42",
+		DisplayName:     "Ada Lovelace",
+		Metadata:        map[string]string{"plan": "pro"},
+		Status:          users.StatusActive,
+		CreatedAt:       created,
+		UpdatedAt:       created,
+	}
+}
+
 // sampleApplication is a realistic application for transport-level tests.
 func sampleApplication() applications.Application {
 	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
@@ -96,11 +138,16 @@ func testDependencies() Dependencies {
 }
 
 func newDependencies(stub stubApplications) Dependencies {
+	return newFullDependencies(stub, stubUsers{user: sampleUser(), page: users.Page{Users: []users.User{sampleUser()}}})
+}
+
+func newFullDependencies(application stubApplications, user stubUsers) Dependencies {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	return Dependencies{
 		Database:     stubProber{},
-		Applications: applications.NewHandler(logger, stub),
+		Applications: applications.NewHandler(logger, application),
+		Users:        users.NewHandler(logger, user),
 	}
 }
 

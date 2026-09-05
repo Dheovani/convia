@@ -16,6 +16,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/server"
+	"convia/internal/users"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -103,7 +104,11 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 	dependencies := server.Dependencies{Database: pool}
 	if cfg.AdminAPI {
-		dependencies.Applications = applications.NewHandler(logger, applications.NewService(applications.NewStore(pool), logger))
+		applicationService := applications.NewService(applications.NewStore(pool), logger)
+
+		dependencies.Applications = applications.NewHandler(logger, applicationService)
+		dependencies.Users = users.NewHandler(logger, users.NewService(users.NewStore(pool), applicationService, logger))
+
 		logger.Warn("the administrative API is enabled and is not authenticated yet",
 			"endpoints", api.Prefix+"/applications")
 	}

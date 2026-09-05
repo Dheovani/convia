@@ -22,13 +22,14 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M05 — Applications and Tenancy. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
+- **Current milestone:** M06 — External Users and Identity Mapping. The only remaining M01 item is M01-025, the decision on signed commits or signed tags.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** M06 — External Users and Identity Mapping
+- **Next implementation milestone:** the remainder of M06 — user attribute updates and lifecycle transitions — followed by M07 — Authentication, Credentials, and Authorization
 - **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the administrative API, which is disabled by default and refused in production until authentication exists
-- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health endpoint and the shared error, pagination, and correlation components
+- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the administrative application and user endpoints, and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
-- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` table
+- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` and `users` tables
+- **Current identity capability:** applications resolve their own people into Convia users, scoped so that no application can read or enumerate another's identities
 - **Current authentication capability:** none
 - **Current communication capability:** none
 - **Current media capability:** none
@@ -42,12 +43,12 @@ Complete these in order before starting feature development:
 2. [x] **NEXT-002:** Create or select the canonical GitHub repository without changing the Go module path until the repository path is known.
 3. [x] **NEXT-003:** Push the current foundation to a non-protected branch.
 4. [x] **NEXT-004:** Confirm that the `CI`, `Security`, and `Container` workflows all start on GitHub.
-5. [x] **NEXT-005:** Resolve any hosted-runner incompatibility, especially Go 1.26.5 or CodeQL availability. The toolchain moved to the patched Go 1.26.6, the container smoke-test script was rewritten for the runner's ShellCheck version, and the CodeQL job became opt-in through the `ENABLE_CODE_SCANNING` repository variable.
+5. [x] **NEXT-005:** Resolve any hosted-runner incompatibility, especially Go 1.26.5 or CodeQL availability. The toolchain moved to the patched Go 1.26.6, the container smoke-test script was rewritten for the runner's ShellCheck version, and the PostgreSQL readiness probes were corrected to check TCP rather than the local socket.
 6. [x] **NEXT-006:** Enable GitHub code scanning where the repository plan and visibility support it. The repository is public, so the CodeQL job runs unconditionally.
 7. [x] **NEXT-007:** Configure branch protection to require successful CI, security, and container checks.
-8. [ ] **NEXT-008:** Enable Dependabot alerts and review the first scheduled update run.
+8. [x] **NEXT-008:** Enable Dependabot alerts and review the first scheduled update run.
 9. [ ] **NEXT-009:** Decide whether pull requests require one approving review before merge.
-10. [ ] **NEXT-010:** Begin M02 only after the default branch has a green hosted build.
+10. [x] **NEXT-010:** Begin M02 only after the default branch has a green hosted build.
 
 ---
 
@@ -102,10 +103,10 @@ Complete these in order before starting feature development:
 - [x] **M01-016:** Configure weekly Dependabot updates for GitHub Actions.
 - [x] **M01-017:** Configure weekly Dependabot updates for Go modules.
 - [x] **M01-018:** Initialize the Git repository and publish it to GitHub.
-- [ ] **M01-019:** Confirm all workflows pass on the first GitHub push.
-- [ ] **M01-020:** Confirm workflows run correctly for pull requests from branches and forks.
-- [ ] **M01-021:** Enable Dependabot alerts and security updates in repository settings.
-- [x] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab. The CodeQL job now runs only when the repository variable `ENABLE_CODE_SCANNING` is `true`, because uploads require a public repository or GitHub Advanced Security.
+- [x] **M01-019:** Confirm all workflows pass on the first GitHub push.
+- [x] **M01-020:** Confirm workflows run correctly for pull requests from branches and forks.
+- [x] **M01-021:** Enable Dependabot alerts and security updates in repository settings.
+- [x] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab. The repository is public, so CodeQL runs on every push and pull request.
 - [x] **M01-023:** Configure default-branch protection with required status checks.
 - [x] **M01-024:** Require branches to be current before merge.
 - [ ] **M01-025:** Decide whether signed commits or signed tags are required.
@@ -223,8 +224,8 @@ Complete these in order before starting feature development:
 - [x] **M05-006:** Add repository behavior for create, get, list, update, and lifecycle transitions.
 - [x] **M05-007:** Add an application service enforcing invariants independently of HTTP.
 - [x] **M05-008:** Add administrative HTTP endpoints only for immediately required operations. Create, list, retrieve, rename, suspend, activate, and delete.
-- [ ] **M05-009:** Ensure every application-scoped query includes tenant isolation. Nothing is application-scoped yet; this becomes testable with the first tenant-scoped resource in M08.
-- [ ] **M05-010:** Test cross-application access denial. Blocked on M07 credentials and the first tenant-scoped resource.
+- [x] **M05-009:** Ensure every application-scoped query includes tenant isolation. The users store offers no lookup by identifier alone, so the owning application is always part of the query.
+- [x] **M05-010:** Test cross-application access denial. Reading another application's user is reported as missing rather than refused, and is covered by integration tests.
 - [x] **M05-011:** Define application display metadata separately from security credentials.
 - [x] **M05-012:** Define safe deletion, suspension, and retention semantics.
 - [x] **M05-013:** Add audit events for security-relevant application changes. Structured log events; durable audit storage is M21.
@@ -236,25 +237,26 @@ Complete these in order before starting feature development:
 ### M06 — External Users and Identity Mapping
 
 **Priority:** P0
-**Status:** Not started
+**Status:** In progress. The identity model, its persistence, and the resolve, retrieve, and list surface are implemented; attribute updates and lifecycle transitions follow.
 **Depends on:** M05
 **Goal:** Let each consuming application map its own users to stable Convia identities without sharing identity namespaces.
+**Documentation:** [`docs/users.md`](docs/users.md), implemented by `internal/users`.
 
-- [ ] **M06-001:** Define Convia's internal user identity and application-scoped external subject.
-- [ ] **M06-002:** Decide whether one human can be linked across applications and document privacy implications.
-- [ ] **M06-003:** Define uniqueness rules for `(application_id, external_subject)`.
-- [ ] **M06-004:** Define display-name, avatar, and metadata ownership.
-- [ ] **M06-005:** Set strict size and shape limits for application-provided metadata.
-- [ ] **M06-006:** Add user and identity-mapping migrations.
-- [ ] **M06-007:** Add create-or-resolve behavior with idempotent semantics.
+- [x] **M06-001:** Define Convia's internal user identity and application-scoped external subject.
+- [x] **M06-002:** Decide whether one human can be linked across applications and document privacy implications. Convia never links users across applications.
+- [x] **M06-003:** Define uniqueness rules for `(application_id, external_subject)`. Unique regardless of status, so a subject never points at two users.
+- [x] **M06-004:** Define display-name, avatar, and metadata ownership. There is no avatar column; an application stores its URL in metadata.
+- [x] **M06-005:** Set strict size and shape limits for application-provided metadata.
+- [x] **M06-006:** Add user and identity-mapping migrations. One table suffices because users are never linked across applications.
+- [x] **M06-007:** Add create-or-resolve behavior with idempotent semantics.
 - [ ] **M06-008:** Add suspension and deletion behavior.
-- [ ] **M06-009:** Prevent cross-application identity enumeration.
-- [ ] **M06-010:** Add tests for duplicate mappings and concurrent creation.
-- [ ] **M06-011:** Define data export and erasure boundaries.
-- [ ] **M06-012:** Define how standalone-product accounts map to the same domain model.
-- [ ] **M06-013:** Add audit events for identity lifecycle changes.
-- [ ] **M06-014:** Document which user attributes are authoritative in Convia.
-- [ ] **M06-015:** Add public API examples using only Convia-owned concepts.
+- [x] **M06-009:** Prevent cross-application identity enumeration.
+- [x] **M06-010:** Add tests for duplicate mappings and concurrent creation.
+- [x] **M06-011:** Define data export and erasure boundaries.
+- [x] **M06-012:** Define how standalone-product accounts map to the same domain model.
+- [x] **M06-013:** Add audit events for identity lifecycle changes. Creation is audited without the external subject or display name.
+- [x] **M06-014:** Document which user attributes are authoritative in Convia.
+- [x] **M06-015:** Add public API examples using only Convia-owned concepts.
 
 **Exit criteria:** Applications can safely resolve their users without identity collisions, enumeration, or provider-specific data.
 
