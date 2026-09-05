@@ -37,6 +37,13 @@ jobs:
 
   codeql:
     name: CodeQL analysis
+    # CodeQL can only publish results when code scanning is available for the
+    # repository, which requires a public repository or GitHub Advanced
+    # Security. The job is opt-in so that an unavailable platform feature does
+    # not report a permanently failing build. Enable code scanning in the
+    # repository settings, then set the repository variable
+    # ENABLE_CODE_SCANNING to "true".
+    if: vars.ENABLE_CODE_SCANNING == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

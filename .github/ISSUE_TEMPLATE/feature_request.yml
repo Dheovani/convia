@@ -1,0 +1,64 @@
+name: Feature request
+description: Propose a capability or a change to Convia's behavior
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Convia is developed against the roadmap in [`TODO.md`](https://github.com/Dheovani/convia/blob/main/TODO.md).
+        Check whether your idea is already planned there before opening a request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The problem you are trying to solve. Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What Convia should do. Describe it in Convia's own concepts rather than in terms of a specific media provider or database.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: consumer
+    attributes:
+      label: Who needs this
+      options:
+        - Someone self-hosting Convia for personal use
+        - An application integrating with Convia through its API or SDK
+        - An operator running Convia as a service
+        - Someone contributing to Convia
+    validations:
+      required: true
+
+  - type: input
+    id: roadmap
+    attributes:
+      label: Related roadmap item
+      description: The `TODO.md` task or milestone ID this belongs to, if you know it.
+      placeholder: M08 — Room Domain
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve the problem, including doing nothing or solving it outside Convia.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and the roadmap for a duplicate
+          required: true
+        - label: This request does not describe a security vulnerability
+          required: true

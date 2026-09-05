@@ -46,6 +46,20 @@ Do not introduce Portuguese documentation into the repository.
 
 ---
 
+## Licensing
+
+Convia is source-available under the PolyForm Noncommercial License 1.0.0. It is free for noncommercial use, and its commercial rights are reserved by the copyright holder.
+
+This constrains dependencies. Every dependency must allow Convia to be distributed under those terms and to be relicensed commercially by the copyright holder.
+
+Prefer permissively licensed dependencies such as BSD, MIT, and Apache-2.0.
+
+Do not add a dependency under a copyleft license such as GPL, LGPL, or AGPL, and do not copy code from a copyleft project into this repository.
+
+Do not copy code from any source without confirming its license permits this use.
+
+---
+
 ## Core Architecture
 
 Convia must distinguish between two major architectural areas.

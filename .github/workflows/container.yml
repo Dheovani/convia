@@ -40,14 +40,10 @@ jobs:
         shell: bash
         run: |
           container_id="$(docker run --detach --publish 127.0.0.1::8080 convia:ci)"
-          cleanup() {
-            docker logs "${container_id}" || true
-            docker rm --force "${container_id}" >/dev/null
-          }
-          trap cleanup EXIT
+          trap 'docker logs "${container_id}" || true; docker rm --force "${container_id}" >/dev/null' EXIT
 
           host_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' "${container_id}")"
-          for attempt in {1..20}; do
+          for _ in {1..20}; do
             if response="$(curl --fail --silent --show-error "http://127.0.0.1:${host_port}/health")"; then
               if [[ "${response}" != '{"status":"ok"}' ]]; then
                 echo "Unexpected health response: ${response}"

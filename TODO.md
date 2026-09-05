@@ -22,7 +22,8 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M02 — HTTP and API Baseline. The remaining M01 work is repository administration in GitHub settings rather than code.
+- **Current milestone:** M02 — HTTP and API Baseline. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
+- **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
 - **Next implementation milestone:** M03 — API Specification and Compatibility Policy
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** none
@@ -38,8 +39,8 @@ Complete these in order before starting feature development:
 1. [x] **NEXT-001:** Initialize Git in this directory if it will be the repository root.
 2. [x] **NEXT-002:** Create or select the canonical GitHub repository without changing the Go module path until the repository path is known.
 3. [x] **NEXT-003:** Push the current foundation to a non-protected branch.
-4. [ ] **NEXT-004:** Confirm that the `CI`, `Security`, and `Container` workflows all start on GitHub.
-5. [ ] **NEXT-005:** Resolve any hosted-runner incompatibility, especially Go 1.26.5 or CodeQL availability.
+4. [x] **NEXT-004:** Confirm that the `CI`, `Security`, and `Container` workflows all start on GitHub.
+5. [x] **NEXT-005:** Resolve any hosted-runner incompatibility, especially Go 1.26.5 or CodeQL availability. The toolchain moved to the patched Go 1.26.6, the container smoke-test script was rewritten for the runner's ShellCheck version, and the CodeQL job became opt-in through the `ENABLE_CODE_SCANNING` repository variable.
 6. [ ] **NEXT-006:** Enable GitHub code scanning where the repository plan and visibility support it.
 7. [ ] **NEXT-007:** Configure branch protection to require successful CI, security, and container checks.
 8. [ ] **NEXT-008:** Enable Dependabot alerts and review the first scheduled update run.
@@ -102,16 +103,18 @@ Complete these in order before starting feature development:
 - [ ] **M01-019:** Confirm all workflows pass on the first GitHub push.
 - [ ] **M01-020:** Confirm workflows run correctly for pull requests from branches and forks.
 - [ ] **M01-021:** Enable Dependabot alerts and security updates in repository settings.
-- [ ] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab.
+- [ ] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab. The CodeQL job now runs only when the repository variable `ENABLE_CODE_SCANNING` is `true`, because uploads require a public repository or GitHub Advanced Security.
 - [ ] **M01-023:** Configure default-branch protection with required status checks.
 - [ ] **M01-024:** Require branches to be current before merge.
 - [ ] **M01-025:** Decide whether signed commits or signed tags are required.
-- [ ] **M01-026:** Add a pull request template with test, security, API, migration, and documentation checkboxes.
-- [ ] **M01-027:** Add issue templates for bugs, features, and security-safe reports.
-- [ ] **M01-028:** Add `SECURITY.md` with private vulnerability reporting instructions.
-- [ ] **M01-029:** Add `CONTRIBUTING.md` when contributors beyond the initial maintainers exist.
-- [ ] **M01-030:** Record the names of required checks in repository documentation.
+- [x] **M01-026:** Add a pull request template with test, security, API, migration, and documentation checkboxes.
+- [x] **M01-027:** Add issue templates for bugs, features, and security-safe reports.
+- [x] **M01-028:** Add `SECURITY.md` with private vulnerability reporting instructions.
+- [x] **M01-029:** Add `CONTRIBUTING.md` when contributors beyond the initial maintainers exist.
+- [x] **M01-030:** Record the names of required checks in repository documentation.
 - [x] **M01-031:** Validate GitHub Actions workflow files with a pinned Actionlint version in CI.
+- [x] **M01-032:** Add the project license and record its commercial-use policy. Convia uses the PolyForm Noncommercial License 1.0.0: free for noncommercial use, with commercial rights reserved.
+- [x] **M01-033:** Keep the declared Go toolchain on a patch release without known standard-library vulnerabilities.
 
 **Exit criteria:** The default branch is protected, all hosted checks pass, dependency updates are automated, and repository security reporting is configured.
 

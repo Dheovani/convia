@@ -12,7 +12,7 @@ The transport contract shared by every endpoint is documented in [`docs/api-conv
 
 ## Prerequisites
 
-- Go 1.26.5, as declared in `go.mod`
+- Go 1.26.6, as declared in `go.mod`
 - Docker, optionally, for a container build
 
 ## Run
@@ -75,9 +75,24 @@ docker build -t convia .
 GitHub Actions validates the project through three workflows:
 
 - `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package.
-- `Security` runs Go vulnerability analysis and CodeQL on pushes, pull requests, a weekly schedule, and manual requests.
+- `Security` runs Go vulnerability analysis on pushes, pull requests, a weekly schedule, and manual requests.
 - `Container` builds the production image, verifies its non-root user, and smoke tests the health endpoint.
+
+The `Security` workflow also contains a CodeQL job with extended security queries. Publishing CodeQL results requires code scanning, which needs a public repository or GitHub Advanced Security, so the job is opt-in: enable code scanning in the repository settings, then set the repository variable `ENABLE_CODE_SCANNING` to `true`.
 
 Workflow actions are pinned to full commit SHAs. Dependabot checks GitHub Actions and Go module updates every week.
 
 The detailed development roadmap and current progress are tracked in [`TODO.md`](TODO.md).
+
+## Contributing
+
+[`CONTRIBUTING.md`](CONTRIBUTING.md) describes the development workflow, the local checks, and what a change is expected to contain. [`AGENTS.md`](AGENTS.md) is the authoritative engineering guide. Vulnerabilities must be reported privately, as described in [`SECURITY.md`](SECURITY.md).
+
+## License
+
+Convia is source-available, not open source. It is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
+
+- **Free for noncommercial use.** Personal use, hobby projects, private study, experimentation, and use by charities, schools, public research organizations, and government institutions are all permitted. Self-host it, modify it, and share your changes.
+- **Commercial rights are reserved.** Using Convia in or for a commercial product or service requires a separate license from the copyright holder. Open a discussion in the repository to request one.
+
+Contributions are accepted under the terms described in [`CONTRIBUTING.md`](CONTRIBUTING.md).
