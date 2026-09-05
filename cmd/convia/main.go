@@ -12,35 +12,100 @@ import (
 	"time"
 
 	"convia/internal/config"
+	"convia/internal/database"
 	"convia/internal/server"
 )
 
 const shutdownTimeout = 10 * time.Second
 
+const usage = `Convia is a real-time communication service.
+
+Usage:
+  convia                 Start the HTTP service
+  convia serve           Start the HTTP service
+  convia migrate up      Apply every pending migration
+  convia migrate down    Revert the most recently applied migration
+  convia migrate status  Report applied and pending migrations
+`
+
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if err := run(logger); err != nil {
-		logger.Error("service stopped", "error", err)
+	if err := run(context.Background(), logger, os.Args[1:]); err != nil {
+		logger.Error("convia stopped", "error", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
+/*
+run dispatches the requested command.
+
+The composition root loads configuration, builds dependencies, and owns the
+process lifecycle. Migrations are a separate command rather than a startup
+step, so that schema changes stay an explicit operational decision.
+*/
+func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
+	// Usage is answered before configuration is read, so that describing the
+	// commands never requires a configured database.
+	if len(arguments) > 0 {
+		switch arguments[0] {
+		case "help", "-h", "--help":
+			fmt.Print(usage)
+			return nil
+		case "migrate", "serve":
+		default:
+			fmt.Print(usage)
+			return fmt.Errorf("unknown command %q", arguments[0])
+		}
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	signalContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	if len(arguments) == 0 || arguments[0] == "serve" {
+		return serve(ctx, logger, cfg)
+	}
+
+	return migrate(ctx, logger, cfg, arguments[1:])
+}
+
+func migrate(ctx context.Context, logger *slog.Logger, cfg config.Config, arguments []string) error {
+	if len(arguments) != 1 {
+		fmt.Print(usage)
+		return errors.New("migrate requires exactly one of up, down, or status")
+	}
+
+	switch arguments[0] {
+	case "up":
+		return database.Migrate(ctx, cfg.Database.URL, logger)
+	case "down":
+		return database.Rollback(ctx, cfg.Database.URL, logger)
+	case "status":
+		return database.Status(ctx, cfg.Database.URL, logger)
+	default:
+		fmt.Print(usage)
+		return fmt.Errorf("unknown migrate command %q", arguments[0])
+	}
+}
+
+func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
+	signalContext, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	httpServer := server.New(cfg.Address(), logger)
+	pool, err := database.Open(signalContext, cfg.Database, logger)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer pool.Close()
+
+	httpServer := server.New(cfg.Address(), logger, pool)
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- httpServer.ListenAndServe()
 	}()
 
-	logger.Info("HTTP server starting", "address", httpServer.Addr)
+	logger.Info("HTTP server starting", "address", httpServer.Addr, "environment", cfg.Environment)
 
 	select {
 	case err := <-serverErrors:

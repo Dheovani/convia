@@ -36,10 +36,41 @@ jobs:
             exit 1
           fi
 
-      - name: Smoke test health endpoint
+      - name: Start PostgreSQL
         shell: bash
         run: |
-          container_id="$(docker run --detach --publish 127.0.0.1::8080 convia:ci)"
+          docker network create convia-ci
+          docker run --detach --name convia-ci-postgres --network convia-ci \
+            --env POSTGRES_USER=convia \
+            --env POSTGRES_PASSWORD=convia \
+            --env POSTGRES_DB=convia \
+            postgres:17-alpine
+
+          for _ in {1..30}; do
+            if docker exec convia-ci-postgres pg_isready --username=convia --dbname=convia >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "PostgreSQL did not become ready within 30 seconds"
+          exit 1
+
+      - name: Apply migrations using the image
+        env:
+          CONVIA_DATABASE_URL: postgres://convia:convia@convia-ci-postgres:5432/convia?sslmode=disable
+        run: |
+          docker run --rm --network convia-ci \
+            --env CONVIA_DATABASE_URL="${CONVIA_DATABASE_URL}" \
+            convia:ci migrate up
+
+      - name: Smoke test health and readiness
+        shell: bash
+        env:
+          CONVIA_DATABASE_URL: postgres://convia:convia@convia-ci-postgres:5432/convia?sslmode=disable
+        run: |
+          container_id="$(docker run --detach --network convia-ci --publish 127.0.0.1::8080 \
+            --env CONVIA_DATABASE_URL="${CONVIA_DATABASE_URL}" convia:ci)"
           trap 'docker logs "${container_id}" || true; docker rm --force "${container_id}" >/dev/null' EXIT
 
           host_port="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' "${container_id}")"
@@ -49,6 +80,12 @@ jobs:
                 echo "Unexpected health response: ${response}"
                 exit 1
               fi
+
+              readiness="$(curl --fail --silent --show-error "http://127.0.0.1:${host_port}/ready")"
+              if [[ "${readiness}" != '{"status":"ready","checks":{"database":"ok"}}' ]]; then
+                echo "Unexpected readiness response: ${readiness}"
+                exit 1
+              fi
               exit 0
             fi
             sleep 1
@@ -56,4 +93,10 @@ jobs:
 
           echo "Convia did not become healthy within 20 seconds"
           exit 1
+
+      - name: Stop PostgreSQL
+        if: always()
+        run: |
+          docker rm --force convia-ci-postgres >/dev/null 2>&1 || true
+          docker network rm convia-ci >/dev/null 2>&1 || true
 

@@ -22,12 +22,12 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M03 — API Specification and Compatibility Policy. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
+- **Current milestone:** M04 — PostgreSQL Foundation. The remaining M01 work is repository administration in GitHub settings rather than code: code scanning, branch protection, Dependabot alerts, and the signing policy.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** M04 — PostgreSQL Foundation, which starts together with the first persistence-requiring domain decision in M05
+- **Next implementation milestone:** M05 — Applications and Tenancy, building the domain, repository, service, and administrative endpoints on top of the applications table
 - **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health endpoint and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
-- **Current persistence capability:** none
+- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` table
 - **Current authentication capability:** none
 - **Current communication capability:** none
 - **Current media capability:** none
@@ -183,25 +183,26 @@ Complete these in order before starting feature development:
 ### M04 — PostgreSQL Foundation
 
 **Priority:** P0
-**Status:** Not started
+**Status:** In progress. The foundation is complete; M04-012 and M04-014 stay open by their own conditions.
 **Depends on:** M03 and the first persistence-requiring domain decision
 **Goal:** Introduce PostgreSQL only when a real durable resource is ready to be implemented.
+**Documentation:** [`docs/database.md`](docs/database.md), implemented by `internal/database`.
 
-- [ ] **M04-001:** Select a PostgreSQL driver based on current Go support and operational requirements.
-- [ ] **M04-002:** Select a migration tool with reversible and CI-friendly behavior.
-- [ ] **M04-003:** Add database URL configuration with no committed credentials.
-- [ ] **M04-004:** Add connection pool configuration with safe development defaults.
-- [ ] **M04-005:** Validate mandatory production database settings at startup.
-- [ ] **M04-006:** Establish migration filename and ordering conventions.
-- [ ] **M04-007:** Add a local PostgreSQL service through Docker Compose.
-- [ ] **M04-008:** Add an integration-test database isolated from developer data.
-- [ ] **M04-009:** Add migration-up verification in CI.
-- [ ] **M04-010:** Add migration-down or forward-recovery tests according to the chosen policy.
-- [ ] **M04-011:** Add readiness behavior that distinguishes process health from database availability.
+- [x] **M04-001:** Select a PostgreSQL driver based on current Go support and operational requirements. `pgx/v5` through `pgxpool`.
+- [x] **M04-002:** Select a migration tool with reversible and CI-friendly behavior. `goose/v3`, driven as a library with embedded SQL files.
+- [x] **M04-003:** Add database URL configuration with no committed credentials.
+- [x] **M04-004:** Add connection pool configuration with safe development defaults.
+- [x] **M04-005:** Validate mandatory production database settings at startup. Production requires a verified TLS mode.
+- [x] **M04-006:** Establish migration filename and ordering conventions.
+- [x] **M04-007:** Add a local PostgreSQL service through Docker Compose.
+- [x] **M04-008:** Add an integration-test database isolated from developer data. Each test creates and drops its own database.
+- [x] **M04-009:** Add migration-up verification in CI.
+- [x] **M04-010:** Add migration-down or forward-recovery tests according to the chosen policy.
+- [x] **M04-011:** Add readiness behavior that distinguishes process health from database availability.
 - [ ] **M04-012:** Add transaction helpers only after multiple operations need shared transaction ownership.
-- [ ] **M04-013:** Define SQL query timeouts and context cancellation behavior.
+- [x] **M04-013:** Define SQL query timeouts and context cancellation behavior.
 - [ ] **M04-014:** Instrument pool saturation and query latency when observability is introduced.
-- [ ] **M04-015:** Document backup, restore, and point-in-time recovery expectations before production.
+- [x] **M04-015:** Document backup, restore, and point-in-time recovery expectations before production.
 
 **Exit criteria:** Migrations and integration tests run repeatably, connection failures are explicit, and no domain schema leaks through the public API.
 
@@ -216,7 +217,7 @@ Complete these in order before starting feature development:
 - [ ] **M05-002:** Decide whether standalone Convia is represented by a first-party application record.
 - [ ] **M05-003:** Define application lifecycle states.
 - [ ] **M05-004:** Define immutable public application IDs.
-- [ ] **M05-005:** Add the applications database migration.
+- [x] **M05-005:** Add the applications database migration. The schema encodes the identifier format, the name bounds, and the lifecycle states; the transitions between them are implemented with the service.
 - [ ] **M05-006:** Add repository behavior for create, get, list, update, and lifecycle transitions.
 - [ ] **M05-007:** Add an application service enforcing invariants independently of HTTP.
 - [ ] **M05-008:** Add administrative HTTP endpoints only for immediately required operations.

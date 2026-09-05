@@ -9,11 +9,13 @@ import (
 	"convia/internal/api"
 )
 
-// routes builds the request multiplexer.
-//
-// It records the methods registered for every path so that unmatched methods
-// and unmatched paths answer with Convia's JSON error schema instead of the
-// plain-text defaults of net/http.
+/*
+routes builds the request multiplexer.
+
+It records the methods registered for every path so that unmatched methods
+and unmatched paths answer with Convia's JSON error schema instead of the
+plain-text defaults of net/http.
+*/
 type routes struct {
 	logger  *slog.Logger
 	mux     *http.ServeMux
@@ -28,9 +30,11 @@ func newRoutes(logger *slog.Logger) *routes {
 	}
 }
 
-// handle registers handler for one method and path.
-//
-// Registering GET also serves HEAD, matching net/http pattern semantics.
+/*
+handle registers handler for one method and path.
+
+Registering GET also serves HEAD, matching net/http pattern semantics.
+*/
 func (rt *routes) handle(method, path string, handler http.Handler) {
 	rt.mux.Handle(method+" "+path, handler)
 

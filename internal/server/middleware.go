@@ -11,12 +11,14 @@ import (
 	"convia/internal/api"
 )
 
-// requestID assigns every request a correlation identifier.
-//
-// A client-supplied identifier is reused when it is safe to echo; otherwise a
-// new one is generated. The identifier is stored in the request context,
-// returned in the response header, and included in structured logs and error
-// responses.
+/*
+requestID assigns every request a correlation identifier.
+
+A client-supplied identifier is reused when it is safe to echo; otherwise a
+new one is generated. The identifier is stored in the request context,
+returned in the response header, and included in structured logs and error
+responses.
+*/
 func requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		identifier := api.NormalizeRequestID(request.Header.Get(api.RequestIDHeader))
@@ -46,11 +48,13 @@ func logRequest(logger *slog.Logger, next http.Handler) http.Handler {
 	})
 }
 
-// recoverPanic converts an unexpected panic into a generic JSON error.
-//
-// The panic value and stack are logged for operators; clients never receive
-// internal details. http.ErrAbortHandler keeps its documented meaning and is
-// propagated to net/http.
+/*
+recoverPanic converts an unexpected panic into a generic JSON error.
+
+The panic value and stack are logged for operators; clients never receive
+internal details. http.ErrAbortHandler keeps its documented meaning and is
+propagated to net/http.
+*/
 func recoverPanic(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		defer func() {

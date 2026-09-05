@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,10 +20,12 @@ import (
 // specificationPath locates the API contract relative to this package.
 var specificationPath = filepath.Join("..", "..", "api", "openapi.yaml")
 
-// loadSpecification parses and validates the API specification.
-//
-// Loading it in the test suite keeps contract validation in `go test`, so it
-// runs locally and in CI without a separate toolchain.
+/*
+loadSpecification parses and validates the API specification.
+
+Loading it in the test suite keeps contract validation in `go test`, so it
+runs locally and in CI without a separate toolchain.
+*/
 func loadSpecification(t *testing.T) *openapi3.T {
 	t.Helper()
 
@@ -60,7 +63,7 @@ func TestSpecificationMatchesRoutes(t *testing.T) {
 		}
 	}
 
-	for _, entry := range routeTable(logger) {
+	for _, entry := range routeTable(logger, stubProber{}) {
 		key := entry.method + " " + entry.path
 		if _, exists := documented[key]; !exists {
 			t.Errorf("route %s is implemented but missing from %s", key, specificationPath)
@@ -121,6 +124,33 @@ func TestHealthResponseMatchesSpecification(t *testing.T) {
 
 	operation := document.Paths.Find("/health").Get
 	assertBodyMatchesSchema(t, responseSchema(t, operation.Responses.Status(http.StatusOK)), response.Body.Bytes())
+}
+
+// TestReadinessResponsesMatchSpecification covers both documented outcomes.
+func TestReadinessResponsesMatchSpecification(t *testing.T) {
+	document := loadSpecification(t)
+	operation := document.Paths.Find("/ready").Get
+
+	tests := map[string]struct {
+		database Prober
+		status   int
+	}{
+		"ready":       {stubProber{}, http.StatusOK},
+		"unavailable": {stubProber{err: errors.New("unreachable")}, http.StatusServiceUnavailable},
+	}
+
+	for name, test := range tests {
+		t.Run(name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+			response := httptest.NewRecorder()
+			newTestServer(test.database).Handler.ServeHTTP(response, request)
+
+			if response.Code != test.status {
+				t.Fatalf("status code = %d, want %d", response.Code, test.status)
+			}
+			assertBodyMatchesSchema(t, responseSchema(t, operation.Responses.Status(test.status)), response.Body.Bytes())
+		})
+	}
 }
 
 // TestErrorResponsesMatchSpecification validates real failure responses against

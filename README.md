@@ -6,7 +6,7 @@ Convia owns its public API and domain model. Media infrastructure, including the
 
 ## Status
 
-The project currently contains the Go backend foundation and its HTTP transport baseline: environment-based configuration, process lifecycle management, graceful shutdown, a health endpoint, request correlation identifiers, structured access logs, panic recovery, and a single JSON error schema. Calls, rooms, authentication, persistence, real-time events, and media integration are intentionally not implemented yet.
+The project currently contains the Go backend foundation, its HTTP transport baseline, and its PostgreSQL foundation: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, and reversible schema migrations. Calls, rooms, authentication, real-time events, and media integration are intentionally not implemented yet.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 
@@ -19,28 +19,39 @@ The public API is specified in [`api/openapi.yaml`](api/openapi.yaml), an OpenAP
 ## Prerequisites
 
 - Go 1.26.6, as declared in `go.mod`
-- Docker, optionally, for a container build
+- Docker, for the local PostgreSQL instance and for a container build
 
 ## Run
 
-Start the service with development defaults (`0.0.0.0:8080`):
+Convia requires PostgreSQL. Start it, apply the migrations, then start the service on its development defaults (`0.0.0.0:8080`):
 
 ```sh
+docker compose up -d
+export CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable"
+go run ./cmd/convia migrate up
 go run ./cmd/convia
 ```
 
 Configuration is available through these environment variables:
 
+- `CONVIA_ENVIRONMENT` selects `development` or `production` validation. The default is `development`.
 - `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
 - `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
+- `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
+- `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
+- `CONVIA_DATABASE_CONNECT_TIMEOUT` bounds establishing a connection. The default is `5s`.
+- `CONVIA_DATABASE_QUERY_TIMEOUT` bounds a single query. The default is `5s`.
+
+In production, `CONVIA_DATABASE_URL` must request a verified TLS mode. [`docs/database.md`](docs/database.md) documents the database setup, the migration workflow, and the testing model.
 
 Check the running service:
 
 ```sh
-curl http://localhost:8080/health
+curl http://localhost:8080/health   # process liveness, never touches the database
+curl http://localhost:8080/ready    # dependency readiness, 503 when PostgreSQL is unreachable
 ```
 
-The health endpoint is operational rather than public, so it is served outside the `/v1` public API prefix. Every response carries an `X-Request-ID` header, and every failure uses the JSON error schema:
+Operational endpoints are served outside the `/v1` public API prefix. Every response carries an `X-Request-ID` header, and every failure uses the JSON error schema:
 
 ```sh
 curl -i http://localhost:8080/v1/rooms
@@ -61,6 +72,15 @@ curl -i http://localhost:8080/v1/rooms
 ```sh
 go test ./...
 ```
+
+Database tests are skipped unless a PostgreSQL instance is provided. Include them with:
+
+```sh
+docker compose up -d
+CONVIA_TEST_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable" go test ./...
+```
+
+Each database test creates and drops its own database, so runs never share state.
 
 ## Build
 

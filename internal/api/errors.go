@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 )
+
 /*
 ErrorCode is a stable, machine-readable identifier for a public failure.
 
@@ -96,7 +97,7 @@ func WriteError(response http.ResponseWriter, request *http.Request, status int,
 		Code:    code,
 		Message: message,
 	}}
-	
+
 	if request != nil {
 		body.Error.RequestID = RequestIDFromContext(request.Context())
 	}

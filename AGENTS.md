@@ -232,6 +232,24 @@ go build ./...
 
 unless a task explicitly makes one of these commands inapplicable.
 
+### Comments
+
+Use `//` for comments of one or two lines.
+
+Use a `/* */` block for comments of three or more lines, with the text starting at the left margin inside the block and without leading asterisks:
+
+```go
+/*
+ErrorCode is a stable, machine-readable identifier for a public failure.
+
+Codes are part of Convia's public contract: clients may branch on them, so
+existing codes must not change meaning.
+*/
+type ErrorCode string
+```
+
+This applies to documentation comments and inline comments, in production code and in tests.
+
 ### Naming
 
 Use concise, descriptive Go names.

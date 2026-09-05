@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 )
 
-// RequestIDHeader carries the correlation identifier of a request and of its
-// response. Clients may supply their own value; Convia replaces unacceptable
-// values with a generated one.
+/*
+RequestIDHeader carries the correlation identifier of a request and of its
+response. Clients may supply their own value; Convia replaces unacceptable
+values with a generated one.
+*/
 const RequestIDHeader = "X-Request-ID"
 
 // maxRequestIDLength bounds client-supplied correlation identifiers so that
@@ -35,12 +37,14 @@ func NewRequestID() string {
 	return rand.Text()
 }
 
-// NormalizeRequestID returns a correlation identifier safe to echo and log.
-//
-// A client-supplied value is preserved only when it is non-empty, within the
-// accepted length, and limited to unreserved identifier characters. Any other
-// value is replaced by a freshly generated identifier so that logs and
-// response headers cannot be poisoned by untrusted input.
+/*
+NormalizeRequestID returns a correlation identifier safe to echo and log.
+
+A client-supplied value is preserved only when it is non-empty, within the
+accepted length, and limited to unreserved identifier characters. Any other
+value is replaced by a freshly generated identifier so that logs and
+response headers cannot be poisoned by untrusted input.
+*/
 func NormalizeRequestID(value string) string {
 	if value == "" || len(value) > maxRequestIDLength {
 		return NewRequestID()

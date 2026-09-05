@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,8 +15,26 @@ import (
 	"convia/internal/api"
 )
 
+/*
+stubProber reports a fixed dependency result.
+
+It keeps every transport test independent from PostgreSQL; the real pool is
+exercised by the database integration tests.
+*/
+type stubProber struct {
+	err error
+}
+
+func (probe stubProber) Ping(context.Context) error {
+	return probe.err
+}
+
 func newTestHandler() http.Handler {
-	return New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil))).Handler
+	return newTestServer(stubProber{}).Handler
+}
+
+func newTestServer(database Prober) *http.Server {
+	return New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), database)
 }
 
 func TestHealthEndpoint(t *testing.T) {
@@ -121,8 +142,62 @@ func TestErrorResponseCarriesRequestID(t *testing.T) {
 	}
 }
 
+func TestReadinessReportsReadyDependencies(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	response := httptest.NewRecorder()
+
+	newTestHandler().ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
+	}
+	if body := strings.TrimSpace(response.Body.String()); body != `{"status":"ready","checks":{"database":"ok"}}` {
+		t.Errorf("body = %q, want the database reported as ok", body)
+	}
+}
+
+/*
+TestReadinessReportsUnreachableDatabase proves that a dependency outage removes
+the instance from rotation without exposing why it failed.
+*/
+func TestReadinessReportsUnreachableDatabase(t *testing.T) {
+	failure := errors.New("dial tcp 10.0.0.5:5432: connection refused")
+	logs := &bytes.Buffer{}
+	handler := New("127.0.0.1:0", slog.New(slog.NewJSONHandler(logs, nil)), stubProber{err: failure}).Handler
+
+	request := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Errorf("status code = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	if body := strings.TrimSpace(response.Body.String()); body != `{"status":"unavailable","checks":{"database":"unavailable"}}` {
+		t.Errorf("body = %q, want the database reported as unavailable", body)
+	}
+	if strings.Contains(response.Body.String(), "10.0.0.5") {
+		t.Errorf("body = %q, want no infrastructure detail", response.Body.String())
+	}
+	if !strings.Contains(logs.String(), "connection refused") {
+		t.Error("the readiness failure was not logged")
+	}
+}
+
+// Liveness must not depend on a dependency, or an outage restarts healthy processes.
+func TestHealthIgnoresDependencyFailures(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), stubProber{err: errors.New("down")}).Handler
+
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
 func TestServerAppliesTimeouts(t *testing.T) {
-	httpServer := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	httpServer := newTestServer(stubProber{})
 
 	if httpServer.ReadHeaderTimeout != readHeaderTimeout {
 		t.Errorf("ReadHeaderTimeout = %s, want %s", httpServer.ReadHeaderTimeout, readHeaderTimeout)

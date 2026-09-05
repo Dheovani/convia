@@ -14,13 +14,18 @@ Convia is source-available rather than open source: it is free for personal and 
 ## Development Environment
 
 - Go, at the version declared in [`go.mod`](go.mod). The Go toolchain downloads the exact patch release automatically.
-- Docker, optionally, to build and smoke test the container image.
-- No database or media server is required yet; the service runs standalone.
+- Docker, for the local PostgreSQL instance and to build the container image.
+- No media server is required yet.
 
 ```sh
+docker compose up -d
+export CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable"
+go run ./cmd/convia migrate up
 go run ./cmd/convia
-curl http://localhost:8080/health
+curl http://localhost:8080/ready
 ```
+
+[`docs/database.md`](docs/database.md) covers the migration conventions and the testing model.
 
 ## Local Checks
 
@@ -31,6 +36,12 @@ gofmt -l .        # must print nothing
 go vet ./...
 go test ./...
 go build ./...
+```
+
+Database tests are skipped unless PostgreSQL is available. Run them before touching anything under `internal/database`:
+
+```sh
+CONVIA_TEST_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable" go test ./...
 ```
 
 CI additionally runs the race detector, Staticcheck, `govulncheck`, and Actionlint. To match it locally:
@@ -90,6 +101,7 @@ Branch protection on `main` requires these checks:
 | Workflow    | Check                        | What it covers                                                             |
 | ----------- | ---------------------------- | -------------------------------------------------------------------------- |
 | `CI`        | `Validate Go project`        | Actionlint, formatting, `go vet`, Staticcheck, race tests, coverage, build |
+| `CI`        | `Integration tests`          | Tests against PostgreSQL, and migrations applied, reverted, and reapplied  |
 | `Security`  | `Go vulnerability scan`      | `govulncheck` against the module and the Go toolchain                       |
 | `Container` | `Build and smoke test image` | Image build, non-root runtime user, containerized health check              |
 

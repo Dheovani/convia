@@ -66,3 +66,51 @@ jobs:
 
       - name: Build all packages
         run: go build ./...
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: convia
+          POSTGRES_PASSWORD: convia
+          POSTGRES_DB: convia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username=convia --dbname=convia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CONVIA_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
+      CONVIA_TEST_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests against PostgreSQL
+        run: go test -count=1 -race -shuffle=on ./...
+
+      - name: Verify migrations apply to an empty database
+        run: go run ./cmd/convia migrate up
+
+      - name: Verify migrations revert
+        run: go run ./cmd/convia migrate down
+
+      - name: Verify migrations reapply after a rollback
+        run: go run ./cmd/convia migrate up

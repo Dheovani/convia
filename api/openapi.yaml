@@ -58,8 +58,71 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /ready:
+    get:
+      operationId: getReadiness
+      tags: [Operations]
+      summary: Report whether the service can handle traffic
+      description: |
+        Reports whether Convia's dependencies are usable right now.
+
+        Unlike `/health`, this endpoint checks dependencies, so an orchestrator
+        should route traffic on readiness and restart on liveness. A failing
+        check names the dependency but never explains the failure, because the
+        reason would expose infrastructure detail. It is written to the logs
+        instead, correlated by request ID.
+      x-lifecycle: stable
+      responses:
+        "200":
+          description: Every dependency is usable.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+              example:
+                status: ready
+                checks:
+                  database: ok
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: At least one dependency is unusable.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+              example:
+                status: unavailable
+                checks:
+                  database: unavailable
+
 components:
   schemas:
+    Readiness:
+      type: object
+      description: Readiness of Convia and of each dependency it requires.
+      required: [status, checks]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          description: Aggregate readiness. `ready` only when every check passes.
+          enum: [ready, unavailable]
+        checks:
+          type: object
+          description: Result of each dependency check, keyed by dependency name.
+          additionalProperties:
+            type: string
+            enum: [ok, unavailable]
+
     Health:
       type: object
       description: Health of the Convia process.

@@ -10,24 +10,28 @@ import (
 	"strings"
 )
 
-// MaxJSONRequestBytes bounds the size of a decoded JSON request body.
-//
-// Endpoints that must accept larger payloads have to opt in explicitly rather
-// than raising this shared limit.
+/*
+MaxJSONRequestBytes bounds the size of a decoded JSON request body.
+
+Endpoints that must accept larger payloads have to opt in explicitly rather
+than raising this shared limit.
+*/
 const MaxJSONRequestBytes = 1 << 20 // 1 MiB
 
 // maxReportedFieldLength bounds how much client-supplied field text is echoed
 // back in an error message.
 const maxReportedFieldLength = 64
 
-// DecodeJSON reads a single JSON value from the request body into target.
-//
-// It enforces the shared transport rules for JSON endpoints: the request must
-// declare a JSON content type, the body is bounded, unknown fields are
-// rejected, and the body must contain exactly one JSON value. Every failure is
-// reported as a public Failure, never as a raw decoder error.
-//
-// DecodeJSON returns nil on success.
+/*
+DecodeJSON reads a single JSON value from the request body into target.
+
+It enforces the shared transport rules for JSON endpoints: the request must
+declare a JSON content type, the body is bounded, unknown fields are
+rejected, and the body must contain exactly one JSON value. Every failure is
+reported as a public Failure, never as a raw decoder error.
+
+DecodeJSON returns nil on success.
+*/
 func DecodeJSON(response http.ResponseWriter, request *http.Request, target any) *Failure {
 	if failure := requireJSONContentType(request); failure != nil {
 		return failure
@@ -104,9 +108,11 @@ func decodeFailure(err error) *Failure {
 	}
 }
 
-// unknownField reports whether err is the standard library's unknown-field
-// error and extracts the offending field name. encoding/json does not expose a
-// typed error for this case.
+/*
+unknownField reports whether err is the standard library's unknown-field
+error and extracts the offending field name. encoding/json does not expose a
+typed error for this case.
+*/
 func unknownField(err error) (string, bool) {
 	const prefix = "json: unknown field "
 
