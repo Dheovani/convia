@@ -97,6 +97,22 @@ func (stub stubUsers) List(context.Context, string, users.ListOptions) (users.Pa
 	return stub.page, stub.err
 }
 
+func (stub stubUsers) Update(context.Context, string, string, users.Attributes, string) (users.User, error) {
+	return stub.user, stub.err
+}
+
+func (stub stubUsers) Suspend(context.Context, string, string) (users.User, error) {
+	return stub.user, stub.err
+}
+
+func (stub stubUsers) Activate(context.Context, string, string) (users.User, error) {
+	return stub.user, stub.err
+}
+
+func (stub stubUsers) Delete(context.Context, string, string) error {
+	return stub.err
+}
+
 // sampleUser is a realistic user for transport-level tests.
 func sampleUser() users.User {
 	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)

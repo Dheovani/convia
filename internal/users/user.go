@@ -63,6 +63,22 @@ was wrong, without either answer revealing anything about another tenant.
 var ErrApplicationNotFound = errors.New("application not found")
 
 /*
+ErrPreconditionFailed reports that a conditional update no longer describes the
+stored user, because something changed between the read and the write.
+*/
+var ErrPreconditionFailed = errors.New("user precondition failed")
+
+/*
+ErrSubjectDeleted reports that an external subject still belongs to a deleted
+user awaiting erasure.
+
+The mapping is unique regardless of status, so the subject stays taken until
+erasure frees it. Resolving it again is refused rather than reviving the user,
+because a deletion must not be undone by a routine login.
+*/
+var ErrSubjectDeleted = errors.New("external subject belongs to a deleted user")
+
+/*
 Status is the lifecycle state of a user.
 
 It mirrors the application lifecycle so that operators reason about one set of

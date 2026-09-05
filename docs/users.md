@@ -82,11 +82,38 @@ A user identifier that is unknown, malformed, deleted, or **belongs to another a
 
 Requests for an application Convia does not serve are refused before the users table is touched at all.
 
+## Updating Attributes
+
+```http
+PATCH /v1/applications/{application_id}/users/{user_id}
+{"display_name": "Ada King"}
+```
+
+Changing what the application owns is an **explicit** operation, separate from resolving, so a routine login can never overwrite a correction.
+
+The update is **partial**: only the fields present in the body change, and an omitted field keeps its stored value. An explicitly empty value is a change rather than an omission — `"display_name": ""` clears the name, and `"metadata": {}` clears the metadata. A body that changes nothing is rejected rather than costing a write and an audit record.
+
+**Metadata is replaced, not merged.** The object sent becomes the stored object, which is how a key is removed. Merging would make removal impossible without a second convention, and would leave the stored shape dependent on the order of requests.
+
+Send the `ETag` from a previous read as `If-Match` to make the change conditional. The version is checked before the write and repeated inside the `UPDATE` itself, so a change arriving in between is refused with `412` too. The header is optional: without it, the last write wins.
+
 ## Lifecycle and Erasure
 
-Users carry the same three states as applications: `active`, `suspended`, `deleted`. Suspension withdraws access while retaining data; deletion removes the user from the API and retains the row for the erasure window.
+Users carry the same three states as applications: `active`, `suspended`, `deleted`. Suspension withdraws access while retaining data; deletion removes the user from the API and retains the row for the erasure window. Both transitions are idempotent — repeating one changes nothing, reports success, and records no second audit event.
 
-The `(application_id, external_subject)` mapping is unique **regardless of status**, including while a user is deleted. A deleted subject therefore cannot be silently resurrected by resolving it again, and cannot point at two Convia users. Erasure at the end of the retention window frees the subject.
+```http
+POST /v1/applications/{application_id}/users/{user_id}/suspend
+POST /v1/applications/{application_id}/users/{user_id}/activate
+DELETE /v1/applications/{application_id}/users/{user_id}
+```
+
+**Suspension keeps the mapping.** Resolving a suspended subject returns that user with its status, so the application can see the state it set rather than accidentally creating a second user for the same person.
+
+**Deletion is terminal until erasure.** A deleted user cannot be updated or activated, and is reported as missing by every read.
+
+The `(application_id, external_subject)` mapping is unique **regardless of status**, including while a user is deleted. So a deleted subject stays reserved: resolving it again is refused with `409 conflict` rather than reviving the user or creating a second one. Reviving would let a routine login undo a deletion the application asked for, and returning the deleted user would contradict every other endpoint, which reports it as missing. Erasure at the end of the retention window frees the subject.
+
+The reservation is scoped to the application, as everything else is: deleting a subject in one application leaves the same subject in another untouched.
 
 Data export and erasure boundaries follow from ownership:
 
@@ -104,7 +131,6 @@ This keeps one code path for participation. When the standalone interface is bui
 
 ## Not Yet Implemented
 
-- updating a display name or metadata, and the lifecycle transitions, which follow immediately;
 - authentication, which will let an application address its own users without naming itself in the path;
-- the erasure job that acts at the end of the retention window;
-- suspension enforcement during calls, which needs the call domain in M09.
+- the erasure job that acts at the end of the retention window, which is what eventually frees a deleted subject;
+- suspension enforcement during calls, which needs the call domain in M09. Suspension currently records the state and withdraws nothing, because there is no call to withdraw from yet.

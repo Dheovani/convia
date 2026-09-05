@@ -368,6 +368,11 @@ paths:
 
         The response is `201` when the mapping was created and `200` when it
         already existed.
+
+        A subject whose user was deleted stays reserved until erasure, so
+        resolving it again is refused with `409` rather than reviving the user.
+        A suspended user is returned normally, with its status, so the
+        application can see the state it set.
       x-lifecycle: experimental
       parameters:
         - $ref: "#/components/parameters/ApplicationID"
@@ -411,6 +416,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "413":
           $ref: "#/components/responses/PayloadTooLarge"
         "415":
@@ -477,6 +484,150 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: updateUser
+      tags: [Users]
+      summary: Update a user's attributes
+      description: |
+        Changes the attributes the application owns.
+
+        Only the fields present in the body change, so a display name can be
+        corrected without restating metadata. Metadata is replaced rather than
+        merged: the object sent becomes the stored object, which is how a key
+        is removed.
+
+        Send the `ETag` from a previous read as `If-Match` to make the change
+        conditional: the update then applies only while nothing else has
+        changed, and is rejected with `412` otherwise. The header is optional,
+        and without it the last write wins.
+
+        A deleted user cannot be updated and is reported as missing.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+            example:
+              display_name: Ada King
+              metadata:
+                plan: enterprise
+      responses:
+        "200":
+          description: The updated user.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteUser
+      tags: [Users]
+      summary: Delete a user
+      description: |
+        Removes a user from the API surface.
+
+        The record is retained for the erasure window rather than destroyed, so
+        the deletion stays recoverable. Deleting a user that is already deleted
+        succeeds, because a repeated delete must not fail.
+
+        The `external_subject` stays reserved by the deleted user until erasure
+        frees it, so resolving that subject again is refused with `409` rather
+        than reviving the user.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The user was deleted.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/users/{user_id}/suspend:
+    post:
+      operationId: suspendUser
+      tags: [Users]
+      summary: Suspend a user
+      description: |
+        Withdraws a user's access without losing data. The record is retained
+        until the user is activated again.
+
+        Suspending an already-suspended user changes nothing and reports
+        success, so a repeated request is safe.
+
+        Suspension does not free the external subject: resolving it returns the
+        suspended user, so the application can see the state it set.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          $ref: "#/components/responses/UserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/users/{user_id}/activate:
+    post:
+      operationId: activateUser
+      tags: [Users]
+      summary: Activate a user
+      description: |
+        Restores a suspended user to normal service.
+
+        Activating an already-active user changes nothing and reports success,
+        so a repeated request is safe. A deleted user cannot be activated and is
+        reported as missing.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          $ref: "#/components/responses/UserState"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -561,6 +712,27 @@ components:
             does not need.
           minLength: 1
           maxLength: 255
+        display_name:
+          type: string
+          description: Optional display name, owned by the application.
+          maxLength: 120
+        metadata:
+          $ref: "#/components/schemas/UserMetadata"
+
+    UpdateUserRequest:
+      type: object
+      description: |
+        The accepted body when changing the attributes an application owns.
+
+        Only the fields present in the body change; an omitted field keeps its
+        stored value. Sending `display_name` as an empty string clears it, and
+        `metadata` is replaced wholesale rather than merged, so a key is removed
+        by sending the object without it.
+
+        At least one field must be present.
+      minProperties: 1
+      additionalProperties: false
+      properties:
         display_name:
           type: string
           description: Optional display name, owned by the application.
@@ -719,6 +891,7 @@ components:
         - not_found
         - method_not_allowed
         - precondition_failed
+        - conflict
         - internal_error
 
     Error:
@@ -902,6 +1075,35 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Application"
+
+    UserState:
+      description: The user, after the requested lifecycle change.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+        ETag:
+          $ref: "#/components/headers/ETag"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/User"
+
+    Conflict:
+      description: |
+        The request is valid but cannot be satisfied in the current state of the
+        resource, and repeating it unchanged will not help.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: conflict
+              message: The external subject belongs to a deleted user and stays reserved until erasure.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     PreconditionFailed:
       description: |

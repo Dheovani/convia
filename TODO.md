@@ -22,10 +22,11 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M06 — External Users and Identity Mapping. The only remaining M01 item is M01-025, the decision on signed commits or signed tags.
+- **Current milestone:** M07 — Authentication, Credentials, and Authorization. Phase 0 and M06 are complete.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** the remainder of M06 — user attribute updates and lifecycle transitions — followed by M07 — Authentication, Credentials, and Authorization
+- **Next implementation milestone:** M07 — Authentication, Credentials, and Authorization, which removes the `CONVIA_ADMIN_API` gate and lets an application address its own users without naming itself in the path
 - **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the administrative API, which is disabled by default and refused in production until authentication exists
+- **Current identity capability:** an application's people can be resolved into Convia users, listed, retrieved, updated with optimistic concurrency, suspended, activated, and deleted, all scoped to the owning application and nested under it until authentication can infer the tenant
 - **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the administrative application and user endpoints, and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` and `users` tables
@@ -47,7 +48,7 @@ Complete these in order before starting feature development:
 6. [x] **NEXT-006:** Enable GitHub code scanning where the repository plan and visibility support it. The repository is public, so the CodeQL job runs unconditionally.
 7. [x] **NEXT-007:** Configure branch protection to require successful CI, security, and container checks.
 8. [x] **NEXT-008:** Enable Dependabot alerts and review the first scheduled update run.
-9. [ ] **NEXT-009:** Decide whether pull requests require one approving review before merge.
+9. [x] **NEXT-009:** Decide whether pull requests require one approving review before merge. One approval is required, in a `require-approval` ruleset that repository admins bypass for pull requests only. The checks, linear history, and force-push rules live in a separate `main-protection` ruleset with an empty bypass list, so they bind maintainers too.
 10. [x] **NEXT-010:** Begin M02 only after the default branch has a green hosted build.
 
 ---
@@ -109,7 +110,7 @@ Complete these in order before starting feature development:
 - [x] **M01-022:** Enable code scanning and confirm CodeQL results reach the Security tab. The repository is public, so CodeQL runs on every push and pull request.
 - [x] **M01-023:** Configure default-branch protection with required status checks.
 - [x] **M01-024:** Require branches to be current before merge.
-- [ ] **M01-025:** Decide whether signed commits or signed tags are required.
+- [x] **M01-025:** Decide whether signed commits or signed tags are required. Commits are signed locally with an SSH signing key, and a tag ruleset requires signed tags. Signed commits are deliberately not enforced on branches: squash merges replace an author's commits with one that GitHub signs using its own key, so the rule would attest to GitHub's signature rather than the author's. Enforce it once a second contributor exists.
 - [x] **M01-026:** Add a pull request template with test, security, API, migration, and documentation checkboxes.
 - [x] **M01-027:** Add issue templates for bugs, features, and security-safe reports.
 - [x] **M01-028:** Add `SECURITY.md` with private vulnerability reporting instructions.
@@ -249,7 +250,7 @@ Complete these in order before starting feature development:
 - [x] **M06-005:** Set strict size and shape limits for application-provided metadata.
 - [x] **M06-006:** Add user and identity-mapping migrations. One table suffices because users are never linked across applications.
 - [x] **M06-007:** Add create-or-resolve behavior with idempotent semantics.
-- [ ] **M06-008:** Add suspension and deletion behavior.
+- [x] **M06-008:** Add suspension and deletion behavior. Both transitions are idempotent, deletion is terminal until erasure, and attribute updates arrived with it as `PATCH` with optional `If-Match`. A deleted external subject stays reserved, so resolving it again is refused with `409 conflict` rather than reviving the user.
 - [x] **M06-009:** Prevent cross-application identity enumeration.
 - [x] **M06-010:** Add tests for duplicate mappings and concurrent creation.
 - [x] **M06-011:** Define data export and erasure boundaries.
