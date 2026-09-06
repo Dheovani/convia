@@ -14,6 +14,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/applications"
 	"convia/internal/config"
+	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/server"
 	"convia/internal/users"
@@ -102,14 +103,28 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	defer pool.Close()
 
-	dependencies := server.Dependencies{Database: pool}
+	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
+
+	/*
+		The tenant-facing surface is authenticated by an application's own
+		credential, so it is always served. The operator surface still is not,
+		which is why it stays behind the gate.
+	*/
+	dependencies := server.Dependencies{
+		Database:          pool,
+		Authenticator:     credentialService,
+		TenantUsers:       users.NewTenantHandler(logger, userService),
+		TenantCredentials: credentials.NewTenantHandler(logger, credentialService),
+	}
+
 	if cfg.AdminAPI {
-		applicationService := applications.NewService(applications.NewStore(pool), logger)
-
 		dependencies.Applications = applications.NewHandler(logger, applicationService)
-		dependencies.Users = users.NewHandler(logger, users.NewService(users.NewStore(pool), applicationService, logger))
+		dependencies.Users = users.NewHandler(logger, userService)
+		dependencies.Credentials = credentials.NewHandler(logger, credentialService)
 
-		logger.Warn("the administrative API is enabled and is not authenticated yet",
+		logger.Warn("the operator API is enabled and is not authenticated yet",
 			"endpoints", api.Prefix+"/applications")
 	}
 

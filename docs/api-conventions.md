@@ -44,6 +44,8 @@ Adding a code is an additive change. Changing the meaning of an existing code is
 | ------------------------ | ------ | ---------------------------------------------------------------------- |
 | `invalid_request`        | 400    | Valid JSON that violates the endpoint contract, such as an unknown field |
 | `malformed_json`         | 400    | Body that is not valid JSON, or a value with an unexpected JSON type    |
+| `unauthenticated`        | 401    | No usable credential; every reason a key can fail produces this one code |
+| `forbidden`              | 403    | Valid credential lacking the scope the operation requires               |
 | `not_found`              | 404    | Unknown route or missing resource                                       |
 | `method_not_allowed`     | 405    | Known route addressed with an unsupported method; `Allow` is returned   |
 | `conflict`               | 409    | Valid request that the current state of the resource cannot satisfy      |
@@ -53,6 +55,8 @@ Adding a code is an additive change. Changing the meaning of an existing code is
 | `internal_error`         | 500    | Unexpected server-side condition                                        |
 
 `conflict` differs from `precondition_failed`: a precondition failure means the client acted on a stale copy and should re-read and retry, while a conflict means the request cannot be satisfied in the current state at all, so repeating it unchanged will not help.
+
+`forbidden` differs from `unauthenticated` in what would fix it: a `401` needs a different credential, a `403` needs a broader grant on the one already presented. See [`authentication.md`](authentication.md).
 
 ## Request correlation
 

@@ -29,20 +29,33 @@ tags:
       public product interface.
   - name: Applications
     description: |
-      Administrative endpoints for Convia's tenants.
+      Operator endpoints for Convia's tenants.
 
-      These endpoints have no authentication yet, so they are served only when
-      an operator explicitly sets `CONVIA_ADMIN_API=enabled`, which is refused
-      in production. They exist to bootstrap the first applications and will
-      require credentials and administrative scopes once M07 lands.
+      An application's own key must not be able to create tenants, and operator
+      credentials do not exist yet, so these endpoints are still
+      unauthenticated. They are served only when an operator explicitly sets
+      `CONVIA_ADMIN_API=enabled`, which is refused in production. They exist to
+      bootstrap the first application and its first credential.
+  - name: Credentials
+    description: |
+      The API keys an application authenticates with.
+
+      A credential is an opaque bearer key carrying explicit scopes. Convia
+      stores only a digest of the secret, so the secret is returned exactly once
+      and can never be shown again.
+
+      An application manages its own keys under `/v1/credentials`, using a key
+      it already holds. The operator routes under `/v1/applications/{id}` exist
+      to issue the first one, which is a bootstrap an application cannot
+      perform for itself, and they stay behind the `CONVIA_ADMIN_API` gate.
   - name: Users
     description: |
       The people an application knows about.
 
-      Users are nested under their application because Convia cannot yet infer
-      the tenant from a credential. Once M07 lands, an application will address
-      its own users without naming itself in the path, and these operator-facing
-      routes will remain for administrative use.
+      An application addresses its own users under `/v1/users`, with the tenant
+      taken from its credential rather than named in the path. The routes nested
+      under `/v1/applications/{id}/users` are the operator-facing equivalents
+      and remain behind the `CONVIA_ADMIN_API` gate.
 
       Convia never links users across applications: the same human known to two
       applications is two unrelated Convia users.
@@ -610,6 +623,149 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/applications/{application_id}/credentials:
+    post:
+      operationId: issueCredential
+      tags: [Credentials]
+      summary: Issue a credential
+      description: |
+        Issues an API key for the application and returns its secret.
+
+        **The secret is shown exactly once, in this response.** Convia stores
+        only a digest of it, so it cannot be shown again, recovered, or reset —
+        a lost secret is replaced by issuing another credential and revoking
+        this one.
+
+        Scopes are required. A credential never carries implicit access, so a
+        request without scopes is rejected rather than defaulted.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueCredentialRequest"
+            example:
+              name: Production backend
+              scopes: [users:read, users:write]
+      responses:
+        "201":
+          description: The credential, together with its secret, for the only time.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedCredential"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listCredentials
+      tags: [Credentials]
+      summary: List an application's credentials
+      description: |
+        Returns one page of the application's credentials, newest first, never
+        their secrets.
+
+        Revoked and expired credentials are listed alongside active ones: a
+        withdrawn key is an operational fact an operator needs to see.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of credentials.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/credentials/{credential_id}:
+    get:
+      operationId: getCredential
+      tags: [Credentials]
+      summary: Retrieve a credential
+      description: |
+        Returns one credential of the application, never its secret.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/CredentialID"
+      responses:
+        "200":
+          description: The requested credential.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: revokeCredential
+      tags: [Credentials]
+      summary: Revoke a credential
+      description: |
+        Withdraws a credential immediately.
+
+        There is no grace period: the next request presenting the key fails,
+        because every authentication reads the stored record. Revoking an
+        already-revoked credential succeeds, because a repeated request must
+        not fail.
+
+        The record is retained rather than deleted, so that an operator can
+        still see what was issued and when it was withdrawn.
+      x-lifecycle: experimental
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/CredentialID"
+      responses:
+        "204":
+          description: The credential was revoked.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/applications/{application_id}/users/{user_id}/activate:
     post:
       operationId: activateUser
@@ -635,7 +791,481 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/users:
+    post:
+      operationId: resolveOwnUser
+      tags: [Users]
+      summary: Resolve one of your own people into a Convia user
+      description: |
+        Maps one of the calling application's people to a Convia user, creating
+        the mapping the first time it is seen.
+
+        The application is taken from the credential, so no identifier for it
+        appears in the path and a caller cannot address another application's
+        users at all.
+
+        Requires the `users:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:write]
+      security:
+        - ApplicationKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveUserRequest"
+            example:
+              external_subject: customer-42
+              display_name: Ada Lovelace
+      responses:
+        "200":
+          description: The mapping already existed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "201":
+          description: The mapping was created.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listOwnUsers
+      tags: [Users]
+      summary: List your own users
+      description: |
+        Returns one page of the calling application's users, newest first.
+        Deleted users are not returned.
+
+        Requires the `users:read` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:read]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of users.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{user_id}:
+    get:
+      operationId: getOwnUser
+      tags: [Users]
+      summary: Retrieve one of your own users
+      description: |
+        Returns one of the calling application's users.
+
+        An identifier that does not exist, is malformed, belongs to a deleted
+        user, or belongs to another application is reported identically.
+
+        Requires the `users:read` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:read]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: The requested user.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: updateOwnUser
+      tags: [Users]
+      summary: Update one of your own users
+      description: |
+        Changes the attributes the application owns. Only the fields present in
+        the body change, and metadata is replaced rather than merged.
+
+        Send the `ETag` from a previous read as `If-Match` to make the change
+        conditional.
+
+        Requires the `users:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+            example:
+              display_name: Ada King
+      responses:
+        "200":
+          description: The updated user.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteOwnUser
+      tags: [Users]
+      summary: Delete one of your own users
+      description: |
+        Removes a user from the API surface. The record is retained for the
+        erasure window, and the external subject stays reserved until erasure
+        frees it.
+
+        Requires the `users:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The user was deleted.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{user_id}/suspend:
+    post:
+      operationId: suspendOwnUser
+      tags: [Users]
+      summary: Suspend one of your own users
+      description: |
+        Withdraws a user's access without losing data. Repeating the request
+        changes nothing and reports success.
+
+        Requires the `users:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          $ref: "#/components/responses/UserState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{user_id}/activate:
+    post:
+      operationId: activateOwnUser
+      tags: [Users]
+      summary: Activate one of your own users
+      description: |
+        Restores a suspended user to normal service. A deleted user cannot be
+        activated and is reported as missing.
+
+        Requires the `users:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [users:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          $ref: "#/components/responses/UserState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/credentials:
+    post:
+      operationId: issueOwnCredential
+      tags: [Credentials]
+      summary: Issue a credential for yourself
+      description: |
+        Issues another API key for the calling application and returns its
+        secret exactly once.
+
+        **The scopes requested must be a subset of the ones the calling key
+        already holds.** Without that rule a key carrying only
+        `credentials:write` could mint one carrying `users:write`, and every
+        credential would effectively grant everything.
+
+        Requires the `credentials:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [credentials:write]
+      security:
+        - ApplicationKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueCredentialRequest"
+            example:
+              name: Replacement key
+              scopes: [users:read]
+      responses:
+        "201":
+          description: The credential, together with its secret, for the only time.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedCredential"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listOwnCredentials
+      tags: [Credentials]
+      summary: List your own credentials
+      description: |
+        Returns one page of the calling application's credentials, newest
+        first, never their secrets. Revoked and expired credentials are listed
+        alongside active ones.
+
+        Requires the `credentials:read` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [credentials:read]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of credentials.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/credentials/{credential_id}:
+    get:
+      operationId: getOwnCredential
+      tags: [Credentials]
+      summary: Retrieve one of your own credentials
+      description: |
+        Returns one of the calling application's credentials, never its secret.
+
+        Requires the `credentials:read` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [credentials:read]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/CredentialID"
+      responses:
+        "200":
+          description: The requested credential.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: revokeOwnCredential
+      tags: [Credentials]
+      summary: Revoke one of your own credentials
+      description: |
+        Withdraws a credential immediately. There is no grace period: the next
+        request presenting it fails.
+
+        A caller may revoke the key it is presenting. That is deliberate:
+        during an incident the holder of a leaked key is often the only party
+        able to act at once.
+
+        Requires the `credentials:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [credentials:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/CredentialID"
+      responses:
+        "204":
+          description: The credential was revoked.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
+  securitySchemes:
+    ApplicationKey:
+      type: http
+      scheme: bearer
+      description: |
+        An application authenticates with the API key it was issued, presented
+        as `Authorization: Bearer cvk_...`.
+
+        The key is opaque: clients must never parse it. The application Convia
+        acts for is taken from the key, which is why the authenticated
+        endpoints name no application in their paths.
+
+        Every operation additionally requires the scopes listed on it. A valid
+        key without the required scope is answered with `403 forbidden`.
+
   schemas:
     User:
       type: object
@@ -718,6 +1348,146 @@ components:
           maxLength: 120
         metadata:
           $ref: "#/components/schemas/UserMetadata"
+
+    Credential:
+      type: object
+      description: |
+        An API key issued to one application, without its secret.
+
+        Convia stores only a digest of the secret, so no operation returns it
+        after the credential is issued.
+      required: [id, application_id, name, scopes, status, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/CredentialId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        name:
+          type: string
+          description: Operator-chosen label, so that two keys can be told apart.
+          minLength: 1
+          maxLength: 120
+        scopes:
+          type: array
+          description: The permissions this credential carries.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Scope"
+        status:
+          type: string
+          description: |
+            Derived from the timestamps rather than stored, so it cannot drift
+            from them. Revocation outranks expiry.
+          enum: [active, expired, revoked]
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        revoked_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    IssuedCredential:
+      type: object
+      description: |
+        A newly issued credential together with its secret.
+
+        This is the only representation in Convia that carries secret material,
+        and it is returned exactly once.
+      required: [id, application_id, name, scopes, status, created_at, secret]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/CredentialId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        scopes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Scope"
+        status:
+          type: string
+          enum: [active, expired, revoked]
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        expires_at:
+          $ref: "#/components/schemas/Timestamp"
+        revoked_at:
+          $ref: "#/components/schemas/Timestamp"
+        secret:
+          type: string
+          description: |
+            The complete key to present to Convia. Store it in a secret manager
+            on receipt: it is not recoverable.
+          pattern: "^cvk_[A-Z2-7]{26}_[A-Z2-7]{26}$"
+          example: cvk_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5
+
+    CredentialPage:
+      type: object
+      description: One page of credentials.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Credential"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the listing. Absent on the last page.
+            Clients must never decode or construct one.
+
+    IssueCredentialRequest:
+      type: object
+      description: The accepted body when issuing a credential.
+      required: [name, scopes]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: Operator-chosen label, so that two keys can be told apart.
+          minLength: 1
+          maxLength: 120
+        scopes:
+          type: array
+          description: |
+            Required. A credential never carries implicit access, so a request
+            without scopes is rejected rather than given a default.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Scope"
+        expires_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: |
+            Optional expiry, which must be in the future. Without it the
+            credential works until it is revoked.
+
+    Scope:
+      type: string
+      description: |
+        One permission a credential may carry. Scopes name Convia domain
+        operations rather than HTTP routes, so a permission keeps its meaning
+        when a route is added, renamed, or split.
+      enum:
+        - users:read
+        - users:write
+        - credentials:read
+        - credentials:write
+
+    CredentialId:
+      type: string
+      description: |
+        Opaque, immutable public identifier. It is not secret: it travels
+        inside the key and appears in listings and audit records.
+      pattern: "^cred_[A-Z2-7]{26}$"
+      example: cred_4XZQP7KN2VJH6TBWMDR3YAFC5E
 
     UpdateUserRequest:
       type: object
@@ -888,6 +1658,8 @@ components:
         - malformed_json
         - unsupported_media_type
         - payload_too_large
+        - unauthenticated
+        - forbidden
         - not_found
         - method_not_allowed
         - precondition_failed
@@ -936,6 +1708,14 @@ components:
       description: Identifier of the user, within the application in the path.
       schema:
         $ref: "#/components/schemas/UserId"
+
+    CredentialID:
+      name: credential_id
+      in: path
+      required: true
+      description: The credential's opaque identifier.
+      schema:
+        $ref: "#/components/schemas/CredentialId"
 
     IfMatch:
       name: If-Match
@@ -1075,6 +1855,50 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Application"
+
+    Unauthorized:
+      description: |
+        The request carried no usable credential.
+
+        Every reason a key can fail — absent, malformed, unknown, wrong,
+        revoked, expired, or belonging to an application Convia no longer
+        serves — produces this same answer, so the response cannot be used to
+        learn which keys exist or which were once valid.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+        WWW-Authenticate:
+          description: The authentication scheme to use.
+          schema:
+            type: string
+            example: Bearer realm="convia"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unauthenticated
+              message: The request did not carry a usable credential.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    Forbidden:
+      description: |
+        The credential is valid but does not carry the scope this operation
+        requires. Presenting a different key will not help; being granted the
+        scope will.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: forbidden
+              message: The credential does not carry the scope this operation requires.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     UserState:
       description: The user, after the requested lifecycle change.

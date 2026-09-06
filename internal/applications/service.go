@@ -112,6 +112,28 @@ func (service *Service) Exists(ctx context.Context, id string) (bool, error) {
 	return true, nil
 }
 
+/*
+Active reports whether Convia currently serves an application.
+
+It is stricter than Exists: a suspended application still exists, and an
+operator may still administer it, but it is not being served. Anything acting
+on the application's own behalf — above all, authenticating its credentials —
+asks this question instead, so that suspension actually withdraws access rather
+than only recording an intention to.
+*/
+func (service *Service) Active(ctx context.Context, id string) (bool, error) {
+	application, err := service.Get(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	return application.Status == StatusActive, nil
+}
+
 // List returns one page of applications, newest first.
 func (service *Service) List(ctx context.Context, options ListOptions) (Page, error) {
 	limit, err := pageSize(options.Limit)

@@ -48,12 +48,14 @@ func (fake *fakeService) Resolve(_ context.Context, applicationID string, identi
 }
 
 func (fake *fakeService) Get(_ context.Context, applicationID, id string) (User, error) {
+	fake.called = true
 	fake.application = applicationID
 	fake.requestedID = id
 	return fake.user, fake.err
 }
 
 func (fake *fakeService) List(_ context.Context, applicationID string, options ListOptions) (Page, error) {
+	fake.called = true
 	fake.application = applicationID
 	fake.options = options
 	return fake.page, fake.err

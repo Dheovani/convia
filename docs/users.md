@@ -57,10 +57,17 @@ Metadata is a flat map of strings, bounded in every dimension a caller could gro
 
 Nested objects and arrays are rejected at decoding, so the stored shape stays predictable and Convia never becomes general-purpose storage for an application. Keys are restricted to identifier shape so that they remain usable as log fields or export columns if metadata is ever indexed.
 
+## Two Surfaces
+
+An application reaches its own users under **`/v1/users`**, authenticated with its API key. The tenant comes from the key, so no application appears in the path and none can be named — see [`authentication.md`](authentication.md).
+
+The routes nested under `/v1/applications/{application_id}/users` are the operator-facing equivalents. They behave identically and remain behind the `CONVIA_ADMIN_API` gate. The examples below use the nested form because it shows the tenant explicitly; every one of them has an authenticated counterpart without the prefix.
+
 ## Resolving an Identity
 
 ```http
-POST /v1/applications/{application_id}/users
+POST /v1/users
+Authorization: Bearer cvk_...
 {"external_subject": "customer-42", "display_name": "Ada Lovelace"}
 ```
 
@@ -131,6 +138,5 @@ This keeps one code path for participation. When the standalone interface is bui
 
 ## Not Yet Implemented
 
-- authentication, which will let an application address its own users without naming itself in the path;
 - the erasure job that acts at the end of the retention window, which is what eventually frees a deleted subject;
 - suspension enforcement during calls, which needs the call domain in M09. Suspension currently records the state and withdraws nothing, because there is no call to withdraw from yet.

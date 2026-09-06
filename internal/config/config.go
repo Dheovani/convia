@@ -110,13 +110,15 @@ func Load() (Config, error) {
 }
 
 /*
-loadAdminAPI decides whether the administrative endpoints are served.
+loadAdminAPI decides whether the operator endpoints are served.
 
-Convia has no authentication yet, so the administrative API would let anyone
-who reaches the port create and read tenants. It is therefore disabled by
-default and refused outright in production until M07 introduces credentials.
-Enabling it is an explicit, local decision made to bootstrap the first
-application.
+The tenant-facing API authenticates every request with an application's own
+credential and is always served. The operator endpoints that create and manage
+applications themselves cannot: an application's key must not be able to create
+tenants, and operator credentials do not exist yet. Those endpoints are
+therefore still unauthenticated, disabled by default, and refused outright in
+production. Enabling them is an explicit, local decision made to bootstrap the
+first application and its first credential.
 */
 func loadAdminAPI(environment Environment) (bool, error) {
 	switch environmentOrDefault(adminAPIEnvironment, adminAPIDisabled) {
