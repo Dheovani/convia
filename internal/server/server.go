@@ -9,6 +9,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/credentials"
 	"convia/internal/users"
 )
 
@@ -40,14 +41,27 @@ type Prober interface {
 /*
 Dependencies are the collaborators the HTTP layer serves.
 
-Applications is nil when the administrative API is disabled, which is the
-default until authentication exists. The routes are then not registered at all,
-so an unauthenticated tenant endpoint cannot be reached by accident.
+Applications, Users, and Credentials are the operator-facing handlers. They are
+nil when the operator API is disabled, which is the default, and their routes
+are then not registered at all, so an unauthenticated endpoint cannot be
+reached by accident.
 */
 type Dependencies struct {
 	Database     Prober
 	Applications *applications.Handler
 	Users        *users.Handler
+	Credentials  *credentials.Handler
+
+	/*
+		The tenant-facing surface is authenticated, so it is served whether or
+		not the operator gate is open. Authenticator must be present for those
+		routes to be registered at all: a route that acts on behalf of an
+		application must never exist without the middleware that decides which
+		application is asking.
+	*/
+	Authenticator     authenticator
+	TenantUsers       *users.TenantHandler
+	TenantCredentials *credentials.TenantHandler
 }
 
 // New constructs the Convia HTTP server.
@@ -74,17 +88,28 @@ access log with its final status.
 func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	rt := newRoutes(logger)
 	for _, entry := range routeTable(logger, dependencies) {
-		rt.handle(entry.method, entry.path, entry.handler)
+		served := entry.handler
+		if entry.authenticated {
+			served = authenticate(logger, dependencies.Authenticator, served)
+		}
+		rt.handle(entry.method, entry.path, served)
 	}
 
 	return requestID(logRequest(logger, recoverPanic(logger, rt.handler())))
 }
 
-// route describes one HTTP route served by Convia.
+/*
+route describes one HTTP route served by Convia.
+
+Whether a route requires a credential is declared here rather than remembered
+inside a handler, so the authenticated surface can be read off the table and
+compared with the contract by a test.
+*/
 type route struct {
-	method  string
-	path    string
-	handler http.Handler
+	method        string
+	path          string
+	handler       http.Handler
+	authenticated bool
 }
 
 /*
@@ -125,9 +150,10 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 
 	if dependencies.Users != nil {
 		/*
-			Users are nested under their application because Convia cannot yet
-			infer the tenant: authentication arrives in M07, and until then the
-			owning application has to be explicit in the path.
+			These routes name the application in the path because an operator
+			acts on a tenant other than itself. An application reaches its own
+			users through the authenticated routes below, where the tenant comes
+			from the credential instead.
 		*/
 		table = append(table,
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users",
@@ -144,6 +170,63 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Users.Suspend)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/activate",
 				handler: http.HandlerFunc(dependencies.Users.Activate)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantUsers != nil {
+		/*
+			The authenticated surface names no application in its paths. The
+			tenant comes from the verified credential, which is what M06 said
+			would arrive here: an application addresses its own users without
+			naming itself.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/users", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.Resolve)},
+			route{method: http.MethodGet, path: api.Prefix + "/users", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/users/{user_id}", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.Update)},
+			route{method: http.MethodDelete, path: api.Prefix + "/users/{user_id}", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.Delete)},
+			route{method: http.MethodPost, path: api.Prefix + "/users/{user_id}/suspend", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.Suspend)},
+			route{method: http.MethodPost, path: api.Prefix + "/users/{user_id}/activate", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantUsers.Activate)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantCredentials != nil {
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/credentials", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantCredentials.Issue)},
+			route{method: http.MethodGet, path: api.Prefix + "/credentials", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantCredentials.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/credentials/{credential_id}", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantCredentials.Get)},
+			route{method: http.MethodDelete, path: api.Prefix + "/credentials/{credential_id}", authenticated: true,
+				handler: http.HandlerFunc(dependencies.TenantCredentials.Revoke)},
+		)
+	}
+
+	if dependencies.Credentials != nil {
+		/*
+			Issuing a credential is an operator action, so these routes sit
+			beside the other administrative endpoints. An application managing
+			its own keys through an authenticated route arrives with the
+			middleware in the next milestone slice.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/credentials",
+				handler: http.HandlerFunc(dependencies.Credentials.Issue)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials",
+				handler: http.HandlerFunc(dependencies.Credentials.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}",
+				handler: http.HandlerFunc(dependencies.Credentials.Get)},
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}",
+				handler: http.HandlerFunc(dependencies.Credentials.Revoke)},
 		)
 	}
 	return table

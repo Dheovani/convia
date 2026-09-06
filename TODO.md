@@ -22,16 +22,16 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M07 — Authentication, Credentials, and Authorization. Phase 0 and M06 are complete.
+- **Current milestone:** M07 — Authentication, Credentials, and Authorization, being delivered in slices. The tenant-facing API is authenticated and scope-enforced. What remains is the operator surface, rate limits, and the runbook. Phase 0 and M06 are complete.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** M07 — Authentication, Credentials, and Authorization, which removes the `CONVIA_ADMIN_API` gate and lets an application address its own users without naming itself in the path
-- **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the administrative API, which is disabled by default and refused in production until authentication exists
-- **Current identity capability:** an application's people can be resolved into Convia users, listed, retrieved, updated with optimistic concurrency, suspended, activated, and deleted, all scoped to the owning application and nested under it until authentication can infer the tenant
-- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the administrative application and user endpoints, and the shared error, pagination, and correlation components
+- **Next implementation milestone:** the remainder of M07 — operator credentials, which is what removes the `CONVIA_ADMIN_API` gate entirely, plus rate limits on authentication failures
+- **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the operator API, which is disabled by default and refused in production because operator credentials do not exist yet
+- **Current identity capability:** an application's people can be resolved into Convia users, listed, retrieved, updated with optimistic concurrency, suspended, activated, and deleted under `/v1/users`, with the tenant taken from the presented credential rather than named in the path
+- **Current credential capability:** an application can be issued opaque API keys carrying explicit scopes, which Convia stores only as a digest, verifies in constant time, and can expire or revoke with immediate effect; suspending an application withdraws every key it holds. An application manages its own keys under `/v1/credentials`, and cannot issue one carrying scopes it does not itself hold. See [`docs/authentication.md`](docs/authentication.md)
+- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the authenticated tenant endpoints for users and credentials, the operator endpoints for applications, and the shared security, error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` and `users` tables
-- **Current identity capability:** applications resolve their own people into Convia users, scoped so that no application can read or enumerate another's identities
-- **Current authentication capability:** none
+- **Current authentication capability:** every tenant-facing request carries an application API key, verified on each request and enforced against explicit scopes inside the domain rather than at the handler
 - **Current communication capability:** none
 - **Current media capability:** none
 - **Current user interface capability:** none
@@ -268,21 +268,21 @@ Complete these in order before starting feature development:
 **Depends on:** M05 and M06
 **Goal:** Authenticate applications and users with explicit, least-privilege permissions.
 
-- [ ] **M07-001:** Write a threat model for application credentials, user sessions, and media grants.
-- [ ] **M07-002:** Decide the first supported server-to-server authentication mechanism.
-- [ ] **M07-003:** Define credential identifiers separately from secret material.
-- [ ] **M07-004:** Store only securely hashed or otherwise appropriately protected credentials.
-- [ ] **M07-005:** Define credential creation, display-once, rotation, expiration, and revocation.
-- [ ] **M07-006:** Define scopes using Convia domain operations.
-- [ ] **M07-007:** Add authentication middleware after credential verification exists.
-- [ ] **M07-008:** Add authorization at service boundaries, not only HTTP handlers.
+- [x] **M07-001:** Write a threat model for application credentials, user sessions, and media grants. Recorded in `docs/authentication.md`, with media grants scoped out until the media plane exists.
+- [x] **M07-002:** Decide the first supported server-to-server authentication mechanism. Opaque bearer keys, not JWTs: Convia is the only verifier, so signing buys nothing and would cost immediate revocation.
+- [x] **M07-003:** Define credential identifiers separately from secret material. The identifier is public and travels inside the key, so verification reads one row by primary key before comparing any secret.
+- [x] **M07-004:** Store only securely hashed or otherwise appropriately protected credentials. SHA-256 of a ~130-bit random secret, compared in constant time; a slow KDF would only add latency per request.
+- [x] **M07-005:** Define credential creation, display-once, rotation, expiration, and revocation. Rotation is deliberately not an endpoint: composing issue and revoke is what gives zero downtime.
+- [x] **M07-006:** Define scopes using Convia domain operations. Four scopes over users and credentials, required rather than defaulted.
+- [x] **M07-007:** Add authentication middleware after credential verification exists. It wraps only the tenant-facing routes, and a route that acts for an application is not registered at all without it.
+- [x] **M07-008:** Add authorization at service boundaries, not only HTTP handlers. Each domain exposes an `Authorized` type that cannot be built without a verified principal, takes the tenant from it, and refuses an ungranted operation before the service runs.
 - [ ] **M07-009:** Define first-party standalone UI session behavior separately from external API credentials.
 - [ ] **M07-010:** Add replay resistance where signed requests or tokens require it.
 - [ ] **M07-011:** Add rate limits for authentication failures.
-- [ ] **M07-012:** Avoid logging raw credentials, bearer tokens, or signed media grants.
-- [ ] **M07-013:** Add positive and negative tests for every scope.
-- [ ] **M07-014:** Add cross-tenant authorization regression tests.
-- [ ] **M07-015:** Add audit events for credential and permission changes.
+- [x] **M07-012:** Avoid logging raw credentials, bearer tokens, or signed media grants. Asserted by tests over both the audit log and the stored row.
+- [x] **M07-013:** Add positive and negative tests for every scope.
+- [x] **M07-014:** Add cross-tenant authorization regression tests.
+- [x] **M07-015:** Add audit events for credential and permission changes.
 - [ ] **M07-016:** Document emergency credential revocation procedures.
 - [ ] **M07-017:** Define clock-skew tolerance for expiring tokens.
 - [ ] **M07-018:** Add key rotation tests before introducing signed tokens.

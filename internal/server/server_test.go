@@ -15,6 +15,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/credentials"
 	"convia/internal/users"
 )
 
@@ -113,6 +114,50 @@ func (stub stubUsers) Delete(context.Context, string, string) error {
 	return stub.err
 }
 
+/*
+stubCredentials satisfies the credential service the handler consumes.
+
+Routing and contract tests only need the routes to exist and to answer with a
+realistic body; the behavior lives in the credentials package tests.
+*/
+type stubCredentials struct {
+	credential credentials.Credential
+	secret     credentials.Secret
+	page       credentials.Page
+	err        error
+}
+
+func (stub stubCredentials) Issue(context.Context, string, credentials.Request) (credentials.Credential, credentials.Secret, error) {
+	return stub.credential, stub.secret, stub.err
+}
+
+func (stub stubCredentials) Get(context.Context, string, string) (credentials.Credential, error) {
+	return stub.credential, stub.err
+}
+
+func (stub stubCredentials) List(context.Context, string, credentials.ListOptions) (credentials.Page, error) {
+	return stub.page, stub.err
+}
+
+func (stub stubCredentials) Revoke(context.Context, string, string) error {
+	return stub.err
+}
+
+// sampleCredential is a realistic credential for transport-level tests.
+func sampleCredential() credentials.Credential {
+	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
+	expires := created.Add(720 * time.Hour)
+
+	return credentials.Credential{
+		ID:            "cred_4XZQP7KN2VJH6TBWMDR3YAFC5E",
+		ApplicationID: sampleApplication().ID,
+		Name:          "Production backend",
+		Scopes:        []credentials.Scope{credentials.ScopeUsersRead, credentials.ScopeUsersWrite},
+		CreatedAt:     created,
+		ExpiresAt:     &expires,
+	}
+}
+
 // sampleUser is a realistic user for transport-level tests.
 func sampleUser() users.User {
 	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
@@ -158,13 +203,69 @@ func newDependencies(stub stubApplications) Dependencies {
 }
 
 func newFullDependencies(application stubApplications, user stubUsers) Dependencies {
+	return newEveryDependency(application, user, stubCredentials{
+		credential: sampleCredential(),
+		page:       credentials.Page{Credentials: []credentials.Credential{sampleCredential()}},
+	})
+}
+
+func newEveryDependency(application stubApplications, user stubUsers, credential stubCredentials) Dependencies {
+	return newAuthenticatedDependency(application, user, credential,
+		stubAuthenticator{principal: samplePrincipal()})
+}
+
+func newAuthenticatedDependency(application stubApplications, user stubUsers,
+	credential stubCredentials, verifier stubAuthenticator) Dependencies {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	return Dependencies{
-		Database:     stubProber{},
-		Applications: applications.NewHandler(logger, application),
-		Users:        users.NewHandler(logger, user),
+		Database:          stubProber{},
+		Applications:      applications.NewHandler(logger, application),
+		Users:             users.NewHandler(logger, user),
+		Credentials:       credentials.NewHandler(logger, credential),
+		Authenticator:     verifier,
+		TenantUsers:       users.NewTenantHandler(logger, user),
+		TenantCredentials: credentials.NewTenantHandler(logger, credential),
 	}
+}
+
+/*
+stubAuthenticator stands in for credential verification.
+
+Transport tests need to control whether a request authenticates and what it
+authenticates as; whether a real key verifies is settled by the credentials
+package tests.
+*/
+type stubAuthenticator struct {
+	principal credentials.Principal
+	err       error
+}
+
+func (stub stubAuthenticator) Authenticate(context.Context, string) (credentials.Principal, error) {
+	return stub.principal, stub.err
+}
+
+// samplePrincipal carries every scope, so a transport test fails on routing
+// rather than on authorization unless it says otherwise.
+func samplePrincipal() credentials.Principal {
+	return credentials.Principal{
+		ApplicationID: sampleApplication().ID,
+		CredentialID:  sampleCredential().ID,
+		Scopes:        credentials.Scopes(),
+	}
+}
+
+// authenticatedRequest addresses a tenant route with a usable key.
+func authenticatedRequest(method, target, body string) *http.Request {
+	var request *http.Request
+	if body == "" {
+		request = httptest.NewRequest(method, target, nil)
+	} else {
+		request = jsonRequest(method, target, body)
+	}
+
+	request.Header.Set("Authorization", "Bearer cvk_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5")
+	return request
 }
 
 func newTestHandler() http.Handler {

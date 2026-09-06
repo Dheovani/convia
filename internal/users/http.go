@@ -264,40 +264,65 @@ an unexpected condition: it is logged with its detail and reported as a generic
 internal error, so that infrastructure failures never reach a public contract.
 */
 func (handler *Handler) writeError(response http.ResponseWriter, request *http.Request, err error) {
+	writeDomainError(handler.logger, response, request, err)
+}
+
+/*
+writeDomainError is the single translation from a domain error to the public
+error schema.
+
+Both the operator-facing and the tenant-facing handlers use it, so the two
+surfaces cannot drift into describing the same failure differently.
+*/
+func writeDomainError(logger *slog.Logger, response http.ResponseWriter, request *http.Request, err error) {
 	var validation ValidationError
 
 	switch {
 	case errors.As(err, &validation):
-		handler.writeFailure(response, request,
+		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest, validation.Message))
 
+	case errors.Is(err, ErrForbidden):
+		writeFailure(logger, response, request,
+			api.NewFailure(http.StatusForbidden, api.CodeForbidden,
+				"The credential does not carry the scope this operation requires."))
+
 	case errors.Is(err, ErrApplicationNotFound):
-		handler.writeFailure(response, request,
+		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The requested application does not exist."))
 
 	case errors.Is(err, ErrNotFound):
-		handler.writeFailure(response, request,
+		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The requested user does not exist."))
 
 	case errors.Is(err, ErrPreconditionFailed):
-		handler.writeFailure(response, request,
+		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusPreconditionFailed, api.CodePreconditionFailed,
 				"The user was modified by another request. Read it again and retry."))
 
 	case errors.Is(err, ErrSubjectDeleted):
-		handler.writeFailure(response, request,
+		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusConflict, api.CodeConflict,
 				"The external subject belongs to a deleted user and stays reserved until erasure."))
 
 	default:
-		handler.logger.Error("user request failed",
+		logger.Error("user request failed",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
-		handler.writeFailure(response, request, api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
+		writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
 			"The server encountered an unexpected condition."))
+	}
+}
+
+func writeFailure(logger *slog.Logger, response http.ResponseWriter, request *http.Request, failure *api.Failure) {
+	if err := api.WriteFailure(response, request, failure); err != nil {
+		logger.Error("write error response",
+			"error", err,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
 	}
 }
 
@@ -311,10 +336,5 @@ func (handler *Handler) write(response http.ResponseWriter, request *http.Reques
 }
 
 func (handler *Handler) writeFailure(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
-	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write error response",
-			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
-		)
-	}
+	writeFailure(handler.logger, response, request, failure)
 }

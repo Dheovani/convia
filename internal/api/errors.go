@@ -24,6 +24,22 @@ const (
 	CodeUnsupportedMediaType ErrorCode = "unsupported_media_type"
 	// CodePayloadTooLarge reports a request body above the accepted limit.
 	CodePayloadTooLarge ErrorCode = "payload_too_large"
+	/*
+		CodeUnauthenticated reports a request that carried no usable credential.
+
+		Every reason a key can fail produces this one code, so that the answer
+		never distinguishes an unknown key from a revoked or expired one.
+	*/
+	CodeUnauthenticated ErrorCode = "unauthenticated"
+	/*
+		CodeForbidden reports an authenticated caller whose credential does not
+		carry the scope the operation requires.
+
+		It is distinct from CodeUnauthenticated because the remedy differs:
+		presenting a different key will not help, but being granted the scope
+		will.
+	*/
+	CodeForbidden ErrorCode = "forbidden"
 	// CodeNotFound reports an unknown route or a missing resource.
 	CodeNotFound ErrorCode = "not_found"
 	// CodeMethodNotAllowed reports a known route addressed with an
@@ -54,6 +70,8 @@ func ErrorCodes() []ErrorCode {
 		CodeMalformedJSON,
 		CodeUnsupportedMediaType,
 		CodePayloadTooLarge,
+		CodeUnauthenticated,
+		CodeForbidden,
 		CodeNotFound,
 		CodeMethodNotAllowed,
 		CodePreconditionFailed,
