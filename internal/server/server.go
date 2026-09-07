@@ -10,6 +10,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/applications"
 	"convia/internal/credentials"
+	"convia/internal/ratelimit"
 	"convia/internal/users"
 )
 
@@ -26,6 +27,33 @@ const (
 	// readinessTimeout bounds a dependency check so that readiness answers
 	// even while a dependency is unresponsive.
 	readinessTimeout = 2 * time.Second
+
+	/*
+		Failed authentication attempts are budgeted per caller address.
+
+		The budget is checked before the key is verified, so an exhausted
+		caller costs a map lookup instead of a database read. That is the point
+		of limiting here, and it has a consequence worth stating plainly: while
+		an address is out of budget, even a valid key from that address is
+		refused. Verifying it would be the very work being declined.
+
+		The numbers are chosen around that consequence. What is being protected
+		is one indexed read of a few hundred microseconds, which PostgreSQL
+		serves tens of thousands of times a second, so a tight budget would buy
+		almost nothing and would make the collateral refusal likely. Sixty
+		attempts, refilled over a minute, leaves a misconfigured client
+		retrying every few seconds far from the limit while still cutting a
+		flood down to one attempt a second.
+	*/
+	authFailureBurst  = 60
+	authFailurePeriod = time.Minute
+
+	/*
+		authFailureKeys bounds the addresses remembered at once. A bucket
+		exists only for an address that has failed recently, so this is far
+		above any plausible number of simultaneously misconfigured clients.
+	*/
+	authFailureKeys = 10_000
 )
 
 /*
@@ -86,11 +114,17 @@ before it is logged, and so that a recovered panic is still reported by the
 access log with its final status.
 */
 func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
+	/*
+		One limiter is shared by every authenticated route, so a caller cannot
+		spread its failed attempts across endpoints to buy more of them.
+	*/
+	failures := ratelimit.New(authFailureBurst, authFailurePeriod, authFailureKeys)
+
 	rt := newRoutes(logger)
 	for _, entry := range routeTable(logger, dependencies) {
 		served := entry.handler
 		if entry.authenticated {
-			served = authenticate(logger, dependencies.Authenticator, served)
+			served = authenticate(logger, dependencies.Authenticator, failures, served)
 		}
 		rt.handle(entry.method, entry.path, served)
 	}

@@ -22,16 +22,16 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M07 — Authentication, Credentials, and Authorization, being delivered in slices. The tenant-facing API is authenticated and scope-enforced. What remains is the operator surface, rate limits, and the runbook. Phase 0 and M06 are complete.
+- **Current milestone:** M07 — Authentication, Credentials, and Authorization, being delivered in slices. The tenant-facing API is authenticated, scope-enforced, and rate limited. What remains is operator credentials, the revocation runbook, and trusted-forwarder support. Phase 0 and M06 are complete.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** the remainder of M07 — operator credentials, which is what removes the `CONVIA_ADMIN_API` gate entirely, plus rate limits on authentication failures
+- **Next implementation milestone:** the remainder of M07 — operator credentials, which is what removes the `CONVIA_ADMIN_API` gate entirely, and the emergency revocation runbook
 - **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the operator API, which is disabled by default and refused in production because operator credentials do not exist yet
 - **Current identity capability:** an application's people can be resolved into Convia users, listed, retrieved, updated with optimistic concurrency, suspended, activated, and deleted under `/v1/users`, with the tenant taken from the presented credential rather than named in the path
 - **Current credential capability:** an application can be issued opaque API keys carrying explicit scopes, which Convia stores only as a digest, verifies in constant time, and can expire or revoke with immediate effect; suspending an application withdraws every key it holds. An application manages its own keys under `/v1/credentials`, and cannot issue one carrying scopes it does not itself hold. See [`docs/authentication.md`](docs/authentication.md)
 - **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the authenticated tenant endpoints for users and credentials, the operator endpoints for applications, and the shared security, error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
 - **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications` and `users` tables
-- **Current authentication capability:** every tenant-facing request carries an application API key, verified on each request and enforced against explicit scopes inside the domain rather than at the handler
+- **Current authentication capability:** every tenant-facing request carries an application API key, verified on each request and enforced against explicit scopes inside the domain rather than at the handler; failed attempts are budgeted per caller address so a flood of unusable keys cannot be paid for indefinitely
 - **Current communication capability:** none
 - **Current media capability:** none
 - **Current user interface capability:** none
@@ -278,7 +278,7 @@ Complete these in order before starting feature development:
 - [x] **M07-008:** Add authorization at service boundaries, not only HTTP handlers. Each domain exposes an `Authorized` type that cannot be built without a verified principal, takes the tenant from it, and refuses an ungranted operation before the service runs.
 - [ ] **M07-009:** Define first-party standalone UI session behavior separately from external API credentials.
 - [ ] **M07-010:** Add replay resistance where signed requests or tokens require it.
-- [ ] **M07-011:** Add rate limits for authentication failures.
+- [x] **M07-011:** Add rate limits for authentication failures. Sixty failed attempts per caller address, refilled over a minute, checked before the key is read so an exhausted caller costs a map lookup rather than a database query. Only failures are charged, so a working key is never limited. Running behind a proxy needs trusted-forwarder support first, which does not exist yet.
 - [x] **M07-012:** Avoid logging raw credentials, bearer tokens, or signed media grants. Asserted by tests over both the audit log and the stored row.
 - [x] **M07-013:** Add positive and negative tests for every scope.
 - [x] **M07-014:** Add cross-tenant authorization regression tests.

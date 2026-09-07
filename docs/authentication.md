@@ -38,6 +38,32 @@ That placement is deliberate. A check that lives in a handler is one a future ro
 
 Tests cover every operation from both sides: with its scope, without it, and with no scopes at all, asserting in each refusal that the underlying service was never reached. An authorization that ran after the work would be no authorization at all.
 
+## Rate Limiting Failed Attempts
+
+Failed authentication attempts are budgeted per caller address: **60 attempts, refilled over a minute.** Exceeding it is answered `429` with a `Retry-After` header.
+
+**Only failures are charged.** A client presenting a working key is never limited, however much traffic it sends. A client that does meet this limit is presenting a key that will not start working by being repeated — a revoked or expired credential in a retry loop is the usual cause.
+
+This is **not** a defence against guessing a key. A secret with 130 bits of entropy cannot be searched at any rate. What the limit protects is the cost of the attempt: each well-formed but wrong key is a database read, and a flood of them is load Convia would otherwise pay for. The budget is checked **before** the key is verified, so an exhausted caller costs a map lookup rather than a query.
+
+### What that costs
+
+Checking before verifying has a consequence worth stating plainly: **while an address is out of budget, even a valid key from that address is refused.** Verifying it is precisely the work being declined. Counting a flood without stopping it would protect nothing, so this is the deliberate half of the trade.
+
+The numbers are chosen around that. One indexed read takes a few hundred microseconds and PostgreSQL serves tens of thousands a second, so a tight budget would buy almost nothing while making the collateral refusal likely. Sixty per minute leaves a misconfigured client retrying every few seconds far from the limit, and still cuts a flood to one attempt a second.
+
+### Running behind a proxy
+
+**Convia uses the address the connection came from and does not read `X-Forwarded-For`.** Trusting a header nobody told it to trust would let a caller evade its own limit and spend someone else's budget by claiming their address.
+
+The consequence is a deployment prerequisite: **behind a reverse proxy or load balancer, every client appears as one address**, so one misconfigured client could exhaust the budget for all of them. Trusted-forwarder configuration must exist before Convia is deployed that way. It does not yet.
+
+### Where the state lives
+
+In the process. Several Convia instances therefore enforce the budget per instance rather than across the fleet. That is the right trade while Convia runs as one — a shared limiter would put a network round trip on the path whose whole purpose is to be cheaper than the work it guards — and Redis is the answer when Convia is actually replicated.
+
+A bucket exists only for an address that has failed recently, and the map is capped. When it is full and nothing has recovered, a new caller is allowed rather than refused: turning a memory bound into a way to lock out every address at once would be the outage the limit exists to prevent.
+
 ## Issuing Cannot Escalate
 
 When an application issues a key for itself, **the scopes requested must be a subset of the ones the calling key already holds.**
@@ -58,6 +84,7 @@ What Convia is defending, and against whom.
 | The existence of keys | Probing for valid identifiers | Every failure returns one indistinguishable error |
 | A digest | Recovery by timing the comparison | Comparison is constant-time |
 | The whole surface | A key with more access than it needs | Scopes are explicit and required; there is no implicit access |
+| Convia's own capacity | A flood of attempts with keys that will never work | Failed attempts are budgeted per address, checked before the key is read |
 
 **Out of scope for Convia.** The application's own accounts, passwords, and sessions are the application's responsibility. Convia authenticates the *application*, not the people using it — [`users.md`](users.md) explains why Convia deliberately holds no credentials for them.
 
@@ -146,7 +173,7 @@ Failure to authenticate is not audited per attempt. Rate limiting authentication
 ## Not Yet Implemented
 
 - **operator credentials**, which is what would let the `/v1/applications` endpoints be authenticated and the `CONVIA_ADMIN_API` gate be removed entirely. Until then, creating a tenant is an unauthenticated local action, refused in production;
-- **rate limits on authentication failures** (`M07-011`). Nothing currently slows a caller presenting one wrong key after another. The keys are unguessable, so this is a cost and noise problem rather than a way in, but it is a real gap;
+- **trusted-forwarder configuration**, without which Convia must not run behind a proxy: every client would share the proxy's address for rate-limiting purposes;
 - **an emergency revocation procedure** (`M07-016`), the runbook for withdrawing many keys at once;
 - **a cache for verification**, which is the answer if the per-request lookup ever becomes a bottleneck. It is not built, because any staleness weakens revocation and would have to be argued for;
 - **`last_used_at` on a credential**, which operators will want in order to retire keys nobody presents. It costs a write on every authenticated request, so it needs a design rather than a column;

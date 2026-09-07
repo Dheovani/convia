@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -798,4 +799,190 @@ func TestScopeRefusalIsForbiddenNotUnauthenticated(t *testing.T) {
 		t.Fatalf("status code = %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
 	}
 	assertBodyMatchesSchema(t, responseSchema(t, document.Components.Responses["Forbidden"]), response.Body.Bytes())
+}
+
+/*
+TestFailedAttemptsAreBudgeted proves a caller repeating a key that will never
+work is eventually made to wait.
+
+The burst is spent first, so a client that fails a handful of times is answered
+normally; only persistence is charged.
+*/
+func TestFailedAttemptsAreBudgeted(t *testing.T) {
+	document := loadSpecification(t)
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{err: credentials.ErrUnauthenticated})).Handler
+
+	for attempt := 1; attempt <= authFailureBurst; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: status code = %d, want %d", attempt, response.Code, http.StatusUnauthorized)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status code = %d after %d failures, want %d",
+			response.Code, authFailureBurst, http.StatusTooManyRequests)
+	}
+
+	retry := response.Header().Get("Retry-After")
+	if retry == "" {
+		t.Error("no Retry-After header, which RFC 9110 expects on a 429")
+	}
+	if seconds, err := strconv.Atoi(retry); err != nil || seconds < 1 {
+		t.Errorf("Retry-After = %q, want whole seconds of at least 1", retry)
+	}
+
+	assertBodyMatchesSchema(t, responseSchema(t, document.Components.Responses["RateLimited"]), response.Body.Bytes())
+
+	var body struct {
+		Error api.ErrorBody `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode the error body: %v", err)
+	}
+	if body.Error.Code != api.CodeRateLimited {
+		t.Errorf("code = %q, want %q", body.Error.Code, api.CodeRateLimited)
+	}
+}
+
+/*
+TestSucceedingRequestsAreNotBudgeted is the property that keeps this limit from
+becoming an outage.
+
+A busy application presenting a working key must never be throttled, however
+many requests it makes, because only failures are charged.
+*/
+func TestSucceedingRequestsAreNotBudgeted(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		testDependencies()).Handler
+
+	for attempt := 1; attempt <= authFailureBurst*5; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("request %d: status code = %d, want %d", attempt, response.Code, http.StatusOK)
+		}
+	}
+}
+
+/*
+TestTheBudgetIsSharedAcrossAuthenticatedRoutes proves a caller cannot buy more
+attempts by spreading them over endpoints.
+*/
+func TestTheBudgetIsSharedAcrossAuthenticatedRoutes(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{err: credentials.ErrUnauthenticated})).Handler
+
+	targets := []string{
+		api.Prefix + "/users",
+		api.Prefix + "/credentials",
+		api.Prefix + "/users/" + sampleUser().ID,
+		api.Prefix + "/credentials/" + sampleCredential().ID,
+	}
+
+	limited := false
+	for attempt := 0; attempt <= authFailureBurst; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, targets[attempt%len(targets)], ""))
+
+		if response.Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+
+	if !limited {
+		t.Errorf("spreading failures over %d routes bought more than %d attempts", len(targets), authFailureBurst)
+	}
+}
+
+/*
+TestUnauthenticatedRoutesAreNotBudgeted proves the limit is scoped to the
+authenticated surface.
+
+Health and readiness are what an orchestrator polls, and throttling those on
+the strength of a bad key elsewhere would take a healthy instance out of
+rotation.
+*/
+func TestUnauthenticatedRoutesAreNotBudgeted(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{err: credentials.ErrUnauthenticated})).Handler
+
+	// Spend the whole budget on the authenticated surface first.
+	for range authFailureBurst + 5 {
+		handler.ServeHTTP(httptest.NewRecorder(),
+			authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+	}
+
+	for _, target := range []string{"/health", "/ready"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+
+		if response.Code != http.StatusOK {
+			t.Errorf("%s: status code = %d, want %d", target, response.Code, http.StatusOK)
+		}
+	}
+}
+
+/*
+TestAnExhaustedAddressAlsoRefusesAValidKey states the cost of checking the
+budget before verifying the key.
+
+Verifying a key is exactly the work the budget declines to do, so while an
+address is out of budget a working key from that address is refused too. That
+is deliberate — counting a flood without stopping it would protect nothing —
+but it means one misconfigured client can hold up another sharing its address,
+which is why running behind a proxy needs the trusted-forwarder support that
+does not exist yet. Asserting it here keeps it a known property rather than a
+discovery made in production.
+*/
+func TestAnExhaustedAddressAlsoRefusesAValidKey(t *testing.T) {
+	const working = "cvk_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5"
+
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{principal: samplePrincipal(), accepts: working})).Handler
+
+	// The working key is accepted while the address still has budget.
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+	if first.Code != http.StatusOK {
+		t.Fatalf("status code = %d before any failures, want %d: %s", first.Code, http.StatusOK, first.Body)
+	}
+
+	for range authFailureBurst {
+		request := httptest.NewRequest(http.MethodGet, api.Prefix+"/users", nil)
+		request.Header.Set("Authorization", "Bearer cvk_AAAAAAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBBBBBBBBBBBBBBBBBBB")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+
+	refused := httptest.NewRecorder()
+	handler.ServeHTTP(refused, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+	if refused.Code != http.StatusTooManyRequests {
+		t.Errorf("status code = %d for a valid key from an exhausted address, want %d",
+			refused.Code, http.StatusTooManyRequests)
+	}
 }

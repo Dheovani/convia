@@ -50,6 +50,7 @@ Adding a code is an additive change. Changing the meaning of an existing code is
 | `method_not_allowed`     | 405    | Known route addressed with an unsupported method; `Allow` is returned   |
 | `conflict`               | 409    | Valid request that the current state of the resource cannot satisfy      |
 | `precondition_failed`    | 412    | `If-Match` no longer describes the stored resource; nothing was modified |
+| `rate_limited`           | 429    | Too many failed authentication attempts; `Retry-After` says how long     |
 | `unsupported_media_type` | 415    | Body sent without an `application/json` content type                    |
 | `payload_too_large`      | 413    | Body above the accepted size limit                                      |
 | `internal_error`         | 500    | Unexpected server-side condition                                        |

@@ -239,9 +239,19 @@ package tests.
 type stubAuthenticator struct {
 	principal credentials.Principal
 	err       error
+
+	/*
+		accepts, when set, is the only token that verifies. It lets one test
+		mix working and failing keys against the same server, which is what
+		proving the rate limit's reach over valid keys requires.
+	*/
+	accepts string
 }
 
-func (stub stubAuthenticator) Authenticate(context.Context, string) (credentials.Principal, error) {
+func (stub stubAuthenticator) Authenticate(_ context.Context, token string) (credentials.Principal, error) {
+	if stub.accepts != "" && token != stub.accepts {
+		return credentials.Principal{}, credentials.ErrUnauthenticated
+	}
 	return stub.principal, stub.err
 }
 

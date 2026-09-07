@@ -54,6 +54,13 @@ const (
 		unchanged will not fix.
 	*/
 	CodeConflict ErrorCode = "conflict"
+	/*
+		CodeRateLimited reports a caller that has repeated a refused operation
+		too often and must wait before trying again.
+
+		It is accompanied by a Retry-After header saying how long.
+	*/
+	CodeRateLimited ErrorCode = "rate_limited"
 	// CodeInternal reports an unexpected server-side condition.
 	CodeInternal ErrorCode = "internal_error"
 )
@@ -76,6 +83,7 @@ func ErrorCodes() []ErrorCode {
 		CodeMethodNotAllowed,
 		CodePreconditionFailed,
 		CodeConflict,
+		CodeRateLimited,
 		CodeInternal,
 	}
 }

@@ -5,13 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"net"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
 	"convia/internal/api"
 	"convia/internal/credentials"
+	"convia/internal/ratelimit"
 )
 
 /*
@@ -157,16 +161,30 @@ revoked or expired one.
 The `WWW-Authenticate` header is what tells a client which scheme to use, and
 RFC 9110 requires it on a 401.
 */
-func authenticate(logger *slog.Logger, verifier authenticator, next http.Handler) http.Handler {
+func authenticate(logger *slog.Logger, verifier authenticator, failures *ratelimit.Limiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		/*
+			The budget is checked before anything else, so a caller that has
+			already spent it costs a map lookup rather than a database read.
+			That is the point of limiting here: the work is skipped, not merely
+			counted.
+		*/
+		source := callerAddress(request)
+		if !failures.Allows(source) {
+			slowDown(logger, response, request, failures.RetryAfter(source))
+			return
+		}
+
 		token, ok := bearerToken(request.Header.Get("Authorization"))
 		if !ok {
+			failures.Record(source)
 			refuse(logger, response, request)
 			return
 		}
 
 		principal, err := verifier.Authenticate(request.Context(), token)
 		if err != nil {
+			failures.Record(source)
 			if !errors.Is(err, credentials.ErrUnauthenticated) {
 				/*
 					An infrastructure failure is not a rejected key. It is
@@ -213,6 +231,52 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 		"The request did not carry a usable credential.")
 	if err := api.WriteFailure(response, request, failure); err != nil {
 		logger.Error("write unauthenticated response",
+			"error", err,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+	}
+}
+
+/*
+callerAddress identifies who to charge for a failed attempt.
+
+Only the address the connection actually came from is used. A forwarding header
+is not consulted, because trusting one Convia was never told to trust would let
+a caller both evade its own limit and spend someone else's budget by claiming
+their address. Running behind a proxy therefore needs a deliberate
+trusted-forwarder configuration, which does not exist yet.
+
+The port is dropped so that a caller opening a new connection per attempt is
+still recognized as the same one.
+*/
+func callerAddress(request *http.Request) string {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		return request.RemoteAddr
+	}
+	return host
+}
+
+/*
+slowDown refuses a caller that has spent its budget for failed attempts.
+
+Retry-After is rounded up to a whole second, because RFC 9110 defines it in
+seconds and rounding down would invite a client to retry just before it is
+welcome.
+*/
+func slowDown(logger *slog.Logger, response http.ResponseWriter, request *http.Request, wait time.Duration) {
+	seconds := int(math.Ceil(wait.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+
+	response.Header().Set("Retry-After", strconv.Itoa(seconds))
+	response.Header().Set("WWW-Authenticate", `Bearer realm="convia"`)
+
+	failure := api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
+		"Too many failed authentication attempts. Retry later.")
+	if err := api.WriteFailure(response, request, failure); err != nil {
+		logger.Error("write rate limited response",
 			"error", err,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
