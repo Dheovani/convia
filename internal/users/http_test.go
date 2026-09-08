@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"convia/internal/api"
+	"convia/internal/operator"
 )
 
 const (
@@ -112,7 +113,15 @@ func sampleUser() User {
 	}
 }
 
-// userRequest builds a request addressed to the sample application.
+/*
+userRequest builds a request addressed to the sample application.
+
+It carries a fully scoped operator principal, because these tests exercise
+transport behavior rather than authorization: without one every case would
+answer 401 and prove nothing about decoding, status codes, or error mapping.
+What the scopes actually gate is proved separately, in
+TestOperatorScopesGateEveryOperation.
+*/
 func userRequest(method, target, body string) *http.Request {
 	var request *http.Request
 	if body == "" {
@@ -124,7 +133,12 @@ func userRequest(method, target, body string) *http.Request {
 
 	request.SetPathValue("application_id", testApplicationID)
 	request.SetPathValue("user_id", testUserID)
-	return request
+	return request.WithContext(operator.ContextWithPrincipal(request.Context(), testOperator()))
+}
+
+// testOperator is a principal carrying every operator scope.
+func testOperator() operator.Principal {
+	return operator.Principal{CredentialID: "oper_" + strings.Repeat("A", 26), Scopes: operator.Scopes()}
 }
 
 /*
@@ -201,6 +215,7 @@ func TestResolveRejectsMalformedRequests(t *testing.T) {
 				strings.NewReader(test.body))
 			request.Header.Set("Content-Type", test.contentType)
 			request.SetPathValue("application_id", testApplicationID)
+			request = request.WithContext(operator.ContextWithPrincipal(request.Context(), testOperator()))
 			response := httptest.NewRecorder()
 
 			newTestHandler(fake).Resolve(response, request)

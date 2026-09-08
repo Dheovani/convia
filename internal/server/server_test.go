@@ -16,6 +16,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/applications"
 	"convia/internal/credentials"
+	"convia/internal/operator"
 	"convia/internal/users"
 )
 
@@ -218,15 +219,80 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 	credential stubCredentials, verifier stubAuthenticator) Dependencies {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
+	operatorService := stubOperatorAuthenticator{principal: sampleOperator()}
+
 	return Dependencies{
-		Database:          stubProber{},
-		Applications:      applications.NewHandler(logger, application),
-		Users:             users.NewHandler(logger, user),
-		Credentials:       credentials.NewHandler(logger, credential),
+		Database: stubProber{},
+
+		OperatorAuthenticator: operatorService,
+		Applications:          applications.NewHandler(logger, application),
+		Users:                 users.NewHandler(logger, user),
+		Credentials:           credentials.NewHandler(logger, credential),
+		OperatorCredentials:   operator.NewHandler(logger, stubOperatorCredentials{credential: sampleOperatorCredential()}),
+
 		Authenticator:     verifier,
 		TenantUsers:       users.NewTenantHandler(logger, user),
 		TenantCredentials: credentials.NewTenantHandler(logger, credential),
 	}
+}
+
+/*
+sampleOperator is a principal carrying every operator scope.
+
+The operator surface is exercised here for its transport behavior, so the
+principal grants everything; which scope gates which operation is proved in the
+domain packages.
+*/
+func sampleOperator() operator.Principal {
+	return operator.Principal{CredentialID: sampleOperatorCredential().ID, Scopes: operator.Scopes()}
+}
+
+func sampleOperatorCredential() operator.Credential {
+	return operator.Credential{
+		ID:        "oper_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Name:      "deployment",
+		Scopes:    operator.Scopes(),
+		CreatedAt: sampleCredential().CreatedAt,
+	}
+}
+
+// stubOperatorAuthenticator stands in for operator credential verification.
+type stubOperatorAuthenticator struct {
+	principal operator.Principal
+	err       error
+}
+
+func (stub stubOperatorAuthenticator) Authenticate(context.Context, string) (operator.Principal, error) {
+	if stub.err != nil {
+		return operator.Principal{}, stub.err
+	}
+	return stub.principal, nil
+}
+
+// stubOperatorCredentials stands in for the operator credential service.
+type stubOperatorCredentials struct {
+	credential operator.Credential
+	page       operator.Page
+	err        error
+}
+
+func (stub stubOperatorCredentials) Issue(context.Context, operator.Request) (operator.Credential, operator.Secret, error) {
+	return stub.credential, operator.Secret(strings.Repeat("B", 26)), stub.err
+}
+
+func (stub stubOperatorCredentials) Get(context.Context, string) (operator.Credential, error) {
+	return stub.credential, stub.err
+}
+
+func (stub stubOperatorCredentials) List(context.Context, operator.ListOptions) (operator.Page, error) {
+	if stub.page.Credentials == nil {
+		return operator.Page{Credentials: []operator.Credential{stub.credential}}, stub.err
+	}
+	return stub.page, stub.err
+}
+
+func (stub stubOperatorCredentials) Revoke(context.Context, string) error {
+	return stub.err
 }
 
 /*
@@ -239,9 +305,19 @@ package tests.
 type stubAuthenticator struct {
 	principal credentials.Principal
 	err       error
+
+	/*
+		accepts, when set, is the only token that verifies. It lets one test
+		mix working and failing keys against the same server, which is what
+		proving the rate limit's reach over valid keys requires.
+	*/
+	accepts string
 }
 
-func (stub stubAuthenticator) Authenticate(context.Context, string) (credentials.Principal, error) {
+func (stub stubAuthenticator) Authenticate(_ context.Context, token string) (credentials.Principal, error) {
+	if stub.accepts != "" && token != stub.accepts {
+		return credentials.Principal{}, credentials.ErrUnauthenticated
+	}
 	return stub.principal, stub.err
 }
 

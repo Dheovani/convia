@@ -6,9 +6,13 @@ Convia owns its public API and domain model. Media infrastructure, including the
 
 ## Status
 
-The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and the first domain resource: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and administrative endpoints for applications, Convia's tenants.
+The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and three domain resources: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and endpoints for applications, their users, and their API credentials.
 
-Calls, rooms, authentication, real-time events, and media integration are intentionally not implemented yet. Because authentication does not exist, the administrative endpoints are disabled by default and refused in production; [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
+The tenant-facing API is authenticated. An application presents an opaque API key carrying explicit scopes, and Convia takes the tenant from that key rather than from the request, so `/v1/users` and `/v1/credentials` act on the caller's own data and nothing else. [`docs/authentication.md`](docs/authentication.md) documents the threat model and the credential lifecycle; [`docs/runbooks/credential-revocation.md`](docs/runbooks/credential-revocation.md) is the procedure for withdrawing a leaked key.
+
+The operator surface is authenticated too, by a separate kind of key. An operator credential (`cvo_`) administers Convia itself — creating tenants, suspending them, issuing their first keys — and lives in its own table with its own scopes, so an application key can never reach it. The first one is created with `convia operator issue`, because issuing one over the API requires presenting one.
+
+Calls, rooms, real-time events, and media integration are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 
@@ -35,14 +39,22 @@ go run ./cmd/convia migrate up
 go run ./cmd/convia
 ```
 
+Both API surfaces require a credential, so a fresh instance needs one operator key before it can do anything. Issuing one over the API requires presenting one, so the first is minted against the database:
+
+```sh
+go run ./cmd/convia operator issue "bootstrap"
+```
+
+The secret is printed once and is not stored. `convia operator list` and `convia operator revoke <id>` manage the rest. An instance with no active operator credential still serves the tenant API and warns at startup that nobody can administer it.
+
 Convia reads configuration from the process environment rather than from a file, so `.env` has to be loaded into the shell as shown above. `.env` is ignored by Git and must never hold a production credential.
 
 Configuration is available through these environment variables:
 
 - `CONVIA_ENVIRONMENT` selects `development` or `production` validation. The default is `development`.
-- `CONVIA_ADMIN_API` serves the administrative endpoints when set to `enabled`. The default is `disabled`, and `enabled` is refused in production.
 - `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
 - `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
+- `CONVIA_TRUSTED_PROXIES` names the networks whose `X-Forwarded-For` header Convia believes, as comma-separated CIDR blocks or bare addresses. The default is empty, which trusts nothing. Set it before deploying behind a reverse proxy.
 - `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
 - `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
 - `CONVIA_DATABASE_CONNECT_TIMEOUT` bounds establishing a connection. The default is `5s`.

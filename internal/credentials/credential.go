@@ -13,38 +13,34 @@ the next request rather than at the end of some validity window.
 package credentials
 
 import (
-	"crypto/rand"
-	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"convia/internal/secret"
 )
+
+/*
+format is how an application credential is rendered and parsed.
+
+The "cvk" token prefix is deliberately distinctive so that secret scanners,
+including the one GitHub runs over public repositories, can recognize a leaked
+Convia key by its shape alone. It also distinguishes an application key from an
+operator key, so a key presented to the wrong surface is refused on its shape.
+*/
+var format = secret.Format{Token: "cvk", ID: "cred_"}
 
 const (
 	// idPrefix marks a public identifier as a credential identifier.
 	idPrefix = "cred_"
 
-	/*
-		tokenPrefix marks a string as Convia secret material.
-
-		It is deliberately distinctive so that secret scanners, including the
-		one GitHub runs over public repositories, can recognize a leaked Convia
-		key by its shape alone.
-	*/
-	tokenPrefix = "cvk"
-
-	// randomLength is the number of characters crypto/rand.Text emits, which
-	// carries roughly 130 bits of entropy.
-	randomLength = 26
-
 	maxNameLength = 120
 
 	// digestLength is the stored SHA-256 digest size, in bytes.
-	digestLength = 32
+	digestLength = secret.DigestLength
 )
 
 // ErrNotFound reports that no credential matches the request within its application.
@@ -170,28 +166,12 @@ func (err ValidationError) Error() string {
 
 // NewID generates an opaque public identifier for a credential.
 func NewID() string {
-	return idPrefix + rand.Text()
+	return format.NewID()
 }
 
 // ValidID reports whether an identifier has Convia's credential identifier shape.
 func ValidID(id string) bool {
-	random, found := strings.CutPrefix(id, idPrefix)
-	return found && validRandom(random)
-}
-
-// validRandom reports whether a string is the base32 alphabet crypto/rand.Text emits.
-func validRandom(value string) bool {
-	if len(value) != randomLength {
-		return false
-	}
-
-	for _, character := range value {
-		isBase32 := (character >= 'A' && character <= 'Z') || (character >= '2' && character <= '7')
-		if !isBase32 {
-			return false
-		}
-	}
-	return true
+	return format.ValidID(id)
 }
 
 /*
@@ -200,7 +180,7 @@ Secret is the plaintext half of a key, which Convia holds only in memory.
 It is a distinct type so that a secret cannot be passed where an identifier is
 expected, and so that every place one is handled is easy to find.
 */
-type Secret string
+type Secret = secret.Value
 
 /*
 Token renders the string an application presents to Convia.
@@ -209,8 +189,8 @@ The identifier travels with the secret so that verification can look up one row
 by primary key and then compare, rather than testing the secret against every
 credential of every application.
 */
-func Token(id string, secret Secret) string {
-	return tokenPrefix + "_" + strings.TrimPrefix(id, idPrefix) + "_" + string(secret)
+func Token(id string, value Secret) string {
+	return format.Render(id, value)
 }
 
 /*
@@ -218,47 +198,31 @@ ParseToken recovers the credential identifier and secret from a presented key.
 
 A token that does not have the expected shape is rejected here, before any
 database work, so that malformed input costs nothing and cannot be used to
-probe for identifiers.
+probe for identifiers. An operator key fails here too, on its token prefix,
+because it belongs to a different family and a different surface.
 */
-func ParseToken(token string) (id string, secret Secret, err error) {
-	prefix, rest, found := strings.Cut(token, "_")
-	if !found || prefix != tokenPrefix {
+func ParseToken(token string) (id string, value Secret, err error) {
+	id, value, ok := format.Parse(token)
+	if !ok {
 		return "", "", ErrUnauthenticated
 	}
-
-	random, secretPart, found := strings.Cut(rest, "_")
-	if !found || !validRandom(random) || !validRandom(secretPart) {
-		return "", "", ErrUnauthenticated
-	}
-	return idPrefix + random, Secret(secretPart), nil
+	return id, value, nil
 }
 
 // NewSecret generates the plaintext half of a new key.
 func NewSecret() Secret {
-	return Secret(rand.Text())
+	return secret.New()
 }
 
-/*
-Digest reduces a secret to what Convia stores.
-
-The secret is random with roughly 130 bits of entropy rather than chosen by a
-person, so it cannot be guessed or found in a dictionary and a deliberately
-slow key derivation would add latency to every authenticated request without
-making the search any more feasible. A single SHA-256 is the right cost here.
-*/
-func Digest(secret Secret) []byte {
-	sum := sha256.Sum256([]byte(secret))
-	return sum[:]
+// Digest reduces a secret to what Convia stores. See [secret.Digest].
+func Digest(value Secret) []byte {
+	return secret.Digest(value)
 }
 
-/*
-Matches reports whether a presented secret produced a stored digest.
-
-The comparison takes the same time whichever bytes differ, so that timing
-cannot be used to recover a digest one byte at a time.
-*/
+// Matches reports whether a presented secret produced a stored digest, in
+// constant time. See [secret.Matches].
 func Matches(stored []byte, presented Secret) bool {
-	return subtle.ConstantTimeCompare(stored, Digest(presented)) == 1
+	return secret.Matches(stored, presented)
 }
 
 /*

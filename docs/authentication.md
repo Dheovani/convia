@@ -2,20 +2,58 @@
 
 An **application** proves who it is to Convia with an API key. This document records the threat model and the decisions of milestone M07 in [`TODO.md`](../TODO.md). The domain lives in [`internal/credentials`](../internal/credentials), its schema in [`internal/database/migrations`](../internal/database/migrations), and its contract in [`api/openapi.yaml`](../api/openapi.yaml).
 
-> **Status.** The tenant-facing API is authenticated. What remains gated by `CONVIA_ADMIN_API` is the operator surface that manages applications themselves, because an application's key must not be able to create tenants and operator credentials do not exist yet. See [Not Yet Implemented](#not-yet-implemented).
+> **Status.** Both surfaces are authenticated. An application presents an application key; an operator presents an operator key. There is no configuration that serves either of them openly, and the `CONVIA_ADMIN_API` gate that once stood in for operator authentication has been removed. See [Not Yet Implemented](#not-yet-implemented) for what is still missing.
 
 ## Two Surfaces
 
 | | Tenant-facing | Operator |
 | --- | --- | --- |
-| Paths | `/v1/users`, `/v1/credentials` | `/v1/applications/...` |
+| Paths | `/v1/users`, `/v1/credentials` | `/v1/applications/...`, `/v1/operator/credentials` |
+| Key | `cvk_...` | `cvo_...` |
 | Who the tenant is | Taken from the key | Named in the path |
-| Authentication | Required, every request | None yet |
-| Served | Always | Only with `CONVIA_ADMIN_API=enabled`, refused in production |
+| Scopes | `users:*`, `credentials:*` | `applications:*`, `tenants:*`, `operators:*` |
+| Authentication | Required, every request | Required, every request |
 
 The split exists because the two answer different questions. An application acts on **itself**, so naming a tenant would be redundant at best and a tenant-crossing bug at worst. An operator acts on **someone else**, so it must name them — and that is exactly why an application's key can never be enough to do it.
 
-The operator routes exist to bootstrap: create the first application, issue its first credential. After that, an application manages its own users and its own keys through the authenticated surface.
+The operator routes exist to bootstrap: create the first application, issue its first credential. After that, an application manages its own users and its own keys through the tenant surface.
+
+## The Two Key Families Never Cross
+
+An operator credential lives in **its own table**, carries **its own scopes**, and is presented as **`cvo_`** rather than `cvk_`.
+
+None of that is decoration. Every query in the credentials package carries an application in its `WHERE` clause; if an operator credential could live in that table with no application, one forgotten predicate would turn an omission into a privilege escalation. Kept apart, the tenant store cannot return an operator credential, because it does not read that table.
+
+The distinct token prefix does the same work at the front door. A presented key names its own family, so Convia routes it to one verifier without querying for it, and **a key offered to the wrong surface is refused on its shape, before any database work**. An operator key on `/v1/users` and an application key on `/v1/applications` both fail the same way an unknown key does.
+
+Operator scopes are named apart for a related reason. On an application key, `users:write` means "my users". An operator acts on someone else's, so reusing the name would make one string mean two different amounts of authority depending on which key carried it. A test asserts the two vocabularies do not overlap.
+
+| Scope | Permits |
+| --- | --- |
+| `applications:read` | Listing and reading tenants |
+| `applications:write` | Creating, renaming, suspending, activating, deleting tenants |
+| `tenants:read` | Reading any application's users and credentials |
+| `tenants:write` | Managing any application's users and credentials, including issuing a key on its behalf |
+| `operators:read` | Reading operator credentials |
+| `operators:write` | Issuing and revoking operator credentials |
+
+## Bootstrapping the First Operator
+
+Issuing an operator credential over the API requires presenting one, so the first cannot come from the API.
+
+```bash
+convia operator issue "deployment" applications:write tenants:write
+```
+
+It writes the row directly, which is why it needs database access — **the right authority to mint the key that administers Convia**. Whoever holds it could write that row by hand regardless; going through this command means the digest, the identifier format, and the scope validation are the same code the service uses.
+
+The secret is printed once, to standard output rather than the structured log, because logs are shipped, retained, and read by people who should not receive key material.
+
+`convia operator list` and `convia operator revoke <id>` complete the set, so withdrawing a key during an incident does not mean composing SQL under pressure.
+
+**An instance with no active operator credential answers `401` on the whole operator surface.** That is the correct posture for a fresh install rather than a fault, but it is also the state an operator is least likely to intend, so Convia warns about it at startup. It is a warning and never a refusal to start: the tenant surface is unaffected, and taking it down would punish the applications already using it.
+
+**Issuing cannot escalate here either.** The scopes requested must be a subset of the ones the calling key holds. Without that rule a key carrying only `operators:write` could mint one carrying authority over every tenant in Convia.
 
 ## Presenting a Key
 
@@ -32,11 +70,41 @@ A key that authenticates but lacks the scope an operation requires is answered `
 
 ## Where Authorization Happens
 
-**Not in the handlers.** Each domain exposes an `Authorized` type that can only be constructed from a verified principal. It takes the application from that principal and refuses any operation whose scope the principal does not carry, before the underlying service runs.
+**Not in the handlers.** Each domain exposes an `Authorized` type that can only be constructed from a verified principal, and refuses any operation whose scope the principal does not carry, before the underlying service runs. The operator surface has the same thing: `AuthorizeOperator`, built from a verified operator principal.
 
-That placement is deliberate. A check that lives in a handler is one a future route, command, or background job can forget. A check that lives in the operation itself cannot be reached around — and because the tenant also comes from the principal, there is no request field that could name a different application, so a tenant-crossing bug at the transport layer is not merely unlikely but unrepresentable.
+That placement is deliberate. A check that lives in a handler is one a future route, command, or background job can forget. A check that lives in the operation itself cannot be reached around — and on the tenant surface the application comes from the principal too, so there is no request field that could name a different one, making a tenant-crossing bug at the transport layer not merely unlikely but unrepresentable.
+
+The operator surface deliberately does take its tenant from the path, because an operator acts on someone else by definition. What bounds it is the key: crossing into a tenant requires an operator credential carrying a tenants scope, and no application key can hold one.
 
 Tests cover every operation from both sides: with its scope, without it, and with no scopes at all, asserting in each refusal that the underlying service was never reached. An authorization that ran after the work would be no authorization at all.
+
+## Rate Limiting Failed Attempts
+
+Failed authentication attempts are budgeted per caller address: **60 attempts, refilled over a minute.** Exceeding it is answered `429` with a `Retry-After` header.
+
+**Only failures are charged.** A client presenting a working key is never limited, however much traffic it sends. A client that does meet this limit is presenting a key that will not start working by being repeated — a revoked or expired credential in a retry loop is the usual cause.
+
+This is **not** a defence against guessing a key. A secret with 130 bits of entropy cannot be searched at any rate. What the limit protects is the cost of the attempt: each well-formed but wrong key is a database read, and a flood of them is load Convia would otherwise pay for. The budget is checked **before** the key is verified, so an exhausted caller costs a map lookup rather than a query.
+
+### What that costs
+
+Checking before verifying has a consequence worth stating plainly: **while an address is out of budget, even a valid key from that address is refused.** Verifying it is precisely the work being declined. Counting a flood without stopping it would protect nothing, so this is the deliberate half of the trade.
+
+The numbers are chosen around that. One indexed read takes a few hundred microseconds and PostgreSQL serves tens of thousands a second, so a tight budget would buy almost nothing while making the collateral refusal likely. Sixty per minute leaves a misconfigured client retrying every few seconds far from the limit, and still cuts a flood to one attempt a second.
+
+### Running behind a proxy
+
+**Convia reads `X-Forwarded-For` only from networks an operator named in `CONVIA_TRUSTED_PROXIES`.** Trusting a header nobody told it to trust would let a caller evade its own limit and spend someone else's budget by claiming their address.
+
+Unset — the default — every client behind a proxy shares the proxy's address, so one misconfigured client can exhaust the budget for all of them. **Set it before deploying behind a proxy.** [`api-conventions.md`](api-conventions.md) documents the format and how the chain is read.
+
+The reading is what makes the header safe to use at all. The chain is walked **from the right**, skipping trusted hops, because a proxy appends what it saw and anything a client invented sits further left. A caller connecting directly is charged to its own address whatever it claims, so the limiter cannot be turned into a weapon: a caller can neither escape its own budget by rotating the header nor spend someone else's by naming them. Both are asserted by tests.
+
+### Where the state lives
+
+In the process. Several Convia instances therefore enforce the budget per instance rather than across the fleet. That is the right trade while Convia runs as one — a shared limiter would put a network round trip on the path whose whole purpose is to be cheaper than the work it guards — and Redis is the answer when Convia is actually replicated.
+
+A bucket exists only for an address that has failed recently, and the map is capped. When it is full and nothing has recovered, a new caller is allowed rather than refused: turning a memory bound into a way to lock out every address at once would be the outage the limit exists to prevent.
 
 ## Issuing Cannot Escalate
 
@@ -58,6 +126,7 @@ What Convia is defending, and against whom.
 | The existence of keys | Probing for valid identifiers | Every failure returns one indistinguishable error |
 | A digest | Recovery by timing the comparison | Comparison is constant-time |
 | The whole surface | A key with more access than it needs | Scopes are explicit and required; there is no implicit access |
+| Convia's own capacity | A flood of attempts with keys that will never work | Failed attempts are budgeted per address, checked before the key is read |
 
 **Out of scope for Convia.** The application's own accounts, passwords, and sessions are the application's responsibility. Convia authenticates the *application*, not the people using it — [`users.md`](users.md) explains why Convia deliberately holds no credentials for them.
 
@@ -119,7 +188,7 @@ Operations on applications themselves — creating, renaming, deleting a tenant 
 
 **Expiry** is optional and must be in the future. It needs no scheduled job: the state is derived from the timestamp on every verification, so a credential stops working the moment it passes.
 
-**Revocation** takes effect on the next request. There is no grace period and nothing to propagate.
+**Revocation** takes effect on the next request. There is no grace period and nothing to propagate. Withdrawing a key during an incident, including withdrawing many at once, is [`runbooks/credential-revocation.md`](runbooks/credential-revocation.md).
 
 **Rotation** is not a separate operation, because composing the two existing ones is what gives zero downtime:
 
@@ -141,13 +210,14 @@ This is why the credentials domain asks whether an application is **active** rat
 
 Convia never writes a secret, a digest, or a presented key to any log or audit record. Audit entries identify a credential by its public identifier and record its scopes. An audit trail that carried key material would be a second copy of the thing it exists to protect.
 
-Failure to authenticate is not audited per attempt. Rate limiting authentication failures is `M07-011` and has not been built.
+Failure to authenticate is not audited per attempt. What bounds a flood of failures is the budget described in [Rate Limiting Failed Attempts](#rate-limiting-failed-attempts), not an audit record per attempt.
+
+A credential revoked directly in the database, as an incident sometimes requires, produces no audit event either: the record is written by the service, and a direct `UPDATE` does not go through it. [`runbooks/credential-revocation.md`](runbooks/credential-revocation.md) says what to capture by hand instead.
 
 ## Not Yet Implemented
 
-- **operator credentials**, which is what would let the `/v1/applications` endpoints be authenticated and the `CONVIA_ADMIN_API` gate be removed entirely. Until then, creating a tenant is an unauthenticated local action, refused in production;
-- **rate limits on authentication failures** (`M07-011`). Nothing currently slows a caller presenting one wrong key after another. The keys are unguessable, so this is a cost and noise problem rather than a way in, but it is a real gap;
-- **an emergency revocation procedure** (`M07-016`), the runbook for withdrawing many keys at once;
+- **bulk revocation**, so withdrawing many of one tenant's keys is still one request per credential;
+- **`last_used_at` on an operator credential**, with the same cost and the same open design question as the tenant equivalent below;
 - **a cache for verification**, which is the answer if the per-request lookup ever becomes a bottleneck. It is not built, because any staleness weakens revocation and would have to be argued for;
 - **`last_used_at` on a credential**, which operators will want in order to retire keys nobody presents. It costs a write on every authenticated request, so it needs a design rather than a column;
 - **media grants**, which are signed rather than opaque and belong to the media plane.

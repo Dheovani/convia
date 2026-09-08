@@ -80,7 +80,7 @@ func TestRecoverPanicPropagatesAbortHandler(t *testing.T) {
 }
 
 func TestRecoverPanicKeepsAlreadyWrittenResponse(t *testing.T) {
-	handler := logRequest(discardLogger(), recoverPanic(discardLogger(), http.HandlerFunc(
+	handler := logRequest(discardLogger(), resolver{}, recoverPanic(discardLogger(), http.HandlerFunc(
 		func(response http.ResponseWriter, _ *http.Request) {
 			response.WriteHeader(http.StatusAccepted)
 			panic("late failure")
@@ -100,7 +100,7 @@ func TestRecoverPanicKeepsAlreadyWrittenResponse(t *testing.T) {
 func TestLogRequestRecordsRequestOutcome(t *testing.T) {
 	logs := &bytes.Buffer{}
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
-	handler := requestID(logRequest(logger, http.HandlerFunc(
+	handler := requestID(logRequest(logger, resolver{}, http.HandlerFunc(
 		func(response http.ResponseWriter, _ *http.Request) {
 			response.WriteHeader(http.StatusTeapot)
 			if _, err := io.WriteString(response, "short"); err != nil {
@@ -130,7 +130,7 @@ func TestLogRequestRecordsRequestOutcome(t *testing.T) {
 
 func TestResponseRecorderKeepsFirstStatus(t *testing.T) {
 	logs := &bytes.Buffer{}
-	handler := logRequest(slog.New(slog.NewJSONHandler(logs, nil)), http.HandlerFunc(
+	handler := logRequest(slog.New(slog.NewJSONHandler(logs, nil)), resolver{}, http.HandlerFunc(
 		func(response http.ResponseWriter, _ *http.Request) {
 			response.WriteHeader(http.StatusCreated)
 			response.WriteHeader(http.StatusInternalServerError)
@@ -151,7 +151,7 @@ func TestResponseRecorderKeepsFirstStatus(t *testing.T) {
 }
 
 func TestResponseRecorderSupportsResponseController(t *testing.T) {
-	handler := logRequest(discardLogger(), http.HandlerFunc(
+	handler := logRequest(discardLogger(), resolver{}, http.HandlerFunc(
 		func(response http.ResponseWriter, _ *http.Request) {
 			if err := http.NewResponseController(response).Flush(); err != nil {
 				t.Errorf("flush response: %v", err)

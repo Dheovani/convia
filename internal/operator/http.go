@@ -1,7 +1,6 @@
-package credentials
+package operator
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -9,23 +8,15 @@ import (
 	"time"
 
 	"convia/internal/api"
-	"convia/internal/operator"
 )
 
 /*
-service is the behavior the HTTP layer needs.
+Handler exposes operator credentials over HTTP.
 
-It is declared here, in the consuming layer, so that handler tests can exercise
-every transport path without PostgreSQL. *Service satisfies it.
+These routes carry no application in the path, and not because the tenant comes
+from the key as it does on the tenant surface: an operator credential belongs
+to no tenant at all.
 */
-type service interface {
-	Issue(ctx context.Context, applicationID string, request Request) (Credential, Secret, error)
-	Get(ctx context.Context, applicationID, id string) (Credential, error)
-	List(ctx context.Context, applicationID string, options ListOptions) (Page, error)
-	Revoke(ctx context.Context, applicationID, id string) error
-}
-
-// Handler exposes an application's credentials over HTTP.
 type Handler struct {
 	logger  *slog.Logger
 	service service
@@ -35,27 +26,27 @@ func NewHandler(logger *slog.Logger, service service) *Handler {
 	return &Handler{logger: logger, service: service}
 }
 
-// issueRequest is the accepted body when issuing a credential.
+// issueRequest is the accepted body when issuing an operator credential.
 type issueRequest struct {
 	Name      string     `json:"name"`
 	Scopes    []Scope    `json:"scopes"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 
-// credentialResponse is the public representation of a credential, never its secret.
+// credentialResponse is the public representation of an operator credential,
+// never its secret.
 type credentialResponse struct {
-	ID            string   `json:"id"`
-	ApplicationID string   `json:"application_id"`
-	Name          string   `json:"name"`
-	Scopes        []string `json:"scopes"`
-	Status        string   `json:"status"`
-	CreatedAt     string   `json:"created_at"`
-	ExpiresAt     string   `json:"expires_at,omitempty"`
-	RevokedAt     string   `json:"revoked_at,omitempty"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Scopes    []string `json:"scopes"`
+	Status    string   `json:"status"`
+	CreatedAt string   `json:"created_at"`
+	ExpiresAt string   `json:"expires_at,omitempty"`
+	RevokedAt string   `json:"revoked_at,omitempty"`
 }
 
 /*
-issuedResponse is the one response that carries secret material.
+issuedResponse is the one operator response that carries secret material.
 
 It exists as a separate type so that the field cannot be added to the ordinary
 representation by accident: every other response is built from
@@ -66,7 +57,7 @@ type issuedResponse struct {
 	Secret string `json:"secret"`
 }
 
-// listResponse is the public representation of one page of credentials.
+// listResponse is the public representation of one page of operator credentials.
 type listResponse struct {
 	Data       []credentialResponse `json:"data"`
 	NextCursor string               `json:"next_cursor,omitempty"`
@@ -74,14 +65,13 @@ type listResponse struct {
 
 func represent(credential Credential, at time.Time) credentialResponse {
 	return credentialResponse{
-		ID:            credential.ID,
-		ApplicationID: credential.ApplicationID,
-		Name:          credential.Name,
-		Scopes:        texts(credential.Scopes),
-		Status:        string(credential.Status(at)),
-		CreatedAt:     api.FormatTimestamp(credential.CreatedAt),
-		ExpiresAt:     formatOptional(credential.ExpiresAt),
-		RevokedAt:     formatOptional(credential.RevokedAt),
+		ID:        credential.ID,
+		Name:      credential.Name,
+		Scopes:    texts(credential.Scopes),
+		Status:    string(credential.Status(at)),
+		CreatedAt: api.FormatTimestamp(credential.CreatedAt),
+		ExpiresAt: formatOptional(credential.ExpiresAt),
+		RevokedAt: formatOptional(credential.RevokedAt),
 	}
 }
 
@@ -96,13 +86,13 @@ func formatOptional(moment *time.Time) string {
 /*
 authorized binds the request's verified operator to the service.
 
-A request that reaches here without an operator principal was routed without
-the authentication middleware, which is a wiring mistake rather than a client
+A request that reaches here without a principal was routed without the
+authentication middleware, which is a wiring mistake rather than a client
 error. It is refused as unauthenticated, because that is the answer that grants
 nothing, and logged so the mistake is visible.
 */
-func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*OperatorAuthorized, bool) {
-	principal, found := operator.PrincipalFromContext(request.Context())
+func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*Authorized, bool) {
+	principal, found := PrincipalFromContext(request.Context())
 	if !found {
 		handler.logger.Error("operator route reached without a principal",
 			"method", request.Method,
@@ -113,15 +103,15 @@ func (handler *Handler) authorized(response http.ResponseWriter, request *http.R
 			"The request did not carry a usable credential."))
 		return nil, false
 	}
-	return AuthorizeOperator(handler.service, principal), true
+	return Authorize(handler.service, principal), true
 }
 
 /*
-Issue creates a credential and returns its secret once.
+Issue creates an operator credential and returns its secret once.
 
-This is the only response in Convia that contains secret material. The secret
-is not stored, so a client that loses it has to issue another credential;
-saying so is the point of returning it exactly here and nowhere else.
+The secret is not stored, so an operator that loses it has to issue another
+credential. Saying so is the point of returning it exactly here and nowhere
+else.
 */
 func (handler *Handler) Issue(response http.ResponseWriter, request *http.Request) {
 	authorized, ok := handler.authorized(response, request)
@@ -135,8 +125,12 @@ func (handler *Handler) Issue(response http.ResponseWriter, request *http.Reques
 		return
 	}
 
-	credential, secret, err := authorized.Issue(request.Context(),
-		request.PathValue("application_id"), Request(body))
+	/*
+		The request body and the domain request carry the same fields, so the
+		conversion keeps them in step: adding a field to one without the other
+		fails to compile rather than silently dropping it.
+	*/
+	credential, value, err := authorized.Issue(request.Context(), Request(body))
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -144,19 +138,18 @@ func (handler *Handler) Issue(response http.ResponseWriter, request *http.Reques
 
 	handler.write(response, request, http.StatusCreated, issuedResponse{
 		credentialResponse: represent(credential, time.Now().UTC()),
-		Secret:             Token(credential.ID, secret),
+		Secret:             Token(credential.ID, value),
 	})
 }
 
-// Get returns one credential of an application.
+// Get returns one operator credential.
 func (handler *Handler) Get(response http.ResponseWriter, request *http.Request) {
 	authorized, ok := handler.authorized(response, request)
 	if !ok {
 		return
 	}
 
-	credential, err := authorized.Get(request.Context(),
-		request.PathValue("application_id"), request.PathValue("credential_id"))
+	credential, err := authorized.Get(request.Context(), request.PathValue("credential_id"))
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -165,7 +158,7 @@ func (handler *Handler) Get(response http.ResponseWriter, request *http.Request)
 	handler.write(response, request, http.StatusOK, represent(credential, time.Now().UTC()))
 }
 
-// List returns one page of an application's credentials.
+// List returns one page of operator credentials.
 func (handler *Handler) List(response http.ResponseWriter, request *http.Request) {
 	authorized, ok := handler.authorized(response, request)
 	if !ok {
@@ -184,7 +177,7 @@ func (handler *Handler) List(response http.ResponseWriter, request *http.Request
 		options.Limit = limit
 	}
 
-	page, err := authorized.List(request.Context(), request.PathValue("application_id"), options)
+	page, err := authorized.List(request.Context(), options)
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -199,16 +192,14 @@ func (handler *Handler) List(response http.ResponseWriter, request *http.Request
 	handler.write(response, request, http.StatusOK, body)
 }
 
-// Revoke withdraws a credential.
+// Revoke withdraws an operator credential.
 func (handler *Handler) Revoke(response http.ResponseWriter, request *http.Request) {
 	authorized, ok := handler.authorized(response, request)
 	if !ok {
 		return
 	}
 
-	err := authorized.Revoke(request.Context(),
-		request.PathValue("application_id"), request.PathValue("credential_id"))
-	if err != nil {
+	if err := authorized.Revoke(request.Context(), request.PathValue("credential_id")); err != nil {
 		handler.writeError(response, request, err)
 		return
 	}
@@ -224,61 +215,38 @@ an unexpected condition: it is logged with its detail and reported as a generic
 internal error, so that infrastructure failures never reach a public contract.
 */
 func (handler *Handler) writeError(response http.ResponseWriter, request *http.Request, err error) {
-	writeDomainError(handler.logger, response, request, err)
-}
-
-/*
-writeDomainError is the single translation from a domain error to the public
-error schema.
-
-Both the operator-facing and the tenant-facing handlers use it, so the two
-surfaces cannot drift into describing the same failure differently.
-*/
-func writeDomainError(logger *slog.Logger, response http.ResponseWriter, request *http.Request, err error) {
 	var validation ValidationError
 
 	switch {
 	case errors.As(err, &validation):
-		writeFailure(logger, response, request,
+		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest, validation.Message))
 
 	case errors.Is(err, ErrForbidden):
-		writeFailure(logger, response, request,
+		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusForbidden, api.CodeForbidden,
 				"The credential does not carry the scope this operation requires."))
 
-	case errors.Is(err, ErrApplicationNotFound):
-		writeFailure(logger, response, request,
-			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The requested application does not exist."))
-
 	case errors.Is(err, ErrNotFound):
-		writeFailure(logger, response, request,
-			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The requested credential does not exist."))
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusNotFound, api.CodeNotFound,
+				"The requested operator credential does not exist."))
 
 	default:
-		logger.Error("credential request failed",
+		handler.logger.Error("operator credential request failed",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
-		writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
+		handler.writeFailure(response, request, api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
 			"The server encountered an unexpected condition."))
-	}
-}
-
-func writeFailure(logger *slog.Logger, response http.ResponseWriter, request *http.Request, failure *api.Failure) {
-	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write error response",
-			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
-		)
 	}
 }
 
 func (handler *Handler) write(response http.ResponseWriter, request *http.Request, status int, body any) {
 	if err := api.Write(response, status, body); err != nil {
-		handler.logger.Error("write credential response",
+		handler.logger.Error("write response",
 			"error", err,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
@@ -286,5 +254,10 @@ func (handler *Handler) write(response http.ResponseWriter, request *http.Reques
 }
 
 func (handler *Handler) writeFailure(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
-	writeFailure(handler.logger, response, request, failure)
+	if err := api.WriteFailure(response, request, failure); err != nil {
+		handler.logger.Error("write failure response",
+			"error", err,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+	}
 }

@@ -61,7 +61,7 @@ Nested objects and arrays are rejected at decoding, so the stored shape stays pr
 
 An application reaches its own users under **`/v1/users`**, authenticated with its API key. The tenant comes from the key, so no application appears in the path and none can be named — see [`authentication.md`](authentication.md).
 
-The routes nested under `/v1/applications/{application_id}/users` are the operator-facing equivalents. They behave identically and remain behind the `CONVIA_ADMIN_API` gate. The examples below use the nested form because it shows the tenant explicitly; every one of them has an authenticated counterpart without the prefix.
+The routes nested under `/v1/applications/{application_id}/users` are the operator-facing equivalents. They behave identically and require an operator credential carrying a tenants scope. The examples below use the nested form because it shows the tenant explicitly; every one of them has an authenticated counterpart without the prefix.
 
 ## Resolving an Identity
 

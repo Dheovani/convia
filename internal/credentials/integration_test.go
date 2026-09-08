@@ -535,3 +535,53 @@ func countAuditEvents(t *testing.T, setup fixture, event, credentialID string) i
 func pointerTo[T any](value T) *T {
 	return &value
 }
+
+/*
+TestRotationKeepsTheFleetServed proves the zero-downtime rotation documented in
+docs/authentication.md.
+
+Rotation is deliberately not an endpoint: it is composing issue and revoke, and
+what makes that safe is the overlap. Both keys must work at the same time, or a
+fleet would be locked out between deploying the new key and withdrawing the old
+one. An atomic swap endpoint would give no such window, which is the opposite of
+what rotation is for.
+*/
+func TestRotationKeepsTheFleetServed(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+
+	current, currentToken := issued(t, setup, ScopeUsersRead, ScopeUsersWrite)
+
+	// Step one: issue the replacement. The old key must keep working.
+	replacement, replacementToken := issued(t, setup, ScopeUsersRead, ScopeUsersWrite)
+	if replacement.ID == current.ID {
+		t.Fatal("the replacement reused the identifier of the key it replaces")
+	}
+
+	for name, token := range map[string]string{"current": currentToken, "replacement": replacementToken} {
+		principal, err := setup.service.Authenticate(ctx, token)
+		if err != nil {
+			t.Fatalf("Authenticate(%s) during the overlap error = %v", name, err)
+		}
+		if !principal.Allows(ScopeUsersWrite) {
+			t.Errorf("the %s key lost a scope it was granted: %v", name, principal.Scopes)
+		}
+	}
+
+	// Step two: withdraw the old key. Only it stops working.
+	if err := setup.service.Revoke(ctx, setup.first, current.ID); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+
+	if _, err := setup.service.Authenticate(ctx, currentToken); !errors.Is(err, ErrUnauthenticated) {
+		t.Errorf("Authenticate(current) after revocation error = %v, want %v", err, ErrUnauthenticated)
+	}
+
+	principal, err := setup.service.Authenticate(ctx, replacementToken)
+	if err != nil {
+		t.Fatalf("Authenticate(replacement) after rotation error = %v, which would be an outage", err)
+	}
+	if principal.CredentialID != replacement.ID {
+		t.Errorf("credential = %q, want the replacement %q", principal.CredentialID, replacement.ID)
+	}
+}

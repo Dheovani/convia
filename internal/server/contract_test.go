@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -241,7 +244,7 @@ func TestApplicationResponsesMatchSpecification(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
-				newDependencies(test.stub)).Handler.ServeHTTP(response, test.request)
+				newDependencies(test.stub)).Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -305,7 +308,7 @@ func TestApplicationMutationsMatchSpecification(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
-				newDependencies(test.stub)).Handler.ServeHTTP(response, test.request)
+				newDependencies(test.stub)).Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -327,7 +330,7 @@ func TestDeleteSendsNoBody(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodDelete, api.Prefix+"/applications/"+sampleApplication().ID, nil)
 	New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
-		newDependencies(stubApplications{})).Handler.ServeHTTP(response, request)
+		newDependencies(stubApplications{})).Handler.ServeHTTP(response, asOperator(request))
 
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNoContent)
@@ -396,7 +399,7 @@ func TestUserResponsesMatchSpecification(t *testing.T) {
 			response := httptest.NewRecorder()
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 				newFullDependencies(stubApplications{application: sampleApplication()}, test.stub)).
-				Handler.ServeHTTP(response, test.request)
+				Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -539,7 +542,7 @@ func TestCredentialResponsesMatchSpecification(t *testing.T) {
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 				newEveryDependency(stubApplications{application: sampleApplication()},
 					stubUsers{user: sampleUser()}, test.stub)).
-				Handler.ServeHTTP(response, test.request)
+				Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -577,7 +580,7 @@ func TestOnlyIssuingReturnsASecret(t *testing.T) {
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 				newEveryDependency(stubApplications{application: sampleApplication()},
 					stubUsers{user: sampleUser()}, stub)).
-				Handler.ServeHTTP(response, request)
+				Handler.ServeHTTP(response, asOperator(request))
 
 			if strings.Contains(response.Body.String(), secret) {
 				t.Errorf("%s returned secret material: %s", name, response.Body)
@@ -590,8 +593,8 @@ func TestOnlyIssuingReturnsASecret(t *testing.T) {
 		New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 			newEveryDependency(stubApplications{application: sampleApplication()},
 				stubUsers{user: sampleUser()}, stub)).
-			Handler.ServeHTTP(response, jsonRequest(http.MethodPost, target,
-			`{"name":"Production backend","scopes":["users:read"]}`))
+			Handler.ServeHTTP(response, asOperator(jsonRequest(http.MethodPost, target,
+			`{"name":"Production backend","scopes":["users:read"]}`)))
 
 		if !strings.Contains(response.Body.String(), secret) {
 			t.Errorf("issuing did not return the secret, which is the only chance to: %s", response.Body)
@@ -625,9 +628,9 @@ func TestAuthenticationParityWithTheContract(t *testing.T) {
 		}
 
 		documented := operation.Security != nil && len(*operation.Security) > 0
-		if documented != entry.authenticated {
+		if documented != entry.authenticated() {
 			t.Errorf("%s %s: authenticated in code = %t, in the contract = %t",
-				entry.method, entry.path, entry.authenticated, documented)
+				entry.method, entry.path, entry.authenticated(), documented)
 		}
 	}
 }
@@ -746,8 +749,29 @@ func TestTenantRoutesAreAbsentWithoutAnAuthenticator(t *testing.T) {
 	dependencies.Authenticator = nil
 
 	for _, entry := range routeTable(logger, dependencies) {
-		if entry.authenticated {
+		if entry.surface == surfaceTenant {
 			t.Errorf("route %s %s is served without an authenticator", entry.method, entry.path)
+		}
+	}
+}
+
+/*
+TestOperatorRoutesAreAbsentWithoutAnAuthenticator proves the same of the
+operator surface.
+
+Without the verifier that decides whether a caller may administer Convia, the
+routes that create tenants and mint their keys must not be registered at all.
+Forgetting to wire it removes the endpoints rather than opening them, which is
+the failure mode worth having.
+*/
+func TestOperatorRoutesAreAbsentWithoutAnAuthenticator(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dependencies := testDependencies()
+	dependencies.OperatorAuthenticator = nil
+
+	for _, entry := range routeTable(logger, dependencies) {
+		if entry.surface == surfaceOperator {
+			t.Errorf("route %s %s is served without an operator authenticator", entry.method, entry.path)
 		}
 	}
 }
@@ -798,4 +822,306 @@ func TestScopeRefusalIsForbiddenNotUnauthenticated(t *testing.T) {
 		t.Fatalf("status code = %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
 	}
 	assertBodyMatchesSchema(t, responseSchema(t, document.Components.Responses["Forbidden"]), response.Body.Bytes())
+}
+
+/*
+TestBudgetsAreSeparatedBehindATrustedProxy is what trusted-forwarder support is
+for.
+
+Without it every client behind a proxy shares the proxy's address, so one
+misconfigured client exhausts the budget for all of them. With the proxy
+network configured, one client burning its whole budget leaves its neighbour
+untouched.
+*/
+func TestBudgetsAreSeparatedBehindATrustedProxy(t *testing.T) {
+	dependencies := newAuthenticatedDependency(
+		stubApplications{application: sampleApplication()},
+		stubUsers{user: sampleUser()},
+		stubCredentials{credential: sampleCredential()},
+		stubAuthenticator{err: credentials.ErrUnauthenticated})
+	dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), dependencies).Handler
+
+	behindProxy := func(client string) *http.Request {
+		request := authenticatedRequest(http.MethodGet, api.Prefix+"/users", "")
+		request.RemoteAddr = "10.0.0.5:41000"
+		request.Header.Set("X-Forwarded-For", client)
+		return request
+	}
+
+	// One client spends its entire budget.
+	for attempt := 0; attempt <= authFailureBurst; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, behindProxy("203.0.113.9"))
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, behindProxy("203.0.113.9"))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("the exhausted client answered %d, want %d", response.Code, http.StatusTooManyRequests)
+	}
+
+	// Its neighbour, behind the same proxy, still has its own.
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, behindProxy("203.0.113.10"))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("the neighbour answered %d, want %d: one client exhausted another's budget",
+			response.Code, http.StatusUnauthorized)
+	}
+}
+
+/*
+TestASpoofedForwardedHeaderCannotSpendAnotherBudget proves the limiter cannot be
+turned into a weapon.
+
+A caller connecting directly is charged to its own address whatever it writes
+into X-Forwarded-For, so it can neither escape its own budget by rotating the
+header nor exhaust someone else's by claiming their address.
+*/
+func TestASpoofedForwardedHeaderCannotSpendAnotherBudget(t *testing.T) {
+	dependencies := newAuthenticatedDependency(
+		stubApplications{application: sampleApplication()},
+		stubUsers{user: sampleUser()},
+		stubCredentials{credential: sampleCredential()},
+		stubAuthenticator{err: credentials.ErrUnauthenticated})
+	dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), dependencies).Handler
+
+	/*
+		An untrusted caller fails repeatedly, inventing a different victim on
+		every attempt. If the header were believed, each attempt would land in
+		a fresh bucket and the caller would never be limited at all.
+	*/
+	attacker := func(claim string) *http.Request {
+		request := authenticatedRequest(http.MethodGet, api.Prefix+"/users", "")
+		request.RemoteAddr = "198.51.100.7:41000"
+		request.Header.Set("X-Forwarded-For", claim)
+		return request
+	}
+
+	limited := false
+	for attempt := 0; attempt <= authFailureBurst+1; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, attacker(fmt.Sprintf("203.0.113.%d", attempt%250)))
+		if response.Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+
+	if !limited {
+		t.Fatal("a direct caller rotating X-Forwarded-For was never limited, so it escaped its own budget")
+	}
+
+	// The address it kept claiming was never charged, so its budget is intact.
+	victim := authenticatedRequest(http.MethodGet, api.Prefix+"/users", "")
+	victim.RemoteAddr = "10.0.0.5:41000"
+	victim.Header.Set("X-Forwarded-For", "203.0.113.1")
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, victim)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("the claimed address answered %d, want %d: its budget was spent by someone else",
+			response.Code, http.StatusUnauthorized)
+	}
+}
+
+/*
+TestFailedAttemptsAreBudgeted proves a caller repeating a key that will never
+work is eventually made to wait.
+
+The burst is spent first, so a client that fails a handful of times is answered
+normally; only persistence is charged.
+*/
+func TestFailedAttemptsAreBudgeted(t *testing.T) {
+	document := loadSpecification(t)
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{err: credentials.ErrUnauthenticated})).Handler
+
+	for attempt := 1; attempt <= authFailureBurst; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: status code = %d, want %d", attempt, response.Code, http.StatusUnauthorized)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status code = %d after %d failures, want %d",
+			response.Code, authFailureBurst, http.StatusTooManyRequests)
+	}
+
+	retry := response.Header().Get("Retry-After")
+	if retry == "" {
+		t.Error("no Retry-After header, which RFC 9110 expects on a 429")
+	}
+	if seconds, err := strconv.Atoi(retry); err != nil || seconds < 1 {
+		t.Errorf("Retry-After = %q, want whole seconds of at least 1", retry)
+	}
+
+	assertBodyMatchesSchema(t, responseSchema(t, document.Components.Responses["RateLimited"]), response.Body.Bytes())
+
+	var body struct {
+		Error api.ErrorBody `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode the error body: %v", err)
+	}
+	if body.Error.Code != api.CodeRateLimited {
+		t.Errorf("code = %q, want %q", body.Error.Code, api.CodeRateLimited)
+	}
+}
+
+/*
+TestSucceedingRequestsAreNotBudgeted is the property that keeps this limit from
+becoming an outage.
+
+A busy application presenting a working key must never be throttled, however
+many requests it makes, because only failures are charged.
+*/
+func TestSucceedingRequestsAreNotBudgeted(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		testDependencies()).Handler
+
+	for attempt := 1; attempt <= authFailureBurst*5; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+		if response.Code != http.StatusOK {
+			t.Fatalf("request %d: status code = %d, want %d", attempt, response.Code, http.StatusOK)
+		}
+	}
+}
+
+/*
+TestTheBudgetIsSharedAcrossAuthenticatedRoutes proves a caller cannot buy more
+attempts by spreading them over endpoints.
+*/
+func TestTheBudgetIsSharedAcrossAuthenticatedRoutes(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{err: credentials.ErrUnauthenticated})).Handler
+
+	targets := []string{
+		api.Prefix + "/users",
+		api.Prefix + "/credentials",
+		api.Prefix + "/users/" + sampleUser().ID,
+		api.Prefix + "/credentials/" + sampleCredential().ID,
+	}
+
+	limited := false
+	for attempt := 0; attempt <= authFailureBurst; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, targets[attempt%len(targets)], ""))
+
+		if response.Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+
+	if !limited {
+		t.Errorf("spreading failures over %d routes bought more than %d attempts", len(targets), authFailureBurst)
+	}
+}
+
+/*
+TestUnauthenticatedRoutesAreNotBudgeted proves the limit is scoped to the
+authenticated surface.
+
+Health and readiness are what an orchestrator polls, and throttling those on
+the strength of a bad key elsewhere would take a healthy instance out of
+rotation.
+*/
+func TestUnauthenticatedRoutesAreNotBudgeted(t *testing.T) {
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{err: credentials.ErrUnauthenticated})).Handler
+
+	// Spend the whole budget on the authenticated surface first.
+	for range authFailureBurst + 5 {
+		handler.ServeHTTP(httptest.NewRecorder(),
+			authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+	}
+
+	for _, target := range []string{"/health", "/ready"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+
+		if response.Code != http.StatusOK {
+			t.Errorf("%s: status code = %d, want %d", target, response.Code, http.StatusOK)
+		}
+	}
+}
+
+/*
+TestAnExhaustedAddressAlsoRefusesAValidKey states the cost of checking the
+budget before verifying the key.
+
+Verifying a key is exactly the work the budget declines to do, so while an
+address is out of budget a working key from that address is refused too. That
+is deliberate — counting a flood without stopping it would protect nothing —
+but it means one misconfigured client can hold up another sharing its address,
+which is why running behind a proxy needs the trusted-forwarder support that
+does not exist yet. Asserting it here keeps it a known property rather than a
+discovery made in production.
+*/
+func TestAnExhaustedAddressAlsoRefusesAValidKey(t *testing.T) {
+	const working = "cvk_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5"
+
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
+		newAuthenticatedDependency(
+			stubApplications{application: sampleApplication()},
+			stubUsers{user: sampleUser()},
+			stubCredentials{credential: sampleCredential()},
+			stubAuthenticator{principal: samplePrincipal(), accepts: working})).Handler
+
+	// The working key is accepted while the address still has budget.
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+	if first.Code != http.StatusOK {
+		t.Fatalf("status code = %d before any failures, want %d: %s", first.Code, http.StatusOK, first.Body)
+	}
+
+	for range authFailureBurst {
+		request := httptest.NewRequest(http.MethodGet, api.Prefix+"/users", nil)
+		request.Header.Set("Authorization", "Bearer cvk_AAAAAAAAAAAAAAAAAAAAAAAAAA_BBBBBBBBBBBBBBBBBBBBBBBBBB")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+
+	refused := httptest.NewRecorder()
+	handler.ServeHTTP(refused, authenticatedRequest(http.MethodGet, api.Prefix+"/users", ""))
+
+	if refused.Code != http.StatusTooManyRequests {
+		t.Errorf("status code = %d for a valid key from an exhausted address, want %d",
+			refused.Code, http.StatusTooManyRequests)
+	}
+}
+
+/*
+asOperator stamps an operator bearer on a request.
+
+The stub verifier accepts any token, so this proves routing, handler behavior,
+and contract conformance rather than verification. Whether a real key verifies
+is settled by the operator package tests.
+*/
+func asOperator(request *http.Request) *http.Request {
+	request.Header.Set("Authorization", "Bearer cvo_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5")
+	return request
 }
