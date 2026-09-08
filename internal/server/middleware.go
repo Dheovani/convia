@@ -152,7 +152,7 @@ authenticator verifies a presented application key.
 
 The server depends on this narrow behavior rather than on the credentials
 service, so the middleware stays testable without PostgreSQL.
-*credentials.Service satisfies it.
+credentials.Service satisfies it.
 */
 type authenticator interface {
 	Authenticate(ctx context.Context, token string) (credentials.Principal, error)
@@ -164,7 +164,7 @@ operatorAuthenticator verifies a presented operator key.
 It is a separate interface from authenticator, returning a separate principal
 type, so no wiring mistake can hand an operator route a tenant verifier or the
 reverse: the two do not satisfy each other.
-*operator.Service satisfies it.
+operator.Service satisfies it.
 */
 type operatorAuthenticator interface {
 	Authenticate(ctx context.Context, token string) (operator.Principal, error)

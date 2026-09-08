@@ -94,13 +94,6 @@ func formatOptional(moment *time.Time) string {
 }
 
 /*
-Issue creates a credential and returns its secret once.
-
-This is the only response in Convia that contains secret material. The secret
-is not stored, so a client that loses it has to issue another credential;
-saying so is the point of returning it exactly here and nowhere else.
-*/
-/*
 authorized binds the request's verified operator to the service.
 
 A request that reaches here without an operator principal was routed without
@@ -123,6 +116,13 @@ func (handler *Handler) authorized(response http.ResponseWriter, request *http.R
 	return AuthorizeOperator(handler.service, principal), true
 }
 
+/*
+Issue creates a credential and returns its secret once.
+
+This is the only response in Convia that contains secret material. The secret
+is not stored, so a client that loses it has to issue another credential;
+saying so is the point of returning it exactly here and nowhere else.
+*/
 func (handler *Handler) Issue(response http.ResponseWriter, request *http.Request) {
 	authorized, ok := handler.authorized(response, request)
 	if !ok {
