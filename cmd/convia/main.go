@@ -16,6 +16,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/operator"
+	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/users"
 )
@@ -125,6 +126,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -140,11 +142,13 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Applications:          applications.NewHandler(logger, applicationService),
 		Users:                 users.NewHandler(logger, userService),
 		Credentials:           credentials.NewHandler(logger, credentialService),
+		Rooms:                 rooms.NewHandler(logger, roomService),
 		OperatorCredentials:   operator.NewHandler(logger, operatorService),
 
 		Authenticator:     credentialService,
 		TenantUsers:       users.NewTenantHandler(logger, userService),
 		TenantCredentials: credentials.NewTenantHandler(logger, credentialService),
+		TenantRooms:       rooms.NewTenantHandler(logger, roomService),
 	}
 
 	warnIfUnadministered(signalContext, logger, operatorService)

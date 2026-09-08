@@ -85,6 +85,11 @@ const (
 	// ScopeCredentialsWrite permits issuing and revoking the application's own
 	// credentials.
 	ScopeCredentialsWrite Scope = "credentials:write"
+	// ScopeRoomsRead permits reading the application's rooms.
+	ScopeRoomsRead Scope = "rooms:read"
+	// ScopeRoomsWrite permits creating, updating, closing, reopening, and
+	// deleting the application's rooms.
+	ScopeRoomsWrite Scope = "rooms:write"
 )
 
 /*
@@ -94,7 +99,11 @@ The contract test uses it to prove that the API specification and the
 implementation describe the same permissions.
 */
 func Scopes() []Scope {
-	return []Scope{ScopeUsersRead, ScopeUsersWrite, ScopeCredentialsRead, ScopeCredentialsWrite}
+	return []Scope{
+		ScopeUsersRead, ScopeUsersWrite,
+		ScopeCredentialsRead, ScopeCredentialsWrite,
+		ScopeRoomsRead, ScopeRoomsWrite,
+	}
 }
 
 // Status is the lifecycle state of a credential, derived rather than stored.

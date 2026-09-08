@@ -13,6 +13,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/operator"
 	"convia/internal/ratelimit"
+	"convia/internal/rooms"
 	"convia/internal/users"
 )
 
@@ -97,6 +98,7 @@ type Dependencies struct {
 	Applications          *applications.Handler
 	Users                 *users.Handler
 	Credentials           *credentials.Handler
+	Rooms                 *rooms.Handler
 	OperatorCredentials   *operator.Handler
 
 	/*
@@ -106,6 +108,7 @@ type Dependencies struct {
 	Authenticator     authenticator
 	TenantUsers       *users.TenantHandler
 	TenantCredentials *credentials.TenantHandler
+	TenantRooms       *rooms.TenantHandler
 }
 
 // New constructs the Convia HTTP server.
@@ -305,6 +308,49 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.TenantCredentials.Get)},
 			route{method: http.MethodDelete, path: api.Prefix + "/credentials/{credential_id}", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantCredentials.Revoke)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantRooms != nil {
+		/*
+			An application addressing its own rooms. As with users, the tenant
+			comes from the credential rather than the path, so no request field
+			could name another application's room.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/rooms", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Create)},
+			route{method: http.MethodGet, path: api.Prefix + "/rooms", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/rooms/{room_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/rooms/{room_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Update)},
+			route{method: http.MethodDelete, path: api.Prefix + "/rooms/{room_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Delete)},
+			route{method: http.MethodPost, path: api.Prefix + "/rooms/{room_id}/close", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Close)},
+			route{method: http.MethodPost, path: api.Prefix + "/rooms/{room_id}/reopen", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Reopen)},
+		)
+	}
+
+	if dependencies.OperatorAuthenticator != nil && dependencies.Rooms != nil {
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.Create)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.Update)},
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.Delete)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}/close", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.Close)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}/reopen", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Rooms.Reopen)},
 		)
 	}
 
