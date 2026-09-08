@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"convia/internal/api"
@@ -81,6 +82,13 @@ type Dependencies struct {
 	Database Prober
 
 	/*
+		TrustedProxies are the networks whose forwarded headers Convia
+		believes when deciding which address a request is charged to. Empty
+		means trust nothing, which is the default and the only safe one.
+	*/
+	TrustedProxies []netip.Prefix
+
+	/*
 		The operator surface administers tenants: creating them, suspending
 		them, and issuing their first keys. It is authenticated by an operator
 		credential, which no application can hold.
@@ -128,19 +136,21 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	*/
 	failures := ratelimit.New(authFailureBurst, authFailurePeriod, authFailureKeys)
 
+	resolve := newResolver(dependencies.TrustedProxies)
+
 	rt := newRoutes(logger)
 	for _, entry := range routeTable(logger, dependencies) {
 		served := entry.handler
 		switch entry.surface {
 		case surfaceTenant:
-			served = authenticate(logger, tenantVerifier{dependencies.Authenticator}, failures, served)
+			served = authenticate(logger, tenantVerifier{dependencies.Authenticator}, failures, resolve, served)
 		case surfaceOperator:
-			served = authenticate(logger, operatorVerifier{dependencies.OperatorAuthenticator}, failures, served)
+			served = authenticate(logger, operatorVerifier{dependencies.OperatorAuthenticator}, failures, resolve, served)
 		}
 		rt.handle(entry.method, entry.path, served)
 	}
 
-	return requestID(logRequest(logger, recoverPanic(logger, rt.handler())))
+	return requestID(logRequest(logger, resolve, recoverPanic(logger, rt.handler())))
 }
 
 /*

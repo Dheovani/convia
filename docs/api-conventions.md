@@ -105,7 +105,19 @@ Offset pagination is not offered, because it is unstable while items are being c
 
 ## Reverse proxies
 
-Convia currently trusts no forwarded headers. `X-Forwarded-For`, `X-Forwarded-Proto`, and `Forwarded` are ignored, and the client address in logs is the peer address of the connection. A deployment behind a proxy must terminate TLS at the proxy and must not rely on Convia interpreting forwarded headers. Trusted-proxy configuration will be added when a deployment topology requires it, and it must be explicit rather than enabled by default.
+**By default Convia trusts no forwarded header.** `X-Forwarded-For`, `X-Forwarded-Proto`, and `Forwarded` are ignored, and the client address is the peer address of the connection.
+
+`CONVIA_TRUSTED_PROXIES` changes that for `X-Forwarded-For` only. It takes a comma-separated list of CIDR blocks or bare addresses — for example `10.0.0.0/8, 192.0.2.7` — naming the networks whose forwarded headers Convia believes. An unparseable entry is a startup failure rather than a skipped entry.
+
+The resolved address is what the failed-authentication budget is charged to and what the access log reports as `client`.
+
+**How the chain is read.** When the connection arrives from a trusted network, `X-Forwarded-For` is walked **from the right**, skipping entries that are themselves trusted proxies; the first untrusted address is the client. Right to left is the only safe direction: a proxy appends the address it received the connection from, so the rightmost entries were written by infrastructure the operator controls, and anything a client invented arrives further left. Reading left to right would return whatever the caller chose.
+
+Anything that cannot be believed to the end falls back to the peer address: no header, an unparseable entry, or a chain made entirely of trusted proxies. A malformed entry **stops** the walk rather than being skipped, because stepping over it would mean believing whatever lies behind it.
+
+A caller connecting to Convia directly is always charged to its own address, whatever it writes into the header.
+
+**Still not interpreted:** `X-Forwarded-Proto` and `Forwarded`. Convia generates no absolute URLs and makes no scheme-dependent decision, so neither would change any behavior today. A deployment behind a proxy must still terminate TLS at the proxy.
 
 ## CORS
 

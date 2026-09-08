@@ -131,7 +131,7 @@ Run it as a `SELECT` first. Replacing `UPDATE credentials SET revoked_at = now()
 
 > **Recover from a different address than the retrying fleet.** The budget is checked *before* the key is verified, so while an address is out of budget **a valid key from that address is refused too**. Measured under sustained failure load from one address: a valid key was refused on 9 of 10 attempts. The bucket refills at one token per second, so a lull of a second or two lets one request through — do not rely on that under load.
 >
-> Behind a reverse proxy this is worse, not better: every client shares the proxy's address, so one retrying fleet exhausts the budget for all of them. Trusted-forwarder support does not exist yet, which is why [`authentication.md`](../authentication.md) records it as a deployment prerequisite.
+> Behind a reverse proxy, this depends on configuration. With `CONVIA_TRUSTED_PROXIES` naming the proxy network, each client is budgeted separately and a retrying fleet cannot lock out anyone else. Without it, every client shares the proxy's address and one fleet exhausts the budget for all of them — including you. Confirm which you are running before you sweep.
 
 **Issue replacements and redeploy.** A revoked key is not reset, it is replaced. Issue a new credential with the same scopes, deploy it, and confirm traffic is using it.
 
@@ -176,4 +176,3 @@ Each of these makes this runbook harder than it should be. They are recorded her
 - **No audit trail for SQL revocation.** The fallback path is the one Convia does not record. Using the API avoids this entirely, which is why it is the first choice above.
 - **No bulk revocation endpoint.** Revoking many of one tenant's keys means one `DELETE` per credential, so a sweep is still faster in SQL. That is the remaining reason the SQL is documented rather than deleted.
 - **No `last_used_at`.** After a leak you cannot tell whether the key was actually used, from where, or when it last worked. Recorded in [`authentication.md`](../authentication.md) as needing a design rather than a column.
-- **No trusted-forwarder configuration.** Behind a proxy, the failure budget is shared by every client, so a retrying fleet can lock out the operator trying to recover.

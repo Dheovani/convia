@@ -94,9 +94,11 @@ The numbers are chosen around that. One indexed read takes a few hundred microse
 
 ### Running behind a proxy
 
-**Convia uses the address the connection came from and does not read `X-Forwarded-For`.** Trusting a header nobody told it to trust would let a caller evade its own limit and spend someone else's budget by claiming their address.
+**Convia reads `X-Forwarded-For` only from networks an operator named in `CONVIA_TRUSTED_PROXIES`.** Trusting a header nobody told it to trust would let a caller evade its own limit and spend someone else's budget by claiming their address.
 
-The consequence is a deployment prerequisite: **behind a reverse proxy or load balancer, every client appears as one address**, so one misconfigured client could exhaust the budget for all of them. Trusted-forwarder configuration must exist before Convia is deployed that way. It does not yet.
+Unset — the default — every client behind a proxy shares the proxy's address, so one misconfigured client can exhaust the budget for all of them. **Set it before deploying behind a proxy.** [`api-conventions.md`](api-conventions.md) documents the format and how the chain is read.
+
+The reading is what makes the header safe to use at all. The chain is walked **from the right**, skipping trusted hops, because a proxy appends what it saw and anything a client invented sits further left. A caller connecting directly is charged to its own address whatever it claims, so the limiter cannot be turned into a weapon: a caller can neither escape its own budget by rotating the header nor spend someone else's by naming them. Both are asserted by tests.
 
 ### Where the state lives
 
@@ -214,7 +216,6 @@ A credential revoked directly in the database, as an incident sometimes requires
 
 ## Not Yet Implemented
 
-- **trusted-forwarder configuration**, without which Convia must not run behind a proxy: every client would share the proxy's address for rate-limiting purposes;
 - **bulk revocation**, so withdrawing many of one tenant's keys is still one request per credential;
 - **`last_used_at` on an operator credential**, with the same cost and the same open design question as the tenant equivalent below;
 - **a cache for verification**, which is the answer if the per-request lookup ever becomes a bottleneck. It is not built, because any staleness weakens revocation and would have to be argued for;

@@ -399,3 +399,49 @@ func TestListingCarriesNoSecret(t *testing.T) {
 		t.Error("the listing carries secret material")
 	}
 }
+
+/*
+TestRotationKeepsTheOperatorServed proves the same overlap on the operator
+surface.
+
+It matters more here than on the tenant surface: losing every operator key at
+once leaves an instance nobody can administer over the API, recoverable only
+from the command line.
+*/
+func TestRotationKeepsTheOperatorServed(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	current, currentSecret := issue(t, f, "current", operator.ScopeApplicationsWrite)
+	replacement, replacementSecret := issue(t, f, "replacement", operator.ScopeApplicationsWrite)
+
+	currentToken := operator.Token(current.ID, currentSecret)
+	replacementToken := operator.Token(replacement.ID, replacementSecret)
+
+	for name, token := range map[string]string{"current": currentToken, "replacement": replacementToken} {
+		if _, err := f.service.Authenticate(ctx, token); err != nil {
+			t.Fatalf("Authenticate(%s) during the overlap error = %v", name, err)
+		}
+	}
+
+	if err := f.service.Revoke(ctx, current.ID); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+
+	if _, err := f.service.Authenticate(ctx, currentToken); !errors.Is(err, operator.ErrUnauthenticated) {
+		t.Errorf("Authenticate(current) after revocation error = %v, want %v", err, operator.ErrUnauthenticated)
+	}
+	if _, err := f.service.Authenticate(ctx, replacementToken); err != nil {
+		t.Fatalf("Authenticate(replacement) after rotation error = %v, which would leave nobody able to administer", err)
+	}
+
+	// The instance is still administrable, which is what the warning at startup
+	// exists to detect the absence of.
+	active, err := f.service.CountActive(ctx)
+	if err != nil {
+		t.Fatalf("CountActive() error = %v", err)
+	}
+	if active != 1 {
+		t.Errorf("CountActive() = %d, want 1 after rotating one key", active)
+	}
+}

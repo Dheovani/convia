@@ -133,7 +133,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		it with an operator key, which no application can hold.
 	*/
 	dependencies := server.Dependencies{
-		Database: pool,
+		Database:       pool,
+		TrustedProxies: cfg.TrustedProxies,
 
 		OperatorAuthenticator: operatorService,
 		Applications:          applications.NewHandler(logger, applicationService),

@@ -54,6 +54,7 @@ Configuration is available through these environment variables:
 - `CONVIA_ENVIRONMENT` selects `development` or `production` validation. The default is `development`.
 - `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
 - `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
+- `CONVIA_TRUSTED_PROXIES` names the networks whose `X-Forwarded-For` header Convia believes, as comma-separated CIDR blocks or bare addresses. The default is empty, which trusts nothing. Set it before deploying behind a reverse proxy.
 - `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
 - `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
 - `CONVIA_DATABASE_CONNECT_TIMEOUT` bounds establishing a connection. The default is `5s`.

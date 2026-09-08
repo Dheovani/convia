@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -38,13 +37,20 @@ func requestID(next http.Handler) http.Handler {
 
 // logRequest emits one structured access log entry per request and records the
 // response status and size for the rest of the chain.
-func logRequest(logger *slog.Logger, next http.Handler) http.Handler {
+func logRequest(logger *slog.Logger, resolve resolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		start := time.Now()
 		recorder := &responseRecorder{ResponseWriter: response, status: http.StatusOK}
 
 		next.ServeHTTP(recorder, request)
 
+		/*
+			The client address is the resolved one, not the peer, so an
+			operator can see at a glance whether trusted-forwarder
+			configuration is doing what they intended. Without it in the log,
+			a misconfigured proxy list looks exactly like a correct one until
+			the rate limiter starts refusing the wrong people.
+		*/
 		logger.Info("HTTP request",
 			"request_id", api.RequestIDFromContext(request.Context()),
 			"method", request.Method,
@@ -52,6 +58,7 @@ func logRequest(logger *slog.Logger, next http.Handler) http.Handler {
 			"status", recorder.status,
 			"bytes", recorder.bytes,
 			"duration_ms", time.Since(start).Milliseconds(),
+			"client", resolve.clientAddress(request),
 		)
 	})
 }
@@ -226,7 +233,8 @@ offered to a tenant route from one that does not exist.
 The `WWW-Authenticate` header is what tells a client which scheme to use, and
 RFC 9110 requires it on a 401.
 */
-func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limiter, next http.Handler) http.Handler {
+func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limiter,
+	resolve resolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		/*
 			The budget is checked before anything else, so a caller that has
@@ -234,7 +242,7 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 			That is the point of limiting here: the work is skipped, not merely
 			counted.
 		*/
-		source := callerAddress(request)
+		source := resolve.clientAddress(request)
 		if !failures.Allows(source) {
 			slowDown(logger, response, request, failures.RetryAfter(source))
 			return
@@ -299,26 +307,6 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
-}
-
-/*
-callerAddress identifies who to charge for a failed attempt.
-
-Only the address the connection actually came from is used. A forwarding header
-is not consulted, because trusting one Convia was never told to trust would let
-a caller both evade its own limit and spend someone else's budget by claiming
-their address. Running behind a proxy therefore needs a deliberate
-trusted-forwarder configuration, which does not exist yet.
-
-The port is dropped so that a caller opening a new connection per attempt is
-still recognized as the same one.
-*/
-func callerAddress(request *http.Request) string {
-	host, _, err := net.SplitHostPort(request.RemoteAddr)
-	if err != nil {
-		return request.RemoteAddr
-	}
-	return host
 }
 
 /*

@@ -20,6 +20,7 @@ func useDefaults(t *testing.T) {
 
 	for _, name := range []string{
 		environmentEnvironment,
+		trustedProxiesEnvironment,
 		httpHostEnvironment,
 		httpPortEnvironment,
 		databaseMaxConnectionsEnvironment,
@@ -279,4 +280,88 @@ func unsetEnvironment(t *testing.T, name string) {
 			t.Errorf("restore %s: %v", name, err)
 		}
 	})
+}
+
+/*
+TestTrustedProxiesDefaultToNone proves the safe default.
+
+An empty list means Convia believes no forwarded header, which is what keeps a
+caller from claiming another address. Anyone who wants otherwise has to say so.
+*/
+func TestTrustedProxiesDefaultToNone(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(config.TrustedProxies) != 0 {
+		t.Errorf("TrustedProxies = %v, want none by default", config.TrustedProxies)
+	}
+}
+
+func TestTrustedProxiesAcceptCIDRsAndBareAddresses(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(trustedProxiesEnvironment, " 10.0.0.0/8 , 192.0.2.7 ,, 2001:db8::/32 ")
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	want := []string{"10.0.0.0/8", "192.0.2.7/32", "2001:db8::/32"}
+	if len(config.TrustedProxies) != len(want) {
+		t.Fatalf("TrustedProxies = %v, want %d entries", config.TrustedProxies, len(want))
+	}
+	for index, prefix := range config.TrustedProxies {
+		if prefix.String() != want[index] {
+			t.Errorf("entry %d = %q, want %q", index, prefix, want[index])
+		}
+	}
+}
+
+/*
+TestTrustedProxiesMaskHostBits proves a prefix written with host bits set means
+the network the operator clearly intended.
+
+"10.1.2.3/8" unmasked would match nothing, and the symptom — every client
+sharing the proxy's address — would surface much later and look unrelated.
+*/
+func TestTrustedProxiesMaskHostBits(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(trustedProxiesEnvironment, "10.1.2.3/8")
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := config.TrustedProxies[0].String(); got != "10.0.0.0/8" {
+		t.Errorf("TrustedProxies[0] = %q, want %q", got, "10.0.0.0/8")
+	}
+}
+
+/*
+TestTrustedProxiesRejectUnparseableEntries proves a bad entry stops startup.
+
+Skipping it would leave Convia trusting fewer proxies than the operator
+believes, which fails quietly and much later.
+*/
+func TestTrustedProxiesRejectUnparseableEntries(t *testing.T) {
+	tests := map[string]string{
+		"not an address": "10.0.0.0/8, nonsense",
+		"bad mask":       "10.0.0.0/64",
+		"host name":      "proxy.internal",
+		"port":           "10.0.0.5:8080",
+	}
+
+	for name, value := range tests {
+		t.Run(name, func(t *testing.T) {
+			useDefaults(t)
+			t.Setenv(trustedProxiesEnvironment, value)
+
+			if _, err := Load(); err == nil {
+				t.Fatalf("Load() error = nil, want %q to be rejected", value)
+			}
+		})
+	}
 }

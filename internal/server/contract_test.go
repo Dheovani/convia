@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -820,6 +822,110 @@ func TestScopeRefusalIsForbiddenNotUnauthenticated(t *testing.T) {
 		t.Fatalf("status code = %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
 	}
 	assertBodyMatchesSchema(t, responseSchema(t, document.Components.Responses["Forbidden"]), response.Body.Bytes())
+}
+
+/*
+TestBudgetsAreSeparatedBehindATrustedProxy is what trusted-forwarder support is
+for.
+
+Without it every client behind a proxy shares the proxy's address, so one
+misconfigured client exhausts the budget for all of them. With the proxy
+network configured, one client burning its whole budget leaves its neighbour
+untouched.
+*/
+func TestBudgetsAreSeparatedBehindATrustedProxy(t *testing.T) {
+	dependencies := newAuthenticatedDependency(
+		stubApplications{application: sampleApplication()},
+		stubUsers{user: sampleUser()},
+		stubCredentials{credential: sampleCredential()},
+		stubAuthenticator{err: credentials.ErrUnauthenticated})
+	dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), dependencies).Handler
+
+	behindProxy := func(client string) *http.Request {
+		request := authenticatedRequest(http.MethodGet, api.Prefix+"/users", "")
+		request.RemoteAddr = "10.0.0.5:41000"
+		request.Header.Set("X-Forwarded-For", client)
+		return request
+	}
+
+	// One client spends its entire budget.
+	for attempt := 0; attempt <= authFailureBurst; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, behindProxy("203.0.113.9"))
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, behindProxy("203.0.113.9"))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("the exhausted client answered %d, want %d", response.Code, http.StatusTooManyRequests)
+	}
+
+	// Its neighbour, behind the same proxy, still has its own.
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, behindProxy("203.0.113.10"))
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("the neighbour answered %d, want %d: one client exhausted another's budget",
+			response.Code, http.StatusUnauthorized)
+	}
+}
+
+/*
+TestASpoofedForwardedHeaderCannotSpendAnotherBudget proves the limiter cannot be
+turned into a weapon.
+
+A caller connecting directly is charged to its own address whatever it writes
+into X-Forwarded-For, so it can neither escape its own budget by rotating the
+header nor exhaust someone else's by claiming their address.
+*/
+func TestASpoofedForwardedHeaderCannotSpendAnotherBudget(t *testing.T) {
+	dependencies := newAuthenticatedDependency(
+		stubApplications{application: sampleApplication()},
+		stubUsers{user: sampleUser()},
+		stubCredentials{credential: sampleCredential()},
+		stubAuthenticator{err: credentials.ErrUnauthenticated})
+	dependencies.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+
+	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), dependencies).Handler
+
+	/*
+		An untrusted caller fails repeatedly, inventing a different victim on
+		every attempt. If the header were believed, each attempt would land in
+		a fresh bucket and the caller would never be limited at all.
+	*/
+	attacker := func(claim string) *http.Request {
+		request := authenticatedRequest(http.MethodGet, api.Prefix+"/users", "")
+		request.RemoteAddr = "198.51.100.7:41000"
+		request.Header.Set("X-Forwarded-For", claim)
+		return request
+	}
+
+	limited := false
+	for attempt := 0; attempt <= authFailureBurst+1; attempt++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, attacker(fmt.Sprintf("203.0.113.%d", attempt%250)))
+		if response.Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+
+	if !limited {
+		t.Fatal("a direct caller rotating X-Forwarded-For was never limited, so it escaped its own budget")
+	}
+
+	// The address it kept claiming was never charged, so its budget is intact.
+	victim := authenticatedRequest(http.MethodGet, api.Prefix+"/users", "")
+	victim.RemoteAddr = "10.0.0.5:41000"
+	victim.Header.Set("X-Forwarded-For", "203.0.113.1")
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, victim)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("the claimed address answered %d, want %d: its budget was spent by someone else",
+			response.Code, http.StatusUnauthorized)
+	}
 }
 
 /*
