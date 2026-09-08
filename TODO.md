@@ -22,17 +22,17 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M08 — Room Domain, the first communication primitive and the start of Phase 2. The domain, both API surfaces, and the contract are complete; `M08-007` (`Idempotency-Key`) is the remaining slice, and is shared infrastructure M09 also needs. M07 is done except `M07-009`, which needs the origin model of the standalone web application and is blocked on M18 rather than outstanding. Phase 0 and M06 are complete.
+- **Current milestone:** M08 — Room Domain, the first communication primitive and the start of Phase 2. **Complete.** M07 is done except `M07-009`, which needs the origin model of the standalone web application and is blocked on M18 rather than outstanding. Phase 0 and M06 are complete.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** the `Idempotency-Key` store that finishes M08 and serves M09, then M09 — Call Lifecycle
+- **Next implementation milestone:** M09 — Call Lifecycle
 - **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the operator API, which requires an operator credential carrying an applications scope
 - **Current identity capability:** an application's people can be resolved into Convia users, listed, retrieved, updated with optimistic concurrency, suspended, activated, and deleted under `/v1/users`, with the tenant taken from the presented credential rather than named in the path
 - **Current credential capability:** an application can be issued opaque API keys carrying explicit scopes, which Convia stores only as a digest, verifies in constant time, and can expire or revoke with immediate effect; suspending an application withdraws every key it holds. An application manages its own keys under `/v1/credentials`, and cannot issue one carrying scopes it does not itself hold. See [`docs/authentication.md`](docs/authentication.md)
 - **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the authenticated tenant endpoints for users and credentials, the authenticated operator endpoints for applications and operator credentials, both security schemes, and the shared error, pagination, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
-- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications`, `users`, `credentials`, `operator_credentials`, and `rooms` tables
+- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications`, `users`, `credentials`, `operator_credentials`, `rooms`, and `idempotency_keys` tables
 - **Current authentication capability:** every request on both surfaces carries a key, verified on each request and enforced against explicit scopes inside the domain rather than at the handler. Application and operator keys are separate families — separate tables, prefixes, and scope vocabularies — so a key offered to the wrong surface is refused on its shape before any lookup. Failed attempts are budgeted per caller address, resolved through `CONVIA_TRUSTED_PROXIES` where a proxy is configured, so a flood of unusable keys cannot be paid for indefinitely and one client cannot spend another's budget
-- **Current communication capability:** rooms. An application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and can list, filter, update under optimistic concurrency, close, reopen, and delete them under `/v1/rooms`. Aliases are unique per application and stay reserved after deletion. See [`docs/rooms.md`](docs/rooms.md)
+- **Current communication capability:** rooms. An application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and can list, filter, update under optimistic concurrency, close, reopen, and delete them under `/v1/rooms`. Aliases are unique per application and stay reserved after deletion, and a creation can carry an `Idempotency-Key` so a retry after a timeout produces no second room. See [`docs/rooms.md`](docs/rooms.md)
 - **Current media capability:** none
 - **Current user interface capability:** none
 
@@ -298,7 +298,7 @@ Complete these in order before starting feature development:
 ### M08 — Room Domain
 
 **Priority:** P1
-**Status:** In progress - the domain is complete; `M08-007` is its own slice
+**Status:** Complete
 **Depends on:** M07
 **Goal:** Introduce Convia-owned rooms without any LiveKit terminology in public or domain contracts.
 
@@ -308,7 +308,7 @@ Complete these in order before starting feature development:
 - [x] **M08-004:** Define application-scoped room aliases and uniqueness. Unique within one application through a partial index, so anonymous rooms do not collide. The alias stays reserved while a room is deleted, because a cached alias must never come to point at a different room.
 - [x] **M08-005:** Add room persistence and indexes. Migration `00006`, with the alias uniqueness, listing, and status-filter indexes, and every invariant the domain relies on encoded as a constraint.
 - [x] **M08-006:** Add room create, read, list, update, close, and archive services. Create, get, get-by-alias, list, update, close, reopen, and delete. Archiving is what closing means: a fourth retained-but-invisible state would duplicate `deleted` without adding a distinction anyone could act on.
-- [ ] **M08-007:** Add idempotency for room creation. Deferred to its own slice: `docs/api-compatibility.md` already specifies `Idempotency-Key`, and the store that makes a repeated key return the original response is shared infrastructure M09 will also need. Alias collision already answers `409` rather than silently resolving, so creation is not ambiguous in the meantime.
+- [x] **M08-007:** Add idempotency for room creation. `POST /v1/rooms` and its operator counterpart honor `Idempotency-Key`: the room is created at most once, and a repeat replays the original response with its status and entity tag. The claim is a single statement, so two simultaneous requests cannot both proceed. A key is scoped to the caller, expires after 24 hours, and is reclaimed by the request that reuses it. A server error or a rate-limited refusal releases the key instead of storing it, so a retry is a real attempt. The mechanism is `internal/idempotency` and knows nothing about rooms; M09-007 adopts it by marking a route.
 - [x] **M08-008:** Add public REST endpoints and OpenAPI schemas. Fourteen routes across both surfaces, with `Room`, `RoomPage`, `RoomMetadata`, `RoomStatus`, and the request schemas. The contract test proves routes, security, and error codes match the implementation in both directions.
 - [x] **M08-009:** Add pagination and filtering tests. Keyset paging newest first, the `status` filter, deleted rooms excluded unless asked for, and alias lookup answering with one room.
 - [x] **M08-010:** Add room membership or access-policy concepts only when required. Not required, and deliberately absent. Convia holds no credentials for an application's people, so it could not enforce a policy about who may enter; the application already knows. A model Convia could not enforce would be worse than none.
@@ -318,7 +318,7 @@ Complete these in order before starting feature development:
 - [x] **M08-014:** Add domain, repository, HTTP, and concurrency tests. Scope tables covering every operation on both surfaces in three positions, tenant isolation, optimistic concurrency through storage, lifecycle repeatability, and alias reservation across deletion.
 - [x] **M08-015:** Add room audit events. Creation, closure, reopening, and deletion. Neither the alias nor the name is recorded, because both are labels an application chose and either may say something about the people using the room; a test asserts they stay out.
 
-**Exit criteria:** Applications can manage isolated rooms through stable Convia APIs with complete lifecycle and authorization tests.
+**Exit criteria:** Applications can manage isolated rooms through stable Convia APIs with complete lifecycle and authorization tests. **Met.** Rooms are created, addressed by an alias the application chose, listed, filtered, updated under optimistic concurrency, closed, reopened, and deleted on both surfaces; every operation is tested with its scope, without it, and with none; a tenant reaching another's room receives `404` rather than `403`; and creation can be retried safely.
 
 ### M09 — Call Lifecycle
 
@@ -333,7 +333,7 @@ Complete these in order before starting feature development:
 - [ ] **M09-004:** Define actor and reason fields for transitions.
 - [ ] **M09-005:** Add durable call records and transition history.
 - [ ] **M09-006:** Enforce one-active-call constraints transactionally where required.
-- [ ] **M09-007:** Add idempotent start and end operations.
+- [ ] **M09-007:** Add idempotent start and end operations. The mechanism exists in `internal/idempotency` and is applied by marking a route `idempotent` in the route table, so this is a decision about which call operations owe the guarantee rather than an implementation.
 - [ ] **M09-008:** Add call REST endpoints and contract schemas.
 - [ ] **M09-009:** Reject invalid transitions with stable public errors.
 - [ ] **M09-010:** Define behavior when the media provider is temporarily unavailable.

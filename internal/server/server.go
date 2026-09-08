@@ -109,6 +109,16 @@ type Dependencies struct {
 	TenantUsers       *users.TenantHandler
 	TenantCredentials *credentials.TenantHandler
 	TenantRooms       *rooms.TenantHandler
+
+	/*
+		IdempotencyKeys lets a caller retry a creation without risking a second
+		resource. Leaving it out does not remove the routes it guards, because
+		the header is optional and every request that omits it is served
+		normally. A request that presents one is refused instead of being served
+		without the guarantee, so a client is never told a promise held when it
+		did not.
+	*/
+	IdempotencyKeys keyRegistry
 }
 
 // New constructs the Convia HTTP server.
@@ -144,6 +154,17 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	rt := newRoutes(logger)
 	for _, entry := range routeTable(logger, dependencies) {
 		served := entry.handler
+
+		/*
+			Idempotency wraps the handler and is itself wrapped by
+			authentication, so a key is only ever claimed for a caller who has
+			proved who they are. The reverse order would let an unauthenticated
+			request reserve keys.
+		*/
+		if entry.idempotent {
+			served = idempotent(logger, dependencies.IdempotencyKeys, served)
+		}
+
 		switch entry.surface {
 		case surfaceTenant:
 			served = authenticate(logger, tenantVerifier{dependencies.Authenticator}, failures, resolve, served)
@@ -187,6 +208,17 @@ type route struct {
 	path    string
 	handler http.Handler
 	surface surface
+
+	/*
+		idempotent marks a route that honors an Idempotency-Key.
+
+		It is declared here for the same reason the surface is: a guarantee a
+		client can rely on should be readable off the table rather than
+		remembered inside a handler. Only operations that create something need
+		it. A transition that is already repeatable -- closing a room, deleting
+		one -- does not, because repeating it is already harmless.
+	*/
+	idempotent bool
 }
 
 // authenticated reports whether the route demands a credential of any kind.
@@ -318,7 +350,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			could name another application's room.
 		*/
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/rooms", surface: surfaceTenant,
+			route{method: http.MethodPost, path: api.Prefix + "/rooms", surface: surfaceTenant, idempotent: true,
 				handler: http.HandlerFunc(dependencies.TenantRooms.Create)},
 			route{method: http.MethodGet, path: api.Prefix + "/rooms", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantRooms.List)},
@@ -337,7 +369,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 
 	if dependencies.OperatorAuthenticator != nil && dependencies.Rooms != nil {
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator, idempotent: true,
 				handler: http.HandlerFunc(dependencies.Rooms.Create)},
 			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Rooms.List)},

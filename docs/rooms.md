@@ -73,6 +73,23 @@ This is the decision M09 must implement, and it is recorded here because it is a
 
 **Convia records it; it does not yet enforce it**, because there are no calls to enforce it against. It is a domain rule now and a media-plane check when the media plane exists. Saying so plainly is better than implying Convia is policing something it cannot observe.
 
+## Retrying a Creation
+
+A client that receives no response cannot tell whether its request was lost on the way out or on the way back. Retrying is the only thing it can do, and without help that retry creates a second room.
+
+`POST /v1/rooms` accepts an **`Idempotency-Key`**. With one, the room is created at most once: a repeat of the same request returns the original response, entity tag included, and the handler is never reached. The full rules are in [`api-compatibility.md`](api-compatibility.md); what matters here is the shape of the guarantee.
+
+- **The header is optional**, and a request without one is served exactly as before.
+- **A key reused for a different body** is refused with `409 conflict`. Replaying would answer a question the caller did not ask; performing it would defeat the key.
+- **A key whose first request is still running** is refused with `409 conflict` rather than queued, and succeeds once that request has finished.
+- **A key belongs to the caller that presented it.** An application's keys are scoped to the application; an operator's belong to its credential, because an operator acts on many tenants and its keys are its own.
+
+This is why an alias collision answers `409` rather than resolving to the existing room. Creation says whether it created something, and the key — not the alias — is what makes retrying safe.
+
+**Only creation accepts a key.** Closing, reopening, and deleting are already repeatable, so a key would add a failure mode to operations that have none.
+
+The mechanism lives in [`internal/idempotency`](../internal/idempotency) and knows nothing about rooms. It is the same guarantee calls will owe in M09, and marking a route is all adopting it takes.
+
 ## Isolation
 
 Every room operation is scoped to one application, and how the tenant is decided differs by surface:
@@ -90,6 +107,8 @@ A deleted room is **retained, not destroyed**. The row stays for the erasure win
 
 Erasure — the job that actually removes retained rows and frees the aliases they hold — does not exist yet for any domain. It is one mechanism serving users and rooms alike, so it belongs in the milestone that builds it rather than being half-built twice.
 
+Idempotency keys are retained for 24 hours and reclaimed by the request that reuses one, so an expired key never stands between a caller and its answer. Removing keys nobody comes back for is bulk work for that same retention job; until it exists, the table grows with the creations that asked for the guarantee.
+
 ## Listing and Filtering
 
 `GET /v1/rooms` returns rooms newest first, using the cursor pagination defined in [`api-conventions.md`](api-conventions.md).
@@ -106,7 +125,6 @@ Room creation, closure, reopening, and deletion are audited. The record names th
 
 ## Not Yet Implemented
 
-- **`Idempotency-Key`** on room creation (`M08-007`). The behavior is already specified in [`api-compatibility.md`](api-compatibility.md); the store that makes a repeated key return the original response is shared infrastructure that M09 will also need, so it is being built as its own slice.
 - **Membership and access policy** (`M08-010`). Convia holds no credentials for an application's people, so it cannot decide who may enter a room; the application already knows. Inventing a policy model Convia could not enforce would be worse than having none.
 - **Erasure**, as above.
 - **Capacity enforcement**, which needs calls to enforce against.

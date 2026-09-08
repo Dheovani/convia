@@ -12,7 +12,7 @@ The tenant-facing API is authenticated. An application presents an opaque API ke
 
 The operator surface is authenticated too, by a separate kind of key. An operator credential (`cvo_`) administers Convia itself — creating tenants, suspending them, issuing their first keys — and lives in its own table with its own scopes, so an application key can never reach it. The first one is created with `convia operator issue`, because issuing one over the API requires presenting one.
 
-Rooms exist: an application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and manage their lifecycle under `/v1/rooms`. See [`docs/rooms.md`](docs/rooms.md).
+Rooms exist: an application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and manage their lifecycle under `/v1/rooms`. A creation can carry an `Idempotency-Key`, so retrying after a timeout produces no second room. See [`docs/rooms.md`](docs/rooms.md).
 
 Calls, real-time events, and media integration are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 

@@ -15,6 +15,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/credentials"
 	"convia/internal/database"
+	"convia/internal/idempotency"
 	"convia/internal/operator"
 	"convia/internal/rooms"
 	"convia/internal/server"
@@ -127,6 +128,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
+	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -149,6 +151,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantUsers:       users.NewTenantHandler(logger, userService),
 		TenantCredentials: credentials.NewTenantHandler(logger, credentialService),
 		TenantRooms:       rooms.NewTenantHandler(logger, roomService),
+
+		IdempotencyKeys: idempotencyService,
 	}
 
 	warnIfUnadministered(signalContext, logger, operatorService)
