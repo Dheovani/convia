@@ -64,6 +64,23 @@ tags:
       presenting one. It is created with `convia operator issue`, which needs
       database access — the authority the first key is minted from.
 
+  - name: Rooms
+    description: |
+      The places an application's people meet.
+
+      A room is durable: it outlives any single conversation held in it. An
+      alias is what makes one addressable by a name the application chose, so
+      a durable room can be reached without remembering a Convia identifier.
+      A room created without an alias is ephemeral, referred to only by its
+      identifier.
+
+      An application manages its own rooms under `/v1/rooms`, with the tenant
+      taken from its credential. The routes nested under
+      `/v1/applications/{id}/rooms` are the operator-facing equivalents.
+
+      Nothing here names a media provider. A room is a Convia concept that the
+      media plane is later asked to realize.
+
   - name: Users
     description: |
       The people an application knows about.
@@ -1600,6 +1617,703 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/applications/{application_id}/rooms:
+    post:
+      operationId: createRoom
+      tags: [Rooms]
+      summary: Create a room
+      description: |
+        Creates a room belonging to the application.
+
+        An operator acts on a tenant other than itself, so the application is
+        named in the path.
+
+        An `alias` is optional and is what makes a room durable: with one, the
+        room is addressable by a name the application chose; without one it is
+        anonymous and referred to only by its identifier.
+
+        An alias another room already holds is refused with `409 conflict`
+        rather than returning that room, because creating and looking up are
+        different questions. The alias stays reserved while a room is deleted
+        and awaiting erasure, so a cached alias can never come to point at a
+        different room.
+
+        Supply an `Idempotency-Key` to make a retry after a timeout safe: the
+        room is created at most once, and a repeat returns the original
+        response.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+            example:
+              alias: weekly-standup
+              name: Weekly Standup
+              max_participants: 25
+      responses:
+        "201":
+          description: The room was created.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listRooms
+      tags: [Rooms]
+      summary: List rooms
+      description: |
+        Returns one page of rooms belonging to the application, newest first. Deleted rooms
+        are excluded unless `status=deleted` asks for them.
+
+        Supplying `alias` answers with the single room holding it instead of a
+        page, because looking a room up by the name the application chose should
+        not require paging a listing to find it. It is still returned inside the
+        `data` array, so one response shape serves both.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/RoomStatusFilter"
+        - $ref: "#/components/parameters/RoomAliasFilter"
+      responses:
+        "200":
+          description: One page of rooms.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/rooms/{room_id}:
+    get:
+      operationId: getRoom
+      tags: [Rooms]
+      summary: Retrieve a room
+      description: Returns one room.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: updateRoom
+      tags: [Rooms]
+      summary: Update a room
+      description: |
+        Changes the attributes the application owns.
+
+        Omitting a field leaves it alone; sending it empty clears it. The
+        lifecycle is deliberately not among them: moving a room between open and
+        closed has its own operations and its own audit events, so it cannot be
+        reached by writing a status field.
+
+        A client may send the ETag it last read as `If-Match` to make the change
+        conditional. The header is optional: a lost attribute update is visible
+        and easy to repair.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoomRequest"
+            example:
+              name: Weekly Standup (EMEA)
+      responses:
+        "200":
+          description: The updated room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteRoom
+      tags: [Rooms]
+      summary: Delete a room
+      description: |
+        Removes the room from the API surface.
+
+        The record is retained for the erasure window rather than destroyed, so
+        the alias stays reserved and the deletion stays recoverable. Deleting an
+        already-deleted room succeeds.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The room was deleted, or already had been.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/rooms/{room_id}/close:
+    post:
+      operationId: closeRoom
+      tags: [Rooms]
+      summary: Close a room
+      description: |
+        Stops the room accepting new calls without losing it.
+
+        Closing is reversible and lossless, and is what archiving a room means
+        here. A conversation already in progress runs to its end: ending one
+        because an administrator tidied a listing would be the wrong default.
+
+        Closing an already-closed room succeeds.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room in its new state.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/rooms/{room_id}/reopen:
+    post:
+      operationId: reopenRoom
+      tags: [Rooms]
+      summary: Reopen a room
+      description: |
+        Returns a closed room to service.
+
+        Reopening an already-open room succeeds.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room in its new state.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/rooms:
+    post:
+      operationId: createOwnRoom
+      tags: [Rooms]
+      summary: Create a room
+      description: |
+        Creates a room belonging to the caller.
+
+        The tenant comes from the presented credential, so this path names no
+        application and no request field could name another one.
+
+        An `alias` is optional and is what makes a room durable: with one, the
+        room is addressable by a name the application chose; without one it is
+        anonymous and referred to only by its identifier.
+
+        An alias another room already holds is refused with `409 conflict`
+        rather than returning that room, because creating and looking up are
+        different questions. The alias stays reserved while a room is deleted
+        and awaiting erasure, so a cached alias can never come to point at a
+        different room.
+
+        Supply an `Idempotency-Key` to make a retry after a timeout safe: the
+        room is created at most once, and a repeat returns the original
+        response.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:write"]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRoomRequest"
+            example:
+              alias: weekly-standup
+              name: Weekly Standup
+              max_participants: 25
+      responses:
+        "201":
+          description: The room was created.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listOwnRooms
+      tags: [Rooms]
+      summary: List rooms
+      description: |
+        Returns one page of rooms belonging to the caller, newest first. Deleted rooms
+        are excluded unless `status=deleted` asks for them.
+
+        Supplying `alias` answers with the single room holding it instead of a
+        page, because looking a room up by the name the application chose should
+        not require paging a listing to find it. It is still returned inside the
+        `data` array, so one response shape serves both.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:read"]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/RoomStatusFilter"
+        - $ref: "#/components/parameters/RoomAliasFilter"
+      responses:
+        "200":
+          description: One page of rooms.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/rooms/{room_id}:
+    get:
+      operationId: getOwnRoom
+      tags: [Rooms]
+      summary: Retrieve a room
+      description: Returns one room.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:read"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: updateOwnRoom
+      tags: [Rooms]
+      summary: Update a room
+      description: |
+        Changes the attributes the application owns.
+
+        Omitting a field leaves it alone; sending it empty clears it. The
+        lifecycle is deliberately not among them: moving a room between open and
+        closed has its own operations and its own audit events, so it cannot be
+        reached by writing a status field.
+
+        A client may send the ETag it last read as `If-Match` to make the change
+        conditional. The header is optional: a lost attribute update is visible
+        and easy to repair.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRoomRequest"
+            example:
+              name: Weekly Standup (EMEA)
+      responses:
+        "200":
+          description: The updated room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteOwnRoom
+      tags: [Rooms]
+      summary: Delete a room
+      description: |
+        Removes the room from the API surface.
+
+        The record is retained for the erasure window rather than destroyed, so
+        the alias stays reserved and the deletion stays recoverable. Deleting an
+        already-deleted room succeeds.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The room was deleted, or already had been.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/rooms/{room_id}/close:
+    post:
+      operationId: closeOwnRoom
+      tags: [Rooms]
+      summary: Close a room
+      description: |
+        Stops the room accepting new calls without losing it.
+
+        Closing is reversible and lossless, and is what archiving a room means
+        here. A conversation already in progress runs to its end: ending one
+        because an administrator tidied a listing would be the wrong default.
+
+        Closing an already-closed room succeeds.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room in its new state.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/rooms/{room_id}/reopen:
+    post:
+      operationId: reopenOwnRoom
+      tags: [Rooms]
+      summary: Reopen a room
+      description: |
+        Returns a closed room to service.
+
+        Reopening an already-open room succeeds.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["rooms:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room in its new state.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Room"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     OperatorKey:
@@ -1980,6 +2694,162 @@ components:
             Optional expiry, which must be in the future. Without it the
             credential works until it is revoked.
 
+    RoomMetadata:
+      type: object
+      description: |
+        Application-owned key-value data that Convia stores without
+        interpreting. The rules are identical to `UserMetadata`, deliberately:
+        metadata means the same thing in both places, and a client that learned
+        the rules for a user should not have to learn them again for a room.
+
+        At most 16 entries, keys of at most 40 characters made of lowercase
+        letters, digits, and underscores and starting with a letter, values of
+        at most 256 characters, and at most 4096 bytes in total.
+
+        Values are strings only: nested objects and arrays are rejected so the
+        stored shape stays predictable.
+      additionalProperties:
+        type: string
+        maxLength: 256
+      example:
+        team: platform
+        recurring: weekly
+
+    RoomId:
+      type: string
+      description: |
+        Opaque identifier of a room. Clients must treat it as opaque and must
+        never parse it.
+      pattern: "^room_[A-Z2-7]{26}$"
+      example: room_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    RoomStatus:
+      type: string
+      description: |
+        The lifecycle state of a room.
+
+        Rooms use `open` and `closed` rather than the `active` and `suspended`
+        of applications and users, because the words describe what an operator
+        is doing: a closed room is not being punished, it is finished.
+      enum: [open, closed, deleted]
+
+    RoomAlias:
+      type: string
+      description: |
+        The stable name an application gave a room, unique within that
+        application. It carries no whitespace, because a value that rendered
+        identically to another would make two rooms indistinguishable in a
+        listing while remaining distinct keys.
+
+        Absent on an anonymous room, which is addressed only by its identifier.
+      minLength: 1
+      maxLength: 120
+      example: weekly-standup
+
+    Room:
+      type: object
+      description: |
+        A place an application's people meet.
+
+        A room is durable: it outlives any single conversation held in it.
+        Convia is authoritative for `id`, `application_id`, `status`, and the
+        timestamps. The remaining fields belong to the application.
+      required: [id, application_id, name, metadata, status, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/RoomId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        alias:
+          $ref: "#/components/schemas/RoomAlias"
+        name:
+          type: string
+          description: The label a person reads. Free text, unlike the alias.
+          minLength: 1
+          maxLength: 120
+        metadata:
+          $ref: "#/components/schemas/RoomMetadata"
+        max_participants:
+          type: integer
+          description: |
+            The capacity the application asked for, absent when the room states
+            no limit of its own. Convia records it; the media plane enforces it
+            once calls exist.
+          minimum: 1
+          maximum: 1000
+        status:
+          $ref: "#/components/schemas/RoomStatus"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    RoomPage:
+      type: object
+      description: One page of rooms.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Room"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the listing. Absent on the last page.
+            Clients must never decode or construct one.
+
+    CreateRoomRequest:
+      type: object
+      description: The accepted body when creating a room.
+      required: [name]
+      additionalProperties: false
+      properties:
+        alias:
+          $ref: "#/components/schemas/RoomAlias"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        metadata:
+          $ref: "#/components/schemas/RoomMetadata"
+        max_participants:
+          type: integer
+          minimum: 1
+          maximum: 1000
+
+    UpdateRoomRequest:
+      type: object
+      description: |
+        The accepted body when changing a room.
+
+        Omitting a field leaves it alone; sending it empty clears it. At least
+        one field is required, because a request that changes nothing is more
+        likely a mistake than an intention.
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        alias:
+          type: string
+          description: |
+            The new alias, or an empty string to make the room anonymous.
+          maxLength: 120
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        metadata:
+          $ref: "#/components/schemas/RoomMetadata"
+        max_participants:
+          type: integer
+          nullable: true
+          description: |
+            The new capacity, or null to remove the room-level limit.
+          minimum: 1
+          maximum: 1000
+
     Scope:
       type: string
       description: |
@@ -1991,6 +2861,8 @@ components:
         - users:write
         - credentials:read
         - credentials:write
+        - rooms:read
+        - rooms:write
 
     CredentialId:
       type: string
@@ -2213,6 +3085,37 @@ components:
       schema:
         $ref: "#/components/schemas/ApplicationId"
 
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        A client-generated key that makes a retry safe.
+
+        A client that receives no response cannot tell whether its request was
+        lost on the way out or on the way back. Presenting a key means the
+        operation is performed at most once: a repeat of the same request
+        returns the original response, including its original status.
+
+        - The key is opaque to Convia and at most 255 characters.
+        - A repeat of the same request replays the original response.
+        - A repeat carrying a different body is refused with `409 conflict`.
+        - A repeat arriving while the first is still running is refused with
+          `409 conflict`, and succeeds once the first has finished.
+        - Keys are remembered for at least 24 hours. Past that window, the same
+          key is treated as a new request.
+        - Keys belong to the caller that presented them, so two callers using
+          the same value never meet.
+
+        A response the server may give differently on the next attempt -- an
+        internal error, or a rate-limited refusal -- is not stored, so a retry
+        after one is a real attempt rather than a replayed failure.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+      example: 6f1a7b3e-2c4d-4e8a-9f01-2b3c4d5e6f70
+
     UserID:
       name: user_id
       in: path
@@ -2236,6 +3139,35 @@ components:
       description: The operator credential's opaque identifier.
       schema:
         $ref: "#/components/schemas/OperatorCredentialId"
+
+    RoomID:
+      name: room_id
+      in: path
+      required: true
+      description: The room's opaque identifier.
+      schema:
+        $ref: "#/components/schemas/RoomId"
+
+    RoomStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: |
+        Return only rooms in this lifecycle state. Without it, deleted rooms are
+        excluded and everything else is returned.
+      schema:
+        $ref: "#/components/schemas/RoomStatus"
+
+    RoomAliasFilter:
+      name: alias
+      in: query
+      required: false
+      description: |
+        Return the single room holding this alias instead of a page. The result
+        is still delivered in the `data` array, so one response shape serves
+        both forms of the request.
+      schema:
+        $ref: "#/components/schemas/RoomAlias"
 
     IfMatch:
       name: If-Match

@@ -153,7 +153,7 @@ An oversized `limit` is rejected rather than silently reduced, so a client never
 
 ## Not Yet Implemented
 
-- idempotent creation through `Idempotency-Key`, which needs durable key storage and lands with the first resource that requires it in M08;
+- idempotent creation through `Idempotency-Key`. The mechanism exists and is described in [`api-compatibility.md`](api-compatibility.md), but it is applied to room creation rather than to this endpoint; adopting it here is a matter of marking the route;
 - cascading deletion to tenant-scoped resources, and the erasure job that acts at the end of the retention window;
 - authentication, authorization, and per-application credentials, which are M07;
 - cross-tenant isolation of *other* resources, which becomes testable once a tenant-scoped resource exists in M08;

@@ -17,6 +17,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/credentials"
 	"convia/internal/operator"
+	"convia/internal/rooms"
 	"convia/internal/users"
 )
 
@@ -228,11 +229,13 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		Applications:          applications.NewHandler(logger, application),
 		Users:                 users.NewHandler(logger, user),
 		Credentials:           credentials.NewHandler(logger, credential),
+		Rooms:                 rooms.NewHandler(logger, stubRooms{room: sampleRoom()}),
 		OperatorCredentials:   operator.NewHandler(logger, stubOperatorCredentials{credential: sampleOperatorCredential()}),
 
 		Authenticator:     verifier,
 		TenantUsers:       users.NewTenantHandler(logger, user),
 		TenantCredentials: credentials.NewTenantHandler(logger, credential),
+		TenantRooms:       rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom()}),
 	}
 }
 
@@ -577,4 +580,68 @@ func assertErrorBody(t *testing.T, response *httptest.ResponseRecorder, code api
 		t.Error("error message is empty")
 	}
 	return body.Error.RequestID
+}
+
+func sampleRoom() rooms.Room {
+	limit := 25
+	return rooms.Room{
+		ID:              "room_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		ApplicationID:   sampleApplication().ID,
+		Alias:           "weekly-standup",
+		Name:            "Weekly Standup",
+		Metadata:        map[string]string{"team": "platform"},
+		MaxParticipants: &limit,
+		Status:          rooms.StatusOpen,
+		CreatedAt:       sampleApplication().CreatedAt,
+		UpdatedAt:       sampleApplication().UpdatedAt,
+	}
+}
+
+/*
+stubRooms stands in for the rooms service.
+
+Transport tests need to control what a handler receives without PostgreSQL;
+whether the domain rules hold is settled by the rooms package tests.
+*/
+type stubRooms struct {
+	room rooms.Room
+	page rooms.Page
+	err  error
+}
+
+func (stub stubRooms) Create(context.Context, string, rooms.Definition) (rooms.Room, error) {
+	return stub.room, stub.err
+}
+
+func (stub stubRooms) Get(context.Context, string, string) (rooms.Room, error) {
+	return stub.room, stub.err
+}
+
+func (stub stubRooms) GetByAlias(context.Context, string, string) (rooms.Room, error) {
+	return stub.room, stub.err
+}
+
+func (stub stubRooms) List(context.Context, string, rooms.ListOptions) (rooms.Page, error) {
+	if stub.page.Rooms == nil {
+		return rooms.Page{Rooms: []rooms.Room{stub.room}, NextCursor: "b3BhcXVl"}, stub.err
+	}
+	return stub.page, stub.err
+}
+
+func (stub stubRooms) Update(context.Context, string, string, rooms.Change, string) (rooms.Room, error) {
+	return stub.room, stub.err
+}
+
+func (stub stubRooms) Close(context.Context, string, string) (rooms.Room, error) {
+	closed := stub.room
+	closed.Status = rooms.StatusClosed
+	return closed, stub.err
+}
+
+func (stub stubRooms) Reopen(context.Context, string, string) (rooms.Room, error) {
+	return stub.room, stub.err
+}
+
+func (stub stubRooms) Delete(context.Context, string, string) error {
+	return stub.err
 }

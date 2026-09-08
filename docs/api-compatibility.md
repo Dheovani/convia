@@ -110,9 +110,15 @@ Deprecations are announced in the changelog and in the specification in the same
 - a repeated key with the same request returns the original response, including its original status;
 - a repeated key with a different request body is rejected as a conflict;
 - keys are retained for at least 24 hours, after which a repeat is treated as a new request;
-- keys are scoped to one application, so two applications cannot collide.
+- keys are scoped to the caller that presented them, so two callers using the same value never meet.
 
-Endpoints requiring an idempotency key state it explicitly. This behavior is defined now so that call and room mutations in M08 and M09 implement it uniformly. The error codes it needs will be added to the contract in the milestone that implements it.
+A response the server might give differently on the next attempt is not stored. An internal error and a rate-limited refusal both release the key, so a retry after one is a real attempt rather than a replayed failure; storing them would turn an outage that lasted a second into one that lasts a day. A refusal the server stands behind — a `400`, a `409` — is stored, because repeating the request unchanged would be refused again anyway.
+
+A replayed response carries the headers of the original, its entity tag included, but `X-Request-ID` names the exchange happening now, so the replay stays findable in a log. Inside a replayed *error* body, the `request_id` field is the original one: it points at the request that actually produced the refusal, which is the one worth looking at.
+
+Both conflicts are reported with the existing `conflict` code: a key reused for a different request, and a key whose first request is still running. The second succeeds once that request has finished, so a client that retries collects its result.
+
+The header is honored on room creation. It is offered wherever a `POST` creates something, and no endpoint requires it: a client that does not ask for the guarantee is served exactly as before. Operations that are already repeatable — closing a room, deleting one — do not accept it, because a key would add a failure mode to an operation that has none.
 
 ## Optimistic Concurrency
 
