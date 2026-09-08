@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"convia/internal/api"
+	"convia/internal/operator"
 )
 
 /*
@@ -72,15 +73,43 @@ func represent(application Application) applicationResponse {
 	}
 }
 
+/*
+authorized binds the request's verified operator to the service.
+
+A request that reaches here without an operator principal was routed without
+the authentication middleware, which is a wiring mistake rather than a client
+error. It is refused as unauthenticated, because that is the answer that grants
+nothing, and logged so the mistake is visible.
+*/
+func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*OperatorAuthorized, bool) {
+	principal, found := operator.PrincipalFromContext(request.Context())
+	if !found {
+		handler.logger.Error("operator route reached without a principal",
+			"method", request.Method,
+			"path", request.URL.Path,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
+			"The request did not carry a usable credential."))
+		return nil, false
+	}
+	return AuthorizeOperator(handler.service, principal), true
+}
+
 // Create registers an application and returns its representation.
 func (handler *Handler) Create(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
 	var body createRequest
 	if failure := api.DecodeJSON(response, request, &body); failure != nil {
 		handler.writeFailure(response, request, failure)
 		return
 	}
 
-	application, err := handler.service.Create(request.Context(), body.Name)
+	application, err := authorized.Create(request.Context(), body.Name)
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -103,7 +132,12 @@ func (handler *Handler) writeApplication(response http.ResponseWriter, request *
 
 // Get returns one application.
 func (handler *Handler) Get(response http.ResponseWriter, request *http.Request) {
-	application, err := handler.service.Get(request.Context(), request.PathValue("application_id"))
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	application, err := authorized.Get(request.Context(), request.PathValue("application_id"))
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -120,13 +154,18 @@ conditional. The header is optional here: a lost rename is visible and easy to
 repair, so requiring it on every call would cost more than it protects.
 */
 func (handler *Handler) Rename(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
 	var body renameRequest
 	if failure := api.DecodeJSON(response, request, &body); failure != nil {
 		handler.writeFailure(response, request, failure)
 		return
 	}
 
-	application, err := handler.service.Rename(request.Context(),
+	application, err := authorized.Rename(request.Context(),
 		request.PathValue("application_id"), body.Name, expectedVersion(request))
 	if err != nil {
 		handler.writeError(response, request, err)
@@ -138,17 +177,30 @@ func (handler *Handler) Rename(response http.ResponseWriter, request *http.Reque
 
 // Suspend withdraws access to an application without losing its data.
 func (handler *Handler) Suspend(response http.ResponseWriter, request *http.Request) {
-	handler.transition(response, request, handler.service.Suspend)
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+	handler.transition(response, request, authorized.Suspend)
 }
 
 // Activate restores a suspended application to normal service.
 func (handler *Handler) Activate(response http.ResponseWriter, request *http.Request) {
-	handler.transition(response, request, handler.service.Activate)
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+	handler.transition(response, request, authorized.Activate)
 }
 
 // Delete removes an application from the API surface.
 func (handler *Handler) Delete(response http.ResponseWriter, request *http.Request) {
-	if err := handler.service.Delete(request.Context(), request.PathValue("application_id")); err != nil {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	if err := authorized.Delete(request.Context(), request.PathValue("application_id")); err != nil {
 		handler.writeError(response, request, err)
 		return
 	}
@@ -185,6 +237,11 @@ func expectedVersion(request *http.Request) string {
 
 // List returns one page of applications.
 func (handler *Handler) List(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
 	options := ListOptions{Cursor: request.URL.Query().Get("cursor")}
 
 	if raw := request.URL.Query().Get("limit"); raw != "" {
@@ -197,7 +254,7 @@ func (handler *Handler) List(response http.ResponseWriter, request *http.Request
 		options.Limit = limit
 	}
 
-	page, err := handler.service.List(request.Context(), options)
+	page, err := authorized.List(request.Context(), options)
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -225,6 +282,11 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 	case errors.As(err, &validation):
 		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest, validation.Message))
+
+	case errors.Is(err, ErrForbidden):
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusForbidden, api.CodeForbidden,
+				"The credential does not carry the scope this operation requires."))
 
 	case errors.Is(err, ErrNotFound):
 		handler.writeFailure(response, request,

@@ -20,7 +20,6 @@ func useDefaults(t *testing.T) {
 
 	for _, name := range []string{
 		environmentEnvironment,
-		adminAPIEnvironment,
 		httpHostEnvironment,
 		httpPortEnvironment,
 		databaseMaxConnectionsEnvironment,
@@ -125,54 +124,15 @@ func TestLoadRejectsUnknownEnvironment(t *testing.T) {
 }
 
 /*
-TestAdminAPIIsDisabledByDefault proves that the unauthenticated administrative
-endpoints are never served unless an operator asks for them.
+The tests that guarded CONVIA_ADMIN_API were removed with the setting itself.
+
+They proved that an unauthenticated operator API stayed off unless an operator
+asked for it, and was refused outright in production. There is no longer an
+unauthenticated operator API to keep off: every operator route demands an
+operator credential, which is a stronger guarantee than a configuration flag
+and one no environment variable can relax. What replaces those tests lives in
+internal/server, where the operator surface is proved closed by default.
 */
-func TestAdminAPIIsDisabledByDefault(t *testing.T) {
-	useDefaults(t)
-
-	config, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if config.AdminAPI {
-		t.Error("AdminAPI = true, want the administrative API disabled by default")
-	}
-}
-
-func TestAdminAPICanBeEnabledOutsideProduction(t *testing.T) {
-	useDefaults(t)
-	t.Setenv(adminAPIEnvironment, adminAPIEnabled)
-
-	config, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if !config.AdminAPI {
-		t.Error("AdminAPI = false, want it enabled")
-	}
-}
-
-// Production must not serve an unauthenticated tenant API, even by request.
-func TestAdminAPIIsRefusedInProduction(t *testing.T) {
-	useDefaults(t)
-	t.Setenv(environmentEnvironment, string(Production))
-	t.Setenv(databaseURLEnvironment, "postgres://convia:convia@db:5432/convia?sslmode=verify-full")
-	t.Setenv(adminAPIEnvironment, adminAPIEnabled)
-
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() error = nil, want the administrative API to be refused in production")
-	}
-}
-
-func TestAdminAPIRejectsUnknownValues(t *testing.T) {
-	useDefaults(t)
-	t.Setenv(adminAPIEnvironment, "true")
-
-	if _, err := Load(); err == nil {
-		t.Fatal("Load() error = nil, want an unknown administrative API value to be rejected")
-	}
-}
 
 func TestLoadRequiresDatabaseURL(t *testing.T) {
 	useDefaults(t)

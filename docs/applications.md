@@ -112,33 +112,36 @@ Two limitations are deliberate and temporary:
 | Activate | `POST /v1/applications/{application_id}/activate` |
 | Delete | `DELETE /v1/applications/{application_id}` |
 
-**They have no authentication yet.** Convia gains credentials in M07, which depends on this milestone. Until then, anyone able to reach the port could create and enumerate tenants, so the endpoints are:
+**Every one of them requires an operator credential.** An application's own key must never be able to create tenants, so these endpoints accept only a `cvo_` operator key carrying `applications:read` or `applications:write`. See [`authentication.md`](authentication.md).
 
-- **disabled by default.** They are served only when `CONVIA_ADMIN_API=enabled`;
-- **refused in production.** Starting with `CONVIA_ENVIRONMENT=production` and the administrative API enabled is a startup failure, not a warning;
-- **announced at startup.** Enabling them logs a warning naming the exposed endpoints.
-
-Enable them on a local instance only, for as long as the work requires.
+There is no configuration that serves them openly. The `CONVIA_ADMIN_API` gate that once stood in for this has been removed: what protected these endpoints was a setting, and what protects them now is authentication.
 
 ### Bootstrapping the first application
 
-There is no chicken-and-egg problem to solve: the first application is created through the same endpoint as every other one, during the window in which the administrative API is enabled.
+The chicken-and-egg problem is real but has exactly one turn: **issuing an operator credential over the API requires presenting one**, so the first is minted from the command line, against the database.
 
 ```sh
 set -a && . ./.env && set +a
 docker compose up -d
 go run ./cmd/convia migrate up
 
-CONVIA_ADMIN_API=enabled go run ./cmd/convia &
+# Mint the first operator credential. Its secret is printed once and never stored.
+go run ./cmd/convia operator issue "bootstrap" applications:write tenants:write
 
-curl -sS -X POST http://localhost:8080/v1/applications \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Convia"}'
+go run ./cmd/convia &
+
+curl -sS -X POST http://localhost:8080/v1/applications   -H "Authorization: Bearer $OPERATOR_KEY"   -H 'Content-Type: application/json'   -d '{"name":"Convia"}'
 ```
 
 Record the returned identifier: it is the standalone product's application, and it cannot be recovered by name later without listing applications.
 
-Once M07 introduces credentials, this procedure is replaced by a bootstrap that also issues the first administrative credential, and the `CONVIA_ADMIN_API` gate is removed in favour of authentication and administrative scopes.
+Then issue that application its first key, which is the bootstrap an application cannot perform for itself:
+
+```sh
+curl -sS -X POST "http://localhost:8080/v1/applications/$APP_ID/credentials"   -H "Authorization: Bearer $OPERATOR_KEY"   -H 'Content-Type: application/json'   -d '{"name":"first","scopes":["users:read","users:write"]}'
+```
+
+From here the application uses its own key against `/v1/users` and `/v1/credentials`, and never needs the operator surface again.
 
 ## Pagination
 

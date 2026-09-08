@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	"convia/internal/api"
 	"convia/internal/applications"
 	"convia/internal/config"
 	"convia/internal/credentials"
 	"convia/internal/database"
+	"convia/internal/operator"
 	"convia/internal/server"
 	"convia/internal/users"
 )
@@ -30,6 +30,21 @@ Usage:
   convia migrate up      Apply every pending migration
   convia migrate down    Revert the most recently applied migration
   convia migrate status  Report applied and pending migrations
+
+Operator credentials administer Convia itself. The first one must be issued
+here, because issuing one over the API requires presenting one:
+
+  convia operator issue <name> [scope...]   Issue an operator credential
+  convia operator list                      List operator credentials
+  convia operator revoke <credential-id>    Withdraw one immediately
+
+Scopes default to every one Convia recognizes when none are named. Available:
+  applications:read  applications:write
+  tenants:read       tenants:write
+  operators:read     operators:write
+
+The secret is printed once and never stored. Running these commands requires
+database access, which is the authority the first credential is minted from.
 `
 
 func main() {
@@ -55,7 +70,7 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 		case "help", "-h", "--help":
 			fmt.Print(usage)
 			return nil
-		case "migrate", "serve":
+		case "migrate", "serve", "operator":
 		default:
 			fmt.Print(usage)
 			return fmt.Errorf("unknown command %q", arguments[0])
@@ -67,11 +82,14 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 		return fmt.Errorf("load configuration: %w", err)
 	}
 
-	if len(arguments) == 0 || arguments[0] == "serve" {
+	switch {
+	case len(arguments) == 0 || arguments[0] == "serve":
 		return serve(ctx, logger, cfg)
+	case arguments[0] == "operator":
+		return operatorCommand(ctx, logger, cfg, arguments[1:])
+	default:
+		return migrate(ctx, logger, cfg, arguments[1:])
 	}
-
-	return migrate(ctx, logger, cfg, arguments[1:])
 }
 
 func migrate(ctx context.Context, logger *slog.Logger, cfg config.Config, arguments []string) error {
@@ -106,27 +124,29 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
+	operatorService := operator.NewService(operator.NewStore(pool), logger)
 
 	/*
-		The tenant-facing surface is authenticated by an application's own
-		credential, so it is always served. The operator surface still is not,
-		which is why it stays behind the gate.
+		Both surfaces are authenticated, so both are always served. The tenant
+		surface takes its tenant from an application's key; the operator
+		surface names the tenant in the path and proves the authority to reach
+		it with an operator key, which no application can hold.
 	*/
 	dependencies := server.Dependencies{
-		Database:          pool,
+		Database: pool,
+
+		OperatorAuthenticator: operatorService,
+		Applications:          applications.NewHandler(logger, applicationService),
+		Users:                 users.NewHandler(logger, userService),
+		Credentials:           credentials.NewHandler(logger, credentialService),
+		OperatorCredentials:   operator.NewHandler(logger, operatorService),
+
 		Authenticator:     credentialService,
 		TenantUsers:       users.NewTenantHandler(logger, userService),
 		TenantCredentials: credentials.NewTenantHandler(logger, credentialService),
 	}
 
-	if cfg.AdminAPI {
-		dependencies.Applications = applications.NewHandler(logger, applicationService)
-		dependencies.Users = users.NewHandler(logger, userService)
-		dependencies.Credentials = credentials.NewHandler(logger, credentialService)
-
-		logger.Warn("the operator API is enabled and is not authenticated yet",
-			"endpoints", api.Prefix+"/applications")
-	}
+	warnIfUnadministered(signalContext, logger, operatorService)
 
 	httpServer := server.New(cfg.Address(), logger, dependencies)
 	serverErrors := make(chan error, 1)
@@ -159,4 +179,32 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 	logger.Info("HTTP server stopped")
 	return nil
+}
+
+/*
+warnIfUnadministered reports an instance nobody can administer.
+
+With no active operator credential the whole operator surface answers 401,
+including the endpoints that create tenants. That is the correct posture for a
+fresh instance rather than a fault, but it is also the state an operator is
+least likely to have intended and most likely to discover by being refused. It
+is a warning, never a failure to start: refusing to serve would take the tenant
+surface down with it, and the applications already using it are unaffected.
+
+A failure to count is logged and otherwise ignored. Being unable to run one
+advisory query is not a reason to hold up startup, and readiness already covers
+a database that is genuinely unreachable.
+*/
+func warnIfUnadministered(ctx context.Context, logger *slog.Logger, service *operator.Service) {
+	active, err := service.CountActive(ctx)
+	if err != nil {
+		logger.Warn("could not count operator credentials at startup", "error", err)
+		return
+	}
+	if active > 0 {
+		return
+	}
+
+	logger.Warn("no active operator credential exists, so the operator API refuses every request",
+		"remedy", "convia operator issue <name>")
 }

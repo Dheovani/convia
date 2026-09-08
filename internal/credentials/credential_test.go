@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	// Aliased because these tests bind a local variable named "secret".
+	secretpkg "convia/internal/secret"
 )
 
 /*
@@ -46,7 +49,7 @@ func TestParseTokenRejectsAnythingElse(t *testing.T) {
 		"short identifier": "cvk_ABC_" + string(secret),
 		"short secret":     "cvk_" + strings.TrimPrefix(id, idPrefix) + "_ABC",
 		"lowercase":        strings.ToLower(valid),
-		"not base32":       "cvk_" + strings.Repeat("1", randomLength) + "_" + string(secret),
+		"not base32":       "cvk_" + strings.Repeat("1", secretpkg.RandomLength) + "_" + string(secret),
 		"extra segment":    valid + "_extra",
 	}
 

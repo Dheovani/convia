@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/operator"
 )
 
 func testTime() time.Time {
@@ -102,7 +103,7 @@ func sampleApplication() Application {
 func postJSON(t *testing.T, handler *Handler, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	request := httptest.NewRequest(http.MethodPost, "/v1/applications", strings.NewReader(body))
+	request := operatorRequest(http.MethodPost, "/v1/applications", strings.NewReader(body))
 	request.Header.Set("Content-Type", api.ContentTypeJSON)
 	response := httptest.NewRecorder()
 
@@ -153,7 +154,7 @@ func TestCreateRejectsMalformedRequests(t *testing.T) {
 	for name, test := range tests {
 		t.Run(name, func(t *testing.T) {
 			fake := &fakeService{application: sampleApplication()}
-			request := httptest.NewRequest(http.MethodPost, "/v1/applications", strings.NewReader(test.body))
+			request := operatorRequest(http.MethodPost, "/v1/applications", strings.NewReader(test.body))
 			request.Header.Set("Content-Type", test.contentType)
 			response := httptest.NewRecorder()
 
@@ -195,7 +196,7 @@ func TestCreateHidesUnexpectedFailures(t *testing.T) {
 
 func TestGetReturnsTheApplication(t *testing.T) {
 	fake := &fakeService{application: sampleApplication()}
-	request := httptest.NewRequest(http.MethodGet, "/v1/applications/app_MXHJAY4MJNX2FO22XWJ3XNCKHT", nil)
+	request := operatorRequest(http.MethodGet, "/v1/applications/app_MXHJAY4MJNX2FO22XWJ3XNCKHT", nil)
 	request.SetPathValue("application_id", "app_MXHJAY4MJNX2FO22XWJ3XNCKHT")
 	response := httptest.NewRecorder()
 
@@ -211,7 +212,7 @@ func TestGetReturnsTheApplication(t *testing.T) {
 
 func TestGetReportsMissingApplications(t *testing.T) {
 	fake := &fakeService{err: ErrNotFound}
-	request := httptest.NewRequest(http.MethodGet, "/v1/applications/app_MXHJAY4MJNX2FO22XWJ3XNCKHT", nil)
+	request := operatorRequest(http.MethodGet, "/v1/applications/app_MXHJAY4MJNX2FO22XWJ3XNCKHT", nil)
 	request.SetPathValue("application_id", "app_MXHJAY4MJNX2FO22XWJ3XNCKHT")
 	response := httptest.NewRecorder()
 
@@ -226,7 +227,7 @@ func TestListReturnsAPageAndCursor(t *testing.T) {
 		NextCursor:   "opaque",
 	}}
 
-	request := httptest.NewRequest(http.MethodGet, "/v1/applications?limit=10&cursor=opaque", nil)
+	request := operatorRequest(http.MethodGet, "/v1/applications?limit=10&cursor=opaque", nil)
 	response := httptest.NewRecorder()
 	newTestHandler(fake).List(response, request)
 
@@ -251,7 +252,7 @@ func TestListReturnsAPageAndCursor(t *testing.T) {
 // An empty page is an empty array rather than a null, so clients can iterate it.
 func TestListReturnsAnEmptyArray(t *testing.T) {
 	response := httptest.NewRecorder()
-	newTestHandler(&fakeService{}).List(response, httptest.NewRequest(http.MethodGet, "/v1/applications", nil))
+	newTestHandler(&fakeService{}).List(response, operatorRequest(http.MethodGet, "/v1/applications", nil))
 
 	if body := strings.TrimSpace(response.Body.String()); body != `{"data":[]}` {
 		t.Errorf("body = %q, want %q", body, `{"data":[]}`)
@@ -272,7 +273,7 @@ func TestListRejectsInvalidQueryParameters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			newTestHandler(&fakeService{err: test.err}).List(response,
-				httptest.NewRequest(http.MethodGet, "/v1/applications"+test.query, nil))
+				operatorRequest(http.MethodGet, "/v1/applications"+test.query, nil))
 
 			assertError(t, response, http.StatusBadRequest, api.CodeInvalidRequest)
 		})
@@ -410,9 +411,9 @@ func applicationRequest(method, ifMatch, body string) *http.Request {
 
 	var request *http.Request
 	if body == "" {
-		request = httptest.NewRequest(method, target, nil)
+		request = operatorRequest(method, target, nil)
 	} else {
-		request = httptest.NewRequest(method, target, strings.NewReader(body))
+		request = operatorRequest(method, target, strings.NewReader(body))
 		request.Header.Set("Content-Type", api.ContentTypeJSON)
 	}
 
@@ -456,4 +457,25 @@ func assertError(t *testing.T, response *httptest.ResponseRecorder, status int, 
 	if body.Error.Message == "" {
 		t.Error("error message is empty")
 	}
+}
+
+/*
+operatorRequest builds a request carrying a fully scoped operator principal.
+
+Every route in this file is an operator route, so without a principal each case
+would answer 401 and prove nothing about decoding, status codes, or error
+mapping. These tests exercise transport; what the scopes actually gate is
+proved in operator_authorized_test.go.
+
+It takes the same arguments as httptest.NewRequest so that adding a case cannot
+accidentally skip the principal by reaching for the standard constructor.
+*/
+func operatorRequest(method, target string, body io.Reader) *http.Request {
+	request := httptest.NewRequest(method, target, body)
+	return request.WithContext(operator.ContextWithPrincipal(request.Context(), testOperator()))
+}
+
+// testOperator is a principal carrying every operator scope.
+func testOperator() operator.Principal {
+	return operator.Principal{CredentialID: "oper_" + strings.Repeat("A", 26), Scopes: operator.Scopes()}
 }

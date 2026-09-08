@@ -10,6 +10,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/applications"
 	"convia/internal/credentials"
+	"convia/internal/operator"
 	"convia/internal/ratelimit"
 	"convia/internal/users"
 )
@@ -69,23 +70,30 @@ type Prober interface {
 /*
 Dependencies are the collaborators the HTTP layer serves.
 
-Applications, Users, and Credentials are the operator-facing handlers. They are
-nil when the operator API is disabled, which is the default, and their routes
-are then not registered at all, so an unauthenticated endpoint cannot be
-reached by accident.
+Every route that acts with someone's authority requires the verifier for its
+surface to be present, or it is not registered at all. A route that acts on
+behalf of an application cannot exist without the middleware that decides which
+application is asking, and an operator route cannot exist without the one that
+decides whether the caller may administer Convia. Forgetting to wire a verifier
+removes the endpoints rather than opening them.
 */
 type Dependencies struct {
-	Database     Prober
-	Applications *applications.Handler
-	Users        *users.Handler
-	Credentials  *credentials.Handler
+	Database Prober
 
 	/*
-		The tenant-facing surface is authenticated, so it is served whether or
-		not the operator gate is open. Authenticator must be present for those
-		routes to be registered at all: a route that acts on behalf of an
-		application must never exist without the middleware that decides which
-		application is asking.
+		The operator surface administers tenants: creating them, suspending
+		them, and issuing their first keys. It is authenticated by an operator
+		credential, which no application can hold.
+	*/
+	OperatorAuthenticator operatorAuthenticator
+	Applications          *applications.Handler
+	Users                 *users.Handler
+	Credentials           *credentials.Handler
+	OperatorCredentials   *operator.Handler
+
+	/*
+		The tenant-facing surface is authenticated by an application's own key,
+		which is also where the tenant comes from.
 	*/
 	Authenticator     authenticator
 	TenantUsers       *users.TenantHandler
@@ -123,8 +131,11 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	rt := newRoutes(logger)
 	for _, entry := range routeTable(logger, dependencies) {
 		served := entry.handler
-		if entry.authenticated {
-			served = authenticate(logger, dependencies.Authenticator, failures, served)
+		switch entry.surface {
+		case surfaceTenant:
+			served = authenticate(logger, tenantVerifier{dependencies.Authenticator}, failures, served)
+		case surfaceOperator:
+			served = authenticate(logger, operatorVerifier{dependencies.OperatorAuthenticator}, failures, served)
 		}
 		rt.handle(entry.method, entry.path, served)
 	}
@@ -133,17 +144,41 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 }
 
 /*
+surface names which authority a route acts with.
+
+It is an enumeration rather than a pair of booleans so that "authenticated by
+nobody in particular" cannot be expressed: a route is public, acts for an
+application, or acts for an operator, and there is no fourth state to get
+wrong.
+*/
+type surface int
+
+const (
+	// surfacePublic is served without a credential. Operational endpoints only.
+	surfacePublic surface = iota
+	// surfaceTenant acts with an application's authority, taken from its key.
+	surfaceTenant
+	// surfaceOperator acts with an operator's authority over Convia itself.
+	surfaceOperator
+)
+
+/*
 route describes one HTTP route served by Convia.
 
-Whether a route requires a credential is declared here rather than remembered
+Which authority a route acts with is declared here rather than remembered
 inside a handler, so the authenticated surface can be read off the table and
 compared with the contract by a test.
 */
 type route struct {
-	method        string
-	path          string
-	handler       http.Handler
-	authenticated bool
+	method  string
+	path    string
+	handler http.Handler
+	surface surface
+}
+
+// authenticated reports whether the route demands a credential of any kind.
+func (entry route) authenticated() bool {
+	return entry.surface != surfacePublic
 }
 
 /*
@@ -163,46 +198,64 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		{method: http.MethodGet, path: "/ready", handler: readinessHandler(logger, dependencies.Database)},
 	}
 
-	if dependencies.Applications != nil {
+	if dependencies.OperatorAuthenticator != nil && dependencies.Applications != nil {
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/applications",
+			route{method: http.MethodPost, path: api.Prefix + "/applications", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Create)},
-			route{method: http.MethodGet, path: api.Prefix + "/applications",
+			route{method: http.MethodGet, path: api.Prefix + "/applications", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.List)},
-			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}",
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Get)},
-			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}",
+			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Rename)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}",
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Delete)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/suspend",
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/suspend", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Suspend)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/activate",
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/activate", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Activate)},
 		)
 	}
 
-	if dependencies.Users != nil {
+	if dependencies.OperatorAuthenticator != nil && dependencies.OperatorCredentials != nil {
+		/*
+			An operator administering operator credentials. This is the most
+			privileged surface Convia has, which is why issuing here carries a
+			subset rule: a key cannot mint one that outranks it.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/operator/credentials", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.OperatorCredentials.Issue)},
+			route{method: http.MethodGet, path: api.Prefix + "/operator/credentials", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.OperatorCredentials.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/operator/credentials/{credential_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.OperatorCredentials.Get)},
+			route{method: http.MethodDelete, path: api.Prefix + "/operator/credentials/{credential_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.OperatorCredentials.Revoke)},
+		)
+	}
+
+	if dependencies.OperatorAuthenticator != nil && dependencies.Users != nil {
 		/*
 			These routes name the application in the path because an operator
 			acts on a tenant other than itself. An application reaches its own
-			users through the authenticated routes below, where the tenant comes
-			from the credential instead.
+			users through the tenant routes below, where the tenant comes from
+			the credential instead and no request field could name another.
 		*/
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users",
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Resolve)},
-			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/users",
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/users", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.List)},
-			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/users/{user_id}",
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/users/{user_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Get)},
-			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}/users/{user_id}",
+			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}/users/{user_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Update)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/users/{user_id}",
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/users/{user_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Delete)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/suspend",
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/suspend", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Suspend)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/activate",
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/activate", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Activate)},
 		)
 	}
@@ -215,51 +268,51 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			naming itself.
 		*/
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/users", authenticated: true,
+			route{method: http.MethodPost, path: api.Prefix + "/users", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.Resolve)},
-			route{method: http.MethodGet, path: api.Prefix + "/users", authenticated: true,
+			route{method: http.MethodGet, path: api.Prefix + "/users", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.List)},
-			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}", authenticated: true,
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.Get)},
-			route{method: http.MethodPatch, path: api.Prefix + "/users/{user_id}", authenticated: true,
+			route{method: http.MethodPatch, path: api.Prefix + "/users/{user_id}", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.Update)},
-			route{method: http.MethodDelete, path: api.Prefix + "/users/{user_id}", authenticated: true,
+			route{method: http.MethodDelete, path: api.Prefix + "/users/{user_id}", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.Delete)},
-			route{method: http.MethodPost, path: api.Prefix + "/users/{user_id}/suspend", authenticated: true,
+			route{method: http.MethodPost, path: api.Prefix + "/users/{user_id}/suspend", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.Suspend)},
-			route{method: http.MethodPost, path: api.Prefix + "/users/{user_id}/activate", authenticated: true,
+			route{method: http.MethodPost, path: api.Prefix + "/users/{user_id}/activate", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantUsers.Activate)},
 		)
 	}
 
 	if dependencies.Authenticator != nil && dependencies.TenantCredentials != nil {
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/credentials", authenticated: true,
+			route{method: http.MethodPost, path: api.Prefix + "/credentials", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantCredentials.Issue)},
-			route{method: http.MethodGet, path: api.Prefix + "/credentials", authenticated: true,
+			route{method: http.MethodGet, path: api.Prefix + "/credentials", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantCredentials.List)},
-			route{method: http.MethodGet, path: api.Prefix + "/credentials/{credential_id}", authenticated: true,
+			route{method: http.MethodGet, path: api.Prefix + "/credentials/{credential_id}", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantCredentials.Get)},
-			route{method: http.MethodDelete, path: api.Prefix + "/credentials/{credential_id}", authenticated: true,
+			route{method: http.MethodDelete, path: api.Prefix + "/credentials/{credential_id}", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantCredentials.Revoke)},
 		)
 	}
 
-	if dependencies.Credentials != nil {
+	if dependencies.OperatorAuthenticator != nil && dependencies.Credentials != nil {
 		/*
-			Issuing a credential is an operator action, so these routes sit
-			beside the other administrative endpoints. An application managing
-			its own keys through an authenticated route arrives with the
-			middleware in the next milestone slice.
+			An operator issuing a key on a tenant's behalf. This is the
+			bootstrap the operator surface exists for: an application cannot
+			issue its own first credential, because issuing requires presenting
+			one.
 		*/
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/credentials",
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/credentials", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Credentials.Issue)},
-			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials",
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Credentials.List)},
-			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}",
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Credentials.Get)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}",
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Credentials.Revoke)},
 		)
 	}

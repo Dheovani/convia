@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"convia/internal/api"
+	"convia/internal/operator"
 )
 
 /*
@@ -99,7 +100,35 @@ The response is 201 when the mapping was created and 200 when it already
 existed, so a client can tell the two apart without the operation ever being
 unsafe to repeat.
 */
+/*
+authorized binds the request's verified operator to the service.
+
+A request that reaches here without an operator principal was routed without
+the authentication middleware, which is a wiring mistake rather than a client
+error. It is refused as unauthenticated, because that is the answer that grants
+nothing, and logged so the mistake is visible.
+*/
+func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*OperatorAuthorized, bool) {
+	principal, found := operator.PrincipalFromContext(request.Context())
+	if !found {
+		handler.logger.Error("operator route reached without a principal",
+			"method", request.Method,
+			"path", request.URL.Path,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
+			"The request did not carry a usable credential."))
+		return nil, false
+	}
+	return AuthorizeOperator(handler.service, principal), true
+}
+
 func (handler *Handler) Resolve(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
 	var body resolveRequest
 	if failure := api.DecodeJSON(response, request, &body); failure != nil {
 		handler.writeFailure(response, request, failure)
@@ -111,7 +140,7 @@ func (handler *Handler) Resolve(response http.ResponseWriter, request *http.Requ
 		conversion keeps them in step: adding a field to one without the other
 		fails to compile rather than silently dropping it.
 	*/
-	user, created, err := handler.service.Resolve(request.Context(),
+	user, created, err := authorized.Resolve(request.Context(),
 		request.PathValue("application_id"), Identity(body))
 	if err != nil {
 		handler.writeError(response, request, err)
@@ -127,7 +156,12 @@ func (handler *Handler) Resolve(response http.ResponseWriter, request *http.Requ
 
 // Get returns one user of an application.
 func (handler *Handler) Get(response http.ResponseWriter, request *http.Request) {
-	user, err := handler.service.Get(request.Context(),
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	user, err := authorized.Get(request.Context(),
 		request.PathValue("application_id"), request.PathValue("user_id"))
 	if err != nil {
 		handler.writeError(response, request, err)
@@ -145,6 +179,11 @@ conditional. The header is optional: a lost attribute update is visible and
 easy to repair, so requiring it on every call would cost more than it protects.
 */
 func (handler *Handler) Update(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
 	var body updateRequest
 	if failure := api.DecodeJSON(response, request, &body); failure != nil {
 		handler.writeFailure(response, request, failure)
@@ -156,7 +195,7 @@ func (handler *Handler) Update(response http.ResponseWriter, request *http.Reque
 		conversion keeps them in step: adding a field to one without the other
 		fails to compile rather than silently dropping it.
 	*/
-	user, err := handler.service.Update(request.Context(),
+	user, err := authorized.Update(request.Context(),
 		request.PathValue("application_id"), request.PathValue("user_id"),
 		Attributes(body), expectedVersion(request))
 	if err != nil {
@@ -169,17 +208,30 @@ func (handler *Handler) Update(response http.ResponseWriter, request *http.Reque
 
 // Suspend withdraws a user's access without losing data.
 func (handler *Handler) Suspend(response http.ResponseWriter, request *http.Request) {
-	handler.transition(response, request, handler.service.Suspend)
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+	handler.transition(response, request, authorized.Suspend)
 }
 
 // Activate restores a suspended user to normal service.
 func (handler *Handler) Activate(response http.ResponseWriter, request *http.Request) {
-	handler.transition(response, request, handler.service.Activate)
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+	handler.transition(response, request, authorized.Activate)
 }
 
 // Delete removes a user from the API surface.
 func (handler *Handler) Delete(response http.ResponseWriter, request *http.Request) {
-	err := handler.service.Delete(request.Context(),
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	err := authorized.Delete(request.Context(),
 		request.PathValue("application_id"), request.PathValue("user_id"))
 	if err != nil {
 		handler.writeError(response, request, err)
@@ -219,6 +271,11 @@ func expectedVersion(request *http.Request) string {
 
 // List returns one page of an application's users.
 func (handler *Handler) List(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
 	options := ListOptions{Cursor: request.URL.Query().Get("cursor")}
 
 	if raw := request.URL.Query().Get("limit"); raw != "" {
@@ -231,7 +288,7 @@ func (handler *Handler) List(response http.ResponseWriter, request *http.Request
 		options.Limit = limit
 	}
 
-	page, err := handler.service.List(request.Context(), request.PathValue("application_id"), options)
+	page, err := authorized.List(request.Context(), request.PathValue("application_id"), options)
 	if err != nil {
 		handler.writeError(response, request, err)
 		return

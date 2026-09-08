@@ -242,7 +242,7 @@ func TestApplicationResponsesMatchSpecification(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
-				newDependencies(test.stub)).Handler.ServeHTTP(response, test.request)
+				newDependencies(test.stub)).Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -306,7 +306,7 @@ func TestApplicationMutationsMatchSpecification(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
-				newDependencies(test.stub)).Handler.ServeHTTP(response, test.request)
+				newDependencies(test.stub)).Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -328,7 +328,7 @@ func TestDeleteSendsNoBody(t *testing.T) {
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodDelete, api.Prefix+"/applications/"+sampleApplication().ID, nil)
 	New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
-		newDependencies(stubApplications{})).Handler.ServeHTTP(response, request)
+		newDependencies(stubApplications{})).Handler.ServeHTTP(response, asOperator(request))
 
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status code = %d, want %d", response.Code, http.StatusNoContent)
@@ -397,7 +397,7 @@ func TestUserResponsesMatchSpecification(t *testing.T) {
 			response := httptest.NewRecorder()
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 				newFullDependencies(stubApplications{application: sampleApplication()}, test.stub)).
-				Handler.ServeHTTP(response, test.request)
+				Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -540,7 +540,7 @@ func TestCredentialResponsesMatchSpecification(t *testing.T) {
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 				newEveryDependency(stubApplications{application: sampleApplication()},
 					stubUsers{user: sampleUser()}, test.stub)).
-				Handler.ServeHTTP(response, test.request)
+				Handler.ServeHTTP(response, asOperator(test.request))
 
 			if response.Code != test.status {
 				t.Fatalf("status code = %d, want %d: %s", response.Code, test.status, response.Body)
@@ -578,7 +578,7 @@ func TestOnlyIssuingReturnsASecret(t *testing.T) {
 			New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 				newEveryDependency(stubApplications{application: sampleApplication()},
 					stubUsers{user: sampleUser()}, stub)).
-				Handler.ServeHTTP(response, request)
+				Handler.ServeHTTP(response, asOperator(request))
 
 			if strings.Contains(response.Body.String(), secret) {
 				t.Errorf("%s returned secret material: %s", name, response.Body)
@@ -591,8 +591,8 @@ func TestOnlyIssuingReturnsASecret(t *testing.T) {
 		New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),
 			newEveryDependency(stubApplications{application: sampleApplication()},
 				stubUsers{user: sampleUser()}, stub)).
-			Handler.ServeHTTP(response, jsonRequest(http.MethodPost, target,
-			`{"name":"Production backend","scopes":["users:read"]}`))
+			Handler.ServeHTTP(response, asOperator(jsonRequest(http.MethodPost, target,
+			`{"name":"Production backend","scopes":["users:read"]}`)))
 
 		if !strings.Contains(response.Body.String(), secret) {
 			t.Errorf("issuing did not return the secret, which is the only chance to: %s", response.Body)
@@ -626,9 +626,9 @@ func TestAuthenticationParityWithTheContract(t *testing.T) {
 		}
 
 		documented := operation.Security != nil && len(*operation.Security) > 0
-		if documented != entry.authenticated {
+		if documented != entry.authenticated() {
 			t.Errorf("%s %s: authenticated in code = %t, in the contract = %t",
-				entry.method, entry.path, entry.authenticated, documented)
+				entry.method, entry.path, entry.authenticated(), documented)
 		}
 	}
 }
@@ -747,8 +747,29 @@ func TestTenantRoutesAreAbsentWithoutAnAuthenticator(t *testing.T) {
 	dependencies.Authenticator = nil
 
 	for _, entry := range routeTable(logger, dependencies) {
-		if entry.authenticated {
+		if entry.surface == surfaceTenant {
 			t.Errorf("route %s %s is served without an authenticator", entry.method, entry.path)
+		}
+	}
+}
+
+/*
+TestOperatorRoutesAreAbsentWithoutAnAuthenticator proves the same of the
+operator surface.
+
+Without the verifier that decides whether a caller may administer Convia, the
+routes that create tenants and mint their keys must not be registered at all.
+Forgetting to wire it removes the endpoints rather than opening them, which is
+the failure mode worth having.
+*/
+func TestOperatorRoutesAreAbsentWithoutAnAuthenticator(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dependencies := testDependencies()
+	dependencies.OperatorAuthenticator = nil
+
+	for _, entry := range routeTable(logger, dependencies) {
+		if entry.surface == surfaceOperator {
+			t.Errorf("route %s %s is served without an operator authenticator", entry.method, entry.path)
 		}
 	}
 }
@@ -985,4 +1006,16 @@ func TestAnExhaustedAddressAlsoRefusesAValidKey(t *testing.T) {
 		t.Errorf("status code = %d for a valid key from an exhausted address, want %d",
 			refused.Code, http.StatusTooManyRequests)
 	}
+}
+
+/*
+asOperator stamps an operator bearer on a request.
+
+The stub verifier accepts any token, so this proves routing, handler behavior,
+and contract conformance rather than verification. Whether a real key verifies
+is settled by the operator package tests.
+*/
+func asOperator(request *http.Request) *http.Request {
+	request.Header.Set("Authorization", "Bearer cvo_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5")
+	return request
 }
