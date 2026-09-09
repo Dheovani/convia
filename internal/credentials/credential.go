@@ -94,6 +94,11 @@ const (
 	ScopeCallsRead Scope = "calls:read"
 	// ScopeCallsWrite permits starting and ending the application's calls.
 	ScopeCallsWrite Scope = "calls:write"
+	// ScopeParticipantsRead permits reading who is in the application's calls.
+	ScopeParticipantsRead Scope = "participants:read"
+	// ScopeParticipantsWrite permits admitting people to the application's
+	// calls, removing them, and changing what they may do.
+	ScopeParticipantsWrite Scope = "participants:write"
 )
 
 /*
@@ -108,6 +113,7 @@ func Scopes() []Scope {
 		ScopeCredentialsRead, ScopeCredentialsWrite,
 		ScopeRoomsRead, ScopeRoomsWrite,
 		ScopeCallsRead, ScopeCallsWrite,
+		ScopeParticipantsRead, ScopeParticipantsWrite,
 	}
 }
 

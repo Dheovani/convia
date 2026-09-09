@@ -18,6 +18,7 @@ import (
 	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/operator"
+	"convia/internal/participants"
 	"convia/internal/rooms"
 	"convia/internal/users"
 )
@@ -232,13 +233,15 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		Credentials:           credentials.NewHandler(logger, credential),
 		Rooms:                 rooms.NewHandler(logger, stubRooms{room: sampleRoom()}),
 		Calls:                 calls.NewHandler(logger, stubCalls{call: sampleCall()}),
+		Participants:          participants.NewHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		OperatorCredentials:   operator.NewHandler(logger, stubOperatorCredentials{credential: sampleOperatorCredential()}),
 
-		Authenticator:     verifier,
-		TenantUsers:       users.NewTenantHandler(logger, user),
-		TenantCredentials: credentials.NewTenantHandler(logger, credential),
-		TenantRooms:       rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom()}),
-		TenantCalls:       calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
+		Authenticator:      verifier,
+		TenantUsers:        users.NewTenantHandler(logger, user),
+		TenantCredentials:  credentials.NewTenantHandler(logger, credential),
+		TenantRooms:        rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom()}),
+		TenantCalls:        calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
+		TenantParticipants: participants.NewTenantHandler(logger, stubParticipants{participant: sampleParticipant()}),
 	}
 }
 
@@ -697,4 +700,70 @@ func (stub stubCalls) End(context.Context, string, string, calls.Actor, string) 
 	ended := stub.call
 	ended.Status = calls.StatusEnded
 	return ended, stub.err
+}
+
+/*
+sampleParticipant is a participation in a fixed state, so that transport tests
+assert on routing and representation rather than on the domain.
+*/
+func sampleParticipant() participants.Participant {
+	return participants.Participant{
+		ID:            "part_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		ApplicationID: sampleApplication().ID,
+		CallID:        sampleCall().ID,
+		UserID:        sampleUser().ID,
+		Role:          participants.RoleMember,
+		Status:        participants.StatusJoined,
+		CreatedAt:     sampleApplication().CreatedAt,
+		UpdatedAt:     sampleApplication().UpdatedAt,
+	}
+}
+
+/*
+stubParticipants stands in for the participants service.
+
+Transport tests need to control what a handler receives without PostgreSQL;
+whether the domain rules hold is settled by the participants package tests.
+*/
+type stubParticipants struct {
+	participant participants.Participant
+	page        participants.Page
+	admitted    bool
+	err         error
+}
+
+func (stub stubParticipants) Join(context.Context, string, string, participants.Admission) (participants.Participant, bool, error) {
+	return stub.participant, stub.admitted, stub.err
+}
+
+func (stub stubParticipants) Get(context.Context, string, string) (participants.Participant, error) {
+	return stub.participant, stub.err
+}
+
+func (stub stubParticipants) List(context.Context, string, string, participants.ListOptions) (participants.Page, error) {
+	if stub.page.Participants == nil {
+		return participants.Page{
+			Participants: []participants.Participant{stub.participant},
+			NextCursor:   "b3BhcXVl",
+		}, stub.err
+	}
+	return stub.page, stub.err
+}
+
+func (stub stubParticipants) Leave(context.Context, string, string) (participants.Participant, error) {
+	gone := stub.participant
+	gone.Status = participants.StatusLeft
+	return gone, stub.err
+}
+
+func (stub stubParticipants) Remove(context.Context, string, string, participants.Remover, string, string) (participants.Participant, error) {
+	removed := stub.participant
+	removed.Status = participants.StatusRemoved
+	return removed, stub.err
+}
+
+func (stub stubParticipants) SetRole(context.Context, string, string, string, string) (participants.Participant, error) {
+	promoted := stub.participant
+	promoted.Role = participants.RoleModerator
+	return promoted, stub.err
 }

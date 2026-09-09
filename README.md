@@ -6,7 +6,7 @@ Convia owns its public API and domain model. Media infrastructure, including the
 
 ## Status
 
-The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and four domain resources: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and endpoints for applications, their users, their API credentials, their rooms, and the calls held in them.
+The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and four domain resources: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and endpoints for applications, their users, their API credentials, their rooms, the calls held in them, and who takes part.
 
 The tenant-facing API is authenticated. An application presents an opaque API key carrying explicit scopes, and Convia takes the tenant from that key rather than from the request, so `/v1/users` and `/v1/credentials` act on the caller's own data and nothing else. [`docs/authentication.md`](docs/authentication.md) documents the threat model and the credential lifecycle; [`docs/runbooks/credential-revocation.md`](docs/runbooks/credential-revocation.md) is the procedure for withdrawing a leaked key.
 
@@ -15,6 +15,8 @@ The operator surface is authenticated too, by a separate kind of key. An operato
 Rooms exist: an application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and manage their lifecycle under `/v1/rooms`. A creation can carry an `Idempotency-Key`, so retrying after a timeout produces no second room. See [`docs/rooms.md`](docs/rooms.md).
 
 Calls exist: an application can start a conversation in one of its rooms, end it, and read the history of what has happened there, under `/v1/calls`. A room holds one call at a time, and starting one can carry an `Idempotency-Key`. See [`docs/calls.md`](docs/calls.md).
+
+Participants exist: an application can admit its people to a call, read who is there, promote a moderator, and remove someone. Joining is idempotent by the person, so a reconnection never duplicates anyone, and a room's capacity is enforced when people arrive. See [`docs/participants.md`](docs/participants.md).
 
 Calls, real-time events, and media integration are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
