@@ -63,6 +63,15 @@ const (
 	CodeRateLimited ErrorCode = "rate_limited"
 	// CodeInternal reports an unexpected server-side condition.
 	CodeInternal ErrorCode = "internal_error"
+	/*
+		CodeUnavailable reports a dependency Convia needs that could not be
+		reached, when another attempt may succeed.
+
+		It is distinct from CodeInternal because the remedy differs: an
+		internal error is Convia's to fix and retrying will not help, while
+		this invites the same request again.
+	*/
+	CodeUnavailable ErrorCode = "unavailable"
 )
 
 /*
@@ -85,6 +94,7 @@ func ErrorCodes() []ErrorCode {
 		CodeConflict,
 		CodeRateLimited,
 		CodeInternal,
+		CodeUnavailable,
 	}
 }
 

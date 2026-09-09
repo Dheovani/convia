@@ -252,6 +252,45 @@ func (store *Store) End(ctx context.Context, applicationID, id string,
 	return record.call(), true, nil
 }
 
+/*
+AttachSession records which media session realizes a call.
+
+The reference is written separately from the call itself and is never part of
+the projection the domain reads, so it cannot travel into a response by
+accident: the type a handler receives has no field for it.
+*/
+func (store *Store) AttachSession(ctx context.Context, applicationID, id, reference string) error {
+	const statement = `UPDATE calls SET media_session = $1
+	                   WHERE application_id = $2 AND id = $3`
+
+	if _, err := store.pool.Exec(ctx, statement, reference, applicationID, id); err != nil {
+		return fmt.Errorf("attach media session: %w", err)
+	}
+	return nil
+}
+
+/*
+Session returns the media session realizing a call, if one was ever realized.
+
+Asking for it is deliberate and explicit. A call with no session answers with an
+empty reference, which is what every call has on a Convia running without a
+media plane.
+*/
+func (store *Store) Session(ctx context.Context, applicationID, id string) (string, error) {
+	const statement = `SELECT coalesce(media_session, '') FROM calls
+	                   WHERE application_id = $1 AND id = $2`
+
+	var reference string
+	err := store.pool.QueryRow(ctx, statement, applicationID, id).Scan(&reference)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("read media session: %w", err)
+	}
+	return reference, nil
+}
+
 // Cursor is the position of a keyset page.
 type Cursor struct {
 	CreatedAt time.Time

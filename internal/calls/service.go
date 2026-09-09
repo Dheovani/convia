@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/media"
 	"convia/internal/rooms"
 )
 
@@ -39,16 +40,36 @@ type roomLookup interface {
 	Get(ctx context.Context, applicationID, roomID string) (rooms.Room, error)
 }
 
+/*
+mediaPlane is the behavior this package needs from whatever transports audio
+and video.
+
+It is declared here, in the consuming package, and it is deliberately two
+operations wide: a call begins, so a place for it must be realized, and a call
+ends, so that place must be released. Issuing a participant the credentials to
+connect belongs to the join sessions of M13, and nothing here anticipates its
+shape.
+
+media.Absent satisfies it, and is what a Convia with no media plane configured
+uses. See docs/adr/0001-control-plane-media-plane-boundary.md.
+*/
+type mediaPlane interface {
+	OpenSession(ctx context.Context, request media.SessionRequest) (media.Session, error)
+	CloseSession(ctx context.Context, session media.Session) error
+}
+
 // Service applies Convia's rules for calls.
 type Service struct {
 	store   *Store
 	tenants tenants
 	rooms   roomLookup
+	media   mediaPlane
 	logger  *slog.Logger
 }
 
-func NewService(store *Store, owner tenants, places roomLookup, logger *slog.Logger) *Service {
-	return &Service{store: store, tenants: owner, rooms: places, logger: logger}
+func NewService(store *Store, owner tenants, places roomLookup,
+	transport mediaPlane, logger *slog.Logger) *Service {
+	return &Service{store: store, tenants: owner, rooms: places, media: transport, logger: logger}
 }
 
 /*
@@ -132,9 +153,122 @@ func (service *Service) Start(ctx context.Context, applicationID, roomID string,
 	if err := service.store.Create(ctx, call); err != nil {
 		return Call{}, err
 	}
-
 	service.audit(ctx, "call.started", call)
+
+	/*
+		The call record is the control-plane truth and the media session is
+		realized from it, which is the order docs/calls.md committed to. It
+		also has to be this order: the row is what holds the room, so
+		realizing first would let two callers both realize a session for a
+		room only one of them can have.
+	*/
+	if err := service.realize(ctx, call); err != nil {
+		return Call{}, err
+	}
 	return call, nil
+}
+
+// unrealizedReason is recorded on a call whose media session never existed.
+const unrealizedReason = "The media session could not be established."
+
+/*
+realize asks the media plane for somewhere this call can happen.
+
+A call that cannot be realized is **ended**, not left standing. The row holds
+the room, so leaving it would block the room with a conversation that never
+happened, which docs/calls.md named as the worse failure. The attempt stays in
+the history with a reason rather than being erased.
+*/
+func (service *Service) realize(ctx context.Context, call Call) error {
+	session, err := service.media.OpenSession(ctx, media.SessionRequest{CallID: call.ID})
+	if err != nil {
+		service.abandon(ctx, call)
+
+		if media.Retryable(err) {
+			return ErrMediaUnavailable
+		}
+		/*
+			A refusal is terminal: retrying will not fix a misconfiguration or
+			a credential the provider does not accept. It is logged with its
+			detail and reported as an internal condition, because telling a
+			caller to retry would be telling it to wait for something that
+			will not change on its own.
+		*/
+		service.logger.Error("the media plane refused to realize a call",
+			"error", err,
+			"call_id", call.ID,
+			"application_id", call.ApplicationID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+		return fmt.Errorf("realize call: %w", err)
+	}
+
+	if !session.Realized() {
+		return nil
+	}
+
+	if err := service.store.AttachSession(ctx, call.ApplicationID, call.ID, session.Reference); err != nil {
+		/*
+			A session exists that Convia cannot remember, which is worse than
+			none: nothing would ever release it. It is released now, and the
+			call is abandoned with it.
+		*/
+		service.release(ctx, call, session)
+		service.abandon(ctx, call)
+		return err
+	}
+	return nil
+}
+
+/*
+abandon ends a call whose media session could not be realized, freeing its room.
+
+It is best-effort by necessity: it is reached because something already failed,
+and the same outage may take this write with it. A room left held by a call
+that never happened is reported loudly rather than hidden, because a
+reconciliation job is what fixes it.
+*/
+func (service *Service) abandon(ctx context.Context, call Call) {
+	ended, changed, err := service.store.End(ctx, call.ApplicationID, call.ID,
+		call.StartedBy, unrealizedReason, now())
+	if err != nil {
+		service.logger.Error("a room is held by a call whose media session failed",
+			"error", err,
+			"call_id", call.ID,
+			"room_id", call.RoomID,
+			"application_id", call.ApplicationID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+		return
+	}
+	if changed {
+		service.audit(ctx, "call.ended", ended)
+	}
+}
+
+/*
+release lets the media plane know a session is finished.
+
+It is best-effort and never changes the answer a caller receives. Convia's
+record is the control-plane truth, and making an ending depend on a provider
+being reachable would let an outage keep conversations open in Convia that
+ended in reality. A session that could not be released is logged; reclaiming
+one belongs to the adapter, which is the only thing that can list what its
+provider still holds.
+*/
+func (service *Service) release(ctx context.Context, call Call, session media.Session) {
+	if !session.Realized() {
+		return
+	}
+
+	if err := service.media.CloseSession(ctx, session); err != nil {
+		service.logger.Error("a media session was not released",
+			"error", err,
+			"call_id", call.ID,
+			"application_id", call.ApplicationID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+	}
 }
 
 // Get returns one call of an application.
@@ -238,8 +372,31 @@ func (service *Service) End(ctx context.Context, applicationID, id string,
 		return call, nil
 	}
 
+	service.releaseSessionOf(ctx, call)
 	service.audit(ctx, "call.ended", call)
 	return call, nil
+}
+
+/*
+releaseSessionOf finds the session realizing a call and releases it.
+
+The reference is asked for rather than carried on the call, which is what keeps
+it out of every representation a handler could return. Failing to read it is
+logged and does not change the ending, for the same reason failing to close the
+session does not.
+*/
+func (service *Service) releaseSessionOf(ctx context.Context, call Call) {
+	reference, err := service.store.Session(ctx, call.ApplicationID, call.ID)
+	if err != nil {
+		service.logger.Error("could not read the media session of an ended call",
+			"error", err,
+			"call_id", call.ID,
+			"application_id", call.ApplicationID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+		return
+	}
+	service.release(ctx, call, media.Session{Reference: reference})
 }
 
 /*

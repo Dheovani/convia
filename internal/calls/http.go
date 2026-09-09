@@ -280,6 +280,15 @@ func failureFor(err error, logger *slog.Logger, request *http.Request) *api.Fail
 		return api.NewFailure(http.StatusConflict, api.CodeConflict,
 			"The room already has an active call.")
 
+	/*
+		The media plane could not realize the call, and the failure was one
+		another attempt may get past. The call was not left holding its room,
+		so retrying is genuinely open to the caller.
+	*/
+	case errors.Is(err, ErrMediaUnavailable):
+		return api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
+			"The call could not be established because a dependency is unavailable. Retry shortly.")
+
 	default:
 		logger.Error("call request failed",
 			"error", err,

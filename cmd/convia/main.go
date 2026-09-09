@@ -17,6 +17,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/idempotency"
+	"convia/internal/media"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/rooms"
@@ -130,7 +131,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
-	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, logger)
+	/*
+		Convia ships without a media plane. Rooms, calls, and participants all
+		work; nobody can connect, because there is nothing to connect to. The
+		LiveKit adapter takes this place in M12, and nothing outside it will
+		know the difference.
+	*/
+	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
+		media.Absent{}, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
 		applicationService, callService, roomService, userService, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)

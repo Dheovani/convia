@@ -21,6 +21,7 @@ import (
 	"convia/internal/calls"
 	"convia/internal/config"
 	"convia/internal/database"
+	"convia/internal/media"
 	"convia/internal/rooms"
 	"convia/internal/users"
 )
@@ -88,7 +89,8 @@ func newFixture(t *testing.T) fixture {
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, logger)
+	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
+		media.Absent{}, logger)
 
 	setup := fixture{
 		service: NewService(NewStore(pool), applicationService, callService,
