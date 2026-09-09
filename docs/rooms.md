@@ -65,13 +65,13 @@ Updates are partial: omitting a field leaves it alone, sending it empty clears i
 
 Closing stops the room accepting **new** calls. A conversation already in progress runs to its end.
 
-This is the decision M09 must implement, and it is recorded here because it is a product judgment rather than an implementation detail: ending a conversation people are having because an administrator tidied a listing would be the wrong default. An application that needs to eject participants will need an operation that says so, and that operation belongs to the call domain, not this one.
+This is a product judgment rather than an implementation detail: ending a conversation people are having because an administrator tidied a listing would be the wrong default. M09 implements it — see [`calls.md`](calls.md) — and a test asserts that closing a room leaves the call in it running. An application that needs to eject participants will need an operation that says so, and that operation belongs to the call domain, not this one.
 
 ## Capacity
 
 `max_participants` is optional and bounded between 1 and 1000. Absent means the room states no limit of its own.
 
-**Convia records it; it does not yet enforce it**, because there are no calls to enforce it against. It is a domain rule now and a media-plane check when the media plane exists. Saying so plainly is better than implying Convia is policing something it cannot observe.
+**Convia records it; it does not yet enforce it.** Calls exist now and did not change this: enforcing a headcount needs participants to count, which is M10. It is a domain rule now and a media-plane check when the media plane exists. Saying so plainly is better than implying Convia is policing something it cannot observe.
 
 ## Retrying a Creation
 
@@ -88,7 +88,7 @@ This is why an alias collision answers `409` rather than resolving to the existi
 
 **Only creation accepts a key.** Closing, reopening, and deleting are already repeatable, so a key would add a failure mode to operations that have none.
 
-The mechanism lives in [`internal/idempotency`](../internal/idempotency) and knows nothing about rooms. It is the same guarantee calls will owe in M09, and marking a route is all adopting it takes.
+The mechanism lives in [`internal/idempotency`](../internal/idempotency) and knows nothing about rooms. Starting a call adopted it in M09 by marking one route.
 
 ## Isolation
 
@@ -127,4 +127,4 @@ Room creation, closure, reopening, and deletion are audited. The record names th
 
 - **Membership and access policy** (`M08-010`). Convia holds no credentials for an application's people, so it cannot decide who may enter a room; the application already knows. Inventing a policy model Convia could not enforce would be worse than having none.
 - **Erasure**, as above.
-- **Capacity enforcement**, which needs calls to enforce against.
+- **Capacity enforcement**, which needs participants to count. Calls arrived in M09 and did not bring it; see [`calls.md`](calls.md).

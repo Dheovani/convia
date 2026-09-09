@@ -15,6 +15,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/operator"
 	"convia/internal/rooms"
@@ -230,12 +231,14 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		Users:                 users.NewHandler(logger, user),
 		Credentials:           credentials.NewHandler(logger, credential),
 		Rooms:                 rooms.NewHandler(logger, stubRooms{room: sampleRoom()}),
+		Calls:                 calls.NewHandler(logger, stubCalls{call: sampleCall()}),
 		OperatorCredentials:   operator.NewHandler(logger, stubOperatorCredentials{credential: sampleOperatorCredential()}),
 
 		Authenticator:     verifier,
 		TenantUsers:       users.NewTenantHandler(logger, user),
 		TenantCredentials: credentials.NewTenantHandler(logger, credential),
 		TenantRooms:       rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom()}),
+		TenantCalls:       calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
 	}
 }
 
@@ -644,4 +647,54 @@ func (stub stubRooms) Reopen(context.Context, string, string) (rooms.Room, error
 
 func (stub stubRooms) Delete(context.Context, string, string) error {
 	return stub.err
+}
+
+/*
+sampleCall is a call in a fixed state, so that transport tests assert on
+routing and representation rather than on the domain.
+*/
+func sampleCall() calls.Call {
+	return calls.Call{
+		ID:            "call_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		ApplicationID: sampleApplication().ID,
+		RoomID:        sampleRoom().ID,
+		Status:        calls.StatusActive,
+		Metadata:      map[string]string{},
+		StartedBy:     calls.ActorApplication,
+		CreatedAt:     sampleApplication().CreatedAt,
+		UpdatedAt:     sampleApplication().UpdatedAt,
+	}
+}
+
+/*
+stubCalls stands in for the calls service.
+
+Transport tests need to control what a handler receives without PostgreSQL;
+whether the domain rules hold is settled by the calls package tests.
+*/
+type stubCalls struct {
+	call calls.Call
+	page calls.Page
+	err  error
+}
+
+func (stub stubCalls) Start(context.Context, string, string, calls.Definition, calls.Actor) (calls.Call, error) {
+	return stub.call, stub.err
+}
+
+func (stub stubCalls) Get(context.Context, string, string) (calls.Call, error) {
+	return stub.call, stub.err
+}
+
+func (stub stubCalls) List(context.Context, string, calls.ListOptions) (calls.Page, error) {
+	if stub.page.Calls == nil {
+		return calls.Page{Calls: []calls.Call{stub.call}, NextCursor: "b3BhcXVl"}, stub.err
+	}
+	return stub.page, stub.err
+}
+
+func (stub stubCalls) End(context.Context, string, string, calls.Actor, string) (calls.Call, error) {
+	ended := stub.call
+	ended.Status = calls.StatusEnded
+	return ended, stub.err
 }

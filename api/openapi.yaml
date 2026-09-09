@@ -81,6 +81,26 @@ tags:
       Nothing here names a media provider. A room is a Convia concept that the
       media plane is later asked to realize.
 
+  - name: Calls
+    description: |
+      The conversations held in an application's rooms.
+
+      A call is the occasion; the room is the place. A room outlives every
+      conversation held in it, which is why the two are separate resources: a
+      room is created once, and calls happen in it repeatedly.
+
+      A room holds one call at a time. Starting a call in a room that already
+      has one is refused rather than answered with the running call, because
+      starting and finding are different questions.
+
+      An application starts and ends its own calls with the tenant taken from
+      its credential. An operator can read a tenant's calls and end one, but
+      cannot start one: starting a conversation between an application's people
+      is not administration.
+
+      Nothing here names a media provider. A call is a Convia concept that the
+      media plane is later asked to realize.
+
   - name: Users
     description: |
       The people an application knows about.
@@ -2314,6 +2334,452 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/applications/{application_id}/calls:
+    get:
+      operationId: listCalls
+      tags: [Calls]
+      summary: List an application's calls
+      description: |
+        Returns one page of the application's calls, newest first.
+
+        Every call is returned, ended ones included, because a call history is
+        what this listing is for. That is the opposite of rooms, where a
+        deleted room is hidden unless asked for: a deleted room is one an
+        application can no longer use, while an ended call is exactly what an
+        application wants to look back at.
+
+        Filtering by `status=active` answers what is happening right now, and
+        returns at most one call per room.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/CallStatusFilter"
+      responses:
+        "200":
+          description: One page of calls.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/rooms/{room_id}/calls:
+    get:
+      operationId: listRoomCalls
+      tags: [Calls]
+      summary: List a room's calls
+      description: |
+        Returns one page of the calls held in one of the application's rooms,
+        newest first.
+
+        A room that is not this application's answers `404 not found` rather
+        than an empty page, which a caller would otherwise read as "no calls
+        yet".
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/CallStatusFilter"
+      responses:
+        "200":
+          description: One page of the room's calls.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/calls/{call_id}:
+    get:
+      operationId: getCall
+      tags: [Calls]
+      summary: Retrieve a call
+      description: Returns one call belonging to the application.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/CallID"
+      responses:
+        "200":
+          description: The requested call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Call"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/calls/{call_id}/end:
+    post:
+      operationId: endCall
+      tags: [Calls]
+      summary: End a call
+      description: |
+        Stops a conversation on the operator's authority.
+
+        This is the one call operation an operator has beyond reading, and it
+        exists for the case where a conversation must stop and the application
+        cannot stop it. An operator cannot start a call: starting a
+        conversation between an application's people is not administration.
+
+        Ending an already-ended call succeeds and returns it unchanged, so a
+        client retrying after a timeout is never punished for it. Only the
+        request that actually ended the call records who ended it and why; a
+        repeat does not overwrite that with its own.
+
+        The body is optional. Sending one records why the conversation ended.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/CallID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EndCallRequest"
+            example:
+              reason: Ended by support during an incident.
+      responses:
+        "200":
+          description: The call in its final state.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Call"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/rooms/{room_id}/calls:
+    post:
+      operationId: startOwnCall
+      tags: [Calls]
+      summary: Start a call
+      description: |
+        Starts a conversation in one of the caller's own rooms.
+
+        The room is named in the path because the call belongs to it. The
+        tenant comes from the presented credential, so no request field could
+        name another application's room.
+
+        A room already hosting a conversation answers `409 conflict` rather
+        than returning the running call, because a caller that received the
+        current call could not tell whether it had just started something.
+        Reading the current call is this room's listing filtered by `active`.
+
+        A closed room answers `409 conflict`; a deleted one answers
+        `404 not found`.
+
+        Supply an `Idempotency-Key` to make a retry after a timeout safe: the
+        call is started at most once, and a repeat returns the original
+        response.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["calls:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartCallRequest"
+            example:
+              metadata:
+                agenda: sprint-review
+      responses:
+        "201":
+          description: The call was started.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Call"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listOwnRoomCalls
+      tags: [Calls]
+      summary: List a room's calls
+      description: |
+        Returns one page of the calls held in one of the caller's own rooms,
+        newest first.
+
+        A room that is not the caller's answers `404 not found` rather than an
+        empty page, which would otherwise read as "no calls yet".
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["calls:read"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/CallStatusFilter"
+      responses:
+        "200":
+          description: One page of the room's calls.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/calls:
+    get:
+      operationId: listOwnCalls
+      tags: [Calls]
+      summary: List calls
+      description: |
+        Returns one page of the caller's own calls, newest first.
+
+        Every call is returned, ended ones included, because a call history is
+        what this listing is for. That is the opposite of rooms, where a
+        deleted room is hidden unless asked for: a deleted room is one an
+        application can no longer use, while an ended call is exactly what an
+        application wants to look back at.
+
+        Filtering by `status=active` answers what is happening right now, and
+        returns at most one call per room.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["calls:read"]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/CallStatusFilter"
+      responses:
+        "200":
+          description: One page of calls.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/calls/{call_id}:
+    get:
+      operationId: getOwnCall
+      tags: [Calls]
+      summary: Retrieve a call
+      description: Returns one of the caller's own calls.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["calls:read"]
+      parameters:
+        - $ref: "#/components/parameters/CallID"
+      responses:
+        "200":
+          description: The requested call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Call"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/calls/{call_id}/end:
+    post:
+      operationId: endOwnCall
+      tags: [Calls]
+      summary: End a call
+      description: |
+        Stops one of the caller's own conversations.
+
+        Ending an already-ended call succeeds and returns it unchanged, so a
+        client retrying after a timeout is never punished for it. Only the
+        request that actually ended the call records who ended it and why; a
+        repeat does not overwrite that with its own.
+
+        The body is optional. Sending one records why the conversation ended.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["calls:write"]
+      parameters:
+        - $ref: "#/components/parameters/CallID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EndCallRequest"
+            example:
+              reason: The meeting finished.
+      responses:
+        "200":
+          description: The call in its final state.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Call"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     OperatorKey:
@@ -2850,6 +3316,148 @@ components:
           minimum: 1
           maximum: 1000
 
+    CallId:
+      type: string
+      description: |
+        Opaque identifier of a call. Clients must treat it as opaque and must
+        never parse it.
+      pattern: "^call_[A-Z2-7]{26}$"
+      example: call_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    CallStatus:
+      type: string
+      description: |
+        The lifecycle state of a call. There are two, and both are reachable: a
+        conversation is happening, or it is over. `ended` is terminal.
+
+        Convia deliberately does not model `ringing`, `ending`, or `failed`.
+        Ringing describes someone being summoned, which needs invitations.
+        Ending describes a teardown in flight, which needs a media plane to be
+        tearing anything down. Failed describes a call that could not be
+        established, which needs something that can fail to establish one. Each
+        would be a state nothing could enter, and a lifecycle with unreachable
+        states teaches a client rules that are not true.
+
+        Why a call ended is reported as `end_reason` rather than as a state.
+      enum: [active, ended]
+
+    CallActor:
+      type: string
+      description: |
+        Who caused a transition. It names the authority that made the request,
+        not the person who was talking.
+      enum: [application, operator]
+
+    CallMetadata:
+      type: object
+      description: |
+        Application-owned key-value data that Convia stores without
+        interpreting. The rules are identical to `RoomMetadata` and
+        `UserMetadata`, deliberately: metadata means the same thing in all
+        three, and a client should not have to learn the rules three times.
+
+        At most 16 entries, keys of at most 40 characters made of lowercase
+        letters, digits, and underscores and starting with a letter, values of
+        at most 256 characters, and at most 4096 bytes in total.
+
+        Values are strings only: nested objects and arrays are rejected so the
+        stored shape stays predictable.
+      additionalProperties:
+        type: string
+        maxLength: 256
+      example:
+        agenda: sprint-review
+        locale: pt-BR
+
+    Call:
+      type: object
+      description: |
+        One conversation held in a room.
+
+        A call starts when it is created, which is why there is no separate
+        `started_at`: `created_at` is when the conversation began, and two
+        names for one instant would only invite them to disagree.
+
+        Convia is authoritative for every field except `metadata` and
+        `end_reason`, which belong to the application.
+      required: [id, application_id, room_id, status, metadata, started_by, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/CallId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        status:
+          $ref: "#/components/schemas/CallStatus"
+        metadata:
+          $ref: "#/components/schemas/CallMetadata"
+        started_by:
+          $ref: "#/components/schemas/CallActor"
+        ended_by:
+          allOf:
+            - $ref: "#/components/schemas/CallActor"
+          description: Who ended the call. Absent while it is still happening.
+        end_reason:
+          type: string
+          description: |
+            The explanation recorded with the ending, when one was given. Free
+            text: the reasons a conversation ends are not Convia's to
+            enumerate.
+          minLength: 1
+          maxLength: 200
+        created_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When the conversation began.
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        ended_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When the conversation ended. Absent while it is still happening.
+
+    CallPage:
+      type: object
+      description: One page of calls.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Call"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the listing. Absent on the last page.
+            Clients must never decode or construct one.
+
+    StartCallRequest:
+      type: object
+      description: |
+        The accepted body when starting a call. There is little to ask for,
+        which is the point: a call takes its identity from the room it happens
+        in and the moment it starts.
+      additionalProperties: false
+      properties:
+        metadata:
+          $ref: "#/components/schemas/CallMetadata"
+
+    EndCallRequest:
+      type: object
+      description: |
+        The accepted body when ending a call. The body itself is optional:
+        ending a conversation is usually all a caller wants to say.
+      additionalProperties: false
+      properties:
+        reason:
+          type: string
+          description: Why the conversation ended. Free text, and optional.
+          minLength: 1
+          maxLength: 200
+
     Scope:
       type: string
       description: |
@@ -2863,6 +3471,8 @@ components:
         - credentials:write
         - rooms:read
         - rooms:write
+        - calls:read
+        - calls:write
 
     CredentialId:
       type: string
@@ -3168,6 +3778,27 @@ components:
         both forms of the request.
       schema:
         $ref: "#/components/schemas/RoomAlias"
+
+    CallID:
+      name: call_id
+      in: path
+      required: true
+      description: The call's opaque identifier.
+      schema:
+        $ref: "#/components/schemas/CallId"
+
+    CallStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: |
+        Return only calls in this lifecycle state. Without it every call is
+        returned, because a call history is what the listing is for.
+
+        Filtering by `active` is how a caller asks what is happening in a room
+        right now, and answers with at most one call.
+      schema:
+        $ref: "#/components/schemas/CallStatus"
 
     IfMatch:
       name: If-Match

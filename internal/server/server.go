@@ -10,6 +10,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/operator"
 	"convia/internal/ratelimit"
@@ -99,6 +100,7 @@ type Dependencies struct {
 	Users                 *users.Handler
 	Credentials           *credentials.Handler
 	Rooms                 *rooms.Handler
+	Calls                 *calls.Handler
 	OperatorCredentials   *operator.Handler
 
 	/*
@@ -109,6 +111,7 @@ type Dependencies struct {
 	TenantUsers       *users.TenantHandler
 	TenantCredentials *credentials.TenantHandler
 	TenantRooms       *rooms.TenantHandler
+	TenantCalls       *calls.TenantHandler
 
 	/*
 		IdempotencyKeys lets a caller retry a creation without risking a second
@@ -367,6 +370,32 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		)
 	}
 
+	if dependencies.Authenticator != nil && dependencies.TenantCalls != nil {
+		/*
+			An application starting and ending its own conversations. Starting
+			names the room in the path because the call belongs to it, and
+			ending does not, because a call is addressable on its own once it
+			exists.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/rooms/{room_id}/calls", surface: surfaceTenant, idempotent: true,
+				handler: http.HandlerFunc(dependencies.TenantCalls.Start)},
+			route{method: http.MethodGet, path: api.Prefix + "/rooms/{room_id}/calls", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantCalls.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/calls", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantCalls.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/calls/{call_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantCalls.Get)},
+			/*
+				Ending is not marked idempotent. Repeating it already succeeds
+				and returns the call unchanged, so a key would add a refusal to
+				an operation that cannot go wrong twice.
+			*/
+			route{method: http.MethodPost, path: api.Prefix + "/calls/{call_id}/end", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantCalls.End)},
+		)
+	}
+
 	if dependencies.OperatorAuthenticator != nil && dependencies.Rooms != nil {
 		table = append(table,
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator, idempotent: true,
@@ -383,6 +412,25 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Rooms.Close)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}/reopen", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Rooms.Reopen)},
+		)
+	}
+
+	if dependencies.OperatorAuthenticator != nil && dependencies.Calls != nil {
+		/*
+			An operator reads a tenant's calls and can end one, but cannot
+			start one. Starting a conversation between an application's people
+			is not administration; ending one is the lever an operator needs
+			when a conversation must stop and the application cannot stop it.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}/calls", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Calls.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/calls", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Calls.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/calls/{call_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Calls.Get)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/calls/{call_id}/end", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Calls.End)},
 		)
 	}
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"convia/internal/applications"
+	"convia/internal/calls"
 	"convia/internal/config"
 	"convia/internal/credentials"
 	"convia/internal/database"
@@ -128,6 +129,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
+	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
@@ -145,12 +147,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Users:                 users.NewHandler(logger, userService),
 		Credentials:           credentials.NewHandler(logger, credentialService),
 		Rooms:                 rooms.NewHandler(logger, roomService),
+		Calls:                 calls.NewHandler(logger, callService),
 		OperatorCredentials:   operator.NewHandler(logger, operatorService),
 
 		Authenticator:     credentialService,
 		TenantUsers:       users.NewTenantHandler(logger, userService),
 		TenantCredentials: credentials.NewTenantHandler(logger, credentialService),
 		TenantRooms:       rooms.NewTenantHandler(logger, roomService),
+		TenantCalls:       calls.NewTenantHandler(logger, callService),
 
 		IdempotencyKeys: idempotencyService,
 	}
