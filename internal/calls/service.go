@@ -41,11 +41,12 @@ type roomLookup interface {
 }
 
 /*
-mediaPlane is the behavior this package needs from whatever transports audio
+MediaPlane is the behavior this package needs from whatever transports audio
 and video.
 
-It is declared here, in the consuming package, and it is deliberately two
-operations wide: a call begins, so a place for it must be realized, and a call
+It is declared here, in the consuming package, and it is exported only so
+that the composition root can name what it is constructing. It is deliberately
+two operations wide: a call begins, so a place for it must be realized, and a call
 ends, so that place must be released. Issuing a participant the credentials to
 connect belongs to the join sessions of M13, and nothing here anticipates its
 shape.
@@ -53,7 +54,7 @@ shape.
 media.Absent satisfies it, and is what a Convia with no media plane configured
 uses. See docs/adr/0001-control-plane-media-plane-boundary.md.
 */
-type mediaPlane interface {
+type MediaPlane interface {
 	OpenSession(ctx context.Context, request media.SessionRequest) (media.Session, error)
 	CloseSession(ctx context.Context, session media.Session) error
 }
@@ -63,12 +64,12 @@ type Service struct {
 	store   *Store
 	tenants tenants
 	rooms   roomLookup
-	media   mediaPlane
+	media   MediaPlane
 	logger  *slog.Logger
 }
 
 func NewService(store *Store, owner tenants, places roomLookup,
-	transport mediaPlane, logger *slog.Logger) *Service {
+	transport MediaPlane, logger *slog.Logger) *Service {
 	return &Service{store: store, tenants: owner, rooms: places, media: transport, logger: logger}
 }
 

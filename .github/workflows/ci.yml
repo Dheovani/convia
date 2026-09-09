@@ -93,6 +93,11 @@ jobs:
     env:
       CONVIA_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
       CONVIA_TEST_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
+      # Development-only, and matched in docker-compose.yml. The media tests
+      # are skipped when these are unset, so CI is the place they must be set.
+      CONVIA_TEST_LIVEKIT_URL: http://127.0.0.1:7880
+      CONVIA_TEST_LIVEKIT_API_KEY: devkey
+      CONVIA_TEST_LIVEKIT_API_SECRET: a-development-secret-long-enough-to-be-accepted
 
     steps:
       - name: Check out repository
@@ -106,7 +111,29 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run tests against PostgreSQL
+      # A service container cannot be given command arguments, and this one
+      # needs --dev, so it is started as an ordinary step. Only the control API
+      # is published: Convia does not carry media yet.
+      - name: Start LiveKit
+        run: |
+          docker run --detach --name convia-livekit \
+            --publish 127.0.0.1:7880:7880 \
+            --env "LIVEKIT_KEYS=devkey: a-development-secret-long-enough-to-be-accepted" \
+            livekit/livekit-server:v1.13.6 --dev --bind 0.0.0.0
+
+      - name: Wait for LiveKit
+        run: |
+          for _ in $(seq 1 30); do
+            if curl --silent --fail --output /dev/null http://127.0.0.1:7880/; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "LiveKit did not become ready"
+          docker logs convia-livekit
+          exit 1
+
+      - name: Run tests against PostgreSQL and LiveKit
         run: go test -count=1 -race -shuffle=on ./...
 
       - name: Verify migrations apply to an empty database
