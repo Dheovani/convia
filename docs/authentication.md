@@ -11,7 +11,7 @@ An **application** proves who it is to Convia with an API key. This document rec
 | Paths | `/v1/users`, `/v1/credentials` | `/v1/applications/...`, `/v1/operator/credentials` |
 | Key | `cvk_...` | `cvo_...` |
 | Who the tenant is | Taken from the key | Named in the path |
-| Scopes | `users:*`, `credentials:*` | `applications:*`, `tenants:*`, `operators:*` |
+| Scopes | `users:*`, `credentials:*`, `rooms:*`, `calls:*` | `applications:*`, `tenants:*`, `operators:*` |
 | Authentication | Required, every request | Required, every request |
 
 The split exists because the two answer different questions. An application acts on **itself**, so naming a tenant would be redundant at best and a tenant-crossing bug at worst. An operator acts on **someone else**, so it must name them — and that is exactly why an application's key can never be enough to do it.
@@ -177,6 +177,12 @@ Scopes name **domain operations**, not HTTP routes, so a permission keeps its me
 | `users:write` | Resolving, updating, and changing the lifecycle of its users |
 | `credentials:read` | Reading its own credentials, never their secrets |
 | `credentials:write` | Issuing and revoking its own credentials |
+| `rooms:read` | Reading its rooms |
+| `rooms:write` | Creating, updating, closing, reopening, and deleting its rooms |
+| `calls:read` | Reading its calls and their history |
+| `calls:write` | Starting and ending its calls |
+
+`rooms:write` does not imply `calls:write`. A key granted to manage the places people meet was not granted to originate conversations in them, and conflating the two would make least privilege unexpressible: an integration that only administers rooms would silently be able to start calls.
 
 **Scopes are required.** A request without them is rejected rather than given a default, because a default is either useless or quietly broader than anyone asked for. There is no scope that grants everything.
 

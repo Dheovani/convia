@@ -90,6 +90,10 @@ const (
 	// ScopeRoomsWrite permits creating, updating, closing, reopening, and
 	// deleting the application's rooms.
 	ScopeRoomsWrite Scope = "rooms:write"
+	// ScopeCallsRead permits reading the application's calls and their history.
+	ScopeCallsRead Scope = "calls:read"
+	// ScopeCallsWrite permits starting and ending the application's calls.
+	ScopeCallsWrite Scope = "calls:write"
 )
 
 /*
@@ -103,6 +107,7 @@ func Scopes() []Scope {
 		ScopeUsersRead, ScopeUsersWrite,
 		ScopeCredentialsRead, ScopeCredentialsWrite,
 		ScopeRoomsRead, ScopeRoomsWrite,
+		ScopeCallsRead, ScopeCallsWrite,
 	}
 }
 

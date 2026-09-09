@@ -22,17 +22,17 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Current Status
 
-- **Current milestone:** M08 — Room Domain, the first communication primitive and the start of Phase 2. **Complete.** M07 is done except `M07-009`, which needs the origin model of the standalone web application and is blocked on M18 rather than outstanding. Phase 0 and M06 are complete.
+- **Current milestone:** M09 — Call Lifecycle. **Complete.** M08 is complete. M07 is done except `M07-009`, which needs the origin model of the standalone web application and is blocked on M18 rather than outstanding. Phase 0 and M06 are complete.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
-- **Next implementation milestone:** M09 — Call Lifecycle
+- **Next implementation milestone:** M10 — Participants and Invitations
 - **Current tenancy capability:** applications can be created, listed, retrieved, renamed with optimistic concurrency, suspended, activated, and deleted through the operator API, which requires an operator credential carrying an applications scope
 - **Current identity capability:** an application's people can be resolved into Convia users, listed, retrieved, updated with optimistic concurrency, suspended, activated, and deleted under `/v1/users`, with the tenant taken from the presented credential rather than named in the path
 - **Current credential capability:** an application can be issued opaque API keys carrying explicit scopes, which Convia stores only as a digest, verifies in constant time, and can expire or revoke with immediate effect; suspending an application withdraws every key it holds. An application manages its own keys under `/v1/credentials`, and cannot issue one carrying scopes it does not itself hold. See [`docs/authentication.md`](docs/authentication.md)
-- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the authenticated tenant endpoints for users and credentials, the authenticated operator endpoints for applications and operator credentials, both security schemes, and the shared error, pagination, and correlation components
+- **Current public contract:** [`api/openapi.yaml`](api/openapi.yaml), OpenAPI 3.0.3, covering the operational health and readiness endpoints, the authenticated tenant endpoints for users, credentials, rooms, and calls, the authenticated operator endpoints for applications, operator credentials, and every tenant resource, both security schemes, and the shared error, pagination, idempotency, and correlation components
 - **Current backend capability:** process startup, environment configuration, graceful shutdown, `GET /health`, and the HTTP transport baseline documented in [`docs/api-conventions.md`](docs/api-conventions.md): request correlation identifiers, structured access logs, panic recovery, strict JSON decoding, and one JSON error schema for every failure
-- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications`, `users`, `credentials`, `operator_credentials`, `rooms`, and `idempotency_keys` tables
+- **Current persistence capability:** PostgreSQL through `pgxpool`, reversible embedded migrations run by `convia migrate`, an isolated integration-test database per test, and the `applications`, `users`, `credentials`, `operator_credentials`, `rooms`, `idempotency_keys`, and `calls` tables
 - **Current authentication capability:** every request on both surfaces carries a key, verified on each request and enforced against explicit scopes inside the domain rather than at the handler. Application and operator keys are separate families — separate tables, prefixes, and scope vocabularies — so a key offered to the wrong surface is refused on its shape before any lookup. Failed attempts are budgeted per caller address, resolved through `CONVIA_TRUSTED_PROXIES` where a proxy is configured, so a flood of unusable keys cannot be paid for indefinitely and one client cannot spend another's budget
-- **Current communication capability:** rooms. An application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and can list, filter, update under optimistic concurrency, close, reopen, and delete them under `/v1/rooms`. Aliases are unique per application and stay reserved after deletion, and a creation can carry an `Idempotency-Key` so a retry after a timeout produces no second room. See [`docs/rooms.md`](docs/rooms.md)
+- **Current communication capability:** rooms. An application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and can list, filter, update under optimistic concurrency, close, reopen, and delete them under `/v1/rooms`. Aliases are unique per application and stay reserved after deletion, and a creation can carry an `Idempotency-Key` so a retry after a timeout produces no second room. Conversations are held in those rooms as calls: an application starts one, ends it, and reads the history of a room under `/v1/calls`, with a room holding one call at a time. See [`docs/rooms.md`](docs/rooms.md) and [`docs/calls.md`](docs/calls.md)
 - **Current media capability:** none
 - **Current user interface capability:** none
 
@@ -323,27 +323,27 @@ Complete these in order before starting feature development:
 ### M09 — Call Lifecycle
 
 **Priority:** P1
-**Status:** Not started
+**Status:** Complete
 **Depends on:** M08
 **Goal:** Model calls as Convia control-plane resources independently from media infrastructure.
 
-- [ ] **M09-001:** Define call states and allowed transitions.
-- [ ] **M09-002:** Define whether a room can have multiple historical calls and one active call.
-- [ ] **M09-003:** Define call initiation, ringing, active, ending, ended, and failed semantics as needed.
-- [ ] **M09-004:** Define actor and reason fields for transitions.
-- [ ] **M09-005:** Add durable call records and transition history.
-- [ ] **M09-006:** Enforce one-active-call constraints transactionally where required.
-- [ ] **M09-007:** Add idempotent start and end operations. The mechanism exists in `internal/idempotency` and is applied by marking a route `idempotent` in the route table, so this is a decision about which call operations owe the guarantee rather than an implementation.
-- [ ] **M09-008:** Add call REST endpoints and contract schemas.
-- [ ] **M09-009:** Reject invalid transitions with stable public errors.
-- [ ] **M09-010:** Define behavior when the media provider is temporarily unavailable.
-- [ ] **M09-011:** Keep provider session IDs internal.
-- [ ] **M09-012:** Add concurrent transition tests.
-- [ ] **M09-013:** Add call history filtering and pagination.
-- [ ] **M09-014:** Add call audit events and timestamps.
-- [ ] **M09-015:** Define reconciliation behavior for stale active calls.
+- [x] **M09-001:** Define call states and allowed transitions. Two states, `active` and `ended`, with one transition between them and `ended` terminal. Both are reachable, which is the rule the vocabulary is held to. Recorded in `docs/calls.md`.
+- [x] **M09-002:** Define whether a room can have multiple historical calls and one active call. Exactly that: many over time, one at a time. Only an active call occupies a room, so a room that has hosted a hundred conversations can host another.
+- [x] **M09-003:** Define call initiation, ringing, active, ending, ended, and failed semantics as needed. Needed: initiation and the two states. Deliberately not modeled: `ringing` needs invitations (M10), `ending` needs a media plane that takes time to tear down (M11), and `failed` needs something that can fail to establish a call (M11). Each would be a state nothing could enter, and a lifecycle with unreachable states teaches a client rules that are not true. Why a call ended is an `end_reason` instead.
+- [x] **M09-004:** Define actor and reason fields for transitions. The actor is `application` or `operator` and is taken from the verified credential, never from a request field: a body that could name the actor would let an application record an operator's name against its own decision. The reason is optional free text, because the reasons a conversation ends are not Convia's to enumerate.
+- [x] **M09-005:** Add durable call records and transition history. Migration `00008`, with the history as columns (`ended_at`, `ended_by`, `end_reason`) rather than a separate table. The lifecycle is linear and terminal, so a table would hold exactly one row per ended call, joined on every read, to say what the columns already say. A table becomes the right shape once a call can move between states more than once, which the media plane will bring; moving to one then is a data migration, not a redesign. A check constraint keeps the two shapes a row may take from disagreeing.
+- [x] **M09-006:** Enforce one-active-call constraints transactionally where required. A partial unique index on `(room_id) WHERE status = 'active'`, so PostgreSQL settles two simultaneous starts. An application-level check would read, decide, and lose the race in between. Eight concurrent starts produce exactly one call, asserted against a real database.
+- [x] **M09-007:** Add idempotent start and end operations. Starting honors `Idempotency-Key`. Ending does not accept one and does not need one: repeating an end already succeeds and returns the call unchanged, so a key would only add a way for a retry to be refused.
+- [x] **M09-008:** Add call REST endpoints and contract schemas. Nine operations across both surfaces, with `Call`, `CallPage`, `CallStatus`, `CallActor`, `CallMetadata`, and the request schemas. The contract test proves routes, security, and error codes match the implementation in both directions, and that every response body validates against the schema it claims.
+- [x] **M09-009:** Reject invalid transitions with stable public errors. A room already hosting a call and a closed room both answer `409 conflict`; a deleted room answers `404 not found`, because closed is a state the application can undo and deleted is gone from the API. Ending an ended call is not an invalid transition but a repeat, and succeeds.
+- [x] **M09-010:** Define behavior when the media provider is temporarily unavailable. Defined in `docs/calls.md`: the call record is the control-plane truth and the media session is realized from it, so a session that cannot be realized ends the call with a reason rather than leaving it occupying its room. A room blocked by a call that never happened is the worse failure. Nothing implements this because there is no provider to be unavailable; that is M11.
+- [x] **M09-011:** Keep provider session IDs internal. The public `Call` schema declares `additionalProperties: false` and a contract test asserts twice: that the schema names only Convia-owned fields, and that the body a client actually receives carries only those. A provider identifier added later has to defeat both.
+- [x] **M09-012:** Add concurrent transition tests. Eight goroutines starting a call in one room produce exactly one, with every loser refused and no extra row written.
+- [x] **M09-013:** Add call history filtering and pagination. Keyset paging newest first, a `status` filter, and a room-scoped listing. Every call is returned, ended ones included: a call history is what the listing is for, which is the opposite of rooms where a deleted room is hidden unless asked for.
+- [x] **M09-014:** Add call audit events and timestamps. Starting and ending are audited with the call, room, application, new state, and actor. Neither the metadata nor the end reason is recorded, because both are composed by the application and either may say something about the people in the call; a test asserts they stay out.
+- [x] **M09-015:** Define reconciliation behavior for stale active calls. Defined in `docs/calls.md` and deliberately not built. Convia cannot detect a stale call today: with no media plane it has no evidence about a call independent of the requests it received, so every active call is active as far as anything can tell. When the media plane exists, reconciliation ends such calls with a `system` actor, an actor left out of the enum until something produces it.
 
-**Exit criteria:** Calls have a durable, concurrency-safe Convia lifecycle that remains meaningful without a media provider.
+**Exit criteria:** Calls have a durable, concurrency-safe Convia lifecycle that remains meaningful without a media provider. **Met.** A call is a durable record with a linear lifecycle nothing about media is needed to understand; one call per room is settled by the database rather than by application logic; both surfaces are tested with each scope, without it, and with none; a tenant reaching another's call receives `404` rather than `403`; and no part of the contract names or implies a provider.
 
 ### M10 — Participants and Invitations
 
