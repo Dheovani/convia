@@ -6,7 +6,7 @@ Convia owns its public API and domain model. Media infrastructure, including the
 
 ## Status
 
-The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and four domain resources: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and endpoints for applications, their users, their API credentials, their rooms, the calls held in them, and who takes part.
+The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and four domain resources: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and endpoints for applications, their users, their API credentials, their rooms, the calls held in them, and who takes part. A narrow internal boundary separates all of it from whatever will eventually transport audio and video.
 
 The tenant-facing API is authenticated. An application presents an opaque API key carrying explicit scopes, and Convia takes the tenant from that key rather than from the request, so `/v1/users` and `/v1/credentials` act on the caller's own data and nothing else. [`docs/authentication.md`](docs/authentication.md) documents the threat model and the credential lifecycle; [`docs/runbooks/credential-revocation.md`](docs/runbooks/credential-revocation.md) is the procedure for withdrawing a leaked key.
 

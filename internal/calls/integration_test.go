@@ -19,6 +19,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/config"
 	"convia/internal/database"
+	"convia/internal/media"
 	"convia/internal/rooms"
 )
 
@@ -34,6 +35,7 @@ const testDatabaseURLEnvironment = "CONVIA_TEST_DATABASE_URL"
 // fixture is a service under test together with two tenants to isolate.
 type fixture struct {
 	service      *Service
+	pool         *pgxpool.Pool
 	rooms        *rooms.Service
 	applications *applications.Service
 	first        string
@@ -44,6 +46,18 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T) fixture {
+	t.Helper()
+	return newFixtureWith(t, media.Absent{})
+}
+
+/*
+newFixtureWith builds the same fixture against a chosen media plane.
+
+Most tests do not care and use the absent one, which is what Convia ships with.
+The tests that do care are about what happens when the media plane fails, and
+they are the reason the boundary exists.
+*/
+func newFixtureWith(t *testing.T, plane mediaPlane) fixture {
 	t.Helper()
 
 	maintenanceURL := strings.TrimSpace(os.Getenv(testDatabaseURLEnvironment))
@@ -89,7 +103,8 @@ func newFixture(t *testing.T) fixture {
 	second := newApplication(t, applicationService, "Second Tenant")
 
 	setup := fixture{
-		service:      NewService(NewStore(pool), applicationService, roomService, logger),
+		service:      NewService(NewStore(pool), applicationService, roomService, plane, logger),
+		pool:         pool,
 		rooms:        roomService,
 		applications: applicationService,
 		first:        first,

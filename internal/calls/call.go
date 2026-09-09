@@ -74,6 +74,17 @@ having because an administrator tidied a listing would be the wrong default.
 var ErrRoomClosed = errors.New("room does not accept new calls")
 
 /*
+ErrMediaUnavailable reports a media plane that could not realize a call.
+
+It is retryable, and it is deliberately distinct from an internal error: the
+request was fine and another attempt may work, so a caller that is told this
+should come back rather than give up. A media plane that understood the request
+and refused it is terminal instead, and is reported as an internal condition
+because retrying will not fix a misconfiguration.
+*/
+var ErrMediaUnavailable = errors.New("the media plane could not realize the call")
+
+/*
 ErrCallInProgress reports a room that is already hosting a conversation.
 
 A room holds one call at a time. A caller that wants the current one asks for

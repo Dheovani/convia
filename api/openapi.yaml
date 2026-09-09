@@ -2618,6 +2618,8 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
     get:
       operationId: listOwnRoomCalls
@@ -4331,6 +4333,7 @@ components:
         - conflict
         - rate_limited
         - internal_error
+        - unavailable
 
     Error:
       type: object
@@ -4688,6 +4691,29 @@ components:
             error:
               code: rate_limited
               message: Too many failed authentication attempts. Retry later.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    ServiceUnavailable:
+      description: |
+        A dependency Convia needs could not be reached, and another attempt may
+        succeed.
+
+        It is distinct from `500 internal_error` because the remedy differs. An
+        internal error is Convia's to fix and repeating the request will not
+        help; this one invites the same request again shortly. Convia does not
+        leave anything half-done behind it: a call that could not be
+        established does not hold its room.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unavailable
+              message: The call could not be established because a dependency is unavailable. Retry shortly.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     Forbidden:

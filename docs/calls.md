@@ -67,6 +67,8 @@ A table becomes the right shape once a call can move between states more than on
 
 **Ending does not accept one, and does not need it.** Repeating an end already succeeds and returns the call unchanged, so a key would only add a way for a retry to be refused.
 
+Starting a call also asks the media plane for somewhere the conversation can happen. That request comes **after** the call record exists, because the record is what holds the room, and a call whose session cannot be realized is ended rather than left blocking it. The boundary and its failure rules are [ADR 0001](adr/0001-control-plane-media-plane-boundary.md).
+
 ## What a Closed or Deleted Room Does
 
 This is the decision [`rooms.md`](rooms.md) recorded and this milestone implements.
@@ -116,6 +118,6 @@ Starting and ending a call are audited. The record names the call, its room, its
 ## Not Yet Implemented
 
 - **Reconciliation of stale active calls** (`M09-015`). A stale active call is one whose conversation is over but whose record was never ended, because a process died between the two. Convia cannot detect one today: with no media plane, it has no evidence about a call independent of the requests it received, so every active call is active as far as anything can tell. When the media plane exists, reconciliation ends such calls with a `system` actor — an actor deliberately absent until something produces it — and the room is freed by the same ending that frees it now.
-- **Behavior when the media provider is unavailable** (`M09-010`). The call record is the control-plane truth, and the media session is realized from it. When realizing one fails, the call is ended with a reason rather than left occupying its room, because a room blocked by a call that never happened is the worse failure. Nothing implements this yet because there is no provider to be unavailable.
+- **A media provider to be unavailable.** The behavior is implemented — a call whose session cannot be realized is ended rather than left holding its room, and a retryable failure answers `503 unavailable` while a refusal answers `500` and is logged for an operator. What does not exist yet is a provider; Convia ships with no media plane, so today every session realizes as nothing. See [ADR 0001](adr/0001-control-plane-media-plane-boundary.md).
 - **Invitations and guests**, the remaining slice of `M10`, deferred to the join sessions of M13 where the party presenting an invitation is no longer the party that granted it. See [`participants.md`](participants.md).
 - **Media** (`M11`). When a provider session identifier exists it belongs in the `calls` table and never in the public representation; a contract test already asserts the published schema carries only Convia-owned fields.
