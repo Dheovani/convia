@@ -18,6 +18,7 @@ import (
 	"convia/internal/database"
 	"convia/internal/idempotency"
 	"convia/internal/media"
+	"convia/internal/media/livekit"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/rooms"
@@ -131,14 +132,13 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
-	/*
-		Convia ships without a media plane. Rooms, calls, and participants all
-		work; nobody can connect, because there is nothing to connect to. The
-		LiveKit adapter takes this place in M12, and nothing outside it will
-		know the difference.
-	*/
-	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		media.Absent{}, logger)
+
+	mediaPlane, err := openMediaPlane(cfg.Media, logger)
+	if err != nil {
+		return err
+	}
+
+	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, mediaPlane, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
 		applicationService, callService, roomService, userService, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
@@ -205,6 +205,44 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 	logger.Info("HTTP server stopped")
 	return nil
+}
+
+/*
+openMediaPlane builds whatever will carry this instance's audio and video.
+
+This is the one place in Convia that decides which media plane is in use, and
+the only place outside internal/media that names a provider at all. Everything
+downstream sees the two operations internal/calls declares and cannot tell the
+difference.
+
+Running with no media plane is a supported deployment, not a degraded one, so
+it is reported at info rather than as a warning: an operator running the
+control plane on its own should not be told every start-up that something is
+wrong. What would be wrong is a half-configured one, and internal/config
+refuses that before this is reached.
+*/
+func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlane, error) {
+	if !settings.Configured() {
+		logger.Info("no media plane is configured, so calls carry no audio or video",
+			"remedy", "set CONVIA_LIVEKIT_URL, CONVIA_LIVEKIT_API_KEY, and CONVIA_LIVEKIT_API_SECRET")
+		return media.Absent{}, nil
+	}
+
+	plane, err := livekit.New(livekit.Config{
+		URL:       settings.URL,
+		APIKey:    settings.APIKey,
+		APISecret: settings.APISecret,
+		Timeout:   settings.Timeout,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("open the media plane: %w", err)
+	}
+
+	// The URL is logged and the key is not: one is an address, the other is
+	// half of a credential.
+	logger.Info("media plane configured", "url", settings.URL, "timeout", settings.Timeout)
+	return plane, nil
 }
 
 /*

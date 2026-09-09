@@ -26,6 +26,10 @@ func useDefaults(t *testing.T) {
 		databaseMaxConnectionsEnvironment,
 		databaseConnectTimeoutEnvironment,
 		databaseQueryTimeoutEnvironment,
+		mediaURLEnvironment,
+		mediaAPIKeyEnvironment,
+		mediaAPISecretEnvironment,
+		mediaTimeoutEnvironment,
 	} {
 		unsetEnvironment(t, name)
 	}
@@ -363,5 +367,206 @@ func TestTrustedProxiesRejectUnparseableEntries(t *testing.T) {
 				t.Fatalf("Load() error = nil, want %q to be rejected", value)
 			}
 		})
+	}
+}
+
+const (
+	testMediaURL    = "http://127.0.0.1:7880"
+	testMediaKey    = "APIdevelopmentkey"
+	testMediaSecret = "a-development-secret-long-enough-to-be-accepted"
+)
+
+// useMedia configures a complete media plane on top of the defaults.
+func useMedia(t *testing.T) {
+	t.Helper()
+
+	t.Setenv(mediaURLEnvironment, testMediaURL)
+	t.Setenv(mediaAPIKeyEnvironment, testMediaKey)
+	t.Setenv(mediaAPISecretEnvironment, testMediaSecret)
+}
+
+/*
+TestNoMediaPlaneIsAValidConfiguration is the deployment Convia has shipped
+since M11.
+
+Rooms, calls, and participants all work and nobody can connect. It has to load
+without complaint, or the control plane would depend on infrastructure it does
+not have.
+*/
+func TestNoMediaPlaneIsAValidConfiguration(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Media.Configured() {
+		t.Errorf("Media = %+v, want none when nothing is set", config.Media)
+	}
+}
+
+func TestAConfiguredMediaPlaneIsLoadedWhole(t *testing.T) {
+	useDefaults(t)
+	useMedia(t)
+	t.Setenv(mediaTimeoutEnvironment, "2500ms")
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if !config.Media.Configured() {
+		t.Fatal("Media.Configured() = false after every variable was set")
+	}
+	if config.Media.URL != testMediaURL {
+		t.Errorf("Media.URL = %q, want %q", config.Media.URL, testMediaURL)
+	}
+	if config.Media.APIKey != testMediaKey {
+		t.Errorf("Media.APIKey = %q, want %q", config.Media.APIKey, testMediaKey)
+	}
+	if config.Media.APISecret.Reveal() != testMediaSecret {
+		t.Error("Media.APISecret is not the secret that was configured")
+	}
+	if config.Media.Timeout != 2500*time.Millisecond {
+		t.Errorf("Media.Timeout = %v, want 2.5s", config.Media.Timeout)
+	}
+}
+
+func TestTheMediaTimeoutHasADefault(t *testing.T) {
+	useDefaults(t)
+	useMedia(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Media.Timeout != defaultMediaTimeout {
+		t.Errorf("Media.Timeout = %v, want %v", config.Media.Timeout, defaultMediaTimeout)
+	}
+}
+
+/*
+TestAPartiallyConfiguredMediaPlaneIsRefused covers the case worth failing on.
+
+A deployment that meant to have a media plane and is missing one variable would
+otherwise start happily and behave exactly like one that meant to have none,
+until somebody started a call and could not hear anybody.
+*/
+func TestAPartiallyConfiguredMediaPlaneIsRefused(t *testing.T) {
+	missing := map[string]string{
+		"the URL":    mediaURLEnvironment,
+		"the key":    mediaAPIKeyEnvironment,
+		"the secret": mediaAPISecretEnvironment,
+	}
+
+	for name, variable := range missing {
+		t.Run(name, func(t *testing.T) {
+			useDefaults(t)
+			useMedia(t)
+			t.Setenv(variable, "")
+
+			_, err := Load()
+			if err == nil {
+				t.Fatalf("Load() error = nil, want a refusal when %s is missing", variable)
+			}
+			if !strings.Contains(err.Error(), variable) {
+				t.Errorf("Load() error = %v, which does not name %s", err, variable)
+			}
+		})
+	}
+}
+
+func TestAMediaURLConviaCannotUseIsRefused(t *testing.T) {
+	refused := map[string]string{
+		"a websocket URL": "wss://media.example",
+		"a bare host":     "media.example:7880",
+		"no host":         "http://",
+		"nonsense":        "://",
+	}
+
+	for name, value := range refused {
+		t.Run(name, func(t *testing.T) {
+			useDefaults(t)
+			useMedia(t)
+			t.Setenv(mediaURLEnvironment, value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load() error = nil, want %q to be refused", value)
+			}
+		})
+	}
+}
+
+/*
+TestProductionRequiresATLSMediaEndpoint guards the token, not the media.
+
+Every request to the media plane carries a bearer token signed with the API
+secret, so a plaintext hop hands that token to anyone on the path.
+*/
+func TestProductionRequiresATLSMediaEndpoint(t *testing.T) {
+	useDefaults(t)
+	useMedia(t)
+	t.Setenv(environmentEnvironment, string(Production))
+	t.Setenv(databaseURLEnvironment, testDatabaseURL+"?sslmode=verify-full")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want production to refuse a plaintext media endpoint")
+	}
+
+	t.Setenv(mediaURLEnvironment, "https://media.example")
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v, want an https endpoint to be accepted in production", err)
+	}
+}
+
+/*
+TestProductionRequiresAMediaSecretWorthSigningWith rejects an HMAC key short
+enough to search offline.
+
+Anyone holding one signed token could recover a short secret and then mint
+their own, and nothing about the deployment would look wrong while that
+happened. Development accepts whatever a local server was started with.
+*/
+func TestProductionRequiresAMediaSecretWorthSigningWith(t *testing.T) {
+	short := strings.Repeat("s", minimumProductionSecretLength-1)
+
+	useDefaults(t)
+	useMedia(t)
+	t.Setenv(mediaAPISecretEnvironment, short)
+
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v, want development to accept a short secret", err)
+	}
+
+	t.Setenv(environmentEnvironment, string(Production))
+	t.Setenv(databaseURLEnvironment, testDatabaseURL+"?sslmode=verify-full")
+	t.Setenv(mediaURLEnvironment, "https://media.example")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want production to refuse a short media secret")
+	}
+}
+
+/*
+TestLoadNeverReportsTheMediaSecret is the configuration half of M12-003.
+
+A failure to load is the first thing a broken deployment prints, and it is
+printed by a process that has just read a credential.
+*/
+func TestLoadNeverReportsTheMediaSecret(t *testing.T) {
+	const secret = "correct-horse-battery-staple-9f2c"
+
+	useDefaults(t)
+	useMedia(t)
+	t.Setenv(environmentEnvironment, string(Production))
+	t.Setenv(databaseURLEnvironment, testDatabaseURL+"?sslmode=verify-full")
+	t.Setenv(mediaAPISecretEnvironment, secret[:minimumProductionSecretLength-1])
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() error = nil, want a refusal")
+	}
+	if strings.Contains(err.Error(), secret[:minimumProductionSecretLength-1]) {
+		t.Errorf("Load() error = %v, which contains the secret it refused", err)
 	}
 }

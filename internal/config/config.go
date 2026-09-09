@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"convia/internal/media"
 )
 
 const (
@@ -22,6 +24,19 @@ const (
 
 	maxDatabaseConnections = 500
 
+	defaultMediaTimeout = 5 * time.Second
+
+	/*
+		minimumProductionSecretLength is the shortest media API secret
+		production accepts.
+
+		The secret is an HMAC key: it signs every token Convia presents to the
+		media plane, and later every token a participant connects with. A short
+		one is searchable offline by anyone holding a single signed token, and
+		nothing about the deployment would look wrong while that happened.
+	*/
+	minimumProductionSecretLength = 32
+
 	environmentEnvironment = "CONVIA_ENVIRONMENT"
 
 	httpHostEnvironment = "CONVIA_HTTP_HOST"
@@ -33,6 +48,21 @@ const (
 	databaseMaxConnectionsEnvironment = "CONVIA_DATABASE_MAX_CONNECTIONS"
 	databaseConnectTimeoutEnvironment = "CONVIA_DATABASE_CONNECT_TIMEOUT"
 	databaseQueryTimeoutEnvironment   = "CONVIA_DATABASE_QUERY_TIMEOUT"
+
+	/*
+		The media variables name their provider, unlike every other name here.
+
+		That is deliberate. They configure a LiveKit server specifically, and a
+		provider-neutral name would invite an operator to point them at
+		something that does not speak its protocol. The rule Convia holds to is
+		that no provider concept reaches a public API, a domain type, or an
+		SDK; an operator deploying the media plane is the one person who has to
+		know what they are deploying.
+	*/
+	mediaURLEnvironment       = "CONVIA_LIVEKIT_URL"
+	mediaAPIKeyEnvironment    = "CONVIA_LIVEKIT_API_KEY"
+	mediaAPISecretEnvironment = "CONVIA_LIVEKIT_API_SECRET"
+	mediaTimeoutEnvironment   = "CONVIA_LIVEKIT_TIMEOUT"
 )
 
 /*
@@ -54,6 +84,7 @@ type Config struct {
 	HTTPHost    string
 	HTTPPort    int
 	Database    Database
+	Media       Media
 
 	/*
 		TrustedProxies are the networks whose forwarded headers Convia believes.
@@ -71,6 +102,29 @@ type Database struct {
 	MaxConnections int32
 	ConnectTimeout time.Duration
 	QueryTimeout   time.Duration
+}
+
+/*
+Media contains the settings of the media plane, when there is one.
+
+A Convia with no media plane configured is a supported deployment rather than a
+broken one: rooms, calls, and participants all work, and nobody can connect.
+The zero value is that deployment, and Configured is how the composition root
+tells the two apart.
+
+The secret is an APISecret rather than a string so that logging this struct, or
+the Config holding it, cannot print it.
+*/
+type Media struct {
+	URL       string
+	APIKey    string
+	APISecret media.APISecret
+	Timeout   time.Duration
+}
+
+// Configured reports whether a media plane was configured at all.
+func (settings Media) Configured() bool {
+	return settings.URL != ""
 }
 
 /*
@@ -107,13 +161,112 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	mediaPlane, err := loadMedia(environment)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Environment:    environment,
 		HTTPHost:       host,
 		HTTPPort:       port,
 		Database:       database,
+		Media:          mediaPlane,
 		TrustedProxies: trustedProxies,
 	}, nil
+}
+
+/*
+loadMedia reads the media plane settings, if any were given.
+
+The rule is all or nothing. Configuring none of the three values means Convia
+runs without a media plane, which is a real deployment. Configuring some of
+them is never intentional, and it is the case worth failing on: a deployment
+that meant to have a media plane and is missing one value would otherwise start
+happily and behave exactly like one that meant to have none, until somebody
+started a call and could not hear anybody.
+*/
+func loadMedia(environment Environment) (Media, error) {
+	endpoint := strings.TrimSpace(os.Getenv(mediaURLEnvironment))
+	key := strings.TrimSpace(os.Getenv(mediaAPIKeyEnvironment))
+	secret := strings.TrimSpace(os.Getenv(mediaAPISecretEnvironment))
+
+	settings := []struct {
+		name  string
+		value string
+	}{
+		{mediaURLEnvironment, endpoint},
+		{mediaAPIKeyEnvironment, key},
+		{mediaAPISecretEnvironment, secret},
+	}
+
+	var missing []string
+	for _, setting := range settings {
+		if setting.value == "" {
+			missing = append(missing, setting.name)
+		}
+	}
+
+	if len(missing) == len(settings) {
+		return Media{}, nil
+	}
+
+	if len(missing) > 0 {
+		return Media{}, fmt.Errorf("a media plane is partially configured: %s must also be set",
+			strings.Join(missing, ", "))
+	}
+
+	if err := validateMediaURL(endpoint, environment); err != nil {
+		return Media{}, err
+	}
+
+	if environment == Production && len(secret) < minimumProductionSecretLength {
+		// The secret is never included: the error is going to a log.
+		return Media{}, fmt.Errorf("%s must be at least %d characters in production",
+			mediaAPISecretEnvironment, minimumProductionSecretLength)
+	}
+
+	timeout, err := loadDuration(mediaTimeoutEnvironment, defaultMediaTimeout)
+	if err != nil {
+		return Media{}, err
+	}
+
+	return Media{
+		URL:       endpoint,
+		APIKey:    key,
+		APISecret: media.APISecret(secret),
+		Timeout:   timeout,
+	}, nil
+}
+
+/*
+validateMediaURL rejects a media endpoint Convia should not use.
+
+Production requires TLS for the same reason the database URL does, and with a
+sharper edge: every request to the media plane carries a bearer token signed
+with the API secret, so a plaintext hop hands that token to anyone on the path.
+*/
+func validateMediaURL(mediaURL string, environment Environment) error {
+	parsed, err := url.Parse(mediaURL)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid URL", mediaURLEnvironment)
+	}
+
+	switch parsed.Scheme {
+	case "http":
+		if environment == Production {
+			return fmt.Errorf("%s must use https in production", mediaURLEnvironment)
+		}
+	case "https":
+	default:
+		return fmt.Errorf("%s must use the http or https scheme", mediaURLEnvironment)
+	}
+
+	if parsed.Host == "" {
+		return fmt.Errorf("%s must include a host", mediaURLEnvironment)
+	}
+
+	return nil
 }
 
 /*

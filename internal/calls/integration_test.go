@@ -57,7 +57,7 @@ Most tests do not care and use the absent one, which is what Convia ships with.
 The tests that do care are about what happens when the media plane fails, and
 they are the reason the boundary exists.
 */
-func newFixtureWith(t *testing.T, plane mediaPlane) fixture {
+func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	t.Helper()
 
 	maintenanceURL := strings.TrimSpace(os.Getenv(testDatabaseURLEnvironment))

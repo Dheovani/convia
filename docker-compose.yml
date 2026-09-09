@@ -25,5 +25,25 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Convia runs perfectly well without a media plane, so this one is opt-in:
+  #
+  #   docker compose --profile media up -d
+  #
+  # Start it to work on the media adapter or to run its integration tests.
+  livekit:
+    image: livekit/livekit-server:v1.13.6
+    container_name: convia-livekit
+    profiles: ["media"]
+    command: --dev --bind 0.0.0.0
+    environment:
+      # Development-only, and matched in .env.example. A real deployment gets
+      # its keys from the deployment environment or a secret manager.
+      LIVEKIT_KEYS: "devkey: a-development-secret-long-enough-to-be-accepted"
+    ports:
+      # Only the control API is published. Convia does not carry media yet, so
+      # the ports a participant would connect on arrive with M13.
+      - "127.0.0.1:7880:7880"
+    restart: unless-stopped
+
 volumes:
   postgres-data:

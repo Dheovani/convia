@@ -134,6 +134,68 @@ func TestMediaInfrastructureStaysInsideTheMediaPlane(t *testing.T) {
 }
 
 /*
+TestOnlyTheCompositionRootReachesInsideTheMediaPlane keeps an adapter from
+becoming a dependency.
+
+The import check above confines a provider's libraries to internal/media. This
+one confines the provider's *package*: everything under internal/media is a
+particular way of transporting media, and the only code allowed to know which
+one Convia is running is the code whose job is to choose. The control plane
+imports internal/media itself, for the Convia-owned types and errors, and
+nothing deeper.
+
+Without this, the containment ADR 0001 claims would erode the ordinary way —
+one service reaching past the boundary for something the adapter happens to
+expose, then another.
+*/
+func TestOnlyTheCompositionRootReachesInsideTheMediaPlane(t *testing.T) {
+	const boundary = "convia/internal/media/"
+
+	root := moduleRoot(t)
+	mediaPlane := filepath.Join(root, "internal", "media")
+	compositionRoot := filepath.Join(root, "cmd")
+
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case entry.IsDir():
+			if entry.Name() == ".git" || entry.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		case !strings.HasSuffix(path, ".go"):
+			return nil
+		case strings.HasPrefix(path, mediaPlane), strings.HasPrefix(path, compositionRoot):
+			return nil
+		}
+
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+
+		for _, imported := range file.Imports {
+			target, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				return err
+			}
+			if strings.HasPrefix(target, boundary) {
+				relative, _ := filepath.Rel(root, path)
+				t.Errorf("%s imports %q, which is one particular media plane.\n"+
+					"Only cmd chooses which one Convia runs. Everything else depends on "+
+					"convia/internal/media and the interface internal/calls declares.",
+					filepath.ToSlash(relative), target)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the module: %v", err)
+	}
+}
+
+/*
 TestThePublicContractNeverNamesAProvider checks the exit criterion directly.
 
 A provider name in the specification is the failure this milestone exists to
