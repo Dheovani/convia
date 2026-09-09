@@ -101,6 +101,28 @@ tags:
       Nothing here names a media provider. A call is a Convia concept that the
       media plane is later asked to realize.
 
+  - name: Participants
+    description: |
+      Who is in a call, and what happened to them.
+
+      M10 keeps three ideas apart. **Room membership** — who belongs to a place
+      over time — is not modelled: Convia holds no credentials for an
+      application's people, so it could not enforce a policy about who belongs.
+      An **invitation** — permission to join that has not been used yet —
+      arrives with the join sessions of M13, where the party presenting it is
+      no longer the party that granted it. **Participation** is who actually
+      joined, and it is what these routes describe.
+
+      Joining is idempotent by the person: someone already in the call is
+      returned as they are rather than added twice, which is what makes a
+      reconnection safe.
+
+      An application admits, removes, and promotes people in its own calls. An
+      operator may read a roster and remove someone from it, and nothing else.
+
+      Nothing here names a media provider. Whether someone may join is a Convia
+      decision; handing them a media token is a later and separate one.
+
   - name: Users
     description: |
       The people an application knows about.
@@ -2780,6 +2802,484 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/applications/{application_id}/calls/{call_id}/participants:
+    get:
+      operationId: listParticipants
+      tags: [Participants]
+      summary: List a call's participants
+      description: |
+        Returns one page of the people in one of the application's calls,
+        newest first.
+
+        Everyone is returned, including those who left, because a roster is
+        also a record of who was there. Filtering by `status=joined` answers
+        who is present now.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/CallID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/ParticipantStatusFilter"
+      responses:
+        "200":
+          description: One page of participants.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/participants/{participant_id}:
+    get:
+      operationId: getParticipant
+      tags: [Participants]
+      summary: Retrieve a participant
+      description: Returns one participation belonging to the application.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/ParticipantID"
+      responses:
+        "200":
+          description: The requested participant.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/participants/{participant_id}/remove:
+    post:
+      operationId: removeParticipant
+      tags: [Participants]
+      summary: Remove a participant
+      description: |
+        Puts someone out of a call on the operator's authority.
+
+        This is the one participant operation an operator has beyond reading,
+        and it is the same line the call domain draws: removing is the lever an
+        operator needs when someone must be put out of a conversation and the
+        application cannot do it. Admitting someone, or promoting them, is not
+        available to an operator.
+
+        The `by` field is refused here. An operator acts from outside the
+        conversation, so there is no moderator to check or to credit, and
+        accepting the field would let a caller believe a check ran that did
+        not.
+
+        Removing someone who has already gone succeeds and returns them
+        unchanged, so a retry after a timeout is never punished. It does not
+        overwrite who removed them the first time, and it does not convert
+        someone who left into someone who was removed.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/ParticipantID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveParticipantRequest"
+            example:
+              reason: Removed by support during an incident.
+      responses:
+        "200":
+          description: The participant, now removed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/calls/{call_id}/participants:
+    post:
+      operationId: joinOwnCall
+      tags: [Participants]
+      summary: Admit someone to a call
+      description: |
+        Admits one of the caller's own users to one of its own calls.
+
+        The call is named in the path because the participation belongs to it.
+        The tenant comes from the presented credential, so no request field
+        could name another application's call or user.
+
+        **Joining is idempotent by the person.** Someone already in the call is
+        returned as they are rather than added a second time, which is what
+        makes a reconnection safe: a client whose network dropped and came back
+        is the same person, and a roster showing them twice would be wrong in a
+        way users notice immediately. The response is `201` when this request
+        admitted them and `200` when they were already there.
+
+        Refusals, all `409 conflict`: the call has ended, the user is not
+        active, the call has reached the capacity its room declared, or the
+        user was removed from this call and cannot rejoin it.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:write"]
+      parameters:
+        - $ref: "#/components/parameters/CallID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinCallRequest"
+            example:
+              user_id: usr_7KQZP4XN2VJH6TBWMDR3YAFC5E
+              role: moderator
+      responses:
+        "201":
+          description: The person was admitted to the call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "200":
+          description: The person was already in the call and is returned unchanged.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listOwnParticipants
+      tags: [Participants]
+      summary: List a call's participants
+      description: |
+        Returns one page of the people in one of the caller's own calls, newest
+        first.
+
+        Everyone is returned, including those who left, because a roster is
+        also a record of who was there. Filtering by `status=joined` answers
+        who is present now.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:read"]
+      parameters:
+        - $ref: "#/components/parameters/CallID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/ParticipantStatusFilter"
+      responses:
+        "200":
+          description: One page of participants.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ParticipantPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/participants/{participant_id}:
+    get:
+      operationId: getOwnParticipant
+      tags: [Participants]
+      summary: Retrieve a participant
+      description: Returns one participation in one of the caller's own calls.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ParticipantID"
+      responses:
+        "200":
+          description: The requested participant.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: setOwnParticipantRole
+      tags: [Participants]
+      summary: Change a participant's role
+      description: |
+        Changes what a participant may do.
+
+        Naming an acting participant in `by` makes Convia check that person is
+        a moderator of the same call, exactly as on a removal: promoting
+        someone is the authority the moderator role exists for. Without one,
+        the application changes the role on its own authority.
+
+        A participant who has left cannot have their role changed, because it
+        would record an authority they can no longer use.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ParticipantID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeParticipantRoleRequest"
+            example:
+              role: moderator
+              by: part_7KQZP4XN2VJH6TBWMDR3YAFC5E
+      responses:
+        "200":
+          description: The participant in their new role.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/participants/{participant_id}/leave:
+    post:
+      operationId: leaveOwnCall
+      tags: [Participants]
+      summary: Leave a call
+      description: |
+        Records that someone left a call of their own accord.
+
+        Leaving twice succeeds and returns the participant unchanged, so a
+        client retrying after a timeout is never punished for it, and someone
+        who was removed is not quietly converted into someone who left.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ParticipantID"
+      responses:
+        "200":
+          description: The participant, now gone.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/participants/{participant_id}/remove:
+    post:
+      operationId: removeOwnParticipant
+      tags: [Participants]
+      summary: Remove a participant
+      description: |
+        Puts someone out of one of the caller's own calls.
+
+        Naming an acting participant in `by` makes Convia check that
+        participant is a moderator of the same call. Without one, the
+        application removes on its own authority, which it holds over its own
+        calls.
+
+        Convia does not decide whether the application may remove someone: it
+        already may. What Convia decides is whether the moderator it was told
+        about is one, since Convia is what holds the roster. A participant who
+        is not a moderator answers `403 forbidden`.
+
+        Someone removed cannot rejoin the call.
+
+        Removing someone who has already gone succeeds and returns them
+        unchanged, so a retry after a timeout is never punished. It does not
+        overwrite who removed them the first time, and it does not convert
+        someone who left into someone who was removed.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ParticipantID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveParticipantRequest"
+            example:
+              by: part_7KQZP4XN2VJH6TBWMDR3YAFC5E
+              reason: Disruptive behaviour.
+      responses:
+        "200":
+          description: The participant, now removed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Participant"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
     OperatorKey:
@@ -3458,6 +3958,176 @@ components:
           minLength: 1
           maxLength: 200
 
+    ParticipantId:
+      type: string
+      description: |
+        Opaque identifier of a participation. Clients must treat it as opaque
+        and must never parse it.
+      pattern: "^part_[A-Z2-7]{26}$"
+      example: part_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    ParticipantRole:
+      type: string
+      description: |
+        What a participant may do in a call. A `moderator` may remove
+        participants and change roles; a `member` may not.
+
+        Roles about what a person may do with media — publish, subscribe, share
+        a screen — are deliberately absent. They describe capabilities of a
+        media plane that does not exist yet, so Convia could not enforce them,
+        and a role that promises what nothing enforces is worse than no role.
+
+        An omitted role on a join is `member`. Defaulting to the lesser of the
+        two is the only safe direction: a mistyped field must never hand
+        someone the authority to remove other people.
+      enum: [moderator, member]
+
+    ParticipantStatus:
+      type: string
+      description: |
+        The lifecycle state of a participation. Three states, all reachable.
+
+        `removed` is not a reason attached to `left`: it is terminal with a
+        policy of its own, because someone a moderator put out must not simply
+        rejoin. Attempting to do so answers `409 conflict`.
+      enum: [joined, left, removed]
+
+    ParticipantRemover:
+      type: string
+      description: |
+        The authority behind a forced departure. `participant` names a
+        moderator acting inside the call, and is accompanied by
+        `removed_by_participant_id`. `application` and `operator` act from
+        outside the conversation, so neither names a participant.
+      enum: [application, operator, participant]
+
+    Participant:
+      type: object
+      description: |
+        One person's presence in one call.
+
+        The person is named by their Convia user identifier and nothing else. A
+        display name would copy into every roster entry something the
+        application already owns and can change, and would put a person's name
+        in a place nobody asked for it; a client that wants one reads the user.
+
+        Someone joins when the record is created, which is why there is no
+        separate `joined_at`: `created_at` is when they arrived.
+      required: [id, application_id, call_id, user_id, role, status, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/ParticipantId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        call_id:
+          $ref: "#/components/schemas/CallId"
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        role:
+          $ref: "#/components/schemas/ParticipantRole"
+        status:
+          $ref: "#/components/schemas/ParticipantStatus"
+        removed_by:
+          allOf:
+            - $ref: "#/components/schemas/ParticipantRemover"
+          description: Who removed the participant. Absent unless they were removed.
+        removed_by_participant_id:
+          allOf:
+            - $ref: "#/components/schemas/ParticipantId"
+          description: |
+            The moderator who removed them, present only when `removed_by` is
+            `participant`.
+        removal_reason:
+          type: string
+          description: |
+            The explanation recorded with the removal, when one was given. Free
+            text: the reasons someone is put out of a conversation are not
+            Convia's to enumerate.
+          minLength: 1
+          maxLength: 200
+        created_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When the person joined.
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        left_at:
+          allOf:
+            - $ref: "#/components/schemas/Timestamp"
+          description: When the person left or was removed. Absent while present.
+
+    ParticipantPage:
+      type: object
+      description: One page of participants.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Participant"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the listing. Absent on the last page.
+            Clients must never decode or construct one.
+
+    JoinCallRequest:
+      type: object
+      description: |
+        The accepted body when admitting someone to a call. The person is named
+        rather than described: a participant is someone the application already
+        told Convia about.
+      required: [user_id]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        role:
+          $ref: "#/components/schemas/ParticipantRole"
+
+    RemoveParticipantRequest:
+      type: object
+      description: |
+        The accepted body when putting someone out of a call. The body itself
+        is optional: removing someone is usually all a caller wants to say.
+      additionalProperties: false
+      properties:
+        by:
+          allOf:
+            - $ref: "#/components/schemas/ParticipantId"
+          description: |
+            The participant on whose authority the removal is made. Optional:
+            without it the caller acts as itself. With it, Convia checks that
+            participant is a moderator of the same call.
+
+            An operator cannot use this field. An operator acts from outside
+            the conversation, so there is no moderator to check or to credit.
+        reason:
+          type: string
+          description: Why the person was removed. Free text, and optional.
+          minLength: 1
+          maxLength: 200
+
+    ChangeParticipantRoleRequest:
+      type: object
+      description: |
+        The accepted body when changing what a participant may do. The role
+        must be stated: an omitted field would silently demote someone.
+      required: [role]
+      additionalProperties: false
+      properties:
+        role:
+          $ref: "#/components/schemas/ParticipantRole"
+        by:
+          allOf:
+            - $ref: "#/components/schemas/ParticipantId"
+          description: |
+            The participant on whose authority the change is made. Optional,
+            and checked the same way as on a removal: promoting someone is
+            exactly the authority the moderator role exists for.
+
     Scope:
       type: string
       description: |
@@ -3473,6 +4143,8 @@ components:
         - rooms:write
         - calls:read
         - calls:write
+        - participants:read
+        - participants:write
 
     CredentialId:
       type: string
@@ -3799,6 +4471,27 @@ components:
         right now, and answers with at most one call.
       schema:
         $ref: "#/components/schemas/CallStatus"
+
+    ParticipantID:
+      name: participant_id
+      in: path
+      required: true
+      description: The participation's opaque identifier.
+      schema:
+        $ref: "#/components/schemas/ParticipantId"
+
+    ParticipantStatusFilter:
+      name: status
+      in: query
+      required: false
+      description: |
+        Return only participants in this state. Without it everyone is
+        returned, including those who left, because a roster is also a record
+        of who was there.
+
+        Filtering by `joined` answers who is present now.
+      schema:
+        $ref: "#/components/schemas/ParticipantStatus"
 
     IfMatch:
       name: If-Match

@@ -13,6 +13,7 @@ import (
 	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/operator"
+	"convia/internal/participants"
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
 	"convia/internal/users"
@@ -101,17 +102,19 @@ type Dependencies struct {
 	Credentials           *credentials.Handler
 	Rooms                 *rooms.Handler
 	Calls                 *calls.Handler
+	Participants          *participants.Handler
 	OperatorCredentials   *operator.Handler
 
 	/*
 		The tenant-facing surface is authenticated by an application's own key,
 		which is also where the tenant comes from.
 	*/
-	Authenticator     authenticator
-	TenantUsers       *users.TenantHandler
-	TenantCredentials *credentials.TenantHandler
-	TenantRooms       *rooms.TenantHandler
-	TenantCalls       *calls.TenantHandler
+	Authenticator      authenticator
+	TenantUsers        *users.TenantHandler
+	TenantCredentials  *credentials.TenantHandler
+	TenantRooms        *rooms.TenantHandler
+	TenantCalls        *calls.TenantHandler
+	TenantParticipants *participants.TenantHandler
 
 	/*
 		IdempotencyKeys lets a caller retry a creation without risking a second
@@ -396,6 +399,34 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		)
 	}
 
+	if dependencies.Authenticator != nil && dependencies.TenantParticipants != nil {
+		/*
+			Who is in one of the application's own calls. Admitting someone
+			names the call in the path because the participation belongs to it,
+			and every later operation addresses the participant directly.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/calls/{call_id}/participants", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.Join)},
+			route{method: http.MethodGet, path: api.Prefix + "/calls/{call_id}/participants", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/participants/{participant_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/participants/{participant_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.SetRole)},
+			/*
+				Joining is not marked idempotent, and needs no key: it is
+				already idempotent by the person, which is what makes a
+				reconnection safe. Leaving and removing are repeatable for the
+				same reason ending a call is.
+			*/
+			route{method: http.MethodPost, path: api.Prefix + "/participants/{participant_id}/leave", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.Leave)},
+			route{method: http.MethodPost, path: api.Prefix + "/participants/{participant_id}/remove", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.Remove)},
+		)
+	}
+
 	if dependencies.OperatorAuthenticator != nil && dependencies.Rooms != nil {
 		table = append(table,
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms", surface: surfaceOperator, idempotent: true,
@@ -431,6 +462,24 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Calls.Get)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/calls/{call_id}/end", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Calls.End)},
+		)
+	}
+
+	if dependencies.OperatorAuthenticator != nil && dependencies.Participants != nil {
+		/*
+			An operator reads a tenant's roster and can remove someone from it,
+			and nothing else. That is the same line the call domain draws:
+			removing is the lever an operator needs when someone must be put
+			out of a conversation, while admitting someone or promoting them
+			would be arranging a conversation nobody asked Convia to arrange.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/calls/{call_id}/participants", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Participants.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/participants/{participant_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Participants.Get)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/participants/{participant_id}/remove", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Participants.Remove)},
 		)
 	}
 

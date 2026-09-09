@@ -18,6 +18,7 @@ import (
 	"convia/internal/database"
 	"convia/internal/idempotency"
 	"convia/internal/operator"
+	"convia/internal/participants"
 	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/users"
@@ -130,6 +131,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, logger)
+	participantService := participants.NewService(participants.NewStore(pool),
+		applicationService, callService, roomService, userService, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
@@ -148,13 +151,15 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Credentials:           credentials.NewHandler(logger, credentialService),
 		Rooms:                 rooms.NewHandler(logger, roomService),
 		Calls:                 calls.NewHandler(logger, callService),
+		Participants:          participants.NewHandler(logger, participantService),
 		OperatorCredentials:   operator.NewHandler(logger, operatorService),
 
-		Authenticator:     credentialService,
-		TenantUsers:       users.NewTenantHandler(logger, userService),
-		TenantCredentials: credentials.NewTenantHandler(logger, credentialService),
-		TenantRooms:       rooms.NewTenantHandler(logger, roomService),
-		TenantCalls:       calls.NewTenantHandler(logger, callService),
+		Authenticator:      credentialService,
+		TenantUsers:        users.NewTenantHandler(logger, userService),
+		TenantCredentials:  credentials.NewTenantHandler(logger, credentialService),
+		TenantRooms:        rooms.NewTenantHandler(logger, roomService),
+		TenantCalls:        calls.NewTenantHandler(logger, callService),
+		TenantParticipants: participants.NewTenantHandler(logger, participantService),
 
 		IdempotencyKeys: idempotencyService,
 	}

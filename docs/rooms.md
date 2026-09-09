@@ -71,7 +71,7 @@ This is a product judgment rather than an implementation detail: ending a conver
 
 `max_participants` is optional and bounded between 1 and 1000. Absent means the room states no limit of its own.
 
-**Convia records it; it does not yet enforce it.** Calls exist now and did not change this: enforcing a headcount needs participants to count, which is M10. It is a domain rule now and a media-plane check when the media plane exists. Saying so plainly is better than implying Convia is policing something it cannot observe.
+**Convia records it, and M10 enforces it.** Joining a call counts the people already in it against this limit, under a lock on the call so two simultaneous arrivals cannot both take the last seat. Capacity bounds who is present rather than who has ever been, which is what lets a small room host a long conversation people come and go from. See [`participants.md`](participants.md).
 
 ## Retrying a Creation
 
@@ -127,4 +127,4 @@ Room creation, closure, reopening, and deletion are audited. The record names th
 
 - **Membership and access policy** (`M08-010`). Convia holds no credentials for an application's people, so it cannot decide who may enter a room; the application already knows. Inventing a policy model Convia could not enforce would be worse than having none.
 - **Erasure**, as above.
-- **Capacity enforcement**, which needs participants to count. Calls arrived in M09 and did not bring it; see [`calls.md`](calls.md).
+- **Membership as a policy Convia enforces.** Still deliberately absent, and M10 restated why: Convia holds no credentials for an application's people. See [`participants.md`](participants.md).
