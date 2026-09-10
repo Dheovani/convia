@@ -415,3 +415,60 @@ func TestAnApplicationScopeCannotReachTheOperatorSurface(t *testing.T) {
 		t.Error("an application scope reached the operator surface")
 	}
 }
+
+/*
+TestSeatingAGuestIsUnreachableFromTheTenantSurface is an architectural
+guarantee, checked rather than trusted.
+
+AdmitGuest cannot verify the invitation it is given: invitations depend on this
+package, so depending back would be a cycle. It therefore trusts its caller
+completely, and what makes that safe is that the only caller is the one which
+has already verified the invitation.
+
+Keeping it off the `service` interface is what enforces that. The interface is
+what the authorization wrapper and both HTTP handlers consume, so a method
+missing from it has no route, no scope, and no way for an application to reach
+it — which means an application cannot seat a guest by naming an invitation it
+does not hold, or one that was revoked, or one belonging to somebody else.
+*/
+func TestSeatingAGuestIsUnreachableFromTheTenantSurface(t *testing.T) {
+	authorized := Authorize(&recordingService{}, credentials.Principal{
+		ApplicationID: testApplicationID,
+		Scopes:        credentials.Scopes(),
+	})
+
+	if _, unexpected := any(authorized).(interface {
+		AdmitGuest(context.Context, string, string, string, string) (Participant, bool, error)
+	}); unexpected {
+		t.Error("an application can seat a guest without redeeming an invitation")
+	}
+
+	/*
+		The interface itself is the thing being asserted on, so that adding
+		the method to *Service alone stays possible and adding it here does
+		not pass unnoticed.
+	*/
+	if _, unexpected := any(&recordingService{}).(interface {
+		AdmitGuest(context.Context, string, string, string, string) (Participant, bool, error)
+	}); unexpected {
+		t.Error("the service interface exposes seating a guest")
+	}
+}
+
+/*
+TestAdmittingSomebodyNamesAPersonAndNothingElse guards the other way in.
+
+Admission carries a user and a role. If it ever grew a field naming an
+invitation, an application could seat a guest through the ordinary join route
+and skip the verification entirely.
+*/
+func TestAdmittingSomebodyNamesAPersonAndNothingElse(t *testing.T) {
+	admission := reflect.TypeOf(Admission{})
+
+	allowed := map[string]bool{"UserID": true, "Role": true}
+	for index := range admission.NumField() {
+		if name := admission.Field(index).Name; !allowed[name] {
+			t.Errorf("Admission carries %q; a guest must arrive by redeeming an invitation", name)
+		}
+	}
+}

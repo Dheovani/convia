@@ -170,6 +170,76 @@ func (service *Service) Join(ctx context.Context, applicationID, callID string,
 	return participant, true, nil
 }
 
+/*
+AdmitGuest seats somebody Convia has no user for.
+
+**It is deliberately absent from the `service` interface**, which is what the
+authorization wrapper and both HTTP handlers consume. There is therefore no
+route, and no application-facing operation, that reaches it: a guest arrives by
+redeeming an invitation or not at all. That matters because this method cannot
+check the invitation itself — invitations depend on this package, so depending
+back would be a cycle — and so it trusts its caller entirely. Making the only
+caller the one that has already verified the invitation is what keeps that
+trust safe, and putting the method out of reach is what keeps it that way.
+
+Everything else about joining applies unchanged. Capacity is still settled
+under the call's lock, a guest still cannot rejoin a call they were removed
+from, and redeeming twice still returns the participation they already had —
+identified by the invitation rather than by a person, because that is the only
+identity a guest has.
+*/
+func (service *Service) AdmitGuest(ctx context.Context, applicationID, callID,
+	invitationID, role string) (Participant, bool, error) {
+
+	parsed, err := ParseRole(role)
+	if err != nil {
+		return Participant{}, false, err
+	}
+
+	if invitationID == "" {
+		return Participant{}, false, ValidationError{
+			Field:   "invitation_id",
+			Message: "A guest must be identified by the invitation they redeemed.",
+		}
+	}
+
+	call, err := service.requireCall(ctx, applicationID, callID)
+	if err != nil {
+		return Participant{}, false, err
+	}
+
+	if call.Ended() {
+		return Participant{}, false, ErrCallEnded
+	}
+
+	capacity, err := service.capacityOf(ctx, applicationID, call.RoomID)
+	if err != nil {
+		return Participant{}, false, err
+	}
+
+	joined := now()
+	participant, admitted, err := service.store.Join(ctx, Participant{
+		ID:            NewID(),
+		ApplicationID: applicationID,
+		CallID:        call.ID,
+		InvitationID:  invitationID,
+		Role:          parsed,
+		CreatedAt:     joined,
+		UpdatedAt:     joined,
+	}, capacity)
+
+	if err != nil {
+		return Participant{}, false, err
+	}
+
+	if !admitted {
+		return participant, false, nil
+	}
+
+	service.audit(ctx, "participant.joined", participant)
+	return participant, true, nil
+}
+
 // Get returns one participant of an application.
 func (service *Service) Get(ctx context.Context, applicationID, id string) (Participant, error) {
 	if err := service.requireApplication(ctx, applicationID); err != nil {
@@ -397,8 +467,16 @@ func (service *Service) Session(ctx context.Context, applicationID, id string) (
 		return Participant{}, media.Credential{}, ErrCallEnded
 	}
 
-	if err := service.requireActiveUser(ctx, applicationID, participant.UserID); err != nil {
-		return Participant{}, media.Credential{}, err
+	/*
+		A guest has no user to check, and no check replaces it. Their standing
+		is the participation itself: they were let in by an invitation, and
+		anything that should stop them now — leaving, being removed, the call
+		ending — has already been decided above.
+	*/
+	if !participant.Guest() {
+		if err := service.requireActiveUser(ctx, applicationID, participant.UserID); err != nil {
+			return Participant{}, media.Credential{}, err
+		}
 	}
 
 	credential, err := service.calls.Admit(ctx, call, participant.ID, credentialLifetime)

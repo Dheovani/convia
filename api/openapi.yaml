@@ -4445,7 +4445,7 @@ components:
 
         **No token appears here.** Convia stores only a digest and cannot show
         one again; the plaintext exists once, in the response that created it.
-      required: [id, application_id, call_id, user_id, role, status, expires_at, created_at, updated_at]
+      required: [id, application_id, call_id, guest, role, status, expires_at, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -4454,8 +4454,15 @@ components:
           $ref: "#/components/schemas/ApplicationId"
         call_id:
           $ref: "#/components/schemas/CallId"
+        guest:
+          type: boolean
+          description: |
+            Whether the invitation names nobody, so that whoever holds it joins
+            as a guest.
         user_id:
-          $ref: "#/components/schemas/UserId"
+          allOf:
+            - $ref: "#/components/schemas/UserId"
+          description: The person invited. Absent on a guest invitation.
         role:
           $ref: "#/components/schemas/ParticipantRole"
         status:
@@ -4492,7 +4499,7 @@ components:
 
         This is the only response that ever contains one. Convia keeps a digest
         and nothing else, so a lost token cannot be recovered — issue another.
-      required: [id, application_id, call_id, user_id, role, status, expires_at, created_at, updated_at, token]
+      required: [id, application_id, call_id, guest, role, status, expires_at, created_at, updated_at, token]
       additionalProperties: false
       properties:
         id:
@@ -4501,8 +4508,15 @@ components:
           $ref: "#/components/schemas/ApplicationId"
         call_id:
           $ref: "#/components/schemas/CallId"
+        guest:
+          type: boolean
+          description: |
+            Whether the invitation names nobody, so that whoever holds it joins
+            as a guest.
         user_id:
-          $ref: "#/components/schemas/UserId"
+          allOf:
+            - $ref: "#/components/schemas/UserId"
+          description: The person invited. Absent on a guest invitation.
         role:
           $ref: "#/components/schemas/ParticipantRole"
         status:
@@ -4551,12 +4565,30 @@ components:
 
     CreateInvitationRequest:
       type: object
-      description: What an application asks for when inviting someone.
-      required: [user_id]
+      description: |
+        What an application asks for when inviting someone.
+
+        Name a `user_id`, or set `guest` to invite whoever holds the link.
+        Exactly one of the two: naming nobody without asking for a guest is
+        refused rather than treated as a guest invitation, because a request
+        that forgot to name a person must not quietly become a way into the
+        call for anyone.
       additionalProperties: false
       properties:
         user_id:
-          $ref: "#/components/schemas/UserId"
+          allOf:
+            - $ref: "#/components/schemas/UserId"
+          description: |
+            The person to invite. Omit it and set `guest` instead to invite
+            somebody Convia has no user for.
+        guest:
+          type: boolean
+          description: |
+            Asks for an invitation that names nobody. Whoever redeems it takes
+            part as a guest, and **Convia learns nothing about them**: their
+            participation is identified by this invitation, and the
+            application, which sent it, is the only party that knows who they
+            are.
         role:
           allOf:
             - $ref: "#/components/schemas/ParticipantRole"
@@ -4682,7 +4714,7 @@ components:
 
         Someone joins when the record is created, which is why there is no
         separate `joined_at`: `created_at` is when they arrived.
-      required: [id, application_id, call_id, user_id, role, status, created_at, updated_at]
+      required: [id, application_id, call_id, guest, role, status, created_at, updated_at]
       additionalProperties: false
       properties:
         id:
@@ -4691,8 +4723,30 @@ components:
           $ref: "#/components/schemas/ApplicationId"
         call_id:
           $ref: "#/components/schemas/CallId"
+        guest:
+          type: boolean
+          description: |
+            Whether this participation belongs to somebody Convia has no user
+            for.
+
+            It is published rather than left to be inferred from an absent
+            `user_id`, so a client branches on a field that says what it means
+            instead of on one that happens to be missing.
         user_id:
-          $ref: "#/components/schemas/UserId"
+          allOf:
+            - $ref: "#/components/schemas/UserId"
+          description: |
+            The person, when Convia knows them. Absent for a guest.
+        invitation_id:
+          allOf:
+            - $ref: "#/components/schemas/InvitationId"
+          description: |
+            The invitation a guest redeemed, which is the only identity a guest
+            has. Absent for a known user.
+
+            **Convia holds nothing else about a guest** — no name, no address,
+            no identity of any kind. The application sent the invitation, so
+            the application is the party that knows who redeemed it.
         role:
           $ref: "#/components/schemas/ParticipantRole"
         status:

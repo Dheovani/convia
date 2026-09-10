@@ -58,7 +58,21 @@ type participantResponse struct {
 	ID            string `json:"id"`
 	ApplicationID string `json:"application_id"`
 	CallID        string `json:"call_id"`
-	UserID        string `json:"user_id"`
+
+	/*
+		Guest says which of the two identifiers below is present.
+
+		It is published rather than left to be inferred from an absent
+		`user_id`, so that a client reading a roster branches on a field that
+		says what it means instead of on a field that happens to be missing.
+	*/
+	Guest bool `json:"guest"`
+
+	// Exactly one of these identifies the person: their Convia user, or the
+	// invitation a guest redeemed. Convia knows nothing else about a guest.
+	UserID       string `json:"user_id,omitempty"`
+	InvitationID string `json:"invitation_id,omitempty"`
+
 	Role          string `json:"role"`
 	Status        string `json:"status"`
 	RemovedBy     string `json:"removed_by,omitempty"`
@@ -118,7 +132,9 @@ func represent(participant Participant) participantResponse {
 		ID:            participant.ID,
 		ApplicationID: participant.ApplicationID,
 		CallID:        participant.CallID,
+		Guest:         participant.Guest(),
 		UserID:        participant.UserID,
+		InvitationID:  participant.InvitationID,
 		Role:          string(participant.Role),
 		Status:        string(participant.Status),
 		RemovedByID:   participant.RemovedByID,

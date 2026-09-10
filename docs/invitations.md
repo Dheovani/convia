@@ -43,6 +43,34 @@ application                         invitee's client
 
 How the token reaches the person is the application's business. Convia issues it and verifies it; it sends no mail and renders no page.
 
+## Guests
+
+An invitation may name nobody. Whoever holds it then takes part as a **guest**: somebody Convia has no user for.
+
+```jsonc
+POST /v1/calls/{call_id}/invitations
+{ "guest": true, "role": "member" }
+```
+
+`guest` is required rather than inferred from a missing `user_id`. A request that simply forgot to name a person must not quietly become a way into the call for anyone holding the link, so naming neither is refused and naming both is refused.
+
+**Convia learns nothing about a guest.** No name, no address, no identity of any kind. A guest participation is identified by the invitation it was redeemed with, and the application — which sent that invitation — is the only party that knows who is behind it. A roster already refuses to carry a display name for known users; a guest is not the place to start collecting one.
+
+That identity does all the work an account would:
+
+- **one invitation is one presence**, so a guest whose connection dropped returns to the seat they had rather than appearing twice;
+- **two guests are two people**, because they hold different invitations;
+- **capacity counts them**, because capacity is a property of the room and not of how somebody got in;
+- **removal is terminal**, because the participation their invitation maps to is terminal — and that participation is exactly what they would present again.
+
+A guest's role travels with their invitation, which is the only way it could: the application does not know the participation identifier until the guest has already arrived, so promoting them afterwards would be a race with their own arrival.
+
+### Why the guest path is unreachable from the tenant API
+
+Seating a guest cannot verify the invitation it is handed. `internal/invitations` depends on `internal/participants`, so depending back would be an import cycle, and `AdmitGuest` therefore trusts its caller completely.
+
+What makes that safe is that the only caller is the one which has already verified the invitation. `AdmitGuest` is deliberately **absent from the interface** the authorization wrapper and both HTTP handlers consume, so there is no route, no scope, and no application-facing operation that reaches it — and `Admission`, which the ordinary join route does accept, has no field that could name an invitation. Two tests assert both, so an application cannot seat a guest by naming an invitation it does not hold, one that was revoked, or one belonging to somebody else.
+
 ## What redeeming does
 
 Redeeming produces a participation **and** the credential to connect with, in one response. That is not a convenience: the holder has an invitation and not an API key, so a redemption that produced only a participation would leave them in a call they could not reach.
@@ -98,6 +126,5 @@ Suspending an application withdraws every invitation it issued, immediately and 
 
 ## What is deliberately not built
 
-- **Guest participation** (`M10-010`). A guest is somebody with no Convia user, and an invitation is the only sensible way for one to get in. It is not built here because it changes the central invariant of the participants table — `user_id NOT NULL`, and the index that makes presence unique — and that deserves its own migration and its own thinking about what Convia should and should not learn about a person it has no account for.
 - **Delivery.** Convia does not send the invitation anywhere. Mail, links, and pages belong to the application, or to the standalone web application of M18.
 - **Rate limits on issuing** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key; a general per-tenant limit is the right shape rather than one bolted to this endpoint.

@@ -1,6 +1,6 @@
 # Participants
 
-A **participant** is one person's presence in one call. This document records the decisions of milestone M10 in [`TODO.md`](../TODO.md). The domain lives in [`internal/participants`](../internal/participants), its schema in [`internal/database/migrations`](../internal/database/migrations), and its contract in [`api/openapi.yaml`](../api/openapi.yaml).
+A **participant** is one person's presence in one call. The person is usually one of the application's Convia users; a guest, who has none, is identified by the invitation they redeemed instead. This document records the decisions of milestone M10 in [`TODO.md`](../TODO.md). The domain lives in [`internal/participants`](../internal/participants), its schema in [`internal/database/migrations`](../internal/database/migrations), and its contract in [`api/openapi.yaml`](../api/openapi.yaml).
 
 > **No media provider appears anywhere here.** Whether someone may join is a Convia decision. Handing them a media token is a later and separate one, which is what "join authorization independent of media token issuance" means.
 
@@ -135,7 +135,7 @@ Joining, leaving, removal, a role change, and issuing a connection credential ar
 
 ## Not Yet Implemented
 
-- **Guest participation** (`M10-010`). A guest is somebody with no Convia user, and an invitation is the only sensible way for one to get in. It waits because `participants.user_id` is `NOT NULL` and the index that makes presence unique is built on it, so admitting somebody Convia has no account for is a schema change and a decision about what Convia should learn about them — not a flag on an existing flow.
+- **Presence beyond a call is still out**, see below. What is no longer missing is guest participation: somebody with no Convia user takes part by redeeming an invitation, identified by that invitation and nothing else. See [`invitations.md`](invitations.md).
 - **Rate limits on issuing credentials** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key, so limiting only this one would be arbitrary. It belongs with a general per-tenant limit rather than here.
 - **Severing a connection already open.** Removing someone stops Convia issuing them credentials immediately, and the one they hold dies within five minutes, but a connection already established is not cut. Doing so means asking the media plane to eject a live participant.
 - **Media capabilities.** What a participant may do with audio, video, or a screen is uniform today: everyone admitted may publish and subscribe, because that is what a call is. The role vocabulary will grow when a distinction exists that is worth enforcing — a listener-only room, or screen sharing in M28. A moderator deliberately gets no extra media permission: moderation is a control-plane decision, and a client able to act directly on the media plane would bypass Convia's authorization and audit trail.

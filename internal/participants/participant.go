@@ -211,7 +211,19 @@ type Participant struct {
 	ID            string
 	ApplicationID string
 	CallID        string
-	UserID        string
+
+	/*
+		UserID names the person, and is empty for a guest.
+
+		Exactly one of UserID and InvitationID identifies a participation. A
+		guest has no Convia user by definition, so what identifies them is the
+		invitation they redeemed — and the application, which sent it, is the
+		only party that knows who that is.
+	*/
+	UserID string
+
+	// InvitationID identifies a guest, and is empty for a known user.
+	InvitationID  string
 	Role          Role
 	Status        Status
 	RemovedBy     *Remover
@@ -220,6 +232,18 @@ type Participant struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	LeftAt        *time.Time
+}
+
+/*
+Guest reports whether this participation belongs to somebody Convia has no user
+for.
+
+Convia deliberately learns nothing else about them: no name, no address, no
+identity of any kind. A roster already refuses to carry a display name for
+known users, and a guest is not the place to start.
+*/
+func (participant Participant) Guest() bool {
+	return participant.UserID == ""
 }
 
 // Present reports whether the person is still in the call.

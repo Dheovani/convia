@@ -60,6 +60,8 @@ be a second place to be right about one thing.
 type participation interface {
 	Join(ctx context.Context, applicationID, callID string,
 		admission participants.Admission) (participants.Participant, bool, error)
+	AdmitGuest(ctx context.Context, applicationID, callID, invitationID,
+		role string) (participants.Participant, bool, error)
 	Session(ctx context.Context, applicationID, id string) (participants.Participant, media.Credential, error)
 }
 
@@ -92,8 +94,19 @@ The role is the one the invitation confers when it is redeemed, and it is the
 participants' own vocabulary rather than a second one.
 */
 type Request struct {
-	UserID    string
-	Role      string
+	UserID string
+	Role   string
+
+	/*
+		Guest asks for an invitation that names nobody.
+
+		It is required rather than inferred from an absent UserID. Inferring it
+		would mean a request that forgot to name a person quietly produced a
+		way into the call for anyone holding the link, which is precisely the
+		mistake worth refusing.
+	*/
+	Guest bool
+
 	ExpiresIn time.Duration
 }
 
@@ -131,6 +144,25 @@ func (service *Service) Issue(ctx context.Context, applicationID, callID string,
 		return Invitation{}, "", err
 	}
 
+	/*
+		Exactly one of the two, and neither is inferred from the other being
+		absent. A request that named nobody and did not ask for a guest is a
+		request that forgot something, and answering it with a link anybody
+		could use would be the worst possible reading of a mistake.
+	*/
+	switch {
+	case request.Guest && request.UserID != "":
+		return Invitation{}, "", ValidationError{
+			Field:   "guest",
+			Message: "A guest invitation must not name a user.",
+		}
+	case !request.Guest && request.UserID == "":
+		return Invitation{}, "", ValidationError{
+			Field:   "user_id",
+			Message: "Name the user to invite, or ask for a guest invitation.",
+		}
+	}
+
 	call, err := service.requireCall(ctx, applicationID, callID)
 	if err != nil {
 		return Invitation{}, "", err
@@ -139,8 +171,10 @@ func (service *Service) Issue(ctx context.Context, applicationID, callID string,
 		return Invitation{}, "", ErrCallEnded
 	}
 
-	if err := service.requireUser(ctx, applicationID, request.UserID); err != nil {
-		return Invitation{}, "", err
+	if !request.Guest {
+		if err := service.requireUser(ctx, applicationID, request.UserID); err != nil {
+			return Invitation{}, "", err
+		}
 	}
 
 	issued := now()
@@ -320,8 +354,21 @@ func (service *Service) Redeem(ctx context.Context, invitation Invitation) (Invi
 		return Invitation{}, participants.Participant{}, media.Credential{}, ErrCallEnded
 	}
 
-	participant, _, err := service.participants.Join(ctx, invitation.ApplicationID, invitation.CallID,
-		participants.Admission{UserID: invitation.UserID, Role: invitation.Role})
+	/*
+		A guest is seated by the invitation rather than by a person, because
+		the invitation is the only identity they have. Both paths go through
+		the participants package, so capacity, a removal that must not be
+		undone, and the idempotency that makes a dropped client return to its
+		own seat are decided in one place for both.
+	*/
+	var participant participants.Participant
+	if invitation.Guest() {
+		participant, _, err = service.participants.AdmitGuest(ctx, invitation.ApplicationID,
+			invitation.CallID, invitation.ID, invitation.Role)
+	} else {
+		participant, _, err = service.participants.Join(ctx, invitation.ApplicationID, invitation.CallID,
+			participants.Admission{UserID: invitation.UserID, Role: invitation.Role})
+	}
 	if err != nil {
 		return Invitation{}, participants.Participant{}, media.Credential{}, err
 	}
@@ -472,6 +519,7 @@ func (service *Service) audit(ctx context.Context, event string, invitation Invi
 		"application_id", invitation.ApplicationID,
 		"call_id", invitation.CallID,
 		"user_id", invitation.UserID,
+		"guest", invitation.Guest(),
 		"role", invitation.Role,
 		"status", string(invitation.Status(now())),
 		"request_id", api.RequestIDFromContext(ctx),
