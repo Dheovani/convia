@@ -31,6 +31,8 @@ func useDefaults(t *testing.T) {
 		mediaAPISecretEnvironment,
 		mediaTimeoutEnvironment,
 		mediaClientURLEnvironment,
+		redisURLEnvironment,
+		redisTimeoutEnvironment,
 	} {
 		unsetEnvironment(t, name)
 	}
@@ -654,5 +656,87 @@ func TestProductionRequiresATLSMediaClientURL(t *testing.T) {
 	t.Setenv(mediaClientURLEnvironment, "wss://media.example")
 	if _, err := Load(); err != nil {
 		t.Fatalf("Load() error = %v, want a wss address to be accepted in production", err)
+	}
+}
+
+/*
+TestASharedChannelIsOptional covers the ordinary deployment.
+
+A single instance needs nothing carried anywhere, so an unset URL is a
+configuration rather than a mistake — and Convia must not treat it as one, or
+every local process would refuse to start.
+*/
+func TestASharedChannelIsOptional(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Redis.Configured() {
+		t.Errorf("an unset URL produced a configured shared channel: %+v", config.Redis)
+	}
+}
+
+// TestASharedChannelIsLoadedWithItsTimeout covers the configured deployment.
+func TestASharedChannelIsLoadedWithItsTimeout(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(redisURLEnvironment, "redis://127.0.0.1:6379/0")
+	t.Setenv(redisTimeoutEnvironment, "750ms")
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !config.Redis.Configured() {
+		t.Fatal("a shared channel was configured and did not load")
+	}
+	if config.Redis.Timeout != 750*time.Millisecond {
+		t.Errorf("Timeout = %v, want 750ms", config.Redis.Timeout)
+	}
+}
+
+/*
+TestProductionRefusesAPlaintextSharedChannel is the one rule worth enforcing
+here.
+
+This channel carries the control events of every tenant on the deployment
+between machines, over a network Convia does not own. In development it is a
+container on the same host, which is why the same URL is accepted there.
+*/
+func TestProductionRefusesAPlaintextSharedChannel(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(environmentEnvironment, string(Production))
+	t.Setenv(databaseURLEnvironment, testDatabaseURL+"?sslmode=verify-full")
+	t.Setenv(redisURLEnvironment, "redis://redis.internal:6379/0")
+
+	if _, err := Load(); err == nil {
+		t.Error("a production instance accepted a plaintext shared channel")
+	}
+
+	t.Setenv(redisURLEnvironment, "rediss://redis.internal:6379/0")
+	if _, err := Load(); err != nil {
+		t.Errorf("a production instance refused an encrypted shared channel: %v", err)
+	}
+}
+
+/*
+TestAnUnusableSharedChannelAddressIsRefused catches the mistakes that would
+otherwise become an instance that looks configured and carries nothing.
+*/
+func TestAnUnusableSharedChannelAddressIsRefused(t *testing.T) {
+	for name, value := range map[string]string{
+		"a scheme Convia does not speak": "http://127.0.0.1:6379",
+		"no scheme at all":               "127.0.0.1:6379",
+		"no host":                        "redis:///0",
+	} {
+		t.Run(name, func(t *testing.T) {
+			useDefaults(t)
+			t.Setenv(redisURLEnvironment, value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load() accepted %q as a shared channel", value)
+			}
+		})
 	}
 }

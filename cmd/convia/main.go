@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/events"
+	"convia/internal/events/redis"
 	"convia/internal/idempotency"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -144,10 +146,21 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	/*
 		The broker is built before the domains that publish into it, because
 		every one of them takes it as a dependency rather than reaching for a
-		package-level one. It holds nothing and needs no configuration: an
-		event goes to the streams open on this instance and is then gone.
+		package-level one. It holds nothing: an event goes to the streams open
+		at the moment it is published and is then gone.
+
+		Whether "open" means this instance's streams or the whole deployment's
+		is the one decision the relay makes, and it is made here.
 	*/
+	relay, err := openRelay(cfg.Redis, logger)
+	if err != nil {
+		return err
+	}
+
 	broker := events.NewBroker()
+	if relay != nil {
+		broker = events.NewSharedBroker(relay)
+	}
 
 	/*
 		Which addresses this instance is willing to reach is decided here, from
@@ -221,6 +234,30 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		to look — this one after a restart, or another instance — takes it
 		again.
 	*/
+	if relay != nil {
+		/*
+			Events produced on the other instances arrive here and go straight
+			to the broker, which decides who is entitled to them exactly as it
+			does for an event produced locally. The goroutine's owner is this
+			function, and closing the relay below is what ends it.
+		*/
+		go func() {
+			for event := range relay.Events() {
+				broker.Receive(event)
+			}
+		}()
+
+		defer func() {
+			if err := relay.Close(); err != nil {
+				logger.Warn("closing the shared channel", "error", err)
+			}
+			if dropped := relay.Dropped(); dropped > 0 {
+				logger.Warn("events did not reach the other instances during this run",
+					"dropped", dropped)
+			}
+		}()
+	}
+
 	delivering, stopDelivering := context.WithCancel(context.Background())
 	defer stopDelivering()
 
@@ -326,6 +363,65 @@ func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlan
 	// half of a credential.
 	logger.Info("media plane configured", "url", settings.URL, "timeout", settings.Timeout)
 	return plane, nil
+}
+
+/*
+openRelay builds whatever carries events to the other instances, if any.
+
+A nil relay is a supported deployment and the ordinary one: a single instance
+needs nothing carried anywhere, and every subscriber is served by the instance
+that produced the event. That is reported at info rather than as a warning, for
+the same reason a missing media plane is — an operator running one instance
+should not be told at every start-up that something is wrong.
+
+What Convia cannot tell from inside one process is whether *several* instances
+are running with this unset, which is the configuration that is quietly wrong.
+docs/events.md states it as an operational requirement, and the line logged
+here is what an operator compares against what they deployed.
+
+Reaching the channel is checked once and does not stop the process. An instance
+that refused to start because Redis was unreachable would take a working API
+offline over a stream that degrades to what it was before M16 — so the failure
+is reported loudly and serving continues.
+*/
+func openRelay(settings config.Redis, logger *slog.Logger) (*redis.Relay, error) {
+	if !settings.Configured() {
+		logger.Info("no shared channel is configured, so event streams are served by this instance alone",
+			"remedy", "set CONVIA_REDIS_URL when running more than one instance")
+		return nil, nil
+	}
+
+	/*
+		The origin is generated per process rather than configured. Its only job
+		is to let this instance recognize its own messages coming back on the
+		channel it published to, so it has to be unique per process and means
+		nothing beyond that — a value an operator had to set would be one they
+		could set the same on two machines.
+	*/
+	origin := "ins_" + rand.Text()
+
+	relay, err := redis.New(redis.Config{
+		URL:     settings.URL,
+		Timeout: settings.Timeout,
+		Origin:  origin,
+	}, logger)
+	if err != nil {
+		return nil, fmt.Errorf("open the shared channel: %w", err)
+	}
+
+	// The address is logged and the password is not: one is a location, the
+	// other is half of a credential.
+	logger.Info("shared channel configured", "address", redis.Redacted(settings.URL),
+		"origin", origin, "timeout", settings.Timeout)
+
+	probe, cancel := context.WithTimeout(context.Background(), settings.Timeout)
+	defer cancel()
+
+	if err := relay.Ping(probe); err != nil {
+		logger.Error("the shared channel could not be reached, so event streams are served by this instance alone until it comes back",
+			"error", err, "address", redis.Redacted(settings.URL))
+	}
+	return relay, nil
 }
 
 /*

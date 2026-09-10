@@ -27,6 +27,15 @@ const (
 	defaultMediaTimeout = 5 * time.Second
 
 	/*
+		defaultRedisTimeout bounds one operation against the shared channel.
+
+		Short, because nothing waits on it: publishing to the other instances is
+		queued rather than awaited, so this only decides how quickly a broken
+		connection is noticed and retried.
+	*/
+	defaultRedisTimeout = 3 * time.Second
+
+	/*
 		minimumProductionSecretLength is the shortest media API secret
 		production accepts.
 
@@ -72,6 +81,16 @@ const (
 	   address that no client can resolve. Unset means the two are the same.
 	*/
 	mediaClientURLEnvironment = "CONVIA_LIVEKIT_CLIENT_URL"
+
+	/*
+	   redisURLEnvironment is where this instance reaches the channel it shares
+	   with the other instances of the same deployment.
+
+	   Unset means there are no other instances, which is a supported
+	   deployment and the one every local process runs. See internal/events.
+	*/
+	redisURLEnvironment     = "CONVIA_REDIS_URL"
+	redisTimeoutEnvironment = "CONVIA_REDIS_TIMEOUT"
 )
 
 /*
@@ -94,6 +113,7 @@ type Config struct {
 	HTTPPort    int
 	Database    Database
 	Media       Media
+	Redis       Redis
 
 	/*
 		TrustedProxies are the networks whose forwarded headers Convia believes.
@@ -138,6 +158,30 @@ func (settings Media) Configured() bool {
 }
 
 /*
+Redis contains the settings of the channel instances share, when there is one.
+
+A Convia with no Redis configured is a supported deployment and the ordinary
+one: a single instance needs nothing carried anywhere, and everything works.
+What it does not support is *several* instances with this unset, because each
+would then serve only the event-stream subscribers connected to it. That is an
+operational requirement rather than something Convia can check, and
+docs/events.md states it.
+
+Nothing durable is kept here. The only use is publish/subscribe, which stores
+nothing at all — which is also what makes it impossible for this to become an
+accidental source of truth.
+*/
+type Redis struct {
+	URL     string
+	Timeout time.Duration
+}
+
+// Configured reports whether instances were given a way to reach each other.
+func (settings Redis) Configured() bool {
+	return settings.URL != ""
+}
+
+/*
 Load reads configuration from the process environment.
 
 Development defaults keep a local process runnable with a single environment
@@ -176,12 +220,18 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	shared, err := loadRedis(environment)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		Environment:    environment,
 		HTTPHost:       host,
 		HTTPPort:       port,
 		Database:       database,
 		Media:          mediaPlane,
+		Redis:          shared,
 		TrustedProxies: trustedProxies,
 	}, nil
 }
@@ -489,4 +539,56 @@ func environmentOrDefault(name, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+/*
+loadRedis reads the settings of the channel instances share.
+
+Unset is not a mistake and is not treated as one: a single instance needs
+nothing carried anywhere, and that is what a local process and a small
+deployment both are. What Convia cannot tell from here is whether *several*
+instances are running with it unset, which is the one configuration that is
+quietly wrong — docs/events.md states it as an operational requirement, and
+the composition root says at startup which of the two this process is.
+
+The URL is validated for shape rather than reachability. Refusing to start
+because Redis is down would take a working API offline over a stream that
+degrades to what it was before M16.
+*/
+func loadRedis(environment Environment) (Redis, error) {
+	endpoint := strings.TrimSpace(os.Getenv(redisURLEnvironment))
+	if endpoint == "" {
+		return Redis{}, nil
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return Redis{}, fmt.Errorf("%s must be a valid URL", redisURLEnvironment)
+	}
+
+	switch parsed.Scheme {
+	case "rediss":
+	case "redis":
+		/*
+			Plain redis carries the events of every tenant on this deployment
+			between machines. In development that is a container on the same
+			host; in production it is a network Convia does not own.
+		*/
+		if environment == Production {
+			return Redis{}, fmt.Errorf("%s must use rediss in production", redisURLEnvironment)
+		}
+	default:
+		return Redis{}, fmt.Errorf("%s must be a redis or rediss URL", redisURLEnvironment)
+	}
+
+	if parsed.Host == "" {
+		return Redis{}, fmt.Errorf("%s must name a host", redisURLEnvironment)
+	}
+
+	timeout, err := loadDuration(redisTimeoutEnvironment, defaultRedisTimeout)
+	if err != nil {
+		return Redis{}, err
+	}
+
+	return Redis{URL: endpoint, Timeout: timeout}, nil
 }

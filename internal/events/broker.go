@@ -88,12 +88,15 @@ const (
 /*
 Broker fans control events out to whoever is listening right now.
 
-It is in-process and holds nothing: an event is delivered to the streams open
-on this instance at the moment it is published, and is then gone. That is the
-whole design, and its consequence is stated rather than hidden — an event
-produced while a subscriber is disconnected is not waiting for them when they
-return, and an event produced on another instance never reaches them at all.
-docs/events.md says what running more than one instance therefore requires.
+It holds nothing: an event is delivered to the streams open at the moment it is
+published, and is then gone. That is the whole design, and its consequence is
+stated rather than hidden — an event produced while a subscriber is
+disconnected is not waiting for them when they return.
+
+Which streams "open" means depends on how the deployment is put together. On
+its own, a broker knows only this instance's. Given a [Relay] it also reaches
+the subscribers connected to the others, which is what M16 added and what
+docs/events.md describes.
 
 Publishing never blocks and never fails, which is what keeps a slow reader from
 becoming a slow API. A subscriber that cannot keep up loses its stream rather
@@ -112,14 +115,38 @@ type Broker struct {
 		serving it still has a close frame to write.
 	*/
 	serving sync.WaitGroup
+
+	/*
+		relay carries events to and from the other instances of this
+		deployment, and is nil when there is only one. A nil relay is a
+		supported configuration rather than a degraded one: a single instance
+		needs nothing carried anywhere.
+	*/
+	relay Relay
 }
 
-// NewBroker returns a broker with no subscribers.
+// NewBroker returns a broker that serves the subscribers of this instance
+// alone, which is every deployment running one.
 func NewBroker() *Broker {
 	return &Broker{
 		streams: make(map[*Stream]struct{}),
 		perTeam: make(map[string]int),
 	}
+}
+
+/*
+NewSharedBroker returns a broker whose events also reach the subscribers
+connected to other instances.
+
+What changes is only where an event goes, never what a subscriber is entitled
+to: the relay carries events between instances of one deployment, and which of
+them a given stream receives is still decided here, from the credential that
+opened it.
+*/
+func NewSharedBroker(relay Relay) *Broker {
+	broker := NewBroker()
+	broker.relay = relay
+	return broker
 }
 
 /*
@@ -238,6 +265,32 @@ without either blocking the publisher or silently discarding an event and
 leaving the subscriber believing it saw everything.
 */
 func (broker *Broker) Publish(event Event) {
+	broker.deliver(event)
+
+	/*
+		Carried to the other instances after this one's subscribers have it, so
+		that a slow or unreachable relay cannot delay the delivery it was meant
+		to widen. Broadcast is non-blocking, which is what makes that ordering
+		free rather than a compromise.
+	*/
+	if broker.relay != nil {
+		broker.relay.Broadcast(event)
+	}
+}
+
+/*
+Receive delivers an event produced on another instance.
+
+It is the relay's way in, and it deliberately does not broadcast: an event that
+arrived from elsewhere has already been everywhere, and sending it on would be
+a loop between two instances that each thought the other needed telling.
+*/
+func (broker *Broker) Receive(event Event) {
+	broker.deliver(event)
+}
+
+// deliver hands an event to this instance's entitled subscribers.
+func (broker *Broker) deliver(event Event) {
 	broker.mutex.Lock()
 	defer broker.mutex.Unlock()
 
