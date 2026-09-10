@@ -30,6 +30,7 @@ func useDefaults(t *testing.T) {
 		mediaAPIKeyEnvironment,
 		mediaAPISecretEnvironment,
 		mediaTimeoutEnvironment,
+		mediaClientURLEnvironment,
 	} {
 		unsetEnvironment(t, name)
 	}
@@ -568,5 +569,90 @@ func TestLoadNeverReportsTheMediaSecret(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), secret[:minimumProductionSecretLength-1]) {
 		t.Errorf("Load() error = %v, which contains the secret it refused", err)
+	}
+}
+
+/*
+TestClientsAreToldWhereConviaReachesTheMediaPlaneUnlessToldOtherwise covers the
+common case and the one that breaks silently.
+
+A single local server answers both, so deriving the client address by swapping
+the scheme spares an operator writing the same host twice and keeping the two
+in step. A deployment whose media plane sits on a private network needs the
+opposite, and getting it wrong hands every client an address that cannot
+resolve.
+*/
+func TestClientsAreToldWhereConviaReachesTheMediaPlaneUnlessToldOtherwise(t *testing.T) {
+	useDefaults(t)
+	useMedia(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Media.ClientURL != "" {
+		t.Errorf("Media.ClientURL = %q, want none when the two addresses are the same",
+			config.Media.ClientURL)
+	}
+
+	t.Setenv(mediaClientURLEnvironment, "wss://media.example/rtc")
+	config, err = Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Media.ClientURL != "wss://media.example/rtc" {
+		t.Errorf("Media.ClientURL = %q, want the configured address", config.Media.ClientURL)
+	}
+}
+
+func TestAMediaClientURLNoClientCouldUseIsRefused(t *testing.T) {
+	refused := map[string]string{
+		/*
+			An http:// address is refused rather than rewritten. Silently
+			turning it into ws:// would hide the case an operator sets this
+			for at all, which is a client address that is not a transformation
+			of Convia's.
+		*/
+		"an http URL":  "http://media.example",
+		"an https URL": "https://media.example",
+		"a bare host":  "media.example:7880",
+		"no host":      "wss://",
+		"nonsense":     "://",
+	}
+
+	for name, value := range refused {
+		t.Run(name, func(t *testing.T) {
+			useDefaults(t)
+			useMedia(t)
+			t.Setenv(mediaClientURLEnvironment, value)
+
+			if _, err := Load(); err == nil {
+				t.Errorf("Load() error = nil, want %q to be refused", value)
+			}
+		})
+	}
+}
+
+/*
+TestProductionRequiresATLSMediaClientURL guards the credential, not the media.
+
+The address is published to clients along with a bearer token, so a plaintext
+one hands that token to anyone on the path.
+*/
+func TestProductionRequiresATLSMediaClientURL(t *testing.T) {
+	useDefaults(t)
+	useMedia(t)
+	t.Setenv(environmentEnvironment, string(Production))
+	t.Setenv(databaseURLEnvironment, testDatabaseURL+"?sslmode=verify-full")
+	t.Setenv(mediaURLEnvironment, "https://media.example")
+	t.Setenv(mediaClientURLEnvironment, "ws://media.example")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want production to refuse a plaintext client address")
+	}
+
+	t.Setenv(mediaClientURLEnvironment, "wss://media.example")
+	if _, err := Load(); err != nil {
+		t.Fatalf("Load() error = %v, want a wss address to be accepted in production", err)
 	}
 }

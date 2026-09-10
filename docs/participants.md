@@ -109,14 +109,34 @@ Scopes are `participants:read` and `participants:write` on the tenant surface, a
 
 **Everyone is returned, including those who left**, because a roster is also a record of who was there. `status=joined` answers who is present now.
 
+## Joining the Conversation
+
+Everything above records **who may take part**. `POST /v1/participants/{participant_id}/session` is what makes a call audible: it returns an address and a short-lived credential for one person in one call.
+
+The application asks on its client's behalf and passes the answer on. The client never holds the application's API key and never speaks to Convia's media infrastructure, which is what lets that infrastructure be replaced without any external consumer noticing.
+
+**Convia decides afresh on every request.** Someone who left, was removed, whose user was suspended, or whose call has ended receives nothing, however recently they were admitted. That is not belt-and-braces — it is the whole enforcement mechanism. The media plane is never told that Convia removed anybody, so what stops them coming back is that Convia stops issuing.
+
+**The credential expires in five minutes**, and the trade is deliberate. It is presented once, to open a connection, and the connection outlives it: nothing forces anyone out when it expires. What the short life bounds is how long a copy taken from a log, a crash report, or a device somebody no longer has can still be used to walk into a conversation. The cost is that a client which loses its connection after expiry cannot reconnect with the same credential and has to ask for another — one request against an endpoint the application already calls.
+
+Sending an `Idempotency-Key` is worth it here in a way it is not for the operations above. Those are idempotent by nature; this one mints something new every time, so a request that timed out would otherwise leave a usable credential behind that nobody ever received.
+
+A deployment configured with no media plane answers `503 unavailable`. That is not a fault: a Convia running only the control plane is supported, and every other participant operation works in it.
+
+The response names no provider. A contract test asserts the schema publishes only Convia-owned connection data, and an end-to-end test confirms a real media server accepts what Convia issues. See [`media.md`](media.md).
+
 ## Audit
 
-Joining, leaving, removal, and a role change are audited. The record names the participant, the call, the application, the person, the new state and role, and the removing authority.
+Joining, leaving, removal, a role change, and issuing a connection credential are audited. The record names the participant, the call, the application, the person, the new state and role, and the removing authority.
 
 **The removal reason is not recorded.** It is composed by the application and may say something about the person removed — `harassed-another-attendee` is a reason someone could plausibly write. A test asserts it stays out.
 
+**The credential is not recorded either.** The audit trail says that one was issued and to whom, which is what an incident needs to know. Writing the credential itself into a durable, widely readable artefact would turn a five-minute secret into a long-lived one. A test asserts that too.
+
 ## Not Yet Implemented
 
-- **Invitations** (`M10-004`) and **guest participation** (`M10-010`), both deferred to the join sessions of M13 for the reason given above. They are the remaining slice of M10.
-- **Media capabilities.** What a participant may do with audio, video, or a screen is decided by the media plane, which is M11. The role vocabulary will grow when something exists to enforce the growth.
+- **Invitations** (`M10-004`) and **guest participation** (`M10-010`). The join session they were waiting for now exists, so what remains is the invitation itself: a thing Convia issues to somebody who is not yet a participant, which they present to become one.
+- **Rate limits on issuing credentials** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key, so limiting only this one would be arbitrary. It belongs with a general per-tenant limit rather than here.
+- **Severing a connection already open.** Removing someone stops Convia issuing them credentials immediately, and the one they hold dies within five minutes, but a connection already established is not cut. Doing so means asking the media plane to eject a live participant.
+- **Media capabilities.** What a participant may do with audio, video, or a screen is uniform today: everyone admitted may publish and subscribe, because that is what a call is. The role vocabulary will grow when a distinction exists that is worth enforcing — a listener-only room, or screen sharing in M28. A moderator deliberately gets no extra media permission: moderation is a control-plane decision, and a client able to act directly on the media plane would bypass Convia's authorization and audit trail.
 - **Presence beyond a call.** Whether someone is online, away, or busy is not participation and does not belong here.

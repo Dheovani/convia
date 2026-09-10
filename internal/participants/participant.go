@@ -74,6 +74,17 @@ participants of an ended call are its history, and history does not change.
 var ErrCallEnded = errors.New("the call has ended")
 
 /*
+ErrNoMediaPlane reports a Convia that cannot carry a conversation.
+
+It is not a fault. A control plane with no media transport configured is a
+supported deployment, and everything else about calls and participants works in
+it. What cannot work is handing a client something to connect to, because there
+is nothing to connect to, and saying so plainly is better than returning a
+credential that would fail on use.
+*/
+var ErrNoMediaPlane = errors.New("this deployment has no media plane")
+
+/*
 ErrUserSuspended reports a person the application has withdrawn.
 
 Suspension exists to stop a person being served. Letting a suspended user into
@@ -102,7 +113,10 @@ var ErrRemoved = errors.New("the participant was removed from this call")
 ErrGone reports an operation on a participant who is no longer in the call.
 
 Leaving twice is not an error — it succeeds and changes nothing. This is for
-the operations that need someone present, such as acting as a moderator.
+the operations that need someone present: acting as a moderator, and being
+issued a credential to connect with. It does not distinguish having left from
+having been removed, because the difference is the application's own record to
+consult rather than something an error should narrate.
 */
 var ErrGone = errors.New("the participant is no longer in the call")
 

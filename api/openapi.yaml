@@ -3282,6 +3282,83 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/participants/{participant_id}/session:
+    post:
+      operationId: createOwnParticipantSession
+      tags: [Participants]
+      summary: Issue connection instructions for a participant
+      description: |
+        Returns everything a client needs to join the conversation, and nothing
+        else.
+
+        This is the endpoint that makes a call audible. Everything before it
+        records who may take part; this hands one of those people a
+        short-lived credential for one call. An application asks on its
+        client's behalf and passes the answer on, so the client never holds
+        the application's API key and never talks to Convia's media
+        infrastructure directly.
+
+        **Convia decides afresh every time.** A participant who left, was
+        removed, whose user was suspended, or whose call has ended receives
+        nothing, however recently they were admitted. That is what makes a
+        removal take effect: the media plane is never told about it, so what
+        stops someone coming back is that Convia stops issuing.
+
+        **The credential expires quickly**, which is deliberate. It is
+        presented once, to open a connection, and the connection outlives it —
+        nothing forces anyone out when it expires. What the short life bounds
+        is how long a copy taken from a log or an old device can still be used
+        to walk into a conversation. A client that has not connected by
+        `expires_at`, or that loses its connection after it, asks for another
+        by calling this again.
+
+        An `Idempotency-Key` is honoured and is worth sending. Unlike joining,
+        this mints something new on every call, so a request that timed out
+        would otherwise leave a usable credential behind that nobody received.
+
+        A deployment configured with no media plane answers `503 unavailable`.
+        That is not a fault: a Convia that only runs the control plane is a
+        supported deployment, and every other participant operation works in
+        it.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["participants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ParticipantID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: Connection instructions for this participant.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
 components:
   securitySchemes:
     OperatorKey:
@@ -4002,6 +4079,66 @@ components:
         `removed_by_participant_id`. `application` and `operator` act from
         outside the conversation, so neither names a participant.
       enum: [application, operator, participant]
+
+    JoinSession:
+      type: object
+      description: |
+        Connection instructions for one participant of one call.
+
+        **No media provider appears here, and none ever will.** A client
+        receives an address and a credential; it learns no room name, no
+        permission grant, and nothing about which media infrastructure this
+        deployment runs. Replacing that infrastructure is work inside Convia
+        and does not change this response.
+
+        Everything here is short-lived and single-purpose. The credential
+        authorizes taking part in exactly this call, as exactly this
+        participant, and carries no administrative power over the call: a
+        moderator moderates through Convia's API, not through the media plane.
+      required: [participant_id, call_id, media_url, media_token, expires_at]
+      additionalProperties: false
+      properties:
+        participant_id:
+          type: string
+          description: |
+            The participant these instructions belong to. It is also the
+            identity this person appears under in the conversation, so other
+            clients can match what they receive to Convia's roster.
+          example: part_7KQZP4XN2VJH6TBWMDR3YAFC5E
+        call_id:
+          type: string
+          description: The call being joined.
+          example: call_7KQZP4XN2VJH6TBWMDR3YAFC5E
+        media_url:
+          type: string
+          format: uri
+          description: |
+            The address the client connects to.
+
+            It is a WebSocket address and is frequently not the address Convia
+            itself uses, because a deployment commonly reaches its media
+            infrastructure on a private network. Always use the value returned
+            here rather than deriving one.
+          example: wss://media.convia.example
+        media_token:
+          type: string
+          description: |
+            The credential the client presents when connecting.
+
+            It is a bearer credential and should be treated like one: passed
+            straight to the client that will use it, never logged, never
+            stored, never shared between people. It is useless after
+            `expires_at`.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abbreviated.signature
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            When the credential stops being accepted, as RFC 3339 in UTC.
+
+            This bounds when a connection may be *opened*, not how long it may
+            last. A connection already established is unaffected.
+          example: "2026-09-09T19:45:00.000Z"
 
     Participant:
       type: object

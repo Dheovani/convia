@@ -424,6 +424,15 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.TenantParticipants.Leave)},
 			route{method: http.MethodPost, path: api.Prefix + "/participants/{participant_id}/remove", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantParticipants.Remove)},
+			/*
+				Issuing a connection credential is marked idempotent, unlike
+				the operations above it. Those are idempotent by nature; this
+				one mints something new every time it is called, so a client
+				that retried after a timeout would otherwise leave a usable
+				credential behind that nobody ever received.
+			*/
+			route{method: http.MethodPost, path: api.Prefix + "/participants/{participant_id}/session", surface: surfaceTenant, idempotent: true,
+				handler: http.HandlerFunc(dependencies.TenantParticipants.Session)},
 		)
 	}
 

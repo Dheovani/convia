@@ -99,3 +99,76 @@ func TestAnAbsentSecretIsRecognizable(t *testing.T) {
 		t.Error("a configured secret reports itself as absent")
 	}
 }
+
+// theToken is a connection credential distinctive enough to find anywhere.
+const theToken = Token("eyJhbGciOiJIUzI1NiJ9.a-signed-connection-credential")
+
+/*
+TestAConnectionCredentialDoesNotRenderItself is the same guarantee as for an
+API secret, applied to the one credential Convia hands outside its own process.
+
+It is shorter-lived, which reduces what a leak costs and does not change what a
+leak is. The paths are the same: a struct printed while debugging, a record
+written to a log, an error carrying a value into a message.
+*/
+func TestAConnectionCredentialDoesNotRenderItself(t *testing.T) {
+	held := struct {
+		URL   string
+		Token Token
+	}{URL: "wss://media.example", Token: theToken}
+
+	renderings := map[string]string{
+		"%v on the value":       fmt.Sprintf("%v", theToken),
+		"%q on the value":       fmt.Sprintf("%q", theToken),
+		"%#v on the value":      fmt.Sprintf("%#v", theToken),
+		"String":                theToken.String(),
+		"a credential with %+v": fmt.Sprintf("%+v", Credential{URL: "wss://x", Token: theToken}),
+		"a struct with %v":      fmt.Sprintf("%v", held),
+		"a struct with %#v":     fmt.Sprintf("%#v", held),
+		"an error wrapping one": fmt.Errorf("could not present %v", theToken).Error(),
+	}
+
+	for name, rendered := range renderings {
+		if strings.Contains(rendered, theToken.Reveal()) {
+			t.Errorf("%s wrote the credential down: %s", name, rendered)
+		}
+		if !strings.Contains(rendered, redacted) {
+			t.Errorf("%s produced %q, which does not show that a value was withheld", name, rendered)
+		}
+	}
+}
+
+func TestAConnectionCredentialDoesNotReachAStructuredLog(t *testing.T) {
+	var written bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&written, nil))
+
+	logger.Info("issued a credential", "credential", theToken)
+	logger.Info("issued a credential", "for", slog.GroupValue(
+		slog.String("participant_id", "part_7KQZP4XN2VJH6TBWMDR3YAFC5E"),
+		slog.Any("credential", theToken),
+	))
+
+	logged := written.String()
+	if strings.Contains(logged, theToken.Reveal()) {
+		t.Errorf("the credential was logged: %s", logged)
+	}
+	if strings.Count(logged, redacted) != 2 {
+		t.Errorf("the log does not show a withheld value in both records: %s", logged)
+	}
+}
+
+/*
+TestACredentialKnowsWhetherItWasIssued is what the control plane branches on.
+
+A deployment with no media plane returns a zero credential rather than an
+error, so the difference between "issued" and "there was nothing to issue" has
+to be readable from the value itself.
+*/
+func TestACredentialKnowsWhetherItWasIssued(t *testing.T) {
+	if (Credential{}).Issued() {
+		t.Error("an empty credential reports itself as issued")
+	}
+	if !(Credential{URL: "wss://x", Token: theToken}).Issued() {
+		t.Error("a credential carrying a token does not report itself as issued")
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"convia/internal/credentials"
+	"convia/internal/media"
 )
 
 /*
@@ -32,6 +33,7 @@ type service interface {
 	Leave(ctx context.Context, applicationID, id string) (Participant, error)
 	Remove(ctx context.Context, applicationID, id string, authority Remover, actingID, reason string) (Participant, error)
 	SetRole(ctx context.Context, applicationID, id, role, actingID string) (Participant, error)
+	Session(ctx context.Context, applicationID, id string) (Participant, media.Credential, error)
 }
 
 /*
@@ -72,6 +74,20 @@ func (authorized *Authorized) Join(ctx context.Context, callID string,
 		return Participant{}, false, err
 	}
 	return authorized.service.Join(ctx, authorized.principal.ApplicationID, callID, admission)
+}
+
+/*
+Session issues the credential a client connects with.
+
+It requires the write scope rather than the read one. Reading who is in a call
+and handing somebody the means to take part in it are different powers, and an
+integration granted only the first must not be able to exercise the second.
+*/
+func (authorized *Authorized) Session(ctx context.Context, id string) (Participant, media.Credential, error) {
+	if err := authorized.permit(credentials.ScopeParticipantsWrite); err != nil {
+		return Participant{}, media.Credential{}, err
+	}
+	return authorized.service.Session(ctx, authorized.principal.ApplicationID, id)
 }
 
 // Get returns one participant of the caller's own call.

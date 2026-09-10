@@ -47,7 +47,18 @@ type fixture struct {
 	logs         *bytes.Buffer
 }
 
+/*
+newFixture builds a fixture with no media plane, which is what most of these
+tests want: they are about who is in a call, not about what carries it.
+
+Tests that need a media plane use newFixtureWith.
+*/
 func newFixture(t *testing.T) fixture {
+	t.Helper()
+	return newFixtureWith(t, media.Absent{})
+}
+
+func newFixtureWith(t *testing.T, plane calls.MediaPlane) fixture {
 	t.Helper()
 
 	maintenanceURL := strings.TrimSpace(os.Getenv(testDatabaseURLEnvironment))
@@ -90,7 +101,7 @@ func newFixture(t *testing.T) fixture {
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		media.Absent{}, logger)
+		plane, logger)
 
 	setup := fixture{
 		service: NewService(NewStore(pool), applicationService, callService,

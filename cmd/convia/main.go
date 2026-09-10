@@ -230,6 +230,7 @@ func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlan
 
 	plane, err := livekit.New(livekit.Config{
 		URL:       settings.URL,
+		ClientURL: settings.ClientURL,
 		APIKey:    settings.APIKey,
 		APISecret: settings.APISecret,
 		Timeout:   settings.Timeout,

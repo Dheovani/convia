@@ -44,12 +44,12 @@ type roomLookup interface {
 MediaPlane is the behavior this package needs from whatever transports audio
 and video.
 
-It is declared here, in the consuming package, and it is exported only so
-that the composition root can name what it is constructing. It is deliberately
-two operations wide: a call begins, so a place for it must be realized, and a call
-ends, so that place must be released. Issuing a participant the credentials to
-connect belongs to the join sessions of M13, and nothing here anticipates its
-shape.
+It is declared here, in the consuming package, and it is exported only so that
+the composition root can name what it is constructing. It is deliberately
+narrow: a call begins, so a place for it must be realized; a call ends, so that
+place must be released; and someone Convia has admitted needs a credential to
+connect with. Nothing here decides *whether* anyone may connect — that is
+settled before the boundary is reached.
 
 media.Absent satisfies it, and is what a Convia with no media plane configured
 uses. See docs/adr/0001-control-plane-media-plane-boundary.md.
@@ -57,6 +57,7 @@ uses. See docs/adr/0001-control-plane-media-plane-boundary.md.
 type MediaPlane interface {
 	OpenSession(ctx context.Context, request media.SessionRequest) (media.Session, error)
 	CloseSession(ctx context.Context, session media.Session) error
+	IssueCredential(ctx context.Context, admission media.Admission) (media.Credential, error)
 }
 
 // Service applies Convia's rules for calls.
@@ -171,6 +172,65 @@ func (service *Service) Start(ctx context.Context, applicationID, roomID string,
 
 // unrealizedReason is recorded on a call whose media session never existed.
 const unrealizedReason = "The media session could not be established."
+
+/*
+Admit issues the credential one person connects to this call with.
+
+**Whether they may is not decided here.** Authorization, the person's standing,
+their participation, and their role are all settled by the package that owns
+them before this is reached, which is why the caller passes a call it has
+already resolved rather than an identifier. What this method owns is the one
+thing nothing else can reach: the call's media session, which is stored beside
+the call and deliberately absent from the domain type, so an admission has to
+come through here to find out which room it is for.
+
+An un-issued credential is returned without an error when the deployment has no
+media plane. That is not a failure — it is a Convia running exactly as
+configured — and explaining it to a caller belongs to the layer that knows what
+was asked for.
+*/
+func (service *Service) Admit(ctx context.Context, call Call, participantID string,
+	lifetime time.Duration) (media.Credential, error) {
+
+	/*
+		Checked against the call the caller already holds rather than fetched
+		again. It costs nothing and it means a future caller that forgets the
+		rule is refused rather than quietly handing out a credential to a
+		conversation that is over.
+	*/
+	if call.Ended() {
+		return media.Credential{}, ErrNotFound
+	}
+
+	reference, err := service.store.Session(ctx, call.ApplicationID, call.ID)
+	if err != nil {
+		return media.Credential{}, fmt.Errorf("read the media session: %w", err)
+	}
+
+	credential, err := service.media.IssueCredential(ctx, media.Admission{
+		Session:       media.Session{Reference: reference},
+		ParticipantID: participantID,
+		Lifetime:      lifetime,
+	})
+
+	if err != nil {
+		if media.Retryable(err) {
+			return media.Credential{}, ErrMediaUnavailable
+		}
+
+		service.logger.Error("the media plane refused to admit a participant",
+			"error", err,
+			"call_id", call.ID,
+			"participant_id", participantID,
+			"application_id", call.ApplicationID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+
+		return media.Credential{}, fmt.Errorf("admit to call: %w", err)
+	}
+
+	return credential, nil
+}
 
 /*
 realize asks the media plane for somewhere this call can happen.

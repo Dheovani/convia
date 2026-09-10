@@ -86,6 +86,29 @@ func (handler *TenantHandler) Join(response http.ResponseWriter, request *http.R
 	handler.write(response, request, status, represent(participant))
 }
 
+/*
+Session hands a client what it needs to join the conversation.
+
+The application asks on its client's behalf and passes the answer on. That is
+the whole shape of M13: an external consumer never talks to a media provider's
+server API, and never holds Convia's media credentials, because the only thing
+it ever receives is one short-lived credential for one person in one call.
+*/
+func (handler *TenantHandler) Session(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	participant, credential, err := authorized.Session(request.Context(), request.PathValue("participant_id"))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.write(response, request, http.StatusCreated, representSession(participant, credential))
+}
+
 // Get returns one participant of the caller's own call.
 func (handler *TenantHandler) Get(response http.ResponseWriter, request *http.Request) {
 	authorized, ok := handler.authorized(response, request)
