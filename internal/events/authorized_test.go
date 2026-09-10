@@ -44,9 +44,14 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeInvitationsRead),
 			expected:  []Type{InvitationDeclined},
 		},
+		"presence only": {
+			principal: holding(credentials.ScopeEventsRead, credentials.ScopePresenceRead),
+			expected:  []Type{PresenceChanged},
+		},
 		"everything": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead,
-				credentials.ScopeParticipantsRead, credentials.ScopeInvitationsRead),
+				credentials.ScopeParticipantsRead, credentials.ScopeInvitationsRead,
+				credentials.ScopePresenceRead),
 			expected: Types(),
 		},
 		/*

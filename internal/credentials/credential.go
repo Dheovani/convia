@@ -133,6 +133,26 @@ const (
 		Convia into a client of somewhere else.
 	*/
 	ScopeWebhooksWrite Scope = "webhooks:write"
+	/*
+		ScopePresenceRead permits reading whether the application's people are
+		available, and receiving presence events on a stream.
+
+		It is separate from ScopeUsersRead even though it is a fact about a
+		user, because the two answer different questions about a person. A key
+		that reconciles an application's directory needs to read users and has
+		no business knowing when any of them is at their desk.
+	*/
+	ScopePresenceRead Scope = "presence:read"
+	/*
+		ScopePresenceWrite permits asserting and withdrawing presence for the
+		application's people.
+
+		Holding it does not grant reading it back. An application that reports
+		presence from its session tier and reads it from its API tier gives
+		each of them one of the two, which is the arrangement the split exists
+		for.
+	*/
+	ScopePresenceWrite Scope = "presence:write"
 )
 
 /*
@@ -151,6 +171,7 @@ func Scopes() []Scope {
 		ScopeInvitationsRead, ScopeInvitationsWrite,
 		ScopeEventsRead,
 		ScopeWebhooksRead, ScopeWebhooksWrite,
+		ScopePresenceRead, ScopePresenceWrite,
 	}
 }
 

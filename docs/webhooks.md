@@ -46,6 +46,8 @@ Convia generates the secret rather than accepting one, because a secret an appli
 
 `event_types` must name at least one type Convia actually delivers. An unknown type is refused rather than stored, because a subscription that can never fire looks exactly like an event that has not happened yet.
 
+**`presence.changed` is refused too, and it is the only type Convia delivers that a webhook cannot carry.** A webhook is a delivery with attempts behind it, so a presence report that failed once would arrive after it stopped being true, and after the newer one that replaced it — leaving an application with a roster that never settles. Presence is advisory by construction, and Convia will not deliver it durably rather than let an integration discover the contradiction for itself. Subscribe to it on the stream instead: `GET /v1/events`, described in [`presence.md`](presence.md).
+
 ## Verifying a delivery
 
 Every request carries four headers:

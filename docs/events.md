@@ -17,6 +17,7 @@ Convia records a great deal and streams very little. The line is not "what is in
 | `participant.removed` | participant | Somebody was put out. |
 | `participant.role_changed` | participant | What somebody may do changed. |
 | `invitation.declined` | invitation | An invitee said they are not coming. |
+| `presence.changed` | user | Convia will now say something different about whether somebody is available. |
 
 Everything else Convia records is deliberately absent, and each has a reason:
 
@@ -26,6 +27,8 @@ Everything else Convia records is deliberately absent, and each has a reason:
 - **An invitation being redeemed.** This one *is* somebody else's act, but it already arrives as `participant.joined`, carrying the invitation that let them in. Publishing both would report one arrival twice.
 
 Declining is the exception among invitations because it is the invitee's own decision, it is the only signal that somebody is not coming, and nothing else observes it.
+
+Presence is the other exception, and it is the interesting one: an application asserts it, which is exactly why rooms and users are absent. The difference is that **the assertion is not the change**. What a subscriber is told is the aggregate across a person's devices, and the moment a claim lapsed on a timer — and the instance that sent the heartbeat knows neither. It comes with two rules of its own, both in [`presence.md`](presence.md): a heartbeat that changes nothing announces nothing, and `presence.changed` is the one event type Convia refuses to deliver by webhook.
 
 ## Opening a stream
 
@@ -58,6 +61,7 @@ Each event is delivered only to a credential that could have read the thing it i
 | `call.*` | `calls:read` |
 | `participant.*` | `participants:read` |
 | `invitation.*` | `invitations:read` |
+| `presence.*` | `presence:read` |
 
 So a key holding `events:read` and `calls:read` receives call events and nothing else. A key holding `events:read` and no read scope is **refused** rather than given an empty connection — an empty stream is indistinguishable from a quiet one, and a client would wait indefinitely for events that were never going to come.
 
@@ -112,6 +116,8 @@ Which instance a client reaches does not matter, as long as the deployment is co
 
 This is the honest summary of what an in-process fan-out can promise, and it is why anything a consumer must not miss belongs in a REST read or in a [webhook](webhooks.md), which is a delivery with attempts behind it.
 
+One event type goes the other way: **`presence.changed` streams and can never be a webhook.** An endpoint that asks for it is refused at registration. A presence report that failed once would arrive after it stopped being true, and after the newer one that replaced it, which is a roster that never settles — advisory and durable-with-retries are contradictory promises. See [`presence.md`](presence.md).
+
 ## Falling behind
 
 Each stream has a queue of 256 events. It absorbs a garbage-collection pause or a slow network without costing anybody a connection.
@@ -150,7 +156,7 @@ Both ceilings are answered with the same `429`, so a tenant is never told anythi
 
 ## Running more than one instance
 
-The broker is in-process, so on its own an instance serves only the subscribers connected to it. **Set `CONVIA_REDIS_URL` on every instance and that stops being true**: events are carried between them over one publish/subscribe channel, and a subscriber sees what happened wherever it happened.
+The broker is in-process, so on its own an instance serves only the subscribers connected to it. **Set `CONVIA_REDIS_URL` on every instance and that stops being true**: events are carried between them over one publish/subscribe channel, and a subscriber sees what happened wherever it happened. The same setting decides where [presence](presence.md) lives, and for the same reason.
 
 ```bash
 CONVIA_REDIS_URL=rediss://redis.internal:6379/0

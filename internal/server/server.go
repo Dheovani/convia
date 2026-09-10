@@ -16,6 +16,7 @@ import (
 	"convia/internal/invitations"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/presence"
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
 	"convia/internal/users"
@@ -136,6 +137,15 @@ type Dependencies struct {
 		supported deployment.
 	*/
 	TenantWebhooks *webhooks.TenantHandler
+
+	/*
+		TenantPresence is the advisory surface: what an application says about
+		who is available, held for as long as it keeps saying it. Leaving it
+		out removes the routes, and everything else about the application works
+		unchanged — which is the same thing that happens when the ephemeral
+		store behind it is unreachable.
+	*/
+	TenantPresence *presence.TenantHandler
 
 	/*
 		The invitation surface is authenticated by an invitation itself, which
@@ -526,6 +536,32 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodGet, path: api.Prefix + "/events", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantEvents.Stream)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantPresence != nil {
+		/*
+			Who is available. The device is in the path rather than the body
+			because it is the thing being replaced: a heartbeat is a PUT of one
+			device's claim, and repeating it leaves the same state with a later
+			deadline.
+
+			None of it is marked idempotent. An Idempotency-Key exists so that
+			a retried creation produces no second resource, and nothing here
+			creates one — every operation is already safe to repeat, which is
+			what a heartbeat has to be.
+		*/
+		table = append(table,
+			route{method: http.MethodPut, path: api.Prefix + "/users/{user_id}/presence/{device_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantPresence.Assert)},
+			route{method: http.MethodDelete, path: api.Prefix + "/users/{user_id}/presence/{device_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantPresence.Withdraw)},
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}/presence", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantPresence.Get)},
+			route{method: http.MethodDelete, path: api.Prefix + "/users/{user_id}/presence", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantPresence.Forget)},
+			route{method: http.MethodGet, path: api.Prefix + "/presence", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantPresence.List)},
 		)
 	}
 

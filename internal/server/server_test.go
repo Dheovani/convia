@@ -22,6 +22,7 @@ import (
 	"convia/internal/media"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/presence"
 	"convia/internal/rooms"
 	"convia/internal/secret"
 	"convia/internal/users"
@@ -256,11 +257,31 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantEvents: events.NewTenantHandler(logger, events.NewBroker()),
 		TenantWebhooks: webhooks.NewTenantHandler(logger, stubWebhooks{
 			endpoint: sampleWebhookEndpoint(), delivery: sampleWebhookDelivery()}),
+		/*
+			A real presence service over the in-process store, for the same
+			reason the broker is real: there is no infrastructure in it. What
+			these tests need is a surface that answers, and the store a
+			single-instance deployment uses answers exactly as the shared one
+			does.
+		*/
+		TenantPresence: presence.NewTenantHandler(logger, presence.NewService(presence.NewMemory(),
+			servedTenant{}, user, events.NewAnnouncer(events.NewBroker(), nil, logger), logger)),
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
 	}
 }
+
+/*
+servedTenant is an application Convia is serving.
+
+Whether a tenant is active is decided by the applications domain, which these
+transport tests do not exercise; what they need is for it to answer yes so the
+route beyond it can be reached.
+*/
+type servedTenant struct{}
+
+func (servedTenant) Active(context.Context, string) (bool, error) { return true, nil }
 
 // sampleInvitation is one invitation in the state most responses show it in.
 func sampleInvitation() invitations.Invitation {

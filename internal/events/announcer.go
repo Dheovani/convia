@@ -64,7 +64,14 @@ func NewAnnouncer(broker *Broker, durable Sink, logger *slog.Logger) *Announcer 
 func (announcer *Announcer) Publish(ctx context.Context, event Event) {
 	announcer.broker.Publish(event)
 
-	if announcer.durable == nil {
+	/*
+		Not every event has a durable half. One type is advisory by
+		construction, and queueing it would promise a redelivery that arrives
+		after it stopped being true — [Durable] says which and why. Asking here
+		rather than at the sink keeps the answer in one place: an endpoint
+		cannot subscribe to it either, and both refusals read the same rule.
+	*/
+	if announcer.durable == nil || !Durable(event.Type) {
 		return
 	}
 

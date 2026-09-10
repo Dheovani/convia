@@ -22,6 +22,37 @@ func (sink *refusingSink) Enqueue(_ context.Context, event Event) error {
 }
 
 /*
+TestAnAdvisoryEventIsNotQueuedForRedelivery keeps the two promises apart at the
+point where both are made.
+
+The stream still carries it, because a stream has no second attempt: an event
+reaches whoever is connected at that moment, in order, or not at all. The
+durable half is skipped, because a retry there would arrive after the report
+stopped being true and after the newer one that replaced it.
+*/
+func TestAnAdvisoryEventIsNotQueuedForRedelivery(t *testing.T) {
+	broker := NewBroker()
+	sink := &refusingSink{}
+	announcer := NewAnnouncer(broker, sink, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	stream, err := broker.Subscribe("app_1", Types())
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	defer stream.Close()
+
+	event := New(PresenceChanged, "app_1", "usr_1", "req_1", Data{"state": "online"})
+	announcer.Publish(context.Background(), event)
+
+	if got := receive(t, stream).ID; got != event.ID {
+		t.Errorf("the live stream received %q, want the advisory event", got)
+	}
+	if len(sink.received) != 0 {
+		t.Errorf("an advisory event was queued for redelivery: %v", sink.received)
+	}
+}
+
+/*
 TestAnnouncingReachesBothHalves is the composition doing its one job.
 
 A subscriber connected right now and a destination registered last week are
