@@ -19,6 +19,7 @@ import (
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
 	"convia/internal/users"
+	"convia/internal/webhooks"
 )
 
 const (
@@ -127,6 +128,14 @@ type Dependencies struct {
 		for every route.
 	*/
 	TenantEvents *events.TenantHandler
+
+	/*
+		TenantWebhooks is the durable counterpart of the stream above: where an
+		application asks to be reached rather than to listen. Leaving it out
+		removes the routes and leaves Convia delivering nothing, which is a
+		supported deployment.
+	*/
+	TenantWebhooks *webhooks.TenantHandler
 
 	/*
 		The invitation surface is authenticated by an invitation itself, which
@@ -517,6 +526,50 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodGet, path: api.Prefix + "/events", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantEvents.Stream)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantWebhooks != nil {
+		/*
+			Where an application asks to be told things it must not miss.
+
+			Registering is marked idempotent, and rotating is not. Registering
+			mints a secret that is shown exactly once, so a retry after a
+			timeout would otherwise leave a destination behind that nobody
+			received the key for. Rotating also mints one, but repeating it is
+			how a caller recovers from losing the answer: a second rotation
+			supersedes the first, which is the behaviour somebody who lost a
+			key actually wants.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/webhooks", surface: surfaceTenant, idempotent: true,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Register)},
+			route{method: http.MethodGet, path: api.Prefix + "/webhooks", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/webhooks/{endpoint_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/webhooks/{endpoint_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Update)},
+			route{method: http.MethodDelete, path: api.Prefix + "/webhooks/{endpoint_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Delete)},
+			route{method: http.MethodPost, path: api.Prefix + "/webhooks/{endpoint_id}/rotate", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Rotate)},
+			route{method: http.MethodPost, path: api.Prefix + "/webhooks/{endpoint_id}/enable", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Enable)},
+			route{method: http.MethodPost, path: api.Prefix + "/webhooks/{endpoint_id}/disable", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.Disable)},
+
+			/*
+				What Convia tried to send. Nested under an endpoint when the
+				question is about one destination, and flat when it is about the
+				tenant — the same shape rooms and calls already use.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/webhooks/{endpoint_id}/deliveries", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.ListDeliveries)},
+			route{method: http.MethodGet, path: api.Prefix + "/deliveries", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.ListDeliveries)},
+			route{method: http.MethodGet, path: api.Prefix + "/deliveries/{delivery_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantWebhooks.GetDelivery)},
 		)
 	}
 

@@ -70,12 +70,13 @@ type userLookup interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It takes no context and returns no error, which is the whole of its contract:
-telling somebody a roster changed must not be able to slow down, fail, or
-cancel the change. events.Broker satisfies it.
+It returns no error: telling somebody a roster changed must not be able to undo
+the change, which has already committed. The context is there because
+announcing also records what is owed to the destinations an application
+registered, which is a write with a deadline. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(event events.Event)
+	Publish(ctx context.Context, event events.Event)
 }
 
 // Service applies Convia's rules for who is in a call.
@@ -682,7 +683,7 @@ func (service *Service) audit(ctx context.Context, kind events.Type, participant
 		data["removed_by_participant_id"] = participant.RemovedByID
 	}
 
-	service.stream.Publish(events.New(kind, participant.ApplicationID, participant.ID,
+	service.stream.Publish(ctx, events.New(kind, participant.ApplicationID, participant.ID,
 		api.RequestIDFromContext(ctx), data))
 }
 

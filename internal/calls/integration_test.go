@@ -105,9 +105,12 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	second := newApplication(t, applicationService, "Second Tenant")
 
 	broker := events.NewBroker()
+	// No durable sink: these tests are about what the domain announces,
+	// not about where it is later delivered.
+	announcer := events.NewAnnouncer(broker, nil, logger)
 
 	setup := fixture{
-		service:      NewService(NewStore(pool), applicationService, roomService, plane, broker, logger),
+		service:      NewService(NewStore(pool), applicationService, roomService, plane, announcer, logger),
 		pool:         pool,
 		rooms:        roomService,
 		applications: applicationService,

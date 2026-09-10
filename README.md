@@ -24,7 +24,9 @@ A media plane exists behind that boundary: a call asks LiveKit for the room its 
 
 Control events stream: an application opens one WebSocket at `/v1/events` and is told what happened while it is still news — a call starting or ending, a roster changing, an invitation declined. The stream carries nothing upstream, so it cannot become a way to push media, and a credential is told only about the things it could already have read. Nothing is stored, and a subscriber that falls behind is disconnected with a reason rather than quietly losing an event. See [`docs/events.md`](docs/events.md).
 
-Webhooks are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
+Webhooks exist for what a client must not miss: an application registers a destination, Convia signs every delivery with a secret shown once, retries on a published schedule, disables a receiver that has stopped answering, and keeps a readable record of every attempt. It refuses to connect to anything that is not the public internet, checked at the socket on every attempt rather than at the hostname once. See [`docs/webhooks.md`](docs/webhooks.md).
+
+[`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 

@@ -186,8 +186,12 @@ Scopes name **domain operations**, not HTTP routes, so a permission keeps its me
 | `invitations:read` | Reading its invitations |
 | `invitations:write` | Issuing and withdrawing them |
 | `events:read` | Opening a live stream of its control events |
+| `webhooks:read` | Reading its webhook endpoints and deliveries, never a signing secret |
+| `webhooks:write` | Registering, changing, and removing destinations, and rotating their secrets |
 
 Each of these is separate on purpose, and none implies another. A key granted to manage the places people meet was not granted to originate conversations in them, and one granted to start conversations was not granted to decide who is in them. Conflating any pair would make least privilege unexpressible: an integration that only administers rooms would silently be able to start calls, and one that only schedules calls would silently be able to admit and eject people.
+
+`webhooks:write` is the one worth pausing on: it is the only scope that makes Convia act as a client of somewhere else, choosing an address on a tenant's word. What that address may be is bounded by [`webhooks.md`](webhooks.md); who may choose one at all is bounded here, and `events:read` does not imply it.
 
 `events:read` is the one that behaves differently, and deliberately: it grants the connection and grants no content. What travels over an event stream is still governed by the read scopes above, so an event about a call reaches only a key that could have read that call, and a key holding `events:read` alone is refused rather than given a connection that could never carry anything. See [`events.md`](events.md).
 

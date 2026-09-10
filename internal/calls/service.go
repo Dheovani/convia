@@ -64,15 +64,17 @@ type MediaPlane interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It takes no context and returns no error, which is the whole of its contract:
-telling somebody a call started must not be able to slow down, fail, or cancel
-starting it. A subscriber that cannot keep up is the stream's problem, never
-the caller's.
+It returns no error, and that is the whole of its contract: telling somebody a
+call started must not be able to undo starting it. The call has already
+committed by the time this runs, so a failure to announce is something to
+record rather than something to report back.
 
-events.Broker satisfies it.
+The context is there because announcing is no longer only a fan-out to whoever
+is listening: it also records what is owed to the destinations an application
+registered, which is a write with a deadline. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(event events.Event)
+	Publish(ctx context.Context, event events.Event)
 }
 
 // Service applies Convia's rules for calls.
@@ -565,7 +567,7 @@ func (service *Service) audit(ctx context.Context, kind events.Type, call Call) 
 		"request_id", api.RequestIDFromContext(ctx),
 	)
 
-	service.stream.Publish(events.New(kind, call.ApplicationID, call.ID,
+	service.stream.Publish(ctx, events.New(kind, call.ApplicationID, call.ID,
 		api.RequestIDFromContext(ctx), events.Data{
 			"room_id": call.RoomID,
 			"status":  string(call.Status),

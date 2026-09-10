@@ -25,6 +25,7 @@ import (
 	"convia/internal/rooms"
 	"convia/internal/secret"
 	"convia/internal/users"
+	"convia/internal/webhooks"
 )
 
 /*
@@ -253,6 +254,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 			what these tests want to open and close.
 		*/
 		TenantEvents: events.NewTenantHandler(logger, events.NewBroker()),
+		TenantWebhooks: webhooks.NewTenantHandler(logger, stubWebhooks{
+			endpoint: sampleWebhookEndpoint(), delivery: sampleWebhookDelivery()}),
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
@@ -892,4 +895,97 @@ func (stub stubParticipants) SetRole(context.Context, string, string, string, st
 	promoted := stub.participant
 	promoted.Role = participants.RoleModerator
 	return promoted, stub.err
+}
+
+/*
+sampleWebhookEndpoint is a realistic endpoint for transport-level tests.
+
+The destination is a documentation address, which is deliberate: it is a real
+URL shape that resolves to nothing anybody owns.
+*/
+func sampleWebhookEndpoint() webhooks.Endpoint {
+	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
+
+	return webhooks.Endpoint{
+		ID:            "whk_4XZQP7KN2VJH6TBWMDR3YAFC5E",
+		ApplicationID: sampleApplication().ID,
+		Name:          "Production receiver",
+		URL:           "https://hooks.example.com/convia",
+		EventTypes:    []events.Type{events.CallStarted, events.ParticipantJoined},
+		Status:        webhooks.StatusEnabled,
+		CreatedAt:     created,
+		UpdatedAt:     created,
+	}
+}
+
+// sampleWebhookDelivery is one delivery in the state most responses show it in.
+func sampleWebhookDelivery() webhooks.Delivery {
+	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
+	delivered := created.Add(time.Second)
+
+	return webhooks.Delivery{
+		ID:             "whd_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		EndpointID:     sampleWebhookEndpoint().ID,
+		ApplicationID:  sampleApplication().ID,
+		EventID:        "evt_2QF7XKN4VJH6TBWMDR3YAC5EZP",
+		EventType:      events.CallStarted,
+		Status:         webhooks.DeliveryDelivered,
+		Attempts:       1,
+		LastStatusCode: 200,
+		CreatedAt:      created,
+		UpdatedAt:      delivered,
+		DeliveredAt:    &delivered,
+	}
+}
+
+/*
+stubWebhooks answers every webhook operation with one scripted result.
+
+Routing and contract tests only need the routes to exist and to answer with a
+realistic body; the behavior lives in the webhooks package tests.
+*/
+type stubWebhooks struct {
+	endpoint webhooks.Endpoint
+	delivery webhooks.Delivery
+	err      error
+}
+
+func (stub stubWebhooks) Register(context.Context, string, webhooks.Registration) (webhooks.Endpoint, webhooks.Secret, error) {
+	return stub.endpoint, webhooks.Secret("whsec_4XZQP7KN2VJH6TBWMDR3YAFC5E"), stub.err
+}
+
+func (stub stubWebhooks) Get(context.Context, string, string) (webhooks.Endpoint, error) {
+	return stub.endpoint, stub.err
+}
+
+func (stub stubWebhooks) List(context.Context, string, webhooks.ListOptions) (webhooks.Page, error) {
+	return webhooks.Page{Endpoints: []webhooks.Endpoint{stub.endpoint}}, stub.err
+}
+
+func (stub stubWebhooks) Update(context.Context, string, string, webhooks.Registration) (webhooks.Endpoint, error) {
+	return stub.endpoint, stub.err
+}
+
+func (stub stubWebhooks) Rotate(context.Context, string, string) (webhooks.Endpoint, webhooks.Secret, error) {
+	return stub.endpoint, webhooks.Secret("whsec_7KQZP4XN2VJH6TBWMDR3YAFC5E"), stub.err
+}
+
+func (stub stubWebhooks) Enable(context.Context, string, string) (webhooks.Endpoint, error) {
+	return stub.endpoint, stub.err
+}
+
+func (stub stubWebhooks) Disable(context.Context, string, string) (webhooks.Endpoint, error) {
+	return stub.endpoint, stub.err
+}
+
+func (stub stubWebhooks) Delete(context.Context, string, string) error {
+	return stub.err
+}
+
+func (stub stubWebhooks) GetDelivery(context.Context, string, string) (webhooks.Delivery, error) {
+	return stub.delivery, stub.err
+}
+
+func (stub stubWebhooks) ListDeliveries(context.Context, string, webhooks.DeliveryListOptions) (webhooks.DeliveryPage, error) {
+	return webhooks.DeliveryPage{Deliveries: []webhooks.Delivery{stub.delivery}}, stub.err
 }

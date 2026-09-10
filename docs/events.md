@@ -108,7 +108,7 @@ An event goes to the streams open at the moment it is published, and is then gon
 - There is no cursor and no replay.
 - A client that reconnects should re-read whatever it cares about over REST, and then keep listening.
 
-This is the honest summary of what an in-process fan-out can promise, and it is why anything a consumer must not miss belongs in a REST read — or, when webhooks arrive with M15, in a delivery with an attempt behind it.
+This is the honest summary of what an in-process fan-out can promise, and it is why anything a consumer must not miss belongs in a REST read or in a [webhook](webhooks.md), which is a delivery with attempts behind it.
 
 ## Falling behind
 
