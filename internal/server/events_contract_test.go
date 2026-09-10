@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,6 +24,33 @@ import (
 // eventStreamURL is the address a subscriber dials.
 func eventStreamURL(server *httptest.Server) string {
 	return strings.Replace(server.URL, "http://", "ws://", 1) + api.Prefix + "/events"
+}
+
+/*
+transcript is an in-memory log a test can read while the server writes to it.
+
+Every other test in this package reads a log after the operation that wrote it
+returned, on the same goroutine, so a bytes.Buffer is enough. The access log is
+different: it is written by whichever goroutine served the request, and a
+stream's line is written when the connection ends rather than when the test
+asked for it. Reading a plain buffer under those conditions is a data race, and
+it is the same mistake the code under test would be making if it shared one.
+*/
+type transcript struct {
+	mutex   sync.Mutex
+	written bytes.Buffer
+}
+
+func (log *transcript) Write(entry []byte) (int, error) {
+	log.mutex.Lock()
+	defer log.mutex.Unlock()
+	return log.written.Write(entry)
+}
+
+func (log *transcript) String() string {
+	log.mutex.Lock()
+	defer log.mutex.Unlock()
+	return log.written.String()
 }
 
 /*
@@ -76,8 +104,7 @@ nothing in the events package would notice.
 */
 func TestAnUpgradeSurvivesTheMiddlewareChain(t *testing.T) {
 	broker := events.NewBroker()
-	logs := &bytes.Buffer{}
-	connection := dialStream(t, serving(t, broker, logs))
+	connection := dialStream(t, serving(t, broker, &transcript{}))
 
 	waitForStream(t, broker)
 	broker.Publish(events.New(events.CallStarted, sampleApplication().ID, sampleCall().ID, "req_1", nil))
@@ -105,7 +132,7 @@ connected.
 */
 func TestTheAccessLogTellsTheTruthAboutAnUpgrade(t *testing.T) {
 	broker := events.NewBroker()
-	logs := &bytes.Buffer{}
+	logs := &transcript{}
 	server := serving(t, broker, logs)
 
 	connection := dialStream(t, server)
