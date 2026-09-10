@@ -17,6 +17,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/events"
 	"convia/internal/invitations"
 	"convia/internal/media"
 	"convia/internal/operator"
@@ -246,6 +247,12 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantCalls:        calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
 		TenantParticipants: participants.NewTenantHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		TenantInvitations:  invitations.NewTenantHandler(logger, stubInvitations{invitation: sampleInvitation()}),
+		/*
+			A real broker, because there is nothing to stub: it holds no
+			infrastructure, and a stream that nobody publishes into is exactly
+			what these tests want to open and close.
+		*/
+		TenantEvents: events.NewTenantHandler(logger, events.NewBroker()),
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),

@@ -103,6 +103,8 @@ A person named on a join must be one of the caller's own users, and must be acti
 
 Scopes are `participants:read` and `participants:write` on the tenant surface, and `tenants:read` / `tenants:write` on the operator surface. **`calls:write` does not imply `participants:write`**: a key granted to start and end conversations was not granted to decide who is in them.
 
+`participants:read` is also what governs roster events on the live stream, so a key that cannot read a roster is not told about one changing either. See [`events.md`](events.md).
+
 ## Listing
 
 `GET /v1/calls/{call_id}/participants` returns a call's roster newest first, using the cursor pagination defined in [`api-conventions.md`](api-conventions.md).

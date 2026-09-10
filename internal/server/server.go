@@ -12,6 +12,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/events"
 	"convia/internal/invitations"
 	"convia/internal/operator"
 	"convia/internal/participants"
@@ -117,6 +118,15 @@ type Dependencies struct {
 	TenantCalls        *calls.TenantHandler
 	TenantParticipants *participants.TenantHandler
 	TenantInvitations  *invitations.TenantHandler
+
+	/*
+		TenantEvents is the one route that is not a request and a response. It
+		is left out of the write timeouts the rest of the surface is served
+		under, because a stream is supposed to outlive them, and the handler
+		clears them for its own connection rather than the server relaxing them
+		for every route.
+	*/
+	TenantEvents *events.TenantHandler
 
 	/*
 		The invitation surface is authenticated by an invitation itself, which
@@ -490,6 +500,23 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Invitations.Redeem)},
 			route{method: http.MethodPost, path: api.Prefix + "/invitation/decline", surface: surfaceInvitation,
 				handler: http.HandlerFunc(dependencies.Invitations.Decline)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantEvents != nil {
+		/*
+			The live control stream. It names nothing in its path: an
+			application receives its own events, and the set it receives was
+			settled from its credential's scopes before the connection existed.
+
+			It is not marked idempotent. An Idempotency-Key exists so that a
+			retried creation produces no second resource, and a stream creates
+			nothing — opening a second one is a second subscriber, which is
+			exactly what a client that reconnected wants.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/events", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantEvents.Stream)},
 		)
 	}
 

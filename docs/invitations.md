@@ -122,6 +122,8 @@ An invitation names a person by their Convia user identifier and nothing else, f
 
 Issuing, redeeming, revoking, and declining are audited with the invitation, the call, the application, the person, and the resulting state. **The secret is never in a log**, and neither is anything the application wrote — an invitation carries no free text, so there is nothing in it that could say something about the person it was sent to. A test asserts the secret stays out.
 
+Of the four, only declining is also delivered live. It is the invitee's own decision and nothing else observes it, while issuing and withdrawing are the application's own acts and redeeming already arrives as somebody joining. [`events.md`](events.md) records the reasoning for each.
+
 Suspending an application withdraws every invitation it issued, immediately and without anyone hunting down outstanding links. That is the same guarantee an application key already has, for the same reason.
 
 ## What is deliberately not built

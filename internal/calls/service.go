@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/rooms"
 )
@@ -60,18 +61,34 @@ type MediaPlane interface {
 	IssueCredential(ctx context.Context, admission media.Admission) (media.Credential, error)
 }
 
+/*
+announcer is the behavior this package needs to publish what happened.
+
+It takes no context and returns no error, which is the whole of its contract:
+telling somebody a call started must not be able to slow down, fail, or cancel
+starting it. A subscriber that cannot keep up is the stream's problem, never
+the caller's.
+
+events.Broker satisfies it.
+*/
+type announcer interface {
+	Publish(event events.Event)
+}
+
 // Service applies Convia's rules for calls.
 type Service struct {
 	store   *Store
 	tenants tenants
 	rooms   roomLookup
 	media   MediaPlane
+	stream  announcer
 	logger  *slog.Logger
 }
 
 func NewService(store *Store, owner tenants, places roomLookup,
-	transport MediaPlane, logger *slog.Logger) *Service {
-	return &Service{store: store, tenants: owner, rooms: places, media: transport, logger: logger}
+	transport MediaPlane, stream announcer, logger *slog.Logger) *Service {
+	return &Service{store: store, tenants: owner, rooms: places, media: transport,
+		stream: stream, logger: logger}
 }
 
 /*
@@ -155,7 +172,7 @@ func (service *Service) Start(ctx context.Context, applicationID, roomID string,
 	if err := service.store.Create(ctx, call); err != nil {
 		return Call{}, err
 	}
-	service.audit(ctx, "call.started", call)
+	service.audit(ctx, events.CallStarted, call)
 
 	/*
 		The call record is the control-plane truth and the media session is
@@ -303,7 +320,7 @@ func (service *Service) abandon(ctx context.Context, call Call) {
 		return
 	}
 	if changed {
-		service.audit(ctx, "call.ended", ended)
+		service.audit(ctx, events.CallEnded, ended)
 	}
 }
 
@@ -434,7 +451,7 @@ func (service *Service) End(ctx context.Context, applicationID, id string,
 	}
 
 	service.releaseSessionOf(ctx, call)
-	service.audit(ctx, "call.ended", call)
+	service.audit(ctx, events.CallEnded, call)
 	return call, nil
 }
 
@@ -519,14 +536,18 @@ func pageSize(requested int) (int, error) {
 }
 
 /*
-audit records a call lifecycle change.
+audit records a call lifecycle change, and announces it to whoever is listening.
 
 The metadata and the end reason are application-composed text that may say
 something about the people in the call, so neither is recorded. What an
 operator needs is which call changed, in which room, for which tenant, into
 what state, and on whose authority.
+
+Recording and announcing happen together on purpose. They describe one
+occurrence, and separating them would let the audit trail and the live stream
+drift into two accounts of the same conversation.
 */
-func (service *Service) audit(ctx context.Context, event string, call Call) {
+func (service *Service) audit(ctx context.Context, kind events.Type, call Call) {
 	// The actor is whoever caused the event being recorded, which is the one
 	// who ended the call once there is one, and otherwise the one who started it.
 	actor := call.StartedBy
@@ -535,7 +556,7 @@ func (service *Service) audit(ctx context.Context, event string, call Call) {
 	}
 
 	service.logger.Info("audit event",
-		"event", event,
+		"event", string(kind),
 		"call_id", call.ID,
 		"application_id", call.ApplicationID,
 		"room_id", call.RoomID,
@@ -543,6 +564,13 @@ func (service *Service) audit(ctx context.Context, event string, call Call) {
 		"actor", string(actor),
 		"request_id", api.RequestIDFromContext(ctx),
 	)
+
+	service.stream.Publish(events.New(kind, call.ApplicationID, call.ID,
+		api.RequestIDFromContext(ctx), events.Data{
+			"room_id": call.RoomID,
+			"status":  string(call.Status),
+			"actor":   string(actor),
+		}))
 }
 
 // now returns the timestamp Convia stores for a change.

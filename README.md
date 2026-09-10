@@ -22,7 +22,9 @@ People can also be invited rather than admitted. An invitation is a credential t
 
 A media plane exists behind that boundary: a call asks LiveKit for the room its conversation happens in, and releases it when the call ends. A client joins through Convia alone: one endpoint returns a short-lived credential for one person in one call, and no external consumer ever integrates with a media provider directly. Convia still runs perfectly well with no media plane configured at all. See [`docs/media.md`](docs/media.md).
 
-Real-time events are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
+Control events stream: an application opens one WebSocket at `/v1/events` and is told what happened while it is still news — a call starting or ending, a roster changing, an invitation declined. The stream carries nothing upstream, so it cannot become a way to push media, and a credential is told only about the things it could already have read. Nothing is stored, and a subscriber that falls behind is disconnected with a reason rather than quietly losing an event. See [`docs/events.md`](docs/events.md).
+
+Webhooks are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
 

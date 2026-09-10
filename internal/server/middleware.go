@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strconv"
@@ -146,6 +148,25 @@ func (recorder *responseRecorder) headerWritten() bool {
 // working for handlers that need flushing or connection control.
 func (recorder *responseRecorder) Unwrap() http.ResponseWriter {
 	return recorder.ResponseWriter
+}
+
+/*
+Hijack lets a handler take the connection over, and records that it did.
+
+Without this the access log would report a protocol upgrade as an ordinary 200
+that returned no bytes, because nothing after the hijack goes through the
+writer any more. Recording the status here is what keeps one line per request
+true for the one route that stops being a request.
+*/
+func (recorder *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	connection, buffered, err := http.NewResponseController(recorder.ResponseWriter).Hijack()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	recorder.status = http.StatusSwitchingProtocols
+	recorder.written = true
+	return connection, buffered, nil
 }
 
 /*

@@ -109,6 +109,17 @@ const (
 		is not thereby allowed to mint links that let somebody into a call.
 	*/
 	ScopeInvitationsWrite Scope = "invitations:write"
+	/*
+		ScopeEventsRead permits opening a live stream of the application's
+		control events.
+
+		It grants the connection and not the content. What travels over the
+		stream is still governed by the read scopes the credential carries, so
+		a key granted this and nothing else is refused rather than given an
+		empty connection: an event about a call is delivered only to a key that
+		could have read that call.
+	*/
+	ScopeEventsRead Scope = "events:read"
 )
 
 /*
@@ -125,6 +136,7 @@ func Scopes() []Scope {
 		ScopeCallsRead, ScopeCallsWrite,
 		ScopeParticipantsRead, ScopeParticipantsWrite,
 		ScopeInvitationsRead, ScopeInvitationsWrite,
+		ScopeEventsRead,
 	}
 }
 
