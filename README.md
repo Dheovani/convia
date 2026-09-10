@@ -18,7 +18,7 @@ Calls exist: an application can start a conversation in one of its rooms, end it
 
 Participants exist: an application can admit its people to a call, read who is there, promote a moderator, and remove someone. Joining is idempotent by the person, so a reconnection never duplicates anyone, and a room's capacity is enforced when people arrive. See [`docs/participants.md`](docs/participants.md).
 
-A media plane exists behind that boundary: a call asks LiveKit for the room its conversation happens in, and releases it when the call ends. Nobody can connect yet — issuing a participant the credentials to do so is the next step — and Convia still runs perfectly well with no media plane configured at all. See [`docs/media.md`](docs/media.md).
+A media plane exists behind that boundary: a call asks LiveKit for the room its conversation happens in, and releases it when the call ends. A client joins through Convia alone: one endpoint returns a short-lived credential for one person in one call, and no external consumer ever integrates with a media provider directly. Convia still runs perfectly well with no media plane configured at all. See [`docs/media.md`](docs/media.md).
 
 Real-time events are intentionally not implemented yet. [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 

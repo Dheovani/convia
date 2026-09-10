@@ -62,4 +62,8 @@ var (
 	_ fmt.Stringer   = APISecret("")
 	_ fmt.GoStringer = APISecret("")
 	_ slog.LogValuer = APISecret("")
+
+	_ fmt.Stringer   = Token("")
+	_ fmt.GoStringer = Token("")
+	_ slog.LogValuer = Token("")
 )

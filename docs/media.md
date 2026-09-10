@@ -22,6 +22,15 @@ no media plane is configured, so calls carry no audio or video
 | `CONVIA_LIVEKIT_API_KEY` | with the others | The API key it should identify Convia by |
 | `CONVIA_LIVEKIT_API_SECRET` | with the others | The shared secret Convia signs its requests with |
 | `CONVIA_LIVEKIT_TIMEOUT` | no, defaults to `5s` | How long Convia waits for an answer |
+| `CONVIA_LIVEKIT_CLIENT_URL` | no | Where a *browser* reaches the media plane, if that is not where Convia does |
+
+**Convia's address and the client's are not always the same.** A deployment
+commonly reaches its media server on a private network that no browser can
+resolve, so the address published to clients is configured separately. Unset,
+it is derived from `CONVIA_LIVEKIT_URL` by swapping the scheme for `ws`, which
+is right whenever one server answers both. Set it and it is taken as given,
+because the case it exists for is precisely the one where the client's address
+is not a transformation of Convia's.
 
 **All or nothing.** Set none of the first three and Convia runs without a media plane. Set some of them and it refuses to start, naming the ones that are missing. That case is refused rather than tolerated because it is never what anybody meant: a deployment missing one value would otherwise start happily and be indistinguishable from one that meant to have no media plane at all, until somebody started a call and could not hear anybody.
 
@@ -73,6 +82,8 @@ Two operations, which is all the implemented call flows need:
 
 **A call ends, so the room is deleted.** Best-effort: a provider that cannot be reached must never keep a conversation open in Convia that ended in reality. A room the provider no longer has is a success rather than a failure, because Convia asks it to reclaim empty rooms on its own.
 
+**Someone Convia admitted needs a credential, so one is signed.** This is the only operation that makes no request at all: a LiveKit access token is signed locally and verified by the server when its holder connects. Admitting somebody therefore cannot time out and never reports the media plane unavailable, which means people can still be let into a running conversation during an outage that would prevent starting a new call.
+
 The room is named after the call, and a room is never reused across calls.
 
 **Room capacity is not sent to the provider.** ADR 0001 left open whether the media plane should enforce it too; it should not. Convia's capacity can be changed while a call is running, and a number copied to the provider at creation would then be stale in the restrictive direction — a participant Convia admitted would be refused by the provider, and Convia would have no way to explain it.
@@ -90,7 +101,8 @@ Convia does not retry internally. It reports `503`, and the call is already ende
 
 ## What is not implemented
 
-- **Participant credentials and disconnection.** Nobody can connect yet. These arrive with the join sessions of M13, from a flow that exists, rather than being guessed at now.
+- **Disconnecting someone who was removed.** Convia ends their participation and stops issuing them credentials, and a credential is short-lived, so the gap is bounded rather than open — but a connection already established is not severed. Closing it means asking the provider to eject a live connection, which is a fourth operation for the removal flow to add.
+- **Rate limits on issuing credentials.** See [`participants.md`](participants.md).
 - **Provider webhooks and events.** Convia has no internal event concept to translate them into yet.
 - **Reconciling rooms the provider still holds.** A session that could not be released is logged and not reclaimed automatically.
 - **Retries and circuit breaking.** These should be shaped by measured failure modes, and there are none to measure.
@@ -99,4 +111,6 @@ Convia does not retry internally. It reports `503`, and the call is already ende
 
 The API secret is never logged, never returned, and never included in an error. It is held as a type that renders itself as `[redacted]` through `fmt`, through `%#v`, and through `slog`, so logging a whole configuration struct is harmless. Tests assert each of those paths, including against errors produced by a real server.
 
-The tokens Convia signs live for one minute, carry only the single permission the request needs, and appear nowhere but the `Authorization` header of the request they were minted for.
+The tokens Convia signs for its own API calls live for one minute, carry only the single permission the request needs, and appear nowhere but the `Authorization` header of the request they were minted for.
+
+The credential handed to a client is the one token that leaves Convia's process. It lives five minutes, is bound to one call and one participant, and carries no administrative permission at all — a moderator moderates through Convia's API, never through the media plane, so that every removal is authorized, recorded, and reflected in Convia's own state. It is a redacting type everywhere except the single line that writes it into the response, and a test asserts it never reaches a log.

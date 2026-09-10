@@ -522,3 +522,206 @@ func TestARefusedConfigurationDoesNotEchoWhatWasRefused(t *testing.T) {
 		t.Errorf("the refused URL was echoed back with its credentials: %v", err)
 	}
 }
+
+const testParticipantID = "part_5XYZ234567ABCDEFGHIJKLMNOP"
+
+// admitted issues a credential against a plane pointed at a fake provider.
+func admitted(t *testing.T, plane *Plane) media.Credential {
+	t.Helper()
+
+	credential, err := plane.IssueCredential(context.Background(), media.Admission{
+		Session:       media.Session{Reference: testCallID},
+		ParticipantID: testParticipantID,
+		Lifetime:      5 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("issue a credential: %v", err)
+	}
+	return credential
+}
+
+/*
+TestIssuingACredentialAsksTheProviderNothing is a property worth pinning down.
+
+A LiveKit access token is signed locally and verified when its holder connects,
+so admitting somebody involves no request at all. That is why this operation
+cannot be unavailable, and it means people can still be let into a running
+conversation during an outage that would prevent starting a new call.
+*/
+func TestIssuingACredentialAsksTheProviderNothing(t *testing.T) {
+	plane, fake := newProvider(t, func(recorded) (int, string) {
+		t.Error("issuing a credential made a request to the provider")
+		return http.StatusOK, "{}"
+	})
+
+	if credential := admitted(t, plane); !credential.Issued() {
+		t.Fatal("no credential was issued")
+	}
+	if asked := fake.requests(); len(asked) != 0 {
+		t.Errorf("the provider was asked %d times to issue a credential", len(asked))
+	}
+}
+
+/*
+TestACredentialAdmitsOnePersonToOneConversation is the least-privilege rule
+where it matters most.
+
+This is the only token Convia ever hands outside its own process. It must let
+its holder take part in exactly the call they were admitted to, as exactly the
+identity Convia knows them by, and do nothing else.
+*/
+func TestACredentialAdmitsOnePersonToOneConversation(t *testing.T) {
+	plane, _ := newProvider(t, nil)
+
+	credential := admitted(t, plane)
+
+	video, registered := permissions(t, recorded{authorized: "Bearer " + credential.Token.Reveal()})
+
+	if video["roomJoin"] != true {
+		t.Errorf("the credential does not grant joining, only %v", video)
+	}
+	if video["room"] != testCallID {
+		t.Errorf("the credential admits to %v rather than to the call it was issued for", video["room"])
+	}
+	if video["canPublish"] != true || video["canSubscribe"] != true {
+		t.Errorf("the credential does not grant taking part: %v", video)
+	}
+
+	/*
+		Administrative permission is the one that must never appear.
+		roomCreate would let a client outlive its call by making rooms;
+		roomAdmin would let a moderator remove people directly on the
+		provider, where Convia would neither authorize it nor find out.
+	*/
+	for _, forbidden := range []string{"roomCreate", "roomAdmin", "roomList", "roomRecord", "ingressAdmin"} {
+		if _, granted := video[forbidden]; granted {
+			t.Errorf("the credential grants %q, which no client may hold", forbidden)
+		}
+	}
+
+	if subject := registered["sub"]; subject != testParticipantID {
+		t.Errorf("the credential identifies its holder as %v, not as the participant", subject)
+	}
+}
+
+func TestACredentialExpiresWhenTheControlPlaneSaidItWould(t *testing.T) {
+	plane, _ := newProvider(t, nil)
+
+	issued := time.Date(2026, time.September, 9, 12, 0, 0, 0, time.UTC)
+	plane.now = func() time.Time { return issued }
+
+	credential, err := plane.IssueCredential(context.Background(), media.Admission{
+		Session:       media.Session{Reference: testCallID},
+		ParticipantID: testParticipantID,
+		Lifetime:      90 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("issue a credential: %v", err)
+	}
+
+	if !credential.ExpiresAt.Equal(issued.Add(90 * time.Second)) {
+		t.Errorf("the credential expires at %v, not after the lifetime the control plane asked for",
+			credential.ExpiresAt)
+	}
+
+	/*
+		The reported expiry and the token's own must agree. A client trusts
+		the first and the provider enforces the second, so a disagreement
+		would show up as a connection refused for no visible reason.
+	*/
+	_, registered := permissions(t,
+		recorded{authorized: "Bearer " + credential.Token.Reveal()},
+		jwt.WithTimeFunc(func() time.Time { return issued }))
+
+	expires, err := registered.GetExpirationTime()
+	if err != nil || expires == nil || !expires.Time.Equal(credential.ExpiresAt) {
+		t.Errorf("the token expires at %v but the response says %v", expires, credential.ExpiresAt)
+	}
+}
+
+func TestTheCredentialPointsClientsAtTheAddressTheyCanReach(t *testing.T) {
+	plane, _ := newProvider(t, nil)
+
+	// Derived by swapping the scheme when nothing else is configured.
+	if credential := admitted(t, plane); !strings.HasPrefix(credential.URL, "ws://127.0.0.1:") {
+		t.Errorf("clients are sent to %q rather than a WebSocket address", credential.URL)
+	}
+
+	separate, err := New(Config{
+		URL:       "http://livekit.internal:7880",
+		ClientURL: "wss://media.example",
+		APIKey:    testKey,
+		APISecret: testSecret,
+		Timeout:   time.Second,
+	})
+	if err != nil {
+		t.Fatalf("build an adapter: %v", err)
+	}
+
+	if credential := admitted(t, separate); credential.URL != "wss://media.example" {
+		t.Errorf("clients are sent to %q rather than the address configured for them", credential.URL)
+	}
+}
+
+/*
+TestAnAdmissionThatCannotBeHonouredIsTerminal covers the states that mean a
+programming or configuration mistake rather than a transient one.
+
+None of them is retryable. A call with no media session is the one that
+actually happens: it was started while the deployment had no media plane, and
+one was configured afterwards.
+*/
+func TestAnAdmissionThatCannotBeHonouredIsTerminal(t *testing.T) {
+	plane, _ := newProvider(t, nil)
+
+	workable := media.Admission{
+		Session:       media.Session{Reference: testCallID},
+		ParticipantID: testParticipantID,
+		Lifetime:      time.Minute,
+	}
+
+	cases := map[string]func(media.Admission) media.Admission{
+		"a call with no media session": func(a media.Admission) media.Admission { a.Session = media.Session{}; return a },
+		"nobody to admit":              func(a media.Admission) media.Admission { a.ParticipantID = ""; return a },
+		"no lifetime":                  func(a media.Admission) media.Admission { a.Lifetime = 0; return a },
+		"a negative lifetime":          func(a media.Admission) media.Admission { a.Lifetime = -time.Minute; return a },
+	}
+
+	for name, spoil := range cases {
+		t.Run(name, func(t *testing.T) {
+			credential, err := plane.IssueCredential(context.Background(), spoil(workable))
+			if err == nil {
+				t.Fatalf("a credential was issued for %s", name)
+			}
+			if media.Retryable(err) {
+				t.Errorf("%s produced %v, which invites a retry that cannot work", name, err)
+			}
+			if credential.Issued() {
+				t.Error("a credential came back alongside the error")
+			}
+		})
+	}
+}
+
+/*
+TestAnUnissuableCredentialCarriesNothingToLeak checks the failure path rather
+than the success one.
+
+An error from this operation is logged. The secret signs every credential, so
+an error that carried it would put it in the log of every deployment that ever
+misconfigured a call.
+*/
+func TestAnUnissuableCredentialCarriesNothingToLeak(t *testing.T) {
+	plane, _ := newProvider(t, nil)
+
+	_, err := plane.IssueCredential(context.Background(), media.Admission{
+		ParticipantID: testParticipantID,
+		Lifetime:      time.Minute,
+	})
+	if err == nil {
+		t.Fatal("a credential was issued for a call with no media session")
+	}
+	if strings.Contains(err.Error(), testSecret.Reveal()) {
+		t.Errorf("the API secret is in the error an operator will read: %v", err)
+	}
+}

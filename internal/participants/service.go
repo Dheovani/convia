@@ -9,6 +9,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/calls"
+	"convia/internal/media"
 	"convia/internal/rooms"
 	"convia/internal/users"
 )
@@ -39,6 +40,8 @@ dependency one-directional and the call the authority on its own state.
 */
 type callLookup interface {
 	Get(ctx context.Context, applicationID, id string) (calls.Call, error)
+	Admit(ctx context.Context, call calls.Call, participantID string,
+		lifetime time.Duration) (media.Credential, error)
 }
 
 /*
@@ -338,6 +341,77 @@ func (service *Service) SetRole(ctx context.Context, applicationID, id, role, ac
 
 	service.audit(ctx, "participant.role_changed", changed)
 	return changed, nil
+}
+
+/*
+credentialLifetime is how long a connection credential a client is given stays
+valid.
+
+It is deliberately short. The credential is presented once, to open a
+connection, and the connection outlives it: nothing forces a client out when it
+expires. What a short life bounds is how long a copy taken from a log, a
+crash report, or a device somebody no longer has can still be used to walk into
+a conversation.
+
+The cost is real and is documented rather than hidden: a client that loses its
+connection after the credential expires cannot reconnect with it and has to ask
+for another. That is one request against an endpoint the application already
+calls, and it is the trade this milestone chose.
+*/
+const credentialLifetime = 5 * time.Minute
+
+/*
+Session issues the credential a client connects to a call with.
+
+It is the one place Convia decides that a particular person may take part in a
+particular conversation right now, and it re-decides it every time. A
+participant who was removed, whose user was suspended, or whose call has ended
+gets nothing, however recently they were let in — which is what makes removal
+mean something despite the media plane having no way to be told about it.
+
+The checks are the ones joining already applies, deliberately: a rule enforced
+in two places is a rule that will eventually be enforced in one.
+*/
+func (service *Service) Session(ctx context.Context, applicationID, id string) (Participant, media.Credential, error) {
+	participant, err := service.locate(ctx, applicationID, id)
+	if err != nil {
+		return Participant{}, media.Credential{}, err
+	}
+
+	/*
+		Left and removed are both refused, and neither reveals which. Someone
+		who left may be readmitted by joining again, which is the application's
+		decision to make rather than something this endpoint should quietly do
+		on their behalf.
+	*/
+	if !participant.Present() {
+		return Participant{}, media.Credential{}, ErrGone
+	}
+
+	call, err := service.requireCall(ctx, applicationID, participant.CallID)
+	if err != nil {
+		return Participant{}, media.Credential{}, err
+	}
+
+	if call.Ended() {
+		return Participant{}, media.Credential{}, ErrCallEnded
+	}
+
+	if err := service.requireActiveUser(ctx, applicationID, participant.UserID); err != nil {
+		return Participant{}, media.Credential{}, err
+	}
+
+	credential, err := service.calls.Admit(ctx, call, participant.ID, credentialLifetime)
+	if err != nil {
+		return Participant{}, media.Credential{}, err
+	}
+
+	if !credential.Issued() {
+		return Participant{}, media.Credential{}, ErrNoMediaPlane
+	}
+
+	service.audit(ctx, "participant.session_issued", participant)
+	return participant, credential, nil
 }
 
 /*

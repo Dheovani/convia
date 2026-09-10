@@ -17,6 +17,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/media"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/rooms"
@@ -728,6 +729,7 @@ whether the domain rules hold is settled by the participants package tests.
 type stubParticipants struct {
 	participant participants.Participant
 	page        participants.Page
+	credential  media.Credential
 	admitted    bool
 	err         error
 }
@@ -748,6 +750,28 @@ func (stub stubParticipants) List(context.Context, string, string, participants.
 		}, stub.err
 	}
 	return stub.page, stub.err
+}
+
+/*
+Session answers with a credential shaped like a real one.
+
+The token is a distinctive placeholder so that the contract tests can assert
+where it does and does not appear.
+*/
+func (stub stubParticipants) Session(context.Context, string, string) (participants.Participant, media.Credential, error) {
+	if stub.err != nil {
+		return participants.Participant{}, media.Credential{}, stub.err
+	}
+
+	credential := stub.credential
+	if !credential.Issued() {
+		credential = media.Credential{
+			URL:       "wss://media.example",
+			Token:     media.Token("a-signed-connection-credential"),
+			ExpiresAt: sampleParticipant().CreatedAt,
+		}
+	}
+	return stub.participant, credential, nil
 }
 
 func (stub stubParticipants) Leave(context.Context, string, string) (participants.Participant, error) {

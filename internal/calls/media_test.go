@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"convia/internal/media"
 )
@@ -23,8 +24,10 @@ type scriptedMedia struct {
 	mutex     sync.Mutex
 	opened    []string
 	closed    []string
+	admitted  []media.Admission
 	openErr   error
 	closeErr  error
+	admitErr  error
 	reference string
 }
 
@@ -50,6 +53,28 @@ func (plane *scriptedMedia) CloseSession(_ context.Context, session media.Sessio
 
 	plane.closed = append(plane.closed, session.Reference)
 	return plane.closeErr
+}
+
+func (plane *scriptedMedia) IssueCredential(_ context.Context, admission media.Admission) (media.Credential, error) {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+
+	plane.admitted = append(plane.admitted, admission)
+	if plane.admitErr != nil {
+		return media.Credential{}, plane.admitErr
+	}
+
+	return media.Credential{
+		URL:       "ws://media.test",
+		Token:     media.Token("token-for-" + admission.ParticipantID),
+		ExpiresAt: time.Now().Add(admission.Lifetime),
+	}, nil
+}
+
+func (plane *scriptedMedia) admissions() []media.Admission {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+	return append([]media.Admission(nil), plane.admitted...)
 }
 
 func (plane *scriptedMedia) releases() []string {
@@ -287,5 +312,101 @@ func TestOpeningIsAskedForOncePerCall(t *testing.T) {
 	}
 	if released := plane.releases(); len(released) != 1 {
 		t.Errorf("released %d sessions, want the repeat to release nothing further", len(released))
+	}
+}
+
+/*
+TestAdmittingReadsTheSessionNobodyElseCanSee is what Admit exists for.
+
+The call's media session is stored beside the call and deliberately absent from
+the domain type, so a credential can only be bound to the right room by coming
+through here. This asserts that the reference reaching the media plane is the
+one this call actually holds, rather than anything derived or guessed.
+*/
+func TestAdmittingReadsTheSessionNobodyElseCanSee(t *testing.T) {
+	plane := &scriptedMedia{}
+	setup := newFixtureWith(t, plane)
+	ctx := context.Background()
+
+	call, err := setup.service.Start(ctx, setup.first, setup.firstRoom, Definition{}, ActorApplication)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	credential, err := setup.service.Admit(ctx, call, "part_ABCDEFGHIJKLMNOPQRSTUVWXYZ", time.Minute)
+	if err != nil {
+		t.Fatalf("Admit() error = %v", err)
+	}
+	if !credential.Issued() {
+		t.Fatal("no credential was issued for a running call")
+	}
+
+	admissions := plane.admissions()
+	if len(admissions) != 1 {
+		t.Fatalf("the media plane was asked to admit %d times, not once", len(admissions))
+	}
+	if admissions[0].Session.Reference != "sess-"+call.ID {
+		t.Errorf("the credential admits to %q, not to this call's own session",
+			admissions[0].Session.Reference)
+	}
+	if admissions[0].Lifetime != time.Minute {
+		t.Errorf("the credential lives %v, not the lifetime the caller asked for", admissions[0].Lifetime)
+	}
+}
+
+/*
+TestAnEndedCallAdmitsNobody guards the rule against the caller that forgets it.
+
+Admit takes a call the caller has already resolved rather than an identifier,
+so checking its state costs nothing. Without it, a future caller could hand out
+a credential to a conversation that is over.
+*/
+func TestAnEndedCallAdmitsNobody(t *testing.T) {
+	plane := &scriptedMedia{}
+	setup := newFixtureWith(t, plane)
+	ctx := context.Background()
+
+	call, err := setup.service.Start(ctx, setup.first, setup.firstRoom, Definition{}, ActorApplication)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	ended, err := setup.service.End(ctx, setup.first, call.ID, ActorApplication, "Finished.")
+	if err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+
+	if _, err := setup.service.Admit(ctx, ended, "part_ABCDEFGHIJKLMNOPQRSTUVWXYZ", time.Minute); err == nil {
+		t.Fatal("Admit() error = nil, want an ended call to admit nobody")
+	}
+	if admissions := plane.admissions(); len(admissions) != 0 {
+		t.Error("the media plane was asked to admit somebody to a call that had ended")
+	}
+}
+
+/*
+TestAMediaOutageWhileAdmittingInvitesARetry keeps the two failures apart on the
+admission path too.
+
+The adapter Convia ships signs credentials locally and cannot be unavailable,
+but the boundary permits it and a future provider may well need a request. A
+caller told an outage was terminal would give up on a conversation that is
+still running.
+*/
+func TestAMediaOutageWhileAdmittingInvitesARetry(t *testing.T) {
+	plane := &scriptedMedia{}
+	setup := newFixtureWith(t, plane)
+	ctx := context.Background()
+
+	call, err := setup.service.Start(ctx, setup.first, setup.firstRoom, Definition{}, ActorApplication)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	plane.admitErr = fmt.Errorf("the provider is down: %w", media.ErrUnavailable)
+
+	_, err = setup.service.Admit(ctx, call, "part_ABCDEFGHIJKLMNOPQRSTUVWXYZ", time.Minute)
+	if !errors.Is(err, ErrMediaUnavailable) {
+		t.Fatalf("Admit() error = %v, want %v", err, ErrMediaUnavailable)
 	}
 }

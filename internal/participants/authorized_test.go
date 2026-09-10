@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"convia/internal/credentials"
+	"convia/internal/media"
 	"convia/internal/operator"
 )
 
@@ -24,6 +25,7 @@ type recordingService struct {
 	actingID      string
 	participant   Participant
 	page          Page
+	credential    media.Credential
 	admitted      bool
 	err           error
 }
@@ -62,6 +64,11 @@ func (fake *recordingService) SetRole(_ context.Context, applicationID, _, _, ac
 	return fake.participant, fake.err
 }
 
+func (fake *recordingService) Session(_ context.Context, applicationID, _ string) (Participant, media.Credential, error) {
+	fake.called, fake.applicationID = true, applicationID
+	return fake.participant, fake.credential, fake.err
+}
+
 const (
 	testApplicationID = "app_MXHJAY4MJNX2FO22XWJ3XNCKHT"
 	testCallID        = "call_7KQZP4XN2VJH6TBWMDR3YAFC5E"
@@ -88,6 +95,15 @@ func tenantOperations() []tenantOperation {
 		}},
 		{"list", credentials.ScopeParticipantsRead, func(a *Authorized) error {
 			_, err := a.List(context.Background(), testCallID, ListOptions{})
+			return err
+		}},
+		/*
+			Issuing a connection credential requires the write scope, not the
+			read one. Reading who is in a call and handing somebody the means
+			to take part in it are different powers.
+		*/
+		{"session", credentials.ScopeParticipantsWrite, func(a *Authorized) error {
+			_, _, err := a.Session(context.Background(), testParticipantID)
 			return err
 		}},
 		{"leave", credentials.ScopeParticipantsWrite, func(a *Authorized) error {

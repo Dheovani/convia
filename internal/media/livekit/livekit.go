@@ -74,6 +74,18 @@ type Config struct {
 	APIKey    string
 	APISecret media.APISecret
 	Timeout   time.Duration
+
+	/*
+		ClientURL is where a browser reaches the media plane, when that is not
+		where Convia reaches it.
+
+		The two are routinely different and the difference is not cosmetic. A
+		deployment commonly reaches its media server on a private address that
+		no client can resolve, so publishing the address Convia uses would hand
+		every client something that cannot work. Empty means the two are the
+		same, which is the local case.
+	*/
+	ClientURL string
 }
 
 /*
@@ -86,6 +98,7 @@ calls.
 */
 type Plane struct {
 	endpoint  string
+	clientURL string
 	apiKey    string
 	apiSecret media.APISecret
 	client    *http.Client
@@ -118,13 +131,49 @@ func New(config Config) (*Plane, error) {
 		return nil, errors.New("the media timeout must be positive")
 	}
 
+	clientURL, err := clientEndpoint(config.ClientURL, endpoint)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Plane{
 		endpoint:  endpoint,
+		clientURL: clientURL,
 		apiKey:    config.APIKey,
 		apiSecret: config.APISecret,
 		client:    &http.Client{Timeout: config.Timeout},
 		now:       time.Now,
 	}, nil
+}
+
+/*
+clientEndpoint decides the address a client is told to connect to.
+
+Clients speak WebSocket where Convia speaks HTTP, against the same server, so
+an unset value is derived by swapping the scheme rather than requiring an
+operator to write the same host twice and keep the two in step. A configured
+value is taken as given, because the case it exists for is precisely the one
+where the client's address is not a transformation of Convia's.
+*/
+func clientEndpoint(configured, apiEndpoint string) (string, error) {
+	if strings.TrimSpace(configured) == "" {
+		return strings.Replace(apiEndpoint, "http", "ws", 1), nil
+	}
+
+	parsed, err := url.Parse(strings.TrimSpace(configured))
+	if err != nil {
+		return "", errors.New("the media client URL is not a valid URL")
+	}
+
+	if parsed.Scheme != "ws" && parsed.Scheme != "wss" {
+		return "", errors.New("the media client URL must use the ws or wss scheme")
+	}
+
+	if parsed.Host == "" {
+		return "", errors.New("the media client URL must include a host")
+	}
+
+	return strings.TrimSuffix(parsed.String(), "/"), nil
 }
 
 // normalizeEndpoint validates the server URL and strips any trailing slash.
@@ -238,6 +287,54 @@ func (plane *Plane) CloseSession(ctx context.Context, session media.Session) err
 }
 
 /*
+IssueCredential mints the credential one admitted person connects with.
+
+**No request is made to the provider.** A LiveKit access token is signed
+locally and verified by the server when the holder connects, so this operation
+cannot time out, cannot find the provider unreachable, and never returns
+ErrUnavailable. That is worth knowing at the boundary: admitting somebody stays
+possible during an outage that would prevent starting a call, and it fails only
+for reasons an operator has to fix.
+
+The credential is bound to one room and one identity. It carries no
+administrative permission, so a client holding it can take part in exactly the
+conversation Convia admitted it to and can do nothing else — see admissionTo.
+*/
+func (plane *Plane) IssueCredential(_ context.Context, admission media.Admission) (media.Credential, error) {
+	switch {
+	case !admission.Session.Realized():
+		/*
+			There is no room to admit anyone to. It happens when a call was
+			started while this deployment had no media plane and one was
+			configured afterwards, and it is terminal: the conversation this
+			call refers to does not exist on the provider, and no retry
+			creates it.
+		*/
+		return media.Credential{}, fmt.Errorf("the call has no media session: %w", media.ErrRejected)
+	case admission.ParticipantID == "":
+		return media.Credential{}, fmt.Errorf("an admission needs an identity: %w", media.ErrRejected)
+	case admission.Lifetime <= 0:
+		return media.Credential{}, fmt.Errorf("an admission needs a positive lifetime: %w", media.ErrRejected)
+	}
+
+	token, expiresAt, err := plane.mint(
+		admission.ParticipantID,
+		admissionTo(admission.Session.Reference),
+		admission.Lifetime,
+	)
+
+	if err != nil {
+		return media.Credential{}, err
+	}
+
+	return media.Credential{
+		URL:       plane.clientURL,
+		Token:     media.Token(token),
+		ExpiresAt: expiresAt,
+	}, nil
+}
+
+/*
 errRoomGone reports a room the provider does not have.
 
 It is internal, because the only caller that can meaningfully encounter it
@@ -254,7 +351,7 @@ Every request is a POST carrying JSON and a token minted for that request
 alone. The token is a bearer credential and appears nowhere but the header.
 */
 func (plane *Plane) call(ctx context.Context, method string, permission grant, body, into any) error {
-	token, err := mintToken(plane.apiKey, plane.apiSecret, permission, plane.now())
+	token, _, err := plane.mint("", permission, apiTokenLifetime)
 	if err != nil {
 		return fmt.Errorf("%s: %w", method, err)
 	}

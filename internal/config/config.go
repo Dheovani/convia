@@ -63,6 +63,15 @@ const (
 	mediaAPIKeyEnvironment    = "CONVIA_LIVEKIT_API_KEY"
 	mediaAPISecretEnvironment = "CONVIA_LIVEKIT_API_SECRET"
 	mediaTimeoutEnvironment   = "CONVIA_LIVEKIT_TIMEOUT"
+
+	/*
+	   mediaClientURLEnvironment is where a browser reaches the media plane.
+
+	   It is separate from the URL Convia uses because the two are routinely
+	   different: a deployment commonly reaches its media server on a private
+	   address that no client can resolve. Unset means the two are the same.
+	*/
+	mediaClientURLEnvironment = "CONVIA_LIVEKIT_CLIENT_URL"
 )
 
 /*
@@ -117,6 +126,7 @@ the Config holding it, cannot print it.
 */
 type Media struct {
 	URL       string
+	ClientURL string
 	APIKey    string
 	APISecret media.APISecret
 	Timeout   time.Duration
@@ -231,8 +241,14 @@ func loadMedia(environment Environment) (Media, error) {
 		return Media{}, err
 	}
 
+	clientURL := strings.TrimSpace(os.Getenv(mediaClientURLEnvironment))
+	if err := validateMediaClientURL(clientURL, environment); err != nil {
+		return Media{}, err
+	}
+
 	return Media{
 		URL:       endpoint,
+		ClientURL: clientURL,
 		APIKey:    key,
 		APISecret: media.APISecret(secret),
 		Timeout:   timeout,
@@ -409,6 +425,46 @@ func validateDatabaseURL(databaseURL string, environment Environment) error {
 	default:
 		return fmt.Errorf("%s must set sslmode to require, verify-ca, or verify-full in production", databaseURLEnvironment)
 	}
+}
+
+/*
+validateMediaClientURL rejects an address clients could not use.
+
+Empty is valid and means the client address is derived from Convia's own by
+swapping the scheme, which is right whenever one server answers both. When it
+is set it must already be a WebSocket address, because that is what a client
+connects with and silently rewriting an operator's http:// into ws:// would
+hide the case where they meant a different host entirely.
+
+Production requires wss for the same reason it requires https: the address is
+published to clients along with a bearer token, and a plaintext one hands that
+token to anyone on the path.
+*/
+func validateMediaClientURL(clientURL string, environment Environment) error {
+	if clientURL == "" {
+		return nil
+	}
+
+	parsed, err := url.Parse(clientURL)
+	if err != nil {
+		return fmt.Errorf("%s must be a valid URL", mediaClientURLEnvironment)
+	}
+
+	switch parsed.Scheme {
+	case "ws":
+		if environment == Production {
+			return fmt.Errorf("%s must use wss in production", mediaClientURLEnvironment)
+		}
+	case "wss":
+	default:
+		return fmt.Errorf("%s must use the ws or wss scheme", mediaClientURLEnvironment)
+	}
+
+	if parsed.Host == "" {
+		return fmt.Errorf("%s must include a host", mediaClientURLEnvironment)
+	}
+
+	return nil
 }
 
 func loadInt(name string, fallback, minimum, maximum int) (int, error) {

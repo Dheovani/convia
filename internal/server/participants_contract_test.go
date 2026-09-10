@@ -49,6 +49,7 @@ func TestParticipantResponsesMatchSpecification(t *testing.T) {
 	ownParticipant := document.Paths.Find(api.Prefix + "/participants/{participant_id}")
 	ownLeave := document.Paths.Find(api.Prefix + "/participants/{participant_id}/leave")
 	ownRemove := document.Paths.Find(api.Prefix + "/participants/{participant_id}/remove")
+	ownSession := document.Paths.Find(api.Prefix + "/participants/{participant_id}/session")
 
 	operatorRoster := document.Paths.Find(api.Prefix + "/applications/{application_id}/calls/{call_id}/participants")
 	operatorParticipant := document.Paths.Find(api.Prefix + "/applications/{application_id}/participants/{participant_id}")
@@ -83,6 +84,24 @@ func TestParticipantResponsesMatchSpecification(t *testing.T) {
 			stub:      stubParticipants{err: participants.ErrCallEnded},
 			status:    http.StatusConflict,
 			operation: callRoster.Post,
+		},
+		"connection instructions": {
+			request:   authenticatedRequest(http.MethodPost, participantTarget+"/session", ""),
+			stub:      stubParticipants{participant: sampleParticipant()},
+			status:    http.StatusCreated,
+			operation: ownSession.Post,
+		},
+		"nothing to connect to": {
+			request:   authenticatedRequest(http.MethodPost, participantTarget+"/session", ""),
+			stub:      stubParticipants{err: participants.ErrNoMediaPlane},
+			status:    http.StatusServiceUnavailable,
+			operation: ownSession.Post,
+		},
+		"no longer in the call": {
+			request:   authenticatedRequest(http.MethodPost, participantTarget+"/session", ""),
+			stub:      stubParticipants{err: participants.ErrGone},
+			status:    http.StatusConflict,
+			operation: ownSession.Post,
 		},
 		"the call is full": {
 			request:   authenticatedRequest(http.MethodPost, rosterTarget, joinBody),
@@ -273,5 +292,99 @@ func TestARosterNamesPeopleOnlyByIdentifier(t *testing.T) {
 	*/
 	if strings.Contains(response.Body.String(), sampleUser().DisplayName) {
 		t.Errorf("a roster entry carries the person's display name: %s", response.Body)
+	}
+}
+
+/*
+TestConnectionInstructionsNameNoProvider is the exit criterion of M13 checked
+against the wire.
+
+A client joins through Convia alone, so what it receives has to be sayable
+without naming any media infrastructure. If a provider concept ever appears
+here it becomes part of the public contract, and removing it later breaks every
+client that read it.
+*/
+func TestConnectionInstructionsNameNoProvider(t *testing.T) {
+	owned := []string{"participant_id", "call_id", "media_url", "media_token", "expires_at"}
+
+	document := loadSpecification(t)
+	schema, found := document.Components.Schemas["JoinSession"]
+	if !found || schema.Value == nil {
+		t.Fatal("the specification describes no JoinSession schema")
+	}
+
+	if schema.Value.AdditionalProperties.Has == nil || *schema.Value.AdditionalProperties.Has {
+		t.Error("the JoinSession schema permits properties it does not name, so a leaked field would validate")
+	}
+	for name := range schema.Value.Properties {
+		if !slices.Contains(owned, name) {
+			t.Errorf("the JoinSession schema publishes %q, which is not Convia-owned connection data", name)
+		}
+	}
+
+	response := serveParticipant(t, stubParticipants{participant: sampleParticipant()},
+		authenticatedRequest(http.MethodPost,
+			api.Prefix+"/participants/"+sampleParticipant().ID+"/session", ""))
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status code = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+
+	var body map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode the response: %v", err)
+	}
+	for name := range body {
+		if !slices.Contains(owned, name) {
+			t.Errorf("connection instructions carry %q, which is not Convia-owned connection data", name)
+		}
+	}
+
+	/*
+		The room the provider knows the call by is the specific thing that must
+		not appear. A client that learned it could reason about Convia's
+		infrastructure, and Convia could never rename one again.
+	*/
+	rendered := strings.ToLower(response.Body.String())
+	for _, leaked := range []string{"livekit", "webrtc", "sfu", "room_name", "roomname", "grant", "sid"} {
+		if strings.Contains(rendered, leaked) {
+			t.Errorf("connection instructions mention %q: %s", leaked, response.Body)
+		}
+	}
+}
+
+/*
+TestConnectionInstructionsCarryTheCredentialExactlyOnce is the other half of
+redaction.
+
+Everywhere else a credential renders as a placeholder, which is the point of
+the type. This one response has to contain the real thing, so the test proves
+the single Reveal is wired to the right field rather than that redaction leaks.
+*/
+func TestConnectionInstructionsCarryTheCredentialExactlyOnce(t *testing.T) {
+	response := serveParticipant(t, stubParticipants{participant: sampleParticipant()},
+		authenticatedRequest(http.MethodPost,
+			api.Prefix+"/participants/"+sampleParticipant().ID+"/session", ""))
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status code = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+
+	var body struct {
+		MediaToken string `json:"media_token"`
+		MediaURL   string `json:"media_url"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode the response: %v", err)
+	}
+
+	if body.MediaToken != "a-signed-connection-credential" {
+		t.Errorf("media_token = %q, want the credential the service issued", body.MediaToken)
+	}
+	if body.MediaURL != "wss://media.example" {
+		t.Errorf("media_url = %q, want the address the service issued", body.MediaURL)
+	}
+	if strings.Contains(response.Body.String(), "[redacted]") {
+		t.Error("the response redacted the credential it exists to deliver")
 	}
 }

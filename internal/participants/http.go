@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"convia/internal/api"
+	"convia/internal/calls"
+	"convia/internal/media"
 	"convia/internal/operator"
 )
 
@@ -71,6 +73,44 @@ type participantResponse struct {
 type listResponse struct {
 	Data       []participantResponse `json:"data"`
 	NextCursor string                `json:"next_cursor,omitempty"`
+}
+
+/*
+joinSessionResponse is everything a client needs to reach a conversation, in
+Convia's own words.
+
+**No provider concept appears here, and none may.** A client receives an
+address and a credential; it learns no room name, no grant, no session
+reference, and nothing about which media plane this deployment runs. That is
+the exit criterion of M13 expressed as a struct: an external consumer joins
+through Convia alone.
+
+The credential is short-lived, so ExpiresAt is part of the contract rather than
+a detail. A client that has not connected by then asks for another one.
+*/
+type joinSessionResponse struct {
+	ParticipantID string `json:"participant_id"`
+	CallID        string `json:"call_id"`
+	MediaURL      string `json:"media_url"`
+	MediaToken    string `json:"media_token"`
+	ExpiresAt     string `json:"expires_at"`
+}
+
+/*
+representSession builds the one response that carries a live credential.
+
+Reveal is called here and nowhere else. The token is a redacting type precisely
+so that every other place handling it produces a placeholder, which makes this
+line the single reviewable point where a credential is written down.
+*/
+func representSession(participant Participant, credential media.Credential) joinSessionResponse {
+	return joinSessionResponse{
+		ParticipantID: participant.ID,
+		CallID:        participant.CallID,
+		MediaURL:      credential.URL,
+		MediaToken:    credential.Token.Reveal(),
+		ExpiresAt:     api.FormatTimestamp(credential.ExpiresAt),
+	}
 }
 
 func represent(participant Participant) participantResponse {
@@ -311,6 +351,20 @@ func failureFor(err error, logger *slog.Logger, request *http.Request) *api.Fail
 	case errors.Is(err, ErrGone):
 		return api.NewFailure(http.StatusConflict, api.CodeConflict,
 			"The participant is no longer in the call.")
+
+	/*
+		A deployment with no media plane is not broken and is not the caller's
+		mistake, so the message says what is true rather than blaming the
+		request. It is reported as unavailable because that is what it is: this
+		Convia cannot carry a conversation, however well-formed the ask.
+	*/
+	case errors.Is(err, ErrNoMediaPlane):
+		return api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
+			"This deployment cannot carry media, so there is nothing to connect to.")
+
+	case errors.Is(err, calls.ErrMediaUnavailable):
+		return api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
+			"The media plane is temporarily unavailable. Retry shortly.")
 
 	default:
 		logger.Error("participant request failed",
