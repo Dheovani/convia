@@ -16,6 +16,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/credentials"
 	"convia/internal/database"
+	"convia/internal/events"
 	"convia/internal/idempotency"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -139,11 +140,20 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		return err
 	}
 
-	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, mediaPlane, logger)
+	/*
+		The broker is built before the domains that publish into it, because
+		every one of them takes it as a dependency rather than reaching for a
+		package-level one. It holds nothing and needs no configuration: an
+		event goes to the streams open on this instance and is then gone.
+	*/
+	broker := events.NewBroker()
+
+	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
+		mediaPlane, broker, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
-		applicationService, callService, roomService, userService, logger)
+		applicationService, callService, roomService, userService, broker, logger)
 	invitationService := invitations.NewService(invitations.NewStore(pool),
-		applicationService, callService, userService, participantService, logger)
+		applicationService, callService, userService, participantService, broker, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
@@ -172,6 +182,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantCalls:        calls.NewTenantHandler(logger, callService),
 		TenantParticipants: participants.NewTenantHandler(logger, participantService),
 		TenantInvitations:  invitations.NewTenantHandler(logger, invitationService),
+		TenantEvents:       events.NewTenantHandler(logger, broker),
 
 		InvitationAuthenticator: invitationService,
 		Invitations:             invitations.NewHolderHandler(logger, invitationService),
@@ -201,6 +212,19 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 	shutdownContext, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
+
+	/*
+		Event streams are closed before the server is, and deliberately in that
+		order. A stream is a hijacked connection, which http.Server.Shutdown
+		neither tracks nor waits for, so leaving it to the server would mean
+		the process exiting while subscribers were still holding sockets nobody
+		had said anything to. Telling them first costs the moment it takes to
+		write a close frame and turns a broken connection into a reason.
+	*/
+	if !broker.Stop(shutdownContext) {
+		logger.Warn("some event streams did not close before the shutdown deadline",
+			"active_streams", broker.Active())
+	}
 
 	if err := httpServer.Shutdown(shutdownContext); err != nil {
 		return fmt.Errorf("shut down HTTP server: %w", err)

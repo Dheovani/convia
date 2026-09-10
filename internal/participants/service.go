@@ -9,6 +9,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/calls"
+	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/rooms"
 	"convia/internal/users"
@@ -66,6 +67,17 @@ type userLookup interface {
 	Get(ctx context.Context, applicationID, id string) (users.User, error)
 }
 
+/*
+announcer is the behavior this package needs to publish what happened.
+
+It takes no context and returns no error, which is the whole of its contract:
+telling somebody a roster changed must not be able to slow down, fail, or
+cancel the change. events.Broker satisfies it.
+*/
+type announcer interface {
+	Publish(event events.Event)
+}
+
 // Service applies Convia's rules for who is in a call.
 type Service struct {
 	store   *Store
@@ -73,17 +85,19 @@ type Service struct {
 	calls   callLookup
 	rooms   roomLookup
 	users   userLookup
+	stream  announcer
 	logger  *slog.Logger
 }
 
 func NewService(store *Store, owner tenants, conversations callLookup,
-	places roomLookup, people userLookup, logger *slog.Logger) *Service {
+	places roomLookup, people userLookup, stream announcer, logger *slog.Logger) *Service {
 	return &Service{
 		store:   store,
 		tenants: owner,
 		calls:   conversations,
 		rooms:   places,
 		users:   people,
+		stream:  stream,
 		logger:  logger,
 	}
 }
@@ -166,7 +180,7 @@ func (service *Service) Join(ctx context.Context, applicationID, callID string,
 		return participant, false, nil
 	}
 
-	service.audit(ctx, "participant.joined", participant)
+	service.audit(ctx, events.ParticipantJoined, participant)
 	return participant, true, nil
 }
 
@@ -236,7 +250,7 @@ func (service *Service) AdmitGuest(ctx context.Context, applicationID, callID,
 		return participant, false, nil
 	}
 
-	service.audit(ctx, "participant.joined", participant)
+	service.audit(ctx, events.ParticipantJoined, participant)
 	return participant, true, nil
 }
 
@@ -321,7 +335,7 @@ func (service *Service) Leave(ctx context.Context, applicationID, id string) (Pa
 		return departed, nil
 	}
 
-	service.audit(ctx, "participant.left", departed)
+	service.audit(ctx, events.ParticipantLeft, departed)
 	return departed, nil
 }
 
@@ -363,7 +377,7 @@ func (service *Service) Remove(ctx context.Context, applicationID, id string,
 		return removed, nil
 	}
 
-	service.audit(ctx, "participant.removed", removed)
+	service.audit(ctx, events.ParticipantRemoved, removed)
 	return removed, nil
 }
 
@@ -409,7 +423,7 @@ func (service *Service) SetRole(ctx context.Context, applicationID, id, role, ac
 		return Participant{}, err
 	}
 
-	service.audit(ctx, "participant.role_changed", changed)
+	service.audit(ctx, events.ParticipantRoleChanged, changed)
 	return changed, nil
 }
 
@@ -488,7 +502,7 @@ func (service *Service) Session(ctx context.Context, applicationID, id string) (
 		return Participant{}, media.Credential{}, ErrNoMediaPlane
 	}
 
-	service.audit(ctx, "participant.session_issued", participant)
+	service.record(ctx, "participant.session_issued", participant)
 	return participant, credential, nil
 }
 
@@ -635,14 +649,57 @@ func pageSize(requested int) (int, error) {
 }
 
 /*
-audit records a change to who is in a call.
+audit records a change to who is in a call, and announces it to whoever is
+listening.
+
+Recording and announcing happen together because they describe one occurrence.
+What is delivered live is the same set of Convia-assigned values the audit
+entry holds, for the same reason: the removal reason is composed by the
+application and may say something about the person removed, and a live stream
+is the last place to widen that.
+*/
+func (service *Service) audit(ctx context.Context, kind events.Type, participant Participant) {
+	service.record(ctx, string(kind), participant)
+
+	data := events.Data{
+		"call_id": participant.CallID,
+		"role":    string(participant.Role),
+		"status":  string(participant.Status),
+		"guest":   participant.Guest(),
+	}
+
+	if participant.Guest() {
+		data["invitation_id"] = participant.InvitationID
+	} else {
+		data["user_id"] = participant.UserID
+	}
+
+	if participant.RemovedBy != nil {
+		data["removed_by"] = string(*participant.RemovedBy)
+	}
+
+	if participant.RemovedByID != "" {
+		data["removed_by_participant_id"] = participant.RemovedByID
+	}
+
+	service.stream.Publish(events.New(kind, participant.ApplicationID, participant.ID,
+		api.RequestIDFromContext(ctx), data))
+}
+
+/*
+record writes the audit entry for a change to who is in a call.
+
+It is separate from [Service.audit] so that the one thing this package records
+without delivering it live — a connection credential being issued — has a way
+to be recorded that does not go through the event vocabulary at all. The
+package documentation of internal/events says why that one does not stream.
 
 Every value recorded is one Convia assigned: identifiers, a state, a role, an
 authority. The removal reason is not recorded, because it is composed by the
 application and may say something about the person removed — a test asserts it
 stays out.
 */
-func (service *Service) audit(ctx context.Context, event string, participant Participant) {
+func (service *Service) record(ctx context.Context, event string, participant Participant) {
 	attributes := []any{
 		"event", event,
 		"participant_id", participant.ID,

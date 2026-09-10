@@ -135,6 +135,32 @@ tags:
       Convia never links users across applications: the same human known to two
       applications is two unrelated Convia users.
 
+  - name: Events
+    description: |
+      Convia's live control events.
+
+      One endpoint, and it is the only one in this document that stops being a
+      request and a response. The handshake is ordinary HTTP and is described
+      here in full; what travels afterwards is a stream of `Event` objects,
+      whose shape is also described here, in the order Convia produced them.
+
+      **What streams is deliberately narrower than what Convia records.** These
+      are the events whose value decays in seconds — a conversation starting or
+      ending, and the roster of who is in it — because a client's picture of
+      something happening right now goes stale without them. A change the
+      application itself made through a request that already returned the new
+      state is not among them.
+
+      The stream carries nothing upstream. Convia never interprets a message
+      from a client, so a client that sends one has its connection closed
+      rather than ignored. It carries no audio or video either, and could not:
+      a participant's client reaches the media plane directly, with the
+      short-lived credential
+      `POST /v1/participants/{participant_id}/session` issues.
+
+      See `docs/events.md` for the delivery guarantees, the close codes, and
+      what running more than one instance requires.
+
 paths:
   /health:
     get:
@@ -3518,6 +3544,89 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/events:
+    get:
+      operationId: streamEvents
+      tags: [Events]
+      summary: Open a live control-event stream
+      description: |
+        Upgrades the connection to a WebSocket and delivers the caller's own
+        control events as they happen.
+
+        **Everything that decides what the stream carries happens before the
+        upgrade.** The tenant is the one the credential proves, and the set of
+        event types is derived from the scopes the credential already holds:
+        `events:read` grants the connection, and each event is delivered only
+        to a credential that could have read the thing it is about — call
+        events need `calls:read`, participant events need `participants:read`,
+        and invitation events need `invitations:read`. A credential granted
+        `events:read` and no read scope is refused rather than given a
+        connection that could never carry anything.
+
+        The subscription cannot be changed afterwards, because the stream is
+        one direction. A client that sends any message has its connection
+        closed with `1003`.
+
+        **Events are not stored.** One produced while a client is disconnected
+        is not waiting for it when it returns. A client that reconnects, and
+        any client told its stream fell behind, should re-read the calls it
+        cares about over REST. `docs/events.md` states this and the close codes
+        in full.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["events:read"]
+      parameters:
+        - name: Connection
+          in: header
+          required: true
+          description: Must be `Upgrade`.
+          schema:
+            type: string
+        - name: Upgrade
+          in: header
+          required: true
+          description: Must be `websocket`.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Version
+          in: header
+          required: true
+          description: Must be `13`, the version RFC 6455 defines.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Key
+          in: header
+          required: true
+          description: The client's handshake nonce, as RFC 6455 requires.
+          schema:
+            type: string
+      responses:
+        "101":
+          description: |
+            The connection is now a WebSocket carrying `Event` objects as text
+            messages, one event per message.
+
+            Convia sends a ping every 30 seconds and closes the connection if
+            it is not answered within 10. Nothing is expected from the client
+            beyond the pong its WebSocket implementation sends for it.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/invitations/{invitation_id}/revoke:
     post:
       operationId: revokeOwnInvitation
@@ -4870,6 +4979,112 @@ components:
         - participants:write
         - invitations:read
         - invitations:write
+        - events:read
+
+    EventId:
+      type: string
+      description: |
+        Opaque, immutable public identifier for one event. It is not secret and
+        is safe to log: matching it against a `correlation_id` is how a
+        delivered event is tied to the request that caused it.
+      pattern: "^evt_[A-Z2-7]{26}$"
+      example: evt_2QF7XKN4VJH6TBWMDR3YAC5EZP
+
+    EventType:
+      type: string
+      description: |
+        What happened. The vocabulary is closed and additive: a new type may
+        appear, and an existing one never changes meaning, so a client must
+        ignore a type it does not recognize rather than treat it as an error.
+      enum:
+        - call.started
+        - call.ended
+        - participant.joined
+        - participant.left
+        - participant.removed
+        - participant.role_changed
+        - invitation.declined
+
+    EventSubjectType:
+      type: string
+      description: |
+        What kind of thing the event is about, so that `subject.id` is never
+        ambiguous about what it addresses.
+      enum:
+        - call
+        - participant
+        - invitation
+
+    EventSubject:
+      type: object
+      description: The thing an event is about.
+      required: [type, id]
+      additionalProperties: false
+      properties:
+        type:
+          $ref: "#/components/schemas/EventSubjectType"
+        id:
+          type: string
+          description: |
+            The subject's public identifier, of the kind `type` names.
+          example: part_4XZQP7KN2VJH6TBWMDR3YAFC5E
+
+    Event:
+      type: object
+      description: |
+        One thing that happened, in the shape it is delivered in over the
+        stream opened by `GET /v1/events`.
+
+        Everything an event carries is a value Convia assigned: identifiers,
+        states, roles, flags. Application-composed text stays out — a removal
+        reason, an end reason, and call metadata may all describe a person, and
+        a live stream is the last place to widen that. A client that wants them
+        reads the resource.
+      required: [id, version, type, occurred_at, application_id, subject]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/EventId"
+        version:
+          type: integer
+          description: |
+            The envelope version, carried on every event rather than negotiated
+            once per connection, so that an event forwarded somewhere else
+            stays interpretable away from the stream it arrived on.
+          example: 1
+        type:
+          $ref: "#/components/schemas/EventType"
+        occurred_at:
+          type: string
+          format: date-time
+          description: When Convia recorded what happened, in UTC.
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        subject:
+          $ref: "#/components/schemas/EventSubject"
+        correlation_id:
+          type: string
+          description: |
+            The request that caused the event, matching the `X-Request-ID` of
+            that request and the audit entry for the same occurrence. Absent
+            when the cause was not a request.
+        data:
+          $ref: "#/components/schemas/EventData"
+
+    EventData:
+      type: object
+      description: |
+        What the event says beyond naming its subject.
+
+        The keys depend on the type. Call events carry `room_id`, `status`, and
+        `actor`. Participant events carry `call_id`, `role`, `status`, `guest`,
+        and whichever of `user_id` or `invitation_id` identifies the person,
+        plus `removed_by` and `removed_by_participant_id` on a removal.
+        Invitation events carry `call_id`, `role`, `guest`, `status`, and
+        `user_id` when the invitation names somebody.
+
+        New keys may be added, so a client must ignore ones it does not know.
+      additionalProperties: true
 
     CredentialId:
       type: string

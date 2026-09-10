@@ -19,6 +19,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/config"
 	"convia/internal/database"
+	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/rooms"
 )
@@ -38,6 +39,7 @@ type fixture struct {
 	pool         *pgxpool.Pool
 	rooms        *rooms.Service
 	applications *applications.Service
+	broker       *events.Broker
 	first        string
 	second       string
 	firstRoom    string
@@ -102,11 +104,14 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
+	broker := events.NewBroker()
+
 	setup := fixture{
-		service:      NewService(NewStore(pool), applicationService, roomService, plane, logger),
+		service:      NewService(NewStore(pool), applicationService, roomService, plane, broker, logger),
 		pool:         pool,
 		rooms:        roomService,
 		applications: applicationService,
+		broker:       broker,
 		first:        first,
 		second:       second,
 		logs:         logs,

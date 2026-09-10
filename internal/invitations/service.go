@@ -9,6 +9,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/calls"
+	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/participants"
 	"convia/internal/secret"
@@ -65,6 +66,16 @@ type participation interface {
 	Session(ctx context.Context, applicationID, id string) (participants.Participant, media.Credential, error)
 }
 
+/*
+announcer is the behavior this package needs to publish what happened.
+
+It takes no context and returns no error, so that announcing a decision cannot
+slow down, fail, or cancel recording it. events.Broker satisfies it.
+*/
+type announcer interface {
+	Publish(event events.Event)
+}
+
 // Service applies Convia's rules for invitations.
 type Service struct {
 	store        *Store
@@ -72,17 +83,19 @@ type Service struct {
 	calls        callLookup
 	users        userLookup
 	participants participation
+	stream       announcer
 	logger       *slog.Logger
 }
 
 func NewService(store *Store, owner tenants, conversations callLookup, people userLookup,
-	presence participation, logger *slog.Logger) *Service {
+	presence participation, stream announcer, logger *slog.Logger) *Service {
 	return &Service{
 		store:        store,
 		tenants:      owner,
 		calls:        conversations,
 		users:        people,
 		participants: presence,
+		stream:       stream,
 		logger:       logger,
 	}
 }
@@ -194,7 +207,7 @@ func (service *Service) Issue(ctx context.Context, applicationID, callID string,
 		return Invitation{}, "", err
 	}
 
-	service.audit(ctx, "invitation.issued", invitation)
+	service.record(ctx, "invitation.issued", invitation)
 	return invitation, value, nil
 }
 
@@ -273,7 +286,7 @@ func (service *Service) Revoke(ctx context.Context, applicationID, id string) (I
 		return Invitation{}, err
 	}
 
-	service.audit(ctx, "invitation.revoked", revoked)
+	service.record(ctx, "invitation.revoked", revoked)
 	return revoked, nil
 }
 
@@ -397,7 +410,7 @@ func (service *Service) Redeem(ctx context.Context, invitation Invitation) (Invi
 	}
 
 	if invitation.RedeemedAt == nil {
-		service.audit(ctx, "invitation.redeemed", redeemed)
+		service.record(ctx, "invitation.redeemed", redeemed)
 	}
 	return redeemed, participant, credential, nil
 }
@@ -426,7 +439,7 @@ func (service *Service) Decline(ctx context.Context, invitation Invitation) (Inv
 		return Invitation{}, err
 	}
 
-	service.audit(ctx, "invitation.declined", declined)
+	service.audit(ctx, events.InvitationDeclined, declined)
 	return declined, nil
 }
 
@@ -507,13 +520,39 @@ func pageSize(requested int) (int, error) {
 }
 
 /*
-audit records an invitation event.
+audit records an invitation event and announces it to whoever is listening.
+
+Only declining reaches this. Issuing, withdrawing, and redeeming are recorded
+through [Service.record] instead, and the package documentation of
+internal/events says why none of the three streams — two are the application's
+own acts, and the third already arrives as a participant joining.
+*/
+func (service *Service) audit(ctx context.Context, kind events.Type, invitation Invitation) {
+	service.record(ctx, string(kind), invitation)
+
+	data := events.Data{
+		"call_id": invitation.CallID,
+		"role":    invitation.Role,
+		"guest":   invitation.Guest(),
+		"status":  string(invitation.Status(now())),
+	}
+
+	if !invitation.Guest() {
+		data["user_id"] = invitation.UserID
+	}
+
+	service.stream.Publish(events.New(kind, invitation.ApplicationID, invitation.ID,
+		api.RequestIDFromContext(ctx), data))
+}
+
+/*
+record writes the audit entry for an invitation event.
 
 The secret is never part of one, and neither is anything the application wrote:
 an invitation carries no free text, so there is nothing here that could say
 something about the person it was sent to.
 */
-func (service *Service) audit(ctx context.Context, event string, invitation Invitation) {
+func (service *Service) record(ctx context.Context, event string, invitation Invitation) {
 	service.logger.Info(event,
 		"invitation_id", invitation.ID,
 		"application_id", invitation.ApplicationID,

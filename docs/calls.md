@@ -97,6 +97,8 @@ Reaching another application's call answers `404`, not `403`. A `403` would conf
 
 Scopes are `calls:read` and `calls:write` on the tenant surface, and `tenants:read` / `tenants:write` on the operator surface. **`rooms:write` does not imply `calls:write`**: a key granted to manage rooms was not granted to originate conversations in them, and conflating the two would make least privilege unexpressible.
 
+`calls:read` is also what governs call events on the live stream, so a key that cannot read a call is not told about one starting or ending either. See [`events.md`](events.md).
+
 ## Listing and Filtering
 
 `GET /v1/calls` returns calls newest first, using the cursor pagination defined in [`api-conventions.md`](api-conventions.md). `GET /v1/rooms/{room_id}/calls` narrows it to one room.

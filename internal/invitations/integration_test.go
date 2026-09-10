@@ -18,6 +18,7 @@ import (
 	"convia/internal/calls"
 	"convia/internal/config"
 	"convia/internal/database"
+	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/participants"
 	"convia/internal/rooms"
@@ -64,6 +65,7 @@ type fixture struct {
 	rooms        *rooms.Service
 	users        *users.Service
 	applications *applications.Service
+	broker       *events.Broker
 	first        string
 	second       string
 	logs         *bytes.Buffer
@@ -111,19 +113,21 @@ func newFixture(t *testing.T) fixture {
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	broker := events.NewBroker()
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		issuingPlane{}, logger)
+		issuingPlane{}, broker, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
-		applicationService, callService, roomService, userService, logger)
+		applicationService, callService, roomService, userService, broker, logger)
 
 	setup := fixture{
 		service: NewService(NewStore(pool), applicationService, callService,
-			userService, participantService, logger),
+			userService, participantService, broker, logger),
 		participants: participantService,
 		calls:        callService,
 		rooms:        roomService,
 		users:        userService,
 		applications: applicationService,
+		broker:       broker,
 		first:        newApplication(t, applicationService, "First Tenant"),
 		second:       newApplication(t, applicationService, "Second Tenant"),
 		logs:         logs,

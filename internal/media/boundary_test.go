@@ -50,6 +50,9 @@ means a new dependency is confined to this package until someone deliberately
 says otherwise, with a reason, here.
 */
 var notMediaInfrastructure = map[string]string{
+	"github.com/coder/websocket": "carries control events, which are the opposite of media: " +
+		"the stream is one direction and refuses every message a client sends, so nothing " +
+		"could travel up it. See docs/adr/0003-a-one-directional-in-process-control-event-stream.md",
 	"github.com/getkin/kin-openapi": "validates the OpenAPI document in tests",
 	"github.com/jackc/pgx":          "the PostgreSQL driver",
 	"github.com/pressly/goose":      "runs schema migrations",

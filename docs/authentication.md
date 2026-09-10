@@ -183,8 +183,13 @@ Scopes name **domain operations**, not HTTP routes, so a permission keeps its me
 | `calls:write` | Starting and ending its calls |
 | `participants:read` | Reading who is in its calls |
 | `participants:write` | Admitting people to its calls, removing them, and changing what they may do |
+| `invitations:read` | Reading its invitations |
+| `invitations:write` | Issuing and withdrawing them |
+| `events:read` | Opening a live stream of its control events |
 
 Each of these is separate on purpose, and none implies another. A key granted to manage the places people meet was not granted to originate conversations in them, and one granted to start conversations was not granted to decide who is in them. Conflating any pair would make least privilege unexpressible: an integration that only administers rooms would silently be able to start calls, and one that only schedules calls would silently be able to admit and eject people.
+
+`events:read` is the one that behaves differently, and deliberately: it grants the connection and grants no content. What travels over an event stream is still governed by the read scopes above, so an event about a call reaches only a key that could have read that call, and a key holding `events:read` alone is refused rather than given a connection that could never carry anything. See [`events.md`](events.md).
 
 **Scopes are required.** A request without them is rejected rather than given a default, because a default is either useless or quietly broader than anyone asked for. There is no scope that grants everything.
 
