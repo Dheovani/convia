@@ -463,7 +463,7 @@ func validateMediaClientURL(clientURL string, environment Environment) error {
 	if parsed.Host == "" {
 		return fmt.Errorf("%s must include a host", mediaClientURLEnvironment)
 	}
-	
+
 	return nil
 }
 
