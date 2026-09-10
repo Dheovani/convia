@@ -57,9 +57,10 @@ services:
     image: redis:8.2-alpine
     container_name: convia-redis
     profiles: ["shared"]
-    # Nothing durable lives here — the only use is publish/subscribe, which
-    # stores nothing — so persistence is off. A restart loses no Convia state,
-    # by construction rather than by luck.
+    # Nothing durable lives here. Events are carried over publish/subscribe,
+    # which stores nothing at all, and presence is a set of keys that all
+    # expire — so persistence is off, and a restart loses nothing Convia
+    # cannot do without.
     command: redis-server --save "" --appendonly no
     ports:
       - "127.0.0.1:6379:6379"

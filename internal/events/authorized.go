@@ -33,6 +33,8 @@ func readingScopeFor(kind Type) credentials.Scope {
 		return credentials.ScopeParticipantsRead
 	case InvitationDeclined:
 		return credentials.ScopeInvitationsRead
+	case PresenceChanged:
+		return credentials.ScopePresenceRead
 	default:
 		/*
 			Reaching this means a type was added to the vocabulary without

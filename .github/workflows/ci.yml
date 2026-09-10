@@ -90,6 +90,20 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # Everything that spans instances is skipped without this: carrying
+      # events between them, and presence converging across them. Both are
+      # about two processes agreeing, so a single-process test cannot cover
+      # them and CI is the only place they run.
+      redis:
+        image: redis:8.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     env:
       CONVIA_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
       CONVIA_TEST_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
@@ -98,6 +112,10 @@ jobs:
       CONVIA_TEST_LIVEKIT_URL: http://127.0.0.1:7880
       CONVIA_TEST_LIVEKIT_API_KEY: devkey
       CONVIA_TEST_LIVEKIT_API_SECRET: a-development-secret-long-enough-to-be-accepted
+      # Not database 0, because the presence tests empty the one they run in
+      # and nobody should discover that by pointing this at something else.
+      # The relay tests share it safely: publish/subscribe stores no keys.
+      CONVIA_TEST_REDIS_URL: redis://127.0.0.1:6379/3
 
     steps:
       - name: Check out repository
@@ -133,7 +151,7 @@ jobs:
           docker logs convia-livekit
           exit 1
 
-      - name: Run tests against PostgreSQL and LiveKit
+      - name: Run tests against PostgreSQL, LiveKit, and Redis
         run: go test -count=1 -race -shuffle=on ./...
 
       - name: Verify migrations apply to an empty database

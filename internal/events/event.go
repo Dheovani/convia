@@ -13,7 +13,9 @@ What streams:
     scoped to it;
   - somebody joining, leaving, being removed, or having their role changed,
     because that is the roster, and a roster that is seconds out of date shows
-    people who are not there.
+    people who are not there;
+  - whether somebody is available, because that is the shortest-lived thing
+    Convia holds at all.
 
 What does not, and why:
 
@@ -32,6 +34,12 @@ What does not, and why:
 Declining is the exception among invitations and does stream: it is the
 invitee's own act, it is the only signal that somebody is not coming, and
 nothing else observes it.
+
+Presence is the other exception, and it is the interesting one, because an
+application asserts it — which is the very reason rooms and users are absent.
+The difference is that **the assertion is not the change**. What a subscriber is
+told is the aggregate across a person's devices, and the moment it lapses on a
+timer; the instance that sent the heartbeat knows neither. See internal/presence.
 
 Events are Convia's own. Nothing here names a media provider, and the values
 carried are the ones Convia assigned — identifiers, states, roles, flags —
@@ -92,6 +100,22 @@ const (
 		observes it.
 	*/
 	InvitationDeclined Type = "invitation.declined"
+	/*
+		PresenceChanged reports that Convia will now say something different
+		about whether one of an application's people is available.
+
+		It is the exception to the rule stated above, and the exception is
+		principled rather than convenient. Every other application-asserted
+		fact is absent because announcing it would tell a client what it just
+		did. Here the assertion is not the change: what changed is the
+		aggregate across a person's devices, or the lapse of a claim on a
+		timer, and neither of those is known to the instance that sent the
+		heartbeat.
+
+		It is also the only event type Convia refuses to deliver by webhook.
+		See [Durable].
+	*/
+	PresenceChanged Type = "presence.changed"
 )
 
 /*
@@ -105,7 +129,25 @@ func Types() []Type {
 		CallStarted, CallEnded,
 		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
 		InvitationDeclined,
+		PresenceChanged,
 	}
+}
+
+/*
+Durable reports whether an event may be delivered by webhook.
+
+Every type may be streamed. One may not be recorded for later delivery, and it
+is presence: a webhook is a delivery with attempts behind it, so a presence
+report that failed once arrives after it stopped being true, and arrives after
+the newer one that replaced it. Advisory and durable-with-retries are
+contradictory promises, and the contradiction is refused here rather than left
+for an application to discover from a roster that will not settle.
+
+A stream has no such problem, because there is no second attempt: an event
+reaches whoever is connected at that moment, in order, or not at all.
+*/
+func Durable(kind Type) bool {
+	return kind != PresenceChanged
 }
 
 // Known reports whether a type is one Convia delivers.
@@ -128,6 +170,9 @@ const (
 	SubjectParticipant SubjectType = "participant"
 	// SubjectInvitation means the subject identifier addresses an invitation.
 	SubjectInvitation SubjectType = "invitation"
+	// SubjectUser means the subject identifier addresses one of an
+	// application's people.
+	SubjectUser SubjectType = "user"
 )
 
 /*
@@ -156,6 +201,8 @@ func subjectOf(kind Type) (SubjectType, bool) {
 		return SubjectParticipant, true
 	case InvitationDeclined:
 		return SubjectInvitation, true
+	case PresenceChanged:
+		return SubjectUser, true
 	default:
 		return "", false
 	}

@@ -77,6 +77,7 @@ func TestTheSubjectCannotDisagreeWithTheType(t *testing.T) {
 		ParticipantRemoved:     SubjectParticipant,
 		ParticipantRoleChanged: SubjectParticipant,
 		InvitationDeclined:     SubjectInvitation,
+		PresenceChanged:        SubjectUser,
 	}
 
 	for _, kind := range Types() {
@@ -87,6 +88,32 @@ func TestTheSubjectCannotDisagreeWithTheType(t *testing.T) {
 		}
 		if got := New(kind, "app_1", "sub_1", "", nil).Subject.Type; got != want {
 			t.Errorf("%q is about a %q, want %q", kind, got, want)
+		}
+	}
+}
+
+/*
+TestOnlyPresenceIsRefusedADurableDelivery states the one exception, and states
+that it is one.
+
+A webhook is a delivery with attempts behind it. A presence report that failed
+once arrives after it stopped being true, and after the newer one that replaced
+it — so an application subscribing to it by webhook would end up with a roster
+that never settles. Every other type is a record of something that happened,
+and a late delivery of one of those is still true.
+
+It is written as a whole-vocabulary check rather than an assertion about one
+constant, so that a second advisory type is a decision somebody makes here
+rather than a default they inherit.
+*/
+func TestOnlyPresenceIsRefusedADurableDelivery(t *testing.T) {
+	for _, kind := range Types() {
+		durable := Durable(kind)
+		if kind == PresenceChanged && durable {
+			t.Errorf("%q may be queued for redelivery, which would deliver it after it stopped being true", kind)
+		}
+		if kind != PresenceChanged && !durable {
+			t.Errorf("%q records something that happened and must be deliverable by webhook", kind)
 		}
 	}
 }

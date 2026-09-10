@@ -25,6 +25,8 @@ import (
 	"convia/internal/media/livekit"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/presence"
+	presenceredis "convia/internal/presence/redis"
 	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/users"
@@ -191,6 +193,20 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
+		Where presence lives is the same decision the event stream already
+		made, and it is made from the same setting. One instance keeps it in
+		this process; several keep it where all of them can see it. Nothing
+		about the API changes between the two.
+	*/
+	presenceStore, closePresence, err := openPresence(cfg.Redis, logger)
+	if err != nil {
+		return err
+	}
+	defer closePresence()
+
+	presenceService := presence.NewService(presenceStore, applicationService, userService, announcer, logger)
+
+	/*
 		Both surfaces are authenticated, so both are always served. The tenant
 		surface takes its tenant from an application's key; the operator
 		surface names the tenant in the path and proves the authority to reach
@@ -218,6 +234,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantInvitations:  invitations.NewTenantHandler(logger, invitationService),
 		TenantEvents:       events.NewTenantHandler(logger, broker),
 		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
+		TenantPresence:     presence.NewTenantHandler(logger, presenceService),
 
 		InvitationAuthenticator: invitationService,
 		Invitations:             invitations.NewHolderHandler(logger, invitationService),
@@ -260,6 +277,15 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 	delivering, stopDelivering := context.WithCancel(context.Background())
 	defer stopDelivering()
+
+	/*
+		The presence sweeper. Expiry is a timer, and a timer tells nobody: this
+		is what turns a claim lapsing into an event a subscriber can see.
+		Cancelling is how it stops, and a pass that does not happen costs an
+		announcement rather than an answer — every read already ignores a claim
+		past its deadline.
+	*/
+	go presence.NewSweeper(presenceService, logger).Run(delivering)
 
 	delivered := make(chan struct{})
 	go func() {
@@ -422,6 +448,56 @@ func openRelay(settings config.Redis, logger *slog.Logger) (*redis.Relay, error)
 			"error", err, "address", redis.Redacted(settings.URL))
 	}
 	return relay, nil
+}
+
+/*
+openPresence builds the store presence lives in, and returns how to close it.
+
+There is no nil case here, unlike the relay. Presence always has somewhere to
+live: with one instance that is this process, and the in-process store is the
+whole implementation rather than a fallback — there is nowhere else for it to
+be, and a network round trip to answer a question this process already knows
+would be worse in every respect.
+
+What the shared store adds is convergence between instances, and it is
+configured by the same setting that already decides whether the event stream
+spans them. An unreachable store is reported and does not stop the process:
+presence is the shortest-lived thing Convia holds, and refusing to serve calls,
+rooms, and webhooks over it would be the wrong trade by a wide margin.
+*/
+func openPresence(settings config.Redis, logger *slog.Logger) (presence.Store, func(), error) {
+	if !settings.Configured() {
+		logger.Info("presence is held by this instance alone",
+			"remedy", "set CONVIA_REDIS_URL when running more than one instance")
+		return presence.NewMemory(), func() {}, nil
+	}
+
+	store, err := presenceredis.New(presenceredis.Config{
+		URL:     settings.URL,
+		Timeout: settings.Timeout,
+	}, logger)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open the presence store: %w", err)
+	}
+
+	// The address is logged and the password is not: one is a location, the
+	// other is half of a credential.
+	logger.Info("shared presence store configured",
+		"address", presenceredis.Redacted(settings.URL), "timeout", settings.Timeout)
+
+	probe, cancel := context.WithTimeout(context.Background(), settings.Timeout)
+	defer cancel()
+
+	if err := store.Ping(probe); err != nil {
+		logger.Error("the presence store could not be reached, so presence is unavailable until it comes back",
+			"error", err, "address", presenceredis.Redacted(settings.URL))
+	}
+
+	return store, func() {
+		if err := store.Close(); err != nil {
+			logger.Warn("closing the presence store", "error", err)
+		}
+	}, nil
 }
 
 /*

@@ -161,6 +161,32 @@ tags:
       See `docs/events.md` for the delivery guarantees, the close codes, and
       what running more than one instance requires.
 
+  - name: Presence
+    description: |
+      Who is available right now.
+
+      Presence is the one thing in this document that is **advisory**.
+      Everything else Convia exposes is a record — a call happened, somebody
+      joined, an invitation was redeemed. Presence is a claim with an expiry on
+      it, and the honest description of what it is worth is "this was true a
+      moment ago". Nothing should be authorized on it and nothing should be
+      reconciled from it.
+
+      **Convia does not observe presence; an application asserts it.** No user
+      connects to Convia, so there is no connection for Convia to notice going
+      away: the only socket Convia serves is the control-event stream, and it
+      belongs to an application's backend. So presence is a heartbeat, and it
+      lapses when the heartbeats stop.
+
+      **Whether somebody is in a call is a different question** with a
+      different, durable answer, and it is deliberately not a field here. Ask
+      `GET /v1/calls/{call_id}/participants`, which is a record with a
+      lifecycle rather than a claim with a timer.
+
+      See `docs/presence.md` for the heartbeat interval, the aggregation rule
+      across a person's devices, and what happens when the store behind it is
+      unreachable.
+
   - name: Webhooks
     description: |
       Where Convia reaches out to tell an application something.
@@ -4036,6 +4062,249 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/presence:
+    get:
+      operationId: listPresence
+      tags: [Presence]
+      summary: Read presence for several people
+      description: |
+        Returns what Convia will say about each named user, in the order asked.
+
+        Every named user is answered for, including the ones nothing is being
+        asserted about — those come back as `offline`. A user the application
+        does not have is reported as `404` rather than answered as offline,
+        because that is a mistake in the request and reporting it as an absence
+        would hide a typo forever.
+
+        Requires the `presence:read` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [presence:read]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          description: |
+            A user to read presence for. Repeat the parameter to ask about
+            several; at most 100 in one request.
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: "#/components/schemas/UserId"
+      responses:
+        "200":
+          description: Presence for each named user, in the order asked.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresenceList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+  /v1/users/{user_id}/presence:
+    get:
+      operationId: getPresence
+      tags: [Presence]
+      summary: Read one person's presence
+      description: |
+        Returns what Convia will say about one of the calling application's
+        people.
+
+        Somebody nothing is being asserted about is `offline` rather than
+        absent: "Convia knows nobody by that name" and "nobody is saying
+        anything about them" are different answers, and only the first is a
+        mistake.
+
+        Requires the `presence:read` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [presence:read]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          $ref: "#/components/responses/PresenceState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+    delete:
+      operationId: forgetPresence
+      tags: [Presence]
+      summary: Withdraw everything said about one person
+      description: |
+        Removes every device's claim at once, which is how an application
+        reports a sign-out rather than one device going away.
+
+        It answers with the person's presence, which is now `offline`, rather
+        than with no content — so that a client sees the same shape from every
+        operation on this resource.
+
+        Withdrawing what was never asserted succeeds and changes nothing: a
+        client retrying its own tidying-up must not be told it failed.
+
+        Requires the `presence:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [presence:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          $ref: "#/components/responses/PresenceState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+  /v1/users/{user_id}/presence/{device_id}:
+    put:
+      operationId: assertPresence
+      tags: [Presence]
+      summary: Report that one device is present
+      description: |
+        Records or refreshes what one device says about one person, and returns
+        what Convia will now say about the **person**.
+
+        This is the heartbeat. Send it every 20 seconds or so and let
+        `lifetime_seconds` cover a few missed ones; the default of 60 seconds
+        covers three at that interval.
+
+        **No timestamp is sent and none is accepted.** A caller states how long
+        its claim should stand, and Convia computes the deadline from its own
+        clock. That is why a client with a wrong clock cannot make somebody
+        permanently available, and why two Convia instances never disagree
+        about when something lapsed.
+
+        When several of a person's devices are asserting at once, the answer is
+        the strongest of them: `busy`, then `online`, then `away`. A deliberate
+        request not to be disturbed is not undone by a laptop in another room
+        reporting activity.
+
+        Requires the `presence:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [presence:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresenceAssertion"
+      responses:
+        "200":
+          $ref: "#/components/responses/PresenceState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+    delete:
+      operationId: withdrawPresence
+      tags: [Presence]
+      summary: Report that one device is going away
+      description: |
+        Removes one device's claim and returns what the person's other devices
+        still say.
+
+        It answers with the person rather than with no content because closing
+        one tab does not usually take somebody offline, and a client that
+        assumed it did would be wrong.
+
+        Requires the `presence:write` scope.
+      x-lifecycle: experimental
+      x-required-scopes: [presence:write]
+      security:
+        - ApplicationKey: []
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/DeviceID"
+      responses:
+        "200":
+          $ref: "#/components/responses/PresenceState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
   /v1/events:
     get:
       operationId: streamEvents
@@ -5452,6 +5721,102 @@ components:
             and checked the same way as on a removal: promoting someone is
             exactly the authority the moderator role exists for.
 
+    PresenceState:
+      type: string
+      description: |
+        What Convia will say about whether somebody is available.
+
+        Three of these are asserted by an application and one is not: `offline`
+        means nothing is being asserted at all, either because nothing ever was,
+        because it was withdrawn, or because the last claim lapsed. It is
+        therefore never sent *to* Convia — an application that means it deletes
+        the presence instead.
+
+        Listed strongest first, which is also the rule for aggregating a
+        person's devices.
+      enum:
+        - busy
+        - online
+        - away
+        - offline
+
+    PresenceAssertion:
+      type: object
+      description: |
+        What one device says about one person, and for how long.
+      required: [state]
+      additionalProperties: false
+      properties:
+        state:
+          allOf:
+            - $ref: "#/components/schemas/PresenceState"
+          description: |
+            What this device says. `offline` is refused: withdraw the presence
+            instead, which is how a device says it is going away.
+          example: online
+        lifetime_seconds:
+          type: integer
+          minimum: 10
+          maximum: 300
+          default: 60
+          description: |
+            How long this claim stands without another heartbeat.
+
+            The bounds are Convia's and are not negotiable: below the floor a
+            claim would lapse inside the round trip meant to renew it, and above
+            the ceiling it stops being presence and becomes a stale statement
+            about a person. A value outside them is refused rather than clamped,
+            so a caller is never left believing it got what it asked for.
+          example: 60
+
+    Presence:
+      type: object
+      description: |
+        What Convia will say about one person.
+
+        There is no device list and no device count. The question presence
+        answers is whether somebody is available; how many screens they have
+        open is a detail about their day, and a colleague reading a roster has
+        no business learning it.
+      required: [user_id, state]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        state:
+          $ref: "#/components/schemas/PresenceState"
+        since:
+          type: string
+          format: date-time
+          description: |
+            When the person entered this state, taken from the earliest device
+            still asserting it rather than from the most recent heartbeat — so a
+            client showing "away for 20 minutes" does not see it reset every
+            time a heartbeat arrives.
+
+            Absent when the person is offline: nobody is saying anything, and
+            Convia deliberately does not remember when they stopped.
+          example: "2026-09-10T14:00:00.000Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            When this would lapse if no further heartbeat arrived. Absent when
+            the person is offline, because nothing is pending.
+          example: "2026-09-10T14:01:00.000Z"
+
+    PresenceList:
+      type: object
+      description: |
+        Presence for each user asked about, in the order asked.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Presence"
+
     Scope:
       type: string
       description: |
@@ -5474,6 +5839,8 @@ components:
         - events:read
         - webhooks:read
         - webhooks:write
+        - presence:read
+        - presence:write
 
     WebhookEndpointId:
       type: string
@@ -5709,6 +6076,7 @@ components:
         - participant.removed
         - participant.role_changed
         - invitation.declined
+        - presence.changed
 
     EventSubjectType:
       type: string
@@ -5719,6 +6087,7 @@ components:
         - call
         - participant
         - invitation
+        - user
 
     EventSubject:
       type: object
@@ -6076,6 +6445,24 @@ components:
       schema:
         $ref: "#/components/schemas/UserId"
 
+    DeviceID:
+      name: device_id
+      in: path
+      required: true
+      description: |
+        The application's own opaque identifier for one device.
+
+        Convia never interprets it. Use a value generated per installation
+        rather than anything describing the device: Convia stores what it
+        receives, and a model name is a detail about a person that presence does
+        not need.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+        pattern: "^[A-Za-z0-9._-]+$"
+      example: dv-8f2c41
+
     CredentialID:
       name: credential_id
       in: path
@@ -6256,6 +6643,47 @@ components:
             error:
               code: invalid_request
               message: The request body must not be empty.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    PresenceState:
+      description: What Convia will now say about the person.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Presence"
+
+    PresenceUnavailable:
+      description: |
+        Presence could not be reached, and another attempt shortly may succeed.
+
+        Presence is the one part of Convia with no durable copy to fall back on,
+        so this is reported rather than answered as `offline` — telling an
+        application that everybody went offline, when what happened is that
+        Convia lost its ephemeral store, would be a false statement about
+        people rather than a degraded one.
+
+        **Nothing else about the application is affected.** Calls, rooms,
+        participants, and webhooks are answered from PostgreSQL and are
+        untouched.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          description: How many seconds to wait before trying again.
+          schema:
+            type: integer
+          example: 5
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unavailable
+              message: Presence is temporarily unavailable. Nothing else about this application is affected.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     NotFound:

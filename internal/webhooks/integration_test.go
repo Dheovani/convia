@@ -139,8 +139,18 @@ func (setup fixture) register(t *testing.T, applicationID, address string,
 	types ...events.Type) (Endpoint, Secret) {
 	t.Helper()
 
+	/*
+		Everything a webhook can carry, when a test does not care which. It is
+		not events.Types(): one type is advisory and Convia refuses to queue it,
+		because a redelivery would arrive after it stopped being true. That
+		refusal is tested in webhook_test.go rather than tripped over here.
+	*/
 	if len(types) == 0 {
-		types = events.Types()
+		for _, kind := range events.Types() {
+			if events.Durable(kind) {
+				types = append(types, kind)
+			}
+		}
 	}
 
 	endpoint, signing, err := setup.service.Register(context.Background(), applicationID,

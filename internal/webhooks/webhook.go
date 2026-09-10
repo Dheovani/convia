@@ -295,6 +295,22 @@ func NormalizeEventTypes(requested []events.Type) ([]events.Type, error) {
 				Message: fmt.Sprintf("%q is not an event type Convia delivers.", string(kind)),
 			}
 		}
+		/*
+			One type streams and is never queued. A webhook is a delivery with
+			attempts behind it, so a presence report that failed once arrives
+			after it stopped being true and after the newer one that replaced
+			it — which would leave an application with a roster that never
+			settles. Refused here rather than silently dropped at delivery, so
+			that an endpoint asking for it learns why.
+		*/
+		if !events.Durable(kind) {
+			return nil, ValidationError{
+				Field: "event_types",
+				Message: fmt.Sprintf(
+					"%q is delivered on a stream and never by webhook, because a redelivered presence report arrives after it stopped being true. Open a stream with GET /v1/events instead.",
+					string(kind)),
+			}
+		}
 		if !slices.Contains(normalized, kind) {
 			normalized = append(normalized, kind)
 		}
