@@ -102,3 +102,63 @@ func TestEventsStayALeaf(t *testing.T) {
 		}
 	}
 }
+
+/*
+TestOnlyTheCompositionRootNamesTheSharedChannel keeps the relay an
+implementation detail.
+
+The reasoning is the media plane's, applied to the second piece of
+infrastructure Convia can be given. [Relay] is the contract; internal/events/redis
+is one way to satisfy it. The moment a domain package, a handler, or this
+package imports the implementation, "Convia works without Redis" stops being
+something a deployment chooses and becomes something somebody has to remember.
+
+The composition root is the one place allowed to know, because deciding what
+this process is made of is what a composition root is for.
+*/
+func TestOnlyTheCompositionRootNamesTheSharedChannel(t *testing.T) {
+	root := moduleRoot(t)
+	const provider = "convia/internal/events/redis"
+
+	permitted := filepath.Join(root, "cmd", "convia")
+	inside := filepath.Join(root, "internal", "events", "redis")
+
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case entry.IsDir():
+			if entry.Name() == ".git" || entry.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
+			return nil
+		case !strings.HasSuffix(path, ".go"):
+			return nil
+		case strings.HasPrefix(path, permitted), strings.HasPrefix(path, inside):
+			return nil
+		}
+
+		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return err
+		}
+
+		for _, imported := range file.Imports {
+			target, err := strconv.Unquote(imported.Path.Value)
+			if err != nil {
+				return err
+			}
+			if target == provider {
+				relative, _ := filepath.Rel(root, path)
+				t.Errorf("%s imports %q. Only the composition root decides what carries "+
+					"events between instances; everything else depends on the Relay contract, "+
+					"which is what keeps a single-instance Convia from needing Redis at all.",
+					filepath.ToSlash(relative), target)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk the module: %v", err)
+	}
+}

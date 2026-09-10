@@ -108,6 +108,8 @@ An event goes to the streams open at the moment it is published, and is then gon
 - There is no cursor and no replay.
 - A client that reconnects should re-read whatever it cares about over REST, and then keep listening.
 
+Which instance a client reaches does not matter, as long as the deployment is configured for more than one — see *Running more than one instance* below.
+
 This is the honest summary of what an in-process fan-out can promise, and it is why anything a consumer must not miss belongs in a REST read or in a [webhook](webhooks.md), which is a delivery with attempts behind it.
 
 ## Falling behind
@@ -148,16 +150,34 @@ Both ceilings are answered with the same `429`, so a tenant is never told anythi
 
 ## Running more than one instance
 
-**The broker is in-process.** A subscriber connected to instance A does not see an event produced on instance B.
+The broker is in-process, so on its own an instance serves only the subscribers connected to it. **Set `CONVIA_REDIS_URL` on every instance and that stops being true**: events are carried between them over one publish/subscribe channel, and a subscriber sees what happened wherever it happened.
 
-This is a real operational constraint, not a footnote. A deployment today must do one of:
+```bash
+CONVIA_REDIS_URL=rediss://redis.internal:6379/0
+```
 
-- **run a single instance**, which is what local development and small deployments do; or
-- **route each tenant's streams to a fixed instance**, so that every event about a tenant is produced on the instance its subscribers are connected to. That requires the same tenant's *API requests* to land there too, since events are produced by the requests that change things — which in practice means routing by application, not by connection.
+**This is an operational requirement, not a tuning option.** Several instances with it unset is the one configuration that is quietly wrong: each serves only its own subscribers, no request fails, nothing is logged as an error, and it looks like it works. Convia cannot detect it from inside one process — an instance has no way to know how many others exist — so the check is yours. Each one says at startup which of the two it is:
 
-Neither is a long-term answer. The long-term answer is a shared publish/subscribe channel, which is [`M16`](../TODO.md), and this is the concrete use case `M16-001` asks for before Redis is added: the events would be ephemeral, fan-out only, with no durability requirement — precisely what Redis pub/sub is for, and precisely not a durable source of truth.
+```
+no shared channel is configured, so event streams are served by this instance alone
+shared channel configured  address=redis.internal:6379  origin=ins_...
+```
 
-What must not happen in the meantime is a deployment quietly running several instances behind a round-robin balancer and believing the stream is complete. It would look like it worked.
+What the relay does **not** change:
+
+- **Who receives what.** The broker decides that from the credential that opened the stream, and decides it the same way whether the event was produced here or elsewhere.
+- **What a stream promises.** Nothing is stored, in Redis or anywhere else. An event produced while a subscriber is away is still gone, and a subscriber that falls behind is still disconnected.
+- **Whether Convia works.** An unreachable Redis narrows the stream back to one instance and is reported loudly; it does not fail requests, and readiness deliberately ignores it. Anything a consumer must not miss belongs in a [webhook](webhooks.md), which was safe across instances from the first commit.
+
+Ordering is per-instance rather than global. Two events produced on different instances arrive in whatever order the network delivered them, so use `occurred_at` rather than arrival order — the same rule webhooks already ask for.
+
+The channel is `convia:v1:events`: a namespace, so Convia's traffic is recognizable on a Redis somebody else is also using, and a version, so a future envelope can run beside this one during a rolling deployment. It is one channel for the whole deployment rather than one per tenant, which is a choice about traffic between machines that already share a database, not about isolation. [ADR 0005](adr/0005-redis-for-what-instances-tell-each-other.md) records why, and what would justify changing it.
+
+Locally, Redis is opt-in the same way the media plane is:
+
+```bash
+docker compose --profile shared up -d
+```
 
 ## Shutting down
 

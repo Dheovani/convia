@@ -45,5 +45,30 @@ services:
       - "127.0.0.1:7880:7880"
     restart: unless-stopped
 
+  # A single Convia instance needs none of this: its event broker is in
+  # process, and everything it publishes reaches everything it serves. Redis is
+  # what carries events *between* instances, so it is opt-in too:
+  #
+  #   docker compose --profile shared up -d
+  #
+  # Start it to run the relay's integration tests, or to run two local
+  # instances and watch a subscriber on one see an event produced on the other.
+  redis:
+    image: redis:8.2-alpine
+    container_name: convia-redis
+    profiles: ["shared"]
+    # Nothing durable lives here — the only use is publish/subscribe, which
+    # stores nothing — so persistence is off. A restart loses no Convia state,
+    # by construction rather than by luck.
+    command: redis-server --save "" --appendonly no
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
 volumes:
   postgres-data:
