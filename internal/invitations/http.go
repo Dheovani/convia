@@ -56,7 +56,8 @@ type invitationResponse struct {
 	ID            string `json:"id"`
 	ApplicationID string `json:"application_id"`
 	CallID        string `json:"call_id"`
-	UserID        string `json:"user_id"`
+	Guest         bool   `json:"guest"`
+	UserID        string `json:"user_id,omitempty"`
 	Role          string `json:"role"`
 	Status        string `json:"status"`
 	ExpiresAt     string `json:"expires_at"`
@@ -107,6 +108,7 @@ type redemptionResponse struct {
 type createInvitationRequest struct {
 	UserID    string `json:"user_id"`
 	Role      string `json:"role"`
+	Guest     bool   `json:"guest"`
 	ExpiresIn int    `json:"expires_in_seconds"`
 }
 
@@ -115,6 +117,7 @@ func represent(invitation Invitation) invitationResponse {
 		ID:            invitation.ID,
 		ApplicationID: invitation.ApplicationID,
 		CallID:        invitation.CallID,
+		Guest:         invitation.Guest(),
 		UserID:        invitation.UserID,
 		Role:          invitation.Role,
 		Status:        string(invitation.Status(time.Now().UTC())),
@@ -199,6 +202,7 @@ func (handler *TenantHandler) Issue(response http.ResponseWriter, request *http.
 	invitation, value, err := authorized.Issue(request.Context(), request.PathValue("call_id"), Request{
 		UserID:    body.UserID,
 		Role:      body.Role,
+		Guest:     body.Guest,
 		ExpiresIn: time.Duration(body.ExpiresIn) * time.Second,
 	})
 

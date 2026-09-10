@@ -48,7 +48,7 @@ type row struct {
 	ID            string
 	ApplicationID string
 	CallID        string
-	UserID        string
+	UserID        *string
 	Role          string
 	ExpiresAt     time.Time
 	RedeemedAt    *time.Time
@@ -64,11 +64,14 @@ func (record row) invitation() Invitation {
 		ID:            record.ID,
 		ApplicationID: record.ApplicationID,
 		CallID:        record.CallID,
-		UserID:        record.UserID,
 		Role:          record.Role,
 		ExpiresAt:     record.ExpiresAt.UTC(),
 		CreatedAt:     record.CreatedAt.UTC(),
 		UpdatedAt:     record.UpdatedAt.UTC(),
+	}
+
+	if record.UserID != nil {
+		invitation.UserID = *record.UserID
 	}
 
 	if record.ParticipantID != nil {
@@ -79,6 +82,14 @@ func (record row) invitation() Invitation {
 	invitation.DeclinedAt = utc(record.DeclinedAt)
 	invitation.RevokedAt = utc(record.RevokedAt)
 	return invitation
+}
+
+// optional renders a value for storage, mapping the empty string to NULL.
+func optional(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func utc(at *time.Time) *time.Time {
@@ -98,7 +109,7 @@ func (store *Store) Create(ctx context.Context, invitation Invitation, digest []
 	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
 	_, err := store.pool.Exec(ctx, statement,
-		invitation.ID, invitation.ApplicationID, invitation.CallID, invitation.UserID,
+		invitation.ID, invitation.ApplicationID, invitation.CallID, optional(invitation.UserID),
 		invitation.Role, digest, invitation.ExpiresAt, invitation.CreatedAt, invitation.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create invitation: %w", err)

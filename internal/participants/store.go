@@ -14,8 +14,9 @@ import (
 )
 
 // columns is the projection every read shares.
-const columns = `id, application_id, call_id, user_id, role, status, removed_by,
-                 removed_by_participant_id, removal_reason, created_at, updated_at, left_at`
+const columns = `id, application_id, call_id, user_id, invitation_id, role, status,
+                 removed_by, removed_by_participant_id, removal_reason,
+                 created_at, updated_at, left_at`
 
 /*
 Store persists participants in PostgreSQL.
@@ -40,7 +41,8 @@ type row struct {
 	ID            string
 	ApplicationID string
 	CallID        string
-	UserID        string
+	UserID        *string
+	InvitationID  *string
 	Role          Role
 	Status        Status
 	RemovedBy     *Remover
@@ -56,7 +58,6 @@ func (record row) participant() Participant {
 		ID:            record.ID,
 		ApplicationID: record.ApplicationID,
 		CallID:        record.CallID,
-		UserID:        record.UserID,
 		Role:          record.Role,
 		Status:        record.Status,
 		RemovedBy:     record.RemovedBy,
@@ -64,16 +65,27 @@ func (record row) participant() Participant {
 		UpdatedAt:     record.UpdatedAt.UTC(),
 	}
 
+	if record.UserID != nil {
+		participant.UserID = *record.UserID
+	}
+
+	if record.InvitationID != nil {
+		participant.InvitationID = *record.InvitationID
+	}
+
 	if record.RemovedByID != nil {
 		participant.RemovedByID = *record.RemovedByID
 	}
+
 	if record.RemovalReason != nil {
 		participant.RemovalReason = *record.RemovalReason
 	}
+
 	if record.LeftAt != nil {
 		left := record.LeftAt.UTC()
 		participant.LeftAt = &left
 	}
+
 	return participant
 }
 
@@ -118,7 +130,7 @@ func (store *Store) Join(ctx context.Context, candidate Participant, capacity *i
 		return Participant{}, false, err
 	}
 
-	existing, err := presenceOf(ctx, transaction, candidate.CallID, candidate.UserID)
+	existing, err := presenceOf(ctx, transaction, candidate)
 	switch {
 	case err != nil:
 		return Participant{}, false, err
@@ -133,11 +145,13 @@ func (store *Store) Join(ctx context.Context, candidate Participant, capacity *i
 	}
 
 	const statement = `INSERT INTO participants
-	                   (id, application_id, call_id, user_id, role, status, created_at, updated_at)
-	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	                   (id, application_id, call_id, user_id, invitation_id, role,
+	                    status, created_at, updated_at)
+	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
 	_, err = transaction.Exec(ctx, statement,
-		candidate.ID, candidate.ApplicationID, candidate.CallID, candidate.UserID,
+		candidate.ID, candidate.ApplicationID, candidate.CallID,
+		optional(candidate.UserID), optional(candidate.InvitationID),
 		candidate.Role, StatusJoined, candidate.CreatedAt, candidate.UpdatedAt)
 	if err != nil {
 		return Participant{}, false, fmt.Errorf("insert participant: %w", err)
@@ -192,12 +206,29 @@ Only a presence that blocks or satisfies a join is interesting: someone still
 in the call, or someone who was removed from it. A person who left is free to
 come back, and does so as a new participation so the call keeps both stints.
 */
-func presenceOf(ctx context.Context, transaction pgx.Tx, callID, userID string) (*Participant, error) {
-	const statement = `SELECT ` + columns + ` FROM participants
-	                   WHERE call_id = $1 AND user_id = $2 AND status IN ($3, $4)
-	                   ORDER BY created_at DESC LIMIT 1`
+/*
+presenceOf finds an existing participation for whoever is arriving.
 
-	rows, err := transaction.Query(ctx, statement, callID, userID, StatusJoined, StatusRemoved)
+It looks by whichever identity the candidate carries — the person for a known
+user, the invitation for a guest — because those are the two things a
+participation can be unique by. Removed participations are included on purpose:
+that is what makes a removal terminal for that call, for a guest exactly as
+much as for a user.
+*/
+func presenceOf(ctx context.Context, transaction pgx.Tx, candidate Participant) (*Participant, error) {
+	statement := `SELECT ` + columns + ` FROM participants
+	              WHERE call_id = $1 AND user_id = $2 AND status IN ($3, $4)
+	              ORDER BY created_at DESC LIMIT 1`
+	identity := candidate.UserID
+
+	if candidate.Guest() {
+		statement = `SELECT ` + columns + ` FROM participants
+		             WHERE call_id = $1 AND invitation_id = $2 AND status IN ($3, $4)
+		             ORDER BY created_at DESC LIMIT 1`
+		identity = candidate.InvitationID
+	}
+
+	rows, err := transaction.Query(ctx, statement, candidate.CallID, identity, StatusJoined, StatusRemoved)
 	if err != nil {
 		return nil, fmt.Errorf("query presence: %w", err)
 	}

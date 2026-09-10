@@ -239,10 +239,17 @@ carrying anything about them. A caller that wants a name reads the user, where
 it lives and stays current.
 */
 func TestARosterNamesPeopleOnlyByIdentifier(t *testing.T) {
+	/*
+		"guest" and "invitation_id" are on this list because they are Convia's
+		own state and Convia's own identifier. A guest is precisely the case
+		where Convia holds no personal data at all: the invitation is the whole
+		of what it knows, and the application that sent it is the only party
+		that can say who redeemed it.
+	*/
 	owned := []string{
-		"id", "application_id", "call_id", "user_id", "role", "status",
-		"removed_by", "removed_by_participant_id", "removal_reason",
-		"created_at", "updated_at", "left_at",
+		"id", "application_id", "call_id", "guest", "user_id", "invitation_id",
+		"role", "status", "removed_by", "removed_by_participant_id",
+		"removal_reason", "created_at", "updated_at", "left_at",
 	}
 
 	document := loadSpecification(t)

@@ -146,6 +146,15 @@ type Invitation struct {
 	ID            string
 	ApplicationID string
 	CallID        string
+
+	/*
+		UserID names the person invited, and is empty for a guest invitation.
+
+		A guest is somebody Convia has no user for. The invitation is then the
+		only identity they have, and Convia learns nothing else about them: the
+		application knows who it sent the link to, which is where that
+		knowledge belongs.
+	*/
 	UserID        string
 	Role          string
 	ExpiresAt     time.Time
@@ -198,6 +207,17 @@ func (invitation Invitation) Usable(at time.Time) bool {
 	default:
 		return false
 	}
+}
+
+/*
+Guest reports whether this invitation is for somebody with no Convia user.
+
+It is the only distinction between the two kinds, and it is deliberate that the
+distinction is an absence rather than a flag: a guest invitation names nobody
+because there is nobody to name.
+*/
+func (invitation Invitation) Guest() bool {
+	return invitation.UserID == ""
 }
 
 // NewID generates an opaque public identifier for an invitation.
