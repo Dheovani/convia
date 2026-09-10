@@ -12,6 +12,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/invitations"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/ratelimit"
@@ -115,6 +116,16 @@ type Dependencies struct {
 	TenantRooms        *rooms.TenantHandler
 	TenantCalls        *calls.TenantHandler
 	TenantParticipants *participants.TenantHandler
+	TenantInvitations  *invitations.TenantHandler
+
+	/*
+		The invitation surface is authenticated by an invitation itself, which
+		is what makes it authorization rather than a record of the
+		application's own decision. Leaving it out removes those routes, and an
+		application can still admit people directly.
+	*/
+	InvitationAuthenticator invitationAuthenticator
+	Invitations             *invitations.HolderHandler
 
 	/*
 		IdempotencyKeys lets a caller retry a creation without risking a second
@@ -176,6 +187,8 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			served = authenticate(logger, tenantVerifier{dependencies.Authenticator}, failures, resolve, served)
 		case surfaceOperator:
 			served = authenticate(logger, operatorVerifier{dependencies.OperatorAuthenticator}, failures, resolve, served)
+		case surfaceInvitation:
+			served = authenticate(logger, invitationVerifier{dependencies.InvitationAuthenticator}, failures, resolve, served)
 		}
 		rt.handle(entry.method, entry.path, served)
 	}
@@ -200,6 +213,17 @@ const (
 	surfaceTenant
 	// surfaceOperator acts with an operator's authority over Convia itself.
 	surfaceOperator
+	/*
+		surfaceInvitation acts with the authority of one invitation, presented
+		by whoever holds it.
+
+		It is a surface of its own rather than a variation of the tenant one,
+		because the party presenting an invitation is deliberately not the
+		party that granted it. An application key is never accepted here and an
+		invitation is never accepted anywhere else: each is refused on its
+		shape, before any lookup.
+	*/
+	surfaceInvitation
 )
 
 /*
@@ -433,6 +457,39 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			*/
 			route{method: http.MethodPost, path: api.Prefix + "/participants/{participant_id}/session", surface: surfaceTenant, idempotent: true,
 				handler: http.HandlerFunc(dependencies.TenantParticipants.Session)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantInvitations != nil {
+		/*
+			Invitations the application issues to its own calls. Creating one
+			names the call in the path because the invitation belongs to it,
+			and every later operation addresses the invitation directly.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/calls/{call_id}/invitations", surface: surfaceTenant, idempotent: true,
+				handler: http.HandlerFunc(dependencies.TenantInvitations.Issue)},
+			route{method: http.MethodGet, path: api.Prefix + "/invitations", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantInvitations.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/invitations/{invitation_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantInvitations.Get)},
+			route{method: http.MethodPost, path: api.Prefix + "/invitations/{invitation_id}/revoke", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantInvitations.Revoke)},
+		)
+	}
+
+	if dependencies.InvitationAuthenticator != nil && dependencies.Invitations != nil {
+		/*
+			What the holder of an invitation may do with it. Neither route
+			names an invitation in its path: the presented key names itself,
+			and asking the holder to repeat it would let them address one they
+			do not hold.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/invitation/redeem", surface: surfaceInvitation, idempotent: true,
+				handler: http.HandlerFunc(dependencies.Invitations.Redeem)},
+			route{method: http.MethodPost, path: api.Prefix + "/invitation/decline", surface: surfaceInvitation,
+				handler: http.HandlerFunc(dependencies.Invitations.Decline)},
 		)
 	}
 
