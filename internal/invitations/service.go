@@ -69,11 +69,13 @@ type participation interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It takes no context and returns no error, so that announcing a decision cannot
-slow down, fail, or cancel recording it. events.Broker satisfies it.
+It returns no error, so that announcing a decision cannot undo recording it.
+The context is there because announcing also records what is owed to the
+destinations an application registered, which is a write with a deadline.
+events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(event events.Event)
+	Publish(ctx context.Context, event events.Event)
 }
 
 // Service applies Convia's rules for invitations.
@@ -541,7 +543,7 @@ func (service *Service) audit(ctx context.Context, kind events.Type, invitation 
 		data["user_id"] = invitation.UserID
 	}
 
-	service.stream.Publish(events.New(kind, invitation.ApplicationID, invitation.ID,
+	service.stream.Publish(ctx, events.New(kind, invitation.ApplicationID, invitation.ID,
 		api.RequestIDFromContext(ctx), data))
 }
 

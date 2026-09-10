@@ -161,6 +161,32 @@ tags:
       See `docs/events.md` for the delivery guarantees, the close codes, and
       what running more than one instance requires.
 
+  - name: Webhooks
+    description: |
+      Where Convia reaches out to tell an application something.
+
+      This is the durable counterpart of the event stream, and the two are for
+      different problems. A stream delivers to whoever is connected right now
+      and holds nothing, which is right for a picture that must stay current
+      and that a client can rebuild by re-reading. A webhook is for something a
+      consumer must not miss: every delivery is a record that exists before the
+      first attempt and outlives the last, so it can be retried, counted, and
+      explained afterwards.
+
+      **Deliveries are signed and at-least-once.** Every request carries an
+      HMAC over its own timestamp and body, and the same delivery may arrive
+      more than once — a destination that received a body and failed to answer
+      is indistinguishable from one that never received it. `Convia-Delivery`
+      is what a consumer records to recognize a repeat.
+
+      **Convia refuses to reach addresses that are not the public internet.**
+      A destination is chosen by a tenant and fetched by Convia's own process,
+      so the check runs on the address being connected to, at every attempt,
+      rather than on the hostname at registration.
+
+      See `docs/webhooks.md` for the signature, the retry schedule, the close
+      of a failing endpoint, and what a consumer should do about duplicates.
+
 paths:
   /health:
     get:
@@ -3544,6 +3570,472 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/webhooks:
+    post:
+      operationId: registerWebhookEndpoint
+      tags: [Webhooks]
+      summary: Register a webhook endpoint
+      description: |
+        Records a destination and the event types it should be told about, and
+        returns its signing secret **exactly once**.
+
+        The secret is Convia's to generate, because a secret an application
+        chose is one it may have reused. Convia keeps it — it has to, since it
+        signs every delivery with it — so "once" here means that no read ever
+        returns it. Losing it is recovered by rotating, not by asking again.
+
+        The destination is checked before this answers: its shape, and whether
+        it resolves to an address Convia is willing to connect to. It is
+        checked again at every delivery, because what a name resolves to can
+        change.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:write"]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterWebhookRequest"
+      responses:
+        "201":
+          description: The endpoint, with its signing secret shown for the only time.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisteredWebhookEndpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    get:
+      operationId: listWebhookEndpoints
+      tags: [Webhooks]
+      summary: List webhook endpoints
+      description: |
+        Returns the caller's own endpoints, newest first. No signing secret
+        appears here, or anywhere else after registration.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:read"]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of endpoints.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/webhooks/{endpoint_id}:
+    get:
+      operationId: getWebhookEndpoint
+      tags: [Webhooks]
+      summary: Retrieve a webhook endpoint
+      description: Returns one of the caller's own endpoints.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:read"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      responses:
+        "200":
+          description: The requested endpoint.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    patch:
+      operationId: updateWebhookEndpoint
+      tags: [Webhooks]
+      summary: Change a webhook endpoint
+      description: |
+        Changes the name, the destination, or the event types.
+
+        The whole registration is replaced, so `event_types` is the new set
+        rather than an addition to the old one. The signing secret is
+        untouched; changing that is rotation.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:write"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterWebhookRequest"
+      responses:
+        "200":
+          description: The endpoint as it now stands.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    delete:
+      operationId: deleteWebhookEndpoint
+      tags: [Webhooks]
+      summary: Remove a webhook endpoint
+      description: |
+        Removes the endpoint **and everything Convia queued or recorded for
+        it**.
+
+        That is the deliberate reading of deleting a destination: an
+        application that wants to keep the history disables the endpoint
+        instead, which stops delivery and leaves the record readable.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:write"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      responses:
+        "204":
+          description: The endpoint no longer exists.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/webhooks/{endpoint_id}/rotate:
+    post:
+      operationId: rotateWebhookSecret
+      tags: [Webhooks]
+      summary: Rotate a signing secret
+      description: |
+        Issues a new signing secret and returns it exactly once.
+
+        **The old secret stops working immediately.** Rotation exists because a
+        secret may have been exposed, and one that kept working for a grace
+        period would keep working for whoever exposed it. A consumer therefore
+        accepts both secrets while it deploys the new one, and Convia's part is
+        to make the change the moment it is asked for.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:write"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      responses:
+        "200":
+          description: The endpoint, with its new signing secret shown for the only time.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisteredWebhookEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/webhooks/{endpoint_id}/enable:
+    post:
+      operationId: enableWebhookEndpoint
+      tags: [Webhooks]
+      summary: Resume delivery to an endpoint
+      description: |
+        Starts delivering again, and resets the failure count.
+
+        This is how an application recovers from Convia having disabled a
+        destination that stopped answering: fix the receiver, then say so.
+        Events that happened while it was disabled are not resent — a webhook
+        that late is worse than none.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:write"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      responses:
+        "200":
+          description: The endpoint, now enabled.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/webhooks/{endpoint_id}/disable:
+    post:
+      operationId: disableWebhookEndpoint
+      tags: [Webhooks]
+      summary: Stop delivery to an endpoint
+      description: |
+        Stops delivering without removing the endpoint or its history, and
+        finishes whatever was already queued for it.
+
+        Convia disables an endpoint on its own after repeated failures. This is
+        the same state reached deliberately, for a receiver that is being
+        replaced or is known to be down.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:write"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      responses:
+        "200":
+          description: The endpoint, now disabled.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/webhooks/{endpoint_id}/deliveries:
+    get:
+      operationId: listWebhookEndpointDeliveries
+      tags: [Webhooks]
+      summary: List one endpoint's deliveries
+      description: |
+        Returns what Convia tried to send to one destination, newest first.
+        This is the listing to read when a particular receiver is failing.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:read"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookEndpointID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of deliveries.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/deliveries:
+    get:
+      operationId: listWebhookDeliveries
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      description: |
+        Returns everything Convia tried to send the caller, newest first,
+        optionally narrowed to one endpoint.
+
+        This is the audit trail a webhook has and a stream does not: an
+        application can ask what it was told, when, how many times Convia
+        tried, and what the destination answered.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:read"]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: endpoint_id
+          in: query
+          required: false
+          description: Narrows the listing to one endpoint.
+          schema:
+            $ref: "#/components/schemas/WebhookEndpointId"
+      responses:
+        "200":
+          description: One page of deliveries.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/deliveries/{delivery_id}:
+    get:
+      operationId: getWebhookDelivery
+      tags: [Webhooks]
+      summary: Retrieve a webhook delivery
+      description: |
+        Returns one delivery: which event it carried, how many attempts it
+        took, and what happened to it.
+
+        The body that was sent is not included. It is the event, which the
+        application already received or can read from the resource itself, and
+        repeating it here would keep the same content in a second place with a
+        different lifetime.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["webhooks:read"]
+      parameters:
+        - $ref: "#/components/parameters/WebhookDeliveryID"
+      responses:
+        "200":
+          description: The requested delivery.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/events:
     get:
       operationId: streamEvents
@@ -4980,6 +5472,219 @@ components:
         - invitations:read
         - invitations:write
         - events:read
+        - webhooks:read
+        - webhooks:write
+
+    WebhookEndpointId:
+      type: string
+      description: Opaque, immutable public identifier of a webhook endpoint.
+      pattern: "^whk_[A-Z2-7]{26}$"
+      example: whk_4XZQP7KN2VJH6TBWMDR3YAFC5E
+
+    WebhookDeliveryId:
+      type: string
+      description: |
+        Opaque, immutable public identifier of one delivery. It travels in the
+        `Convia-Delivery` header, and it is what a consumer records to
+        recognize a delivery it has already handled.
+      pattern: "^whd_[A-Z2-7]{26}$"
+      example: whd_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    WebhookEndpointStatus:
+      type: string
+      description: |
+        Whether Convia is delivering to this endpoint. An endpoint is disabled
+        by the application, or by Convia after repeated failures, and a
+        disabled one always says why.
+      enum: [enabled, disabled]
+
+    WebhookDeliveryStatus:
+      type: string
+      description: |
+        Where one delivery got to. `pending` is the only state with work left
+        in it; the other two are final.
+      enum: [pending, delivered, failed]
+
+    WebhookEndpoint:
+      type: object
+      description: |
+        One destination Convia delivers events to.
+
+        The signing secret is never here. It is returned once when the endpoint
+        is registered and once more whenever it is rotated, and no read
+        includes it.
+      required: [id, application_id, name, url, event_types, status,
+                 consecutive_failures, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/WebhookEndpointId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        name:
+          type: string
+          description: The application's own label for this destination.
+          maxLength: 120
+        url:
+          type: string
+          format: uri
+          description: |
+            Where deliveries are sent. `https` outside development, and never
+            an address that is not on the public internet.
+          maxLength: 2000
+        event_types:
+          type: array
+          description: The event types this endpoint asked about.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EventType"
+        status:
+          $ref: "#/components/schemas/WebhookEndpointStatus"
+        consecutive_failures:
+          type: integer
+          description: |
+            How many deliveries in a row Convia has given up on. It resets on
+            any success, so a growing number is a destination that has stopped
+            working rather than one having a bad afternoon.
+        disabled_reason:
+          type: string
+          description: |
+            Why Convia stopped delivering, in Convia's own words. Present
+            exactly when the endpoint is disabled.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    RegisteredWebhookEndpoint:
+      allOf:
+        - $ref: "#/components/schemas/WebhookEndpoint"
+        - type: object
+          description: |
+            The endpoint together with its signing secret, which is returned by
+            registering and by rotating and by nothing else.
+          required: [secret]
+          properties:
+            secret:
+              type: string
+              description: |
+                The key deliveries to this endpoint are signed with. **Store it
+                now**: no read returns it, and the only way to get another is
+                to rotate, which invalidates this one.
+              example: whsec_4XZQP7KN2VJH6TBWMDR3YAFC5E
+
+    RegisterWebhookRequest:
+      type: object
+      description: |
+        What an application asks for when it wants to be told things.
+
+        There is no secret here. The signing key is Convia's to generate,
+        because a key an application chose is one it may have reused from
+        somewhere else.
+      required: [name, url, event_types]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          description: A label for this destination, for whoever reads the list later.
+          maxLength: 120
+        url:
+          type: string
+          format: uri
+          description: |
+            Where to deliver. Checked when this is called and again before
+            every attempt, because what a hostname resolves to can change.
+          maxLength: 2000
+        event_types:
+          type: array
+          description: |
+            Which events to be told about. At least one, and every one of them
+            a type Convia delivers — an unknown type is refused rather than
+            registered as a subscription that could never fire.
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/EventType"
+
+    WebhookEndpointPage:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookEndpoint"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page. Absent on the last page.
+
+    WebhookDelivery:
+      type: object
+      description: |
+        One event owed to one endpoint, and what happened to it.
+
+        The body that was sent is not published here. It is the event, and
+        keeping a copy of it on every delivery would put the same content in a
+        second place with a different lifetime.
+      required: [id, endpoint_id, application_id, event_id, event_type,
+                 status, attempts, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/WebhookDeliveryId"
+        endpoint_id:
+          $ref: "#/components/schemas/WebhookEndpointId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        event_id:
+          $ref: "#/components/schemas/EventId"
+        event_type:
+          $ref: "#/components/schemas/EventType"
+        status:
+          $ref: "#/components/schemas/WebhookDeliveryStatus"
+        attempts:
+          type: integer
+          description: How many times Convia has tried.
+        next_attempt_at:
+          type: string
+          format: date-time
+          description: When Convia will try again. Present only while pending.
+        last_status_code:
+          type: integer
+          description: |
+            What the destination answered on the last attempt. Absent when the
+            attempt produced no response at all, which is a different failure
+            from one that answered.
+        last_error:
+          type: string
+          description: |
+            Convia's own description of the last failure. Never the body the
+            destination returned, which is text Convia did not write.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        delivered_at:
+          type: string
+          format: date-time
+          description: When a destination accepted it. Present only once delivered.
+
+    WebhookDeliveryPage:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WebhookDelivery"
+        next_cursor:
+          type: string
+          description: Opaque cursor for the next page. Absent on the last page.
 
     EventId:
       type: string
@@ -5315,6 +6020,22 @@ components:
       description: Opaque identifier of an invitation.
       schema:
         $ref: "#/components/schemas/InvitationId"
+
+    WebhookEndpointID:
+      name: endpoint_id
+      in: path
+      required: true
+      description: Opaque identifier of a webhook endpoint.
+      schema:
+        $ref: "#/components/schemas/WebhookEndpointId"
+
+    WebhookDeliveryID:
+      name: delivery_id
+      in: path
+      required: true
+      description: Opaque identifier of a webhook delivery.
+      schema:
+        $ref: "#/components/schemas/WebhookDeliveryId"
 
     IdempotencyKey:
       name: Idempotency-Key

@@ -120,6 +120,19 @@ const (
 		could have read that call.
 	*/
 	ScopeEventsRead Scope = "events:read"
+	// ScopeWebhooksRead permits reading the application's webhook endpoints
+	// and what Convia tried to send to them, never their signing keys.
+	ScopeWebhooksRead Scope = "webhooks:read"
+	/*
+		ScopeWebhooksWrite permits registering, changing, and removing the
+		destinations Convia delivers to, and rotating their signing keys.
+
+		It is separate from ScopeEventsRead, which grants a live stream. Holding
+		a connection open and asking Convia to make requests to an address of
+		your choosing are different powers, and only the second one turns
+		Convia into a client of somewhere else.
+	*/
+	ScopeWebhooksWrite Scope = "webhooks:write"
 )
 
 /*
@@ -137,6 +150,7 @@ func Scopes() []Scope {
 		ScopeParticipantsRead, ScopeParticipantsWrite,
 		ScopeInvitationsRead, ScopeInvitationsWrite,
 		ScopeEventsRead,
+		ScopeWebhooksRead, ScopeWebhooksWrite,
 	}
 }
 

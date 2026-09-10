@@ -26,6 +26,7 @@ import (
 	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/users"
+	"convia/internal/webhooks"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -148,12 +149,32 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	*/
 	broker := events.NewBroker()
 
+	/*
+		Which addresses this instance is willing to reach is decided here, from
+		the environment and from nothing else. A development instance may deliver
+		to a receiver on localhost, because that is how anybody tests a webhook;
+		production may not, and there is deliberately no setting that changes
+		that. See docs/webhooks.md.
+	*/
+	destinations := webhooks.NewDestinations(cfg.Environment == config.Development)
+	webhookStore := webhooks.NewStore(pool)
+	webhookService := webhooks.NewService(webhookStore, applicationService, destinations, logger)
+	dispatcher := webhooks.NewDispatcher(webhookStore, destinations, logger)
+
+	/*
+		One announcer, two promises. The broker reaches whoever is connected now
+		and cannot fail; the dispatcher records what is owed to registered
+		destinations and can. internal/events/announcer.go says what happens
+		when the second one does.
+	*/
+	announcer := events.NewAnnouncer(broker, dispatcher, logger)
+
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		mediaPlane, broker, logger)
+		mediaPlane, announcer, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
-		applicationService, callService, roomService, userService, broker, logger)
+		applicationService, callService, roomService, userService, announcer, logger)
 	invitationService := invitations.NewService(invitations.NewStore(pool),
-		applicationService, callService, userService, participantService, broker, logger)
+		applicationService, callService, userService, participantService, announcer, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
@@ -183,6 +204,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantParticipants: participants.NewTenantHandler(logger, participantService),
 		TenantInvitations:  invitations.NewTenantHandler(logger, invitationService),
 		TenantEvents:       events.NewTenantHandler(logger, broker),
+		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
 
 		InvitationAuthenticator: invitationService,
 		Invitations:             invitations.NewHolderHandler(logger, invitationService),
@@ -191,6 +213,22 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 
 	warnIfUnadministered(signalContext, logger, operatorService)
+
+	/*
+		The delivery worker. Its owner is this function, its lifetime is the
+		process, and cancelling delivering is how it stops. A delivery
+		interrupted by that is not lost: its lease expires and the next worker
+		to look — this one after a restart, or another instance — takes it
+		again.
+	*/
+	delivering, stopDelivering := context.WithCancel(context.Background())
+	defer stopDelivering()
+
+	delivered := make(chan struct{})
+	go func() {
+		defer close(delivered)
+		dispatcher.Run(delivering)
+	}()
 
 	httpServer := server.New(cfg.Address(), logger, dependencies)
 	serverErrors := make(chan error, 1)
@@ -228,6 +266,19 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 	if err := httpServer.Shutdown(shutdownContext); err != nil {
 		return fmt.Errorf("shut down HTTP server: %w", err)
+	}
+
+	/*
+		Deliveries stop after the server does, which is the order that loses
+		nothing. Stopping first would leave the last requests queuing work for a
+		worker that had already gone, and that work would then wait for another
+		instance or for this one to restart.
+	*/
+	stopDelivering()
+	select {
+	case <-delivered:
+	case <-shutdownContext.Done():
+		logger.Warn("the webhook worker did not stop before the shutdown deadline")
 	}
 
 	if err := <-serverErrors; err != nil && !errors.Is(err, http.ErrServerClosed) {
