@@ -3359,8 +3359,340 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/calls/{call_id}/invitations:
+    post:
+      operationId: createOwnInvitation
+      tags: [Invitations]
+      summary: Invite someone to a call
+      description: |
+        Issues an invitation: permission for one person to join one call, as a
+        credential they present themselves.
+
+        This is different in kind from admitting somebody directly. An
+        application that admits a user has decided, and Convia records the
+        decision. An invitation is a decision the *invitee* completes, by
+        presenting something Convia issued to the party that holds it — which
+        is what makes expiry and revocation rules Convia enforces rather than
+        notes the application keeps.
+
+        **The token is returned exactly once.** Convia stores only a digest and
+        cannot show it again, in the same way it cannot show an API key again.
+        Hand it to the person it is for; if it is lost, issue another.
+
+        The role travels with the invitation, so somebody invited as a
+        moderator arrives as one without the application having to promote them
+        after the fact.
+
+        Issuing one to a suspended user is allowed, deliberately. An invitation
+        is permission for later, and whether somebody may actually take part is
+        settled when they redeem it.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["invitations:write"]
+      parameters:
+        - $ref: "#/components/parameters/CallID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateInvitationRequest"
+            example:
+              user_id: usr_7KQZP4XN2VJH6TBWMDR3YAFC5E
+              role: member
+              expires_in_seconds: 86400
+      responses:
+        "201":
+          description: The invitation, with the token its holder presents.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/invitations:
+    get:
+      operationId: listOwnInvitations
+      tags: [Invitations]
+      summary: List invitations
+      description: |
+        Returns the caller's own invitations, newest first, optionally narrowed
+        to one call.
+
+        Every invitation is returned whatever its state, because the listing is
+        also a record of who was invited and what became of it. No token
+        appears here: Convia does not have them.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["invitations:read"]
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: call_id
+          in: query
+          required: false
+          description: Narrows the listing to invitations issued for one call.
+          schema:
+            $ref: "#/components/schemas/CallId"
+      responses:
+        "200":
+          description: One page of invitations.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/invitations/{invitation_id}:
+    get:
+      operationId: getOwnInvitation
+      tags: [Invitations]
+      summary: Retrieve an invitation
+      description: |
+        Returns one of the caller's own invitations, including what became of
+        it and, once redeemed, which participation it produced.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["invitations:read"]
+      parameters:
+        - $ref: "#/components/parameters/InvitationID"
+      responses:
+        "200":
+          description: The requested invitation.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/invitations/{invitation_id}/revoke:
+    post:
+      operationId: revokeOwnInvitation
+      tags: [Invitations]
+      summary: Withdraw an invitation
+      description: |
+        Stops an invitation being used, immediately.
+
+        Revocation outranks everything, including a redemption that already
+        happened: the ordinary reason to withdraw one is that it reached
+        somebody it should not have, and a link that kept working after that
+        would defeat the purpose.
+
+        **It does not remove anyone already in the call.** Somebody who joined
+        is a participant, and putting them out is a decision about a
+        participant rather than about the invitation they arrived with. Remove
+        them through the participant endpoints.
+
+        Revoking twice succeeds and changes nothing, so a retry after a timeout
+        is never punished.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["invitations:write"]
+      parameters:
+        - $ref: "#/components/parameters/InvitationID"
+      responses:
+        "200":
+          description: The invitation, now withdrawn.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/invitation/redeem:
+    post:
+      operationId: redeemInvitation
+      tags: [Invitations]
+      summary: Redeem the presented invitation
+      description: |
+        Turns the invitation into a place in the call and the means to connect.
+
+        **This endpoint is authenticated by the invitation itself**, not by an
+        application key. It is the only surface in Convia where the caller is
+        the person the request is about, and that is the whole point: an
+        invitation is only authorization when the party presenting it is not
+        the party that granted it.
+
+        No identifier appears in the path. The presented key names itself, and
+        asking the holder to repeat it would let them address one they do not
+        hold.
+
+        Both a participation and a connection credential come back in one
+        response, because the holder has no way to obtain either separately:
+        they hold an invitation, not an API key.
+
+        **Redeeming again is expected**, not an error. Somebody whose
+        connection dropped opens the same link again and arrives at the
+        participation they already had, with a fresh credential. What stops an
+        invitation is time, a revocation, or having declined it — and those are
+        reported as one answer, because the holder is not the party that issued
+        it and should not learn which happened.
+      x-lifecycle: experimental
+      security:
+        - InvitationKey: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "201":
+          description: The participation and the credential to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Redemption"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/invitation/decline:
+    post:
+      operationId: declineInvitation
+      tags: [Invitations]
+      summary: Decline the presented invitation
+      description: |
+        Records that the holder said no. It is terminal.
+
+        Declining is the invitee's own act, and it is deliberately not the same
+        as the application withdrawing the invitation: a record that confused
+        the two would be wrong about who changed their mind.
+
+        Declining after redeeming is refused, because the person is already in
+        the call and a decline would record something that did not happen.
+
+        Declining twice succeeds and changes nothing.
+      x-lifecycle: experimental
+      security:
+        - InvitationKey: []
+      responses:
+        "200":
+          description: The invitation, now declined.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invitation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
 components:
   securitySchemes:
+    InvitationKey:
+      type: http
+      scheme: bearer
+      description: |
+        The holder of an invitation authenticates with the invitation itself,
+        presented as `Authorization: Bearer cvi_...`.
+
+        It is a third family of key, alongside an application's and an
+        operator's, with its own prefix and its own table. An application key
+        is never accepted on these routes and an invitation is never accepted
+        anywhere else: each is refused on its shape, before any lookup.
+
+        It carries no scopes. What an invitation permits — one person, one
+        call, one role — is fixed when it is issued, so there is nothing for a
+        caller to ask for.
+
+        Convia issues it once and stores only a digest. Treat it as a
+        credential belonging to the person it was sent to.
+
     OperatorKey:
       type: http
       scheme: bearer
@@ -4080,6 +4412,204 @@ components:
         outside the conversation, so neither names a participant.
       enum: [application, operator, participant]
 
+    InvitationId:
+      type: string
+      description: |
+        Opaque identifier of an invitation. Clients must treat it as opaque and
+        must never parse it.
+      pattern: "^inv_[A-Z2-7]{26}$"
+      example: inv_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    InvitationStatus:
+      type: string
+      description: |
+        The state of an invitation.
+
+        It is derived rather than stored. `expired` in particular is a fact
+        about the clock rather than a row anybody had to write, so an
+        invitation never reads as usable after it has stopped being usable.
+
+        `redeemed` does not mean spent. An invitation that has been used still
+        works until it expires or is withdrawn, which is what lets somebody
+        whose connection dropped open the same link again.
+      enum: [pending, redeemed, declined, revoked, expired]
+
+    Invitation:
+      type: object
+      description: |
+        Permission for one person to join one call.
+
+        The person is named by their Convia user identifier and nothing else,
+        for the same reason a roster names them that way: the application owns
+        who they are.
+
+        **No token appears here.** Convia stores only a digest and cannot show
+        one again; the plaintext exists once, in the response that created it.
+      required: [id, application_id, call_id, user_id, role, status, expires_at, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/InvitationId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        call_id:
+          $ref: "#/components/schemas/CallId"
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        role:
+          $ref: "#/components/schemas/ParticipantRole"
+        status:
+          $ref: "#/components/schemas/InvitationStatus"
+        expires_at:
+          type: string
+          format: date-time
+          description: When the invitation stops being usable, as RFC 3339 in UTC.
+        redeemed_at:
+          type: string
+          format: date-time
+          description: When it was first redeemed. Absent until it has been.
+        participant_id:
+          $ref: "#/components/schemas/ParticipantId"
+        declined_at:
+          type: string
+          format: date-time
+          description: When the holder declined it. Absent unless they did.
+        revoked_at:
+          type: string
+          format: date-time
+          description: When the application withdrew it. Absent unless it did.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    IssuedInvitation:
+      type: object
+      description: |
+        A newly created invitation together with the token its holder presents.
+
+        This is the only response that ever contains one. Convia keeps a digest
+        and nothing else, so a lost token cannot be recovered — issue another.
+      required: [id, application_id, call_id, user_id, role, status, expires_at, created_at, updated_at, token]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/InvitationId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        call_id:
+          $ref: "#/components/schemas/CallId"
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        role:
+          $ref: "#/components/schemas/ParticipantRole"
+        status:
+          $ref: "#/components/schemas/InvitationStatus"
+        expires_at:
+          type: string
+          format: date-time
+        redeemed_at:
+          type: string
+          format: date-time
+        participant_id:
+          $ref: "#/components/schemas/ParticipantId"
+        declined_at:
+          type: string
+          format: date-time
+        revoked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        token:
+          type: string
+          description: |
+            What the invitee presents to redeem or decline the invitation,
+            as `Authorization: Bearer <token>`. Shown once and never again.
+          example: cvi_7KQZP4XN2VJH6TBWMDR3YAFC5E_2QRSTUVWXYZ234567ABCDEFGHI
+
+    InvitationPage:
+      type: object
+      description: One page of invitations, newest first.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Invitation"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token for the next page. Absent on the last page.
+
+    CreateInvitationRequest:
+      type: object
+      description: What an application asks for when inviting someone.
+      required: [user_id]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        role:
+          allOf:
+            - $ref: "#/components/schemas/ParticipantRole"
+          description: |
+            The role the invitation confers when redeemed. Omitted means
+            `member`: a mistyped field must never hand somebody the authority
+            to remove other people.
+        expires_in_seconds:
+          type: integer
+          minimum: 1
+          maximum: 2592000
+          description: |
+            How long the invitation lasts. Omitted means one day. A value
+            beyond thirty days is refused rather than clamped, so an
+            application never believes something untrue about its own links.
+
+    Redemption:
+      type: object
+      description: |
+        What the holder of an invitation receives when they redeem it: a place
+        in the call and the means to connect to it.
+
+        **No media provider appears here, and none ever will.** The connection
+        fields are the same Convia-owned words the join session uses.
+      required: [invitation_id, participant_id, call_id, role, media_url, media_token, expires_at]
+      additionalProperties: false
+      properties:
+        invitation_id:
+          $ref: "#/components/schemas/InvitationId"
+        participant_id:
+          $ref: "#/components/schemas/ParticipantId"
+        call_id:
+          $ref: "#/components/schemas/CallId"
+        role:
+          $ref: "#/components/schemas/ParticipantRole"
+        media_url:
+          type: string
+          format: uri
+          description: The address the client connects to.
+          example: wss://media.convia.example
+        media_token:
+          type: string
+          description: |
+            The credential the client presents when connecting. It is
+            short-lived and useless after `expires_at`; redeem again to get
+            another.
+        expires_at:
+          type: string
+          format: date-time
+          description: |
+            When the connection credential stops being accepted. This is the
+            credential's expiry, not the invitation's.
+
     JoinSession:
       type: object
       description: |
@@ -4284,6 +4814,8 @@ components:
         - calls:write
         - participants:read
         - participants:write
+        - invitations:read
+        - invitations:write
 
     CredentialId:
       type: string
@@ -4506,6 +5038,14 @@ components:
       description: Identifier of the application.
       schema:
         $ref: "#/components/schemas/ApplicationId"
+
+    InvitationID:
+      name: invitation_id
+      in: path
+      required: true
+      description: Opaque identifier of an invitation.
+      schema:
+        $ref: "#/components/schemas/InvitationId"
 
     IdempotencyKey:
       name: Idempotency-Key

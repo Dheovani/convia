@@ -17,6 +17,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/idempotency"
+	"convia/internal/invitations"
 	"convia/internal/media"
 	"convia/internal/media/livekit"
 	"convia/internal/operator"
@@ -141,6 +142,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService, mediaPlane, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
 		applicationService, callService, roomService, userService, logger)
+	invitationService := invitations.NewService(invitations.NewStore(pool),
+		applicationService, callService, userService, participantService, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*
@@ -168,6 +171,10 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantRooms:        rooms.NewTenantHandler(logger, roomService),
 		TenantCalls:        calls.NewTenantHandler(logger, callService),
 		TenantParticipants: participants.NewTenantHandler(logger, participantService),
+		TenantInvitations:  invitations.NewTenantHandler(logger, invitationService),
+
+		InvitationAuthenticator: invitationService,
+		Invitations:             invitations.NewHolderHandler(logger, invitationService),
 
 		IdempotencyKeys: idempotencyService,
 	}

@@ -99,6 +99,16 @@ const (
 	// ScopeParticipantsWrite permits admitting people to the application's
 	// calls, removing them, and changing what they may do.
 	ScopeParticipantsWrite Scope = "participants:write"
+	// ScopeInvitationsRead permits reading the application's invitations.
+	ScopeInvitationsRead Scope = "invitations:read"
+	/*
+		ScopeInvitationsWrite permits issuing and withdrawing invitations.
+
+		It is separate from participants:write because an invitation is a
+		credential that leaves Convia. An integration that may manage a roster
+		is not thereby allowed to mint links that let somebody into a call.
+	*/
+	ScopeInvitationsWrite Scope = "invitations:write"
 )
 
 /*
@@ -114,6 +124,7 @@ func Scopes() []Scope {
 		ScopeRoomsRead, ScopeRoomsWrite,
 		ScopeCallsRead, ScopeCallsWrite,
 		ScopeParticipantsRead, ScopeParticipantsWrite,
+		ScopeInvitationsRead, ScopeInvitationsWrite,
 	}
 }
 

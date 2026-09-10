@@ -14,6 +14,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/credentials"
+	"convia/internal/invitations"
 	"convia/internal/operator"
 	"convia/internal/ratelimit"
 )
@@ -205,6 +206,32 @@ func (verify tenantVerifier) Verify(ctx context.Context, token string) (context.
 		return nil, err
 	}
 	return credentials.ContextWithPrincipal(ctx, principal), nil
+}
+
+/*
+invitationAuthenticator verifies a presented invitation.
+
+The holder of an invitation is not an application and names no tenant, so what
+comes back is the invitation itself rather than a principal carrying scopes:
+what an invitation authorizes is fixed when it is issued.
+*/
+type invitationAuthenticator interface {
+	Authenticate(ctx context.Context, token string) (invitations.Invitation, error)
+}
+
+// invitationVerifier adapts the invitations service to verifier.
+type invitationVerifier struct{ service invitationAuthenticator }
+
+func (verify invitationVerifier) Verify(ctx context.Context, token string) (context.Context, error) {
+	invitation, err := verify.service.Authenticate(ctx, token)
+	switch {
+	case errors.Is(err, invitations.ErrUnauthenticated):
+		return nil, errRefused
+	case err != nil:
+		return nil, err
+	}
+
+	return invitations.ContextWithHolder(ctx, invitation), nil
 }
 
 // operatorVerifier adapts the operator credential service to verifier.

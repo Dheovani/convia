@@ -11,18 +11,18 @@ M10 begins by distinguishing three things that are easy to confuse.
 | | What it would mean | Where it stands |
 | --- | --- | --- |
 | **Room membership** | Who belongs to a place over time | **Not modelled.** Convia holds no credentials for an application's people, so it could not enforce a policy about who belongs; the application already knows. Decided in [`rooms.md`](rooms.md) and unchanged. |
-| **Invitation** | Permission to join that has not been used yet | **Deferred to the join sessions of M13.** See below. |
+| **Invitation** | Permission to join that has not been used yet | **Built**, once M13 made it enforceable. See [`invitations.md`](invitations.md). |
 | **Participation** | Who actually joined, in what role, and how they left | **This document.** |
 
-### Why invitations wait for M13
+### Why invitations waited for M13
 
 An invitation is only authorization when the party presenting it is not the party that granted it.
 
-Today the application backend creates an invitation with its own key, and later joins someone with the same key. Convia would be checking the application's homework against itself — a ledger of a decision the application made and could have made without telling Convia. That is the same reasoning that kept room membership out of M08.
+Before M13 the application backend created an invitation with its own key and later joined somebody with the same key. Convia would have been checking the application's homework against itself — a ledger of a decision the application made and could have made without telling Convia. That is the same reasoning that kept room membership out of M08.
 
-M13 changes the shape: a **join session** is presented by a client, not by the backend that issued it. At that point an invitation becomes a rule Convia enforces against a party that cannot simply choose to ignore it, and expiry and revocation start to mean something. Building it before then would ship a model Convia could not enforce, which is worse than not having one.
+M13 changed the shape: a **join session** is presented by a client, not by the backend that issued it. An invitation now sits on that footing, so expiry and revocation are rules Convia enforces rather than notes the application may ignore. See [`invitations.md`](invitations.md).
 
-Guest participation waits with it, for the same reason: a guest is someone with no Convia user, and the only way they get in is by presenting something Convia issued.
+Guest participation still waits, and for a different reason than it used to: it changes this table's central invariant — every participant names a Convia user — and that deserves its own migration rather than being bolted onto invitations.
 
 ## Lifecycle
 
@@ -135,7 +135,7 @@ Joining, leaving, removal, a role change, and issuing a connection credential ar
 
 ## Not Yet Implemented
 
-- **Invitations** (`M10-004`) and **guest participation** (`M10-010`). The join session they were waiting for now exists, so what remains is the invitation itself: a thing Convia issues to somebody who is not yet a participant, which they present to become one.
+- **Guest participation** (`M10-010`). A guest is somebody with no Convia user, and an invitation is the only sensible way for one to get in. It waits because `participants.user_id` is `NOT NULL` and the index that makes presence unique is built on it, so admitting somebody Convia has no account for is a schema change and a decision about what Convia should learn about them — not a flag on an existing flow.
 - **Rate limits on issuing credentials** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key, so limiting only this one would be arbitrary. It belongs with a general per-tenant limit rather than here.
 - **Severing a connection already open.** Removing someone stops Convia issuing them credentials immediately, and the one they hold dies within five minutes, but a connection already established is not cut. Doing so means asking the media plane to eject a live participant.
 - **Media capabilities.** What a participant may do with audio, video, or a screen is uniform today: everyone admitted may publish and subscribe, because that is what a call is. The role vocabulary will grow when a distinction exists that is worth enforcing — a listener-only room, or screen sharing in M28. A moderator deliberately gets no extra media permission: moderation is a control-plane decision, and a client able to act directly on the media plane would bypass Convia's authorization and audit trail.

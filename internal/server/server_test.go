@@ -17,10 +17,12 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/invitations"
 	"convia/internal/media"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/rooms"
+	"convia/internal/secret"
 	"convia/internal/users"
 )
 
@@ -243,7 +245,100 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantRooms:        rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom()}),
 		TenantCalls:        calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
 		TenantParticipants: participants.NewTenantHandler(logger, stubParticipants{participant: sampleParticipant()}),
+		TenantInvitations:  invitations.NewTenantHandler(logger, stubInvitations{invitation: sampleInvitation()}),
+
+		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
+		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
 	}
+}
+
+// sampleInvitation is one invitation in the state most responses show it in.
+func sampleInvitation() invitations.Invitation {
+	return invitations.Invitation{
+		ID:            "inv_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		ApplicationID: sampleApplication().ID,
+		CallID:        sampleCall().ID,
+		UserID:        sampleUser().ID,
+		Role:          "member",
+		ExpiresAt:     sampleCall().CreatedAt.Add(24 * time.Hour),
+		CreatedAt:     sampleCall().CreatedAt,
+		UpdatedAt:     sampleCall().UpdatedAt,
+	}
+}
+
+// stubInvitations answers every invitation operation with one scripted result.
+type stubInvitations struct {
+	invitation invitations.Invitation
+	page       invitations.Page
+	credential media.Credential
+	err        error
+}
+
+func (stub stubInvitations) Issue(context.Context, string, string, invitations.Request) (invitations.Invitation, secret.Value, error) {
+	if stub.err != nil {
+		return invitations.Invitation{}, "", stub.err
+	}
+	return stub.invitation, secret.Value("2QRSTUVWXYZ234567ABCDEFGHI"), nil
+}
+
+func (stub stubInvitations) Get(context.Context, string, string) (invitations.Invitation, error) {
+	return stub.invitation, stub.err
+}
+
+func (stub stubInvitations) List(context.Context, string, invitations.ListOptions) (invitations.Page, error) {
+	if stub.page.Invitations == nil {
+		return invitations.Page{
+			Invitations: []invitations.Invitation{stub.invitation},
+			NextCursor:  "b3BhcXVl",
+		}, stub.err
+	}
+	return stub.page, stub.err
+}
+
+func (stub stubInvitations) Revoke(context.Context, string, string) (invitations.Invitation, error) {
+	if stub.err != nil {
+		return invitations.Invitation{}, stub.err
+	}
+	revoked := stub.invitation
+	at := revoked.UpdatedAt
+	revoked.RevokedAt = &at
+	return revoked, nil
+}
+
+func (stub stubInvitations) Redeem(context.Context, invitations.Invitation) (invitations.Invitation, participants.Participant, media.Credential, error) {
+	if stub.err != nil {
+		return invitations.Invitation{}, participants.Participant{}, media.Credential{}, stub.err
+	}
+
+	credential := stub.credential
+	if !credential.Issued() {
+		credential = media.Credential{
+			URL:       "wss://media.example",
+			Token:     media.Token("a-signed-connection-credential"),
+			ExpiresAt: sampleParticipant().CreatedAt,
+		}
+	}
+	return stub.invitation, sampleParticipant(), credential, nil
+}
+
+func (stub stubInvitations) Decline(context.Context, invitations.Invitation) (invitations.Invitation, error) {
+	if stub.err != nil {
+		return invitations.Invitation{}, stub.err
+	}
+	declined := stub.invitation
+	at := declined.UpdatedAt
+	declined.DeclinedAt = &at
+	return declined, nil
+}
+
+// stubInvitationAuthenticator verifies whatever is presented, or refuses everything.
+type stubInvitationAuthenticator struct {
+	invitation invitations.Invitation
+	err        error
+}
+
+func (stub stubInvitationAuthenticator) Authenticate(context.Context, string) (invitations.Invitation, error) {
+	return stub.invitation, stub.err
 }
 
 /*
