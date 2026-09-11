@@ -374,3 +374,100 @@ func (handler *TenantHandler) writeFailure(response http.ResponseWriter, request
 		)
 	}
 }
+
+// readStateRequest is the accepted body when marking a room read.
+type readStateRequest struct {
+	UserID   string `json:"user_id"`
+	Sequence int64  `json:"sequence"`
+}
+
+/*
+readStateResponse is the public representation of how far somebody has read.
+
+`unread` is derived from `sequence` on every read rather than stored, so the two
+cannot drift apart. It excludes the person's own messages and withdrawn ones —
+nobody has an unread message from themselves, and a tombstone is the absence of
+something to read.
+*/
+type readStateResponse struct {
+	RoomID    string `json:"room_id"`
+	UserID    string `json:"user_id"`
+	Sequence  int64  `json:"sequence"`
+	Unread    int64  `json:"unread"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+}
+
+func representReadState(state ReadState) readStateResponse {
+	response := readStateResponse{
+		RoomID:   state.RoomID,
+		UserID:   state.UserID,
+		Sequence: state.Sequence,
+		Unread:   state.Unread,
+	}
+
+	// Somebody who has read nothing has no timestamp to report, and sending
+	// the zero time would read as "they read this in 1970".
+	if state.Sequence != Unseen {
+		response.UpdatedAt = api.FormatTimestamp(state.UpdatedAt)
+	}
+	return response
+}
+
+/*
+MarkRead records that one of the caller's own people has read a room.
+
+It is a PUT because it sets a position rather than appending to anything, and
+sending the same position twice is the same outcome as sending it once. The
+reply is the position that now holds, which is not always the one that was sent:
+read state only moves forward, so a mark behind the stored one leaves it alone.
+*/
+func (handler *TenantHandler) MarkRead(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	var body readStateRequest
+	if failure := api.DecodeJSON(response, request, &body); failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	state, err := authorized.MarkRead(request.Context(), request.PathValue("room_id"),
+		body.UserID, body.Sequence)
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.write(response, request, http.StatusOK, representReadState(state))
+}
+
+/*
+ReadState reports how far one of the caller's own people has read in a room.
+
+The person is named in the query rather than in a body, because this is a read:
+a GET that carried a body would be a request many caches and proxies would
+mishandle, and the tenant already comes from the credential.
+*/
+func (handler *TenantHandler) ReadState(response http.ResponseWriter, request *http.Request) {
+	authorized, ok := handler.authorized(response, request)
+	if !ok {
+		return
+	}
+
+	userID := request.URL.Query().Get("user_id")
+	if userID == "" {
+		handler.writeFailure(response, request, api.NewFailure(http.StatusBadRequest,
+			api.CodeInvalidRequest, "Naming the person whose read state to report is required."))
+		return
+	}
+
+	state, err := authorized.ReadState(request.Context(), request.PathValue("room_id"), userID)
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.write(response, request, http.StatusOK, representReadState(state))
+}

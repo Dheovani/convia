@@ -101,6 +101,37 @@ const (
 	*/
 	InvitationDeclined Type = "invitation.declined"
 	/*
+		MessagePosted reports that somebody said something in a room.
+
+		It streams for the reason rooms and users do not. A room being renamed
+		is the application telling itself what it just did; a message is the
+		application's *other* instances learning what one of them did, and the
+		people they are holding connections for are waiting on it. Since M16 a
+		backend is several processes, and the one that handled the post is
+		almost never the one holding the socket of the person who needs to see
+		it. That is the criterion this package opens with -- value that decays
+		in seconds -- and a chat message is its clearest case.
+
+		**It carries no body.** An event names the message and the room; what
+		was said is read back through the API by a caller that was allowed to
+		read it anyway. Data is documented as carrying only values Convia
+		assigned, and a conversation is the last thing that should travel to
+		every registered webhook destination.
+	*/
+	MessagePosted Type = "message.posted"
+	/*
+		MessageEdited reports that a message now reads differently.
+
+		Carrying no body is what makes this one safe to retry. A delivery that
+		arrives late says only that message X changed, and a subscriber that
+		re-reads it gets the current text rather than an older one it would
+		otherwise have written over the newer.
+	*/
+	MessageEdited Type = "message.edited"
+	// MessageDeleted reports that a message was withdrawn and is now a
+	// tombstone. It keeps its place in the history.
+	MessageDeleted Type = "message.deleted"
+	/*
 		PresenceChanged reports that Convia will now say something different
 		about whether one of an application's people is available.
 
@@ -129,6 +160,7 @@ func Types() []Type {
 		CallStarted, CallEnded,
 		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
 		InvitationDeclined,
+		MessagePosted, MessageEdited, MessageDeleted,
 		PresenceChanged,
 	}
 }
@@ -173,6 +205,9 @@ const (
 	// SubjectUser means the subject identifier addresses one of an
 	// application's people.
 	SubjectUser SubjectType = "user"
+
+	// SubjectMessage means the subject identifier addresses a message.
+	SubjectMessage SubjectType = "message"
 )
 
 /*
@@ -201,6 +236,8 @@ func subjectOf(kind Type) (SubjectType, bool) {
 		return SubjectParticipant, true
 	case InvitationDeclined:
 		return SubjectInvitation, true
+	case MessagePosted, MessageEdited, MessageDeleted:
+		return SubjectMessage, true
 	case PresenceChanged:
 		return SubjectUser, true
 	default:

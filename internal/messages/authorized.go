@@ -28,6 +28,8 @@ type service interface {
 	History(ctx context.Context, applicationID, roomID string, options HistoryOptions) (Page, error)
 	Edit(ctx context.Context, applicationID, id string, author Author, body string) (Message, error)
 	Delete(ctx context.Context, applicationID, id string, author Author) (Message, error)
+	MarkRead(ctx context.Context, applicationID, roomID, userID string, sequence int64) (ReadState, error)
+	ReadState(ctx context.Context, applicationID, roomID, userID string) (ReadState, error)
 }
 
 /*
@@ -105,4 +107,26 @@ func (authorized *Authorized) Delete(ctx context.Context, id string, author Auth
 		return Message{}, err
 	}
 	return authorized.service.Delete(ctx, authorized.principal.ApplicationID, id, author)
+}
+
+// MarkRead records that one of the caller's own people has read a room.
+func (authorized *Authorized) MarkRead(ctx context.Context, roomID, userID string, sequence int64) (ReadState, error) {
+	if err := authorized.permit(credentials.ScopeMessagesWrite); err != nil {
+		return ReadState{}, err
+	}
+	return authorized.service.MarkRead(ctx, authorized.principal.ApplicationID, roomID, userID, sequence)
+}
+
+/*
+ReadState reports how far one of the caller's own people has read in a room.
+
+It needs the read scope rather than the write one even though marking needs
+write: the unread count is derived from the history, so answering it is telling
+the caller how much of a conversation exists that they have not seen.
+*/
+func (authorized *Authorized) ReadState(ctx context.Context, roomID, userID string) (ReadState, error) {
+	if err := authorized.permit(credentials.ScopeMessagesRead); err != nil {
+		return ReadState{}, err
+	}
+	return authorized.service.ReadState(ctx, authorized.principal.ApplicationID, roomID, userID)
 }

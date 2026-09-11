@@ -842,9 +842,10 @@ Transport tests need to control what a handler receives without PostgreSQL;
 whether the domain rules hold is settled by the messages package tests.
 */
 type stubMessages struct {
-	message messages.Message
-	page    messages.Page
-	err     error
+	message   messages.Message
+	page      messages.Page
+	readState messages.ReadState
+	err       error
 }
 
 func (stub stubMessages) Post(context.Context, string, string, messages.Author, string) (messages.Message, error) {
@@ -872,6 +873,14 @@ func (stub stubMessages) Edit(context.Context, string, string, messages.Author, 
 
 func (stub stubMessages) Delete(context.Context, string, string, messages.Author) (messages.Message, error) {
 	return stub.message, stub.err
+}
+
+func (stub stubMessages) MarkRead(context.Context, string, string, string, int64) (messages.ReadState, error) {
+	return stub.readState, stub.err
+}
+
+func (stub stubMessages) ReadState(context.Context, string, string, string) (messages.ReadState, error) {
+	return stub.readState, stub.err
 }
 
 /*

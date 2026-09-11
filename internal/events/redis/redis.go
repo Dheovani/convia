@@ -174,10 +174,10 @@ func New(settings Config, logger *slog.Logger) (*Relay, error) {
 	options.WriteTimeout = timeout
 
 	relay := &Relay{
-		client:   goredis.NewClient(options),
-		logger:   logger,
-		origin:   settings.Origin,
-		timeout:  timeout,
+		client:     goredis.NewClient(options),
+		logger:     logger,
+		origin:     settings.Origin,
+		timeout:    timeout,
 		queued:     make(chan events.Event, queueDepth),
 		received:   make(chan events.Event, queueDepth),
 		stopping:   make(chan struct{}),

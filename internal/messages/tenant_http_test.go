@@ -23,17 +23,20 @@ without PostgreSQL; whether the domain rules hold is settled by this package's
 own domain and integration tests.
 */
 type stubService struct {
-	message Message
-	page    Page
-	err     error
+	message   Message
+	page      Page
+	readState ReadState
+	err       error
 
 	// seen records what the layer above passed down, so a test can assert the
 	// handler read the request rather than merely answered it.
-	seenRoomID  string
-	seenID      string
-	seenAuthor  Author
-	seenBody    string
-	seenOptions HistoryOptions
+	seenRoomID   string
+	seenID       string
+	seenAuthor   Author
+	seenBody     string
+	seenOptions  HistoryOptions
+	seenReader   string
+	seenSequence int64
 }
 
 func (stub *stubService) Post(_ context.Context, _, roomID string, author Author, body string) (Message, error) {
@@ -59,6 +62,16 @@ func (stub *stubService) Edit(_ context.Context, _, id string, author Author, bo
 func (stub *stubService) Delete(_ context.Context, _, id string, author Author) (Message, error) {
 	stub.seenID, stub.seenAuthor = id, author
 	return stub.message, stub.err
+}
+
+func (stub *stubService) MarkRead(_ context.Context, _, roomID, userID string, sequence int64) (ReadState, error) {
+	stub.seenRoomID, stub.seenReader, stub.seenSequence = roomID, userID, sequence
+	return stub.readState, stub.err
+}
+
+func (stub *stubService) ReadState(_ context.Context, _, roomID, userID string) (ReadState, error) {
+	stub.seenRoomID, stub.seenReader = roomID, userID
+	return stub.readState, stub.err
 }
 
 func quiet() *slog.Logger {

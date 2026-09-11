@@ -2820,6 +2820,144 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/rooms/{room_id}/read_state:
+    put:
+      operationId: markOwnRoomRead
+      tags: [Messages]
+      summary: Mark a room read
+      description: |
+        Records that one of the caller's own people has read a room up to a
+        position.
+
+        **Read state is durable, and presence is not.** Presence is a claim with
+        an expiry, honestly described as "this was true a moment ago". Read
+        state is a fact about something a person did: it does not decay, and a
+        badge that came back because a laptop closed would be wrong in a way
+        people notice immediately.
+
+        It is a **position, not a set**. Convia records the furthest sequence
+        reached, never which messages were read — the set would be the size of
+        the history times the number of readers, and nothing needs to know that
+        message 12 was read while 11 was not.
+
+        **It only ever moves forward.** A mark at or behind the stored position
+        is accepted and changes nothing rather than being refused: two devices
+        report independently and out of order, and a phone finishing a second
+        after the laptop must not pull the badge backwards. The reply is
+        therefore the position that now holds, which is not always the one that
+        was sent.
+
+        A position beyond the room's newest message answers `400
+        invalid_request`. Accepting it would make the unread count negative and
+        would silently suppress messages the client never received.
+
+        `PUT` rather than `POST` because it sets a position rather than
+        appending to anything, and sending it twice is the same outcome as
+        sending it once.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadStateRequest"
+            example:
+              user_id: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
+              sequence: 42
+      responses:
+        "200":
+          description: The position that now holds.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    get:
+      operationId: readOwnRoomReadState
+      tags: [Messages]
+      summary: Read how far somebody has read
+      description: |
+        Reports how far one of the caller's own people has read in a room, and
+        how much they have not.
+
+        `unread` is derived from `sequence` on every read rather than stored, so
+        the two cannot drift apart. It excludes two things, and both are product
+        decisions rather than optimizations: **the person's own messages**,
+        because nobody has an unread message from themselves and a badge that
+        counted them would light up as they typed; and **withdrawn messages**,
+        because a tombstone is the absence of something to read.
+
+        Somebody who has never opened the room is not an error. They read
+        nothing, so `sequence` is `0` — a position nothing occupies, since
+        messages count from one — and `updated_at` is absent.
+
+        The person is named in the query rather than in a body, because this is
+        a read and a `GET` carrying a body is a shape caches and proxies
+        mishandle.
+
+        It needs `messages:read` rather than `messages:write`: the unread count
+        is derived from the history, so answering it tells the caller how much
+        of a conversation exists that they have not seen.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:read"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/ReaderID"
+      responses:
+        "200":
+          description: How far they have read.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/messages/{message_id}:
     get:
       operationId: readOwnMessage
@@ -6691,6 +6829,63 @@ components:
           description: When the message was withdrawn, absent if it was not.
           example: "2026-09-11T14:09:44.201118Z"
 
+    ReadStateRequest:
+      type: object
+      description: How far somebody has read.
+      required: [user_id, sequence]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            The furthest message read, by its `sequence`. A position beyond
+            the room's newest message is refused.
+          example: 42
+
+    ReadState:
+      type: object
+      description: |
+        How far one person has read in one room, and how much they have not.
+      required: [room_id, user_id, sequence, unread]
+      additionalProperties: false
+      properties:
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        sequence:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            The furthest message this person has read.
+
+            `0` means they have read nothing: sequences count from one, so it
+            is a position nothing occupies, which is what a room somebody has
+            never opened needs to say.
+          example: 42
+        unread:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            How many messages after `sequence` they have not read.
+
+            Derived on every read rather than stored, so it cannot drift from
+            the history. It excludes their own messages and withdrawn ones.
+          example: 3
+        updated_at:
+          type: string
+          format: date-time
+          description: |
+            When the position last moved forward, absent for somebody who has
+            read nothing.
+          example: "2026-09-11T14:11:02.004512Z"
+
     MessagePage:
       type: object
       description: One window of a room's history.
@@ -6941,6 +7136,9 @@ components:
         - participant.removed
         - participant.role_changed
         - invitation.declined
+        - message.posted
+        - message.edited
+        - message.deleted
         - presence.changed
 
     EventSubjectType:
@@ -6953,6 +7151,7 @@ components:
         - participant
         - invitation
         - user
+        - message
 
     EventSubject:
       type: object
@@ -7351,6 +7550,16 @@ components:
       description: The message's opaque identifier.
       schema:
         $ref: "#/components/schemas/MessageId"
+
+    ReaderID:
+      name: user_id
+      in: query
+      required: true
+      description: |
+        Whose read state to report. Required: there is no sensible default,
+        since the credential names an application rather than a person.
+      schema:
+        $ref: "#/components/schemas/UserId"
 
     MessageCursor:
       name: cursor

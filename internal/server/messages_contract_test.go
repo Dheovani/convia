@@ -34,6 +34,16 @@ func serveMessage(t *testing.T, stub stubMessages, request *http.Request) *httpt
 	return response
 }
 
+func sampleReadState() messages.ReadState {
+	return messages.ReadState{
+		RoomID:    sampleRoom().ID,
+		UserID:    sampleUser().ID,
+		Sequence:  42,
+		Unread:    3,
+		UpdatedAt: sampleApplication().CreatedAt,
+	}
+}
+
 // withdrawn is the sample message after its author took it back.
 func withdrawnMessage() messages.Message {
 	at := sampleMessage().CreatedAt.Add(time.Minute)
@@ -57,12 +67,15 @@ func TestMessageResponsesMatchSpecification(t *testing.T) {
 	history := document.Paths.Find(api.Prefix + "/rooms/{room_id}/messages")
 	message := document.Paths.Find(api.Prefix + "/messages/{message_id}")
 	withdraw := document.Paths.Find(api.Prefix + "/messages/{message_id}/delete")
+	readState := document.Paths.Find(api.Prefix + "/rooms/{room_id}/read_state")
 
 	historyTarget := api.Prefix + "/rooms/" + sampleRoom().ID + "/messages"
 	messageTarget := api.Prefix + "/messages/" + sampleMessage().ID
 
 	said := `{"user_id":"` + sampleUser().ID + `","body":"Standup in five minutes."}`
 	author := `{"user_id":"` + sampleUser().ID + `"}`
+	readTarget := api.Prefix + "/rooms/" + sampleRoom().ID + "/read_state"
+	marked := `{"user_id":"` + sampleUser().ID + `","sequence":42}`
 
 	tests := map[string]struct {
 		request   *http.Request
@@ -153,6 +166,38 @@ func TestMessageResponsesMatchSpecification(t *testing.T) {
 			stub:      stubMessages{err: messages.ErrNotAuthor},
 			status:    http.StatusConflict,
 			operation: withdraw.Post,
+		},
+		"marked read": {
+			request:   authenticatedRequest(http.MethodPut, readTarget, marked),
+			stub:      stubMessages{readState: sampleReadState()},
+			status:    http.StatusOK,
+			operation: readState.Put,
+		},
+		"marked read beyond the history": {
+			request: authenticatedRequest(http.MethodPut, readTarget, marked),
+			stub: stubMessages{err: messages.ValidationError{
+				Field: "sequence", Message: "The room has no message at that position."}},
+			status:    http.StatusBadRequest,
+			operation: readState.Put,
+		},
+		"read state": {
+			request:   authenticatedRequest(http.MethodGet, readTarget+"?user_id="+sampleUser().ID, ""),
+			stub:      stubMessages{readState: sampleReadState()},
+			status:    http.StatusOK,
+			operation: readState.Get,
+		},
+		"read state of nobody in particular": {
+			request:   authenticatedRequest(http.MethodGet, readTarget, ""),
+			stub:      stubMessages{readState: sampleReadState()},
+			status:    http.StatusBadRequest,
+			operation: readState.Get,
+		},
+		"read state of somebody who never opened the room": {
+			request: authenticatedRequest(http.MethodGet, readTarget+"?user_id="+sampleUser().ID, ""),
+			stub: stubMessages{readState: messages.ReadState{
+				RoomID: sampleRoom().ID, UserID: sampleUser().ID, Sequence: messages.Unseen, Unread: 7}},
+			status:    http.StatusOK,
+			operation: readState.Get,
 		},
 	}
 

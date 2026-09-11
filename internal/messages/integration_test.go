@@ -46,6 +46,7 @@ type fixture struct {
 	calls       *calls.Service
 	invitations *invitations.Service
 	pool        *pgxpool.Pool
+	published   *recorder
 	first       string
 	second      string
 	logs        *bytes.Buffer
@@ -102,15 +103,20 @@ func newFixture(t *testing.T) fixture {
 		callService, userService, participantService, announcer, logger)
 
 	store := NewStore(pool)
+	// The message service announces into a recorder so that a test can assert
+	// what left the domain, not merely that the domain did not fail.
+	published := &recorder{}
+
 	setup := fixture{
 		service: NewService(store, applicationService, roomService, userService,
-			invitationService, logger),
+			invitationService, published, logger),
 		store:       store,
 		rooms:       roomService,
 		users:       userService,
 		calls:       callService,
 		invitations: invitationService,
 		pool:        pool,
+		published:   published,
 		first:       newApplication(t, applicationService, "First Tenant"),
 		second:      newApplication(t, applicationService, "Second Tenant"),
 		logs:        logs,
@@ -574,4 +580,27 @@ func equal(got, want []int64) bool {
 		}
 	}
 	return true
+}
+
+/*
+recorder keeps every event the domain announced.
+
+It is a mutex rather than a slice alone because one test appends from sixteen
+goroutines, and a data race in a test fixture is still a data race.
+*/
+type recorder struct {
+	mutex  sync.Mutex
+	events []events.Event
+}
+
+func (record *recorder) Publish(_ context.Context, event events.Event) {
+	record.mutex.Lock()
+	defer record.mutex.Unlock()
+	record.events = append(record.events, event)
+}
+
+func (record *recorder) all() []events.Event {
+	record.mutex.Lock()
+	defer record.mutex.Unlock()
+	return append([]events.Event(nil), record.events...)
 }

@@ -61,6 +61,7 @@ Each event is delivered only to a credential that could have read the thing it i
 | `call.*` | `calls:read` |
 | `participant.*` | `participants:read` |
 | `invitation.*` | `invitations:read` |
+| `message.*` | `messages:read` |
 | `presence.*` | `presence:read` |
 
 So a key holding `events:read` and `calls:read` receives call events and nothing else. A key holding `events:read` and no read scope is **refused** rather than given an empty connection — an empty stream is indistinguishable from a quiet one, and a client would wait indefinitely for events that were never going to come.

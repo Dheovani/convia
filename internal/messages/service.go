@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/events"
 	"convia/internal/invitations"
 	"convia/internal/rooms"
 	"convia/internal/users"
@@ -66,6 +67,16 @@ type invitationLookup interface {
 }
 
 /*
+announcer is the behavior this package needs to publish what happened.
+
+It returns no error: telling somebody a message exists must not be able to
+undo the message, which has already committed. events.Announcer satisfies it.
+*/
+type announcer interface {
+	Publish(ctx context.Context, event events.Event)
+}
+
+/*
 Service applies Convia's rules about what may be said, and where.
 
 It does not decide **who** may say it beyond attribution being truthful: that a
@@ -79,18 +90,20 @@ type Service struct {
 	rooms       roomLookup
 	users       userLookup
 	invitations invitationLookup
+	stream      announcer
 	logger      *slog.Logger
 	now         func() time.Time
 }
 
 func NewService(store *Store, tenants tenants, rooms roomLookup, users userLookup,
-	invitations invitationLookup, logger *slog.Logger) *Service {
+	invitations invitationLookup, stream announcer, logger *slog.Logger) *Service {
 	return &Service{
 		store:       store,
 		tenants:     tenants,
 		rooms:       rooms,
 		users:       users,
 		invitations: invitations,
+		stream:      stream,
 		logger:      logger,
 		now:         func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
 	}
@@ -161,7 +174,7 @@ func (service *Service) Post(ctx context.Context, applicationID, roomID string,
 		return Message{}, err
 	}
 
-	service.record(ctx, "message.posted", message)
+	service.audit(ctx, events.MessagePosted, message)
 	return message, nil
 }
 
@@ -219,6 +232,106 @@ func (service *Service) History(ctx context.Context, applicationID, roomID strin
 }
 
 /*
+MarkRead records that one of an application's people has read a room.
+
+The position is checked against the room's history rather than taken on trust:
+a mark beyond the last message would make the unread count negative, and a
+client that guessed a sequence would quietly suppress messages it had never
+received.
+*/
+func (service *Service) MarkRead(ctx context.Context, applicationID, roomID, userID string,
+	sequence int64) (ReadState, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return ReadState{}, err
+	}
+
+	room, err := service.requireRoom(ctx, applicationID, roomID)
+	if err != nil {
+		return ReadState{}, err
+	}
+
+	if err := service.requireReader(ctx, applicationID, userID); err != nil {
+		return ReadState{}, err
+	}
+
+	if sequence < FirstSequence {
+		return ReadState{}, ValidationError{
+			Field:   "sequence",
+			Message: "A read position names a message, so it starts at one.",
+		}
+	}
+
+	latest, err := service.store.LastSequence(ctx, room.ID)
+	if err != nil {
+		return ReadState{}, err
+	}
+	if sequence > latest {
+		return ReadState{}, ValidationError{
+			Field:   "sequence",
+			Message: "The room has no message at that position.",
+		}
+	}
+
+	_, err = service.store.MarkRead(ctx, ReadState{
+		ApplicationID: applicationID,
+		RoomID:        room.ID,
+		UserID:        userID,
+		Sequence:      sequence,
+		UpdatedAt:     service.now(),
+	})
+
+	if err != nil {
+		return ReadState{}, err
+	}
+
+	/*
+		Read back rather than returned from the write, because the write only
+		moves forward: a mark behind the stored position leaves it where it was,
+		and the caller needs the position that now holds rather than the one it
+		asked for.
+	*/
+	return service.store.ReadStateOf(ctx, applicationID, room.ID, userID)
+}
+
+// ReadState reports how far one of an application's people has read in a room,
+// and how much they have not.
+func (service *Service) ReadState(ctx context.Context, applicationID, roomID,
+	userID string) (ReadState, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return ReadState{}, err
+	}
+
+	room, err := service.requireRoom(ctx, applicationID, roomID)
+	if err != nil {
+		return ReadState{}, err
+	}
+
+	if err := service.requireReader(ctx, applicationID, userID); err != nil {
+		return ReadState{}, err
+	}
+
+	return service.store.ReadStateOf(ctx, applicationID, room.ID, userID)
+}
+
+/*
+requireReader checks that a read position belongs to somebody real.
+
+A suspended person still has read state, unlike an author, who is refused. The
+asymmetry is deliberate: writing is an act, and somebody suspended must not act,
+while having read something is a fact that already happened and stays true.
+*/
+func (service *Service) requireReader(ctx context.Context, applicationID, userID string) error {
+	_, err := service.users.Get(ctx, applicationID, userID)
+	if errors.Is(err, users.ErrNotFound) {
+		return ValidationError{Field: "user_id", Message: "The user does not exist."}
+	}
+	if err != nil {
+		return fmt.Errorf("read the reader: %w", err)
+	}
+	return nil
+}
+
+/*
 Edit replaces what a message says.
 
 The author is compared against the stored message rather than trusted from the
@@ -250,7 +363,7 @@ func (service *Service) Edit(ctx context.Context, applicationID, id string,
 		return Message{}, err
 	}
 
-	service.record(ctx, "message.edited", message)
+	service.audit(ctx, events.MessageEdited, message)
 	return message, nil
 }
 
@@ -281,7 +394,7 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string,
 		return Message{}, err
 	}
 
-	service.record(ctx, "message.deleted", message)
+	service.audit(ctx, events.MessageDeleted, message)
 	return message, nil
 }
 
@@ -407,6 +520,37 @@ func (service *Service) requireApplication(ctx context.Context, applicationID st
 	}
 
 	return nil
+}
+
+/*
+audit records what happened and tells whoever is listening.
+
+**The event carries no body.** Data is documented as holding only values Convia
+assigned, and a conversation is the last thing that should be copied to every
+webhook destination an application registered. A subscriber learns that a
+message exists and reads it back through the API, where the scope it holds is
+checked -- which is also what keeps a late webhook retry from writing an older
+text over a newer one.
+*/
+func (service *Service) audit(ctx context.Context, kind events.Type, message Message) {
+	service.record(ctx, string(kind), message)
+
+	data := events.Data{
+		"room_id":  message.RoomID,
+		"sequence": message.Sequence,
+		"guest":    message.Author.Guest(),
+		"deleted":  message.Deleted(),
+		"edited":   message.Edited(),
+	}
+
+	if message.Author.Guest() {
+		data["invitation_id"] = message.Author.InvitationID
+	} else {
+		data["user_id"] = message.Author.UserID
+	}
+
+	service.stream.Publish(ctx, events.New(kind, message.ApplicationID, message.ID,
+		api.RequestIDFromContext(ctx), data))
 }
 
 /*

@@ -208,7 +208,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	invitationService := invitations.NewService(invitations.NewStore(pool),
 		applicationService, callService, userService, participantService, announcer, logger)
 	messageService := messages.NewService(messages.NewStore(pool),
-		applicationService, roomService, userService, invitationService, logger)
+		applicationService, roomService, userService, invitationService, announcer, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
 
 	/*

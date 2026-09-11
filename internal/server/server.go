@@ -546,6 +546,10 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.TenantMessages.Edit)},
 			route{method: http.MethodPost, path: api.Prefix + "/messages/{message_id}/delete", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantMessages.Delete)},
+			route{method: http.MethodPut, path: api.Prefix + "/rooms/{room_id}/read_state", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantMessages.MarkRead)},
+			route{method: http.MethodGet, path: api.Prefix + "/rooms/{room_id}/read_state", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantMessages.ReadState)},
 		)
 	}
 
