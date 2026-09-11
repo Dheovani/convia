@@ -91,6 +91,19 @@ const (
 	*/
 	redisURLEnvironment     = "CONVIA_REDIS_URL"
 	redisTimeoutEnvironment = "CONVIA_REDIS_TIMEOUT"
+
+	/*
+	   firstPartyApplicationEnvironment names the tenant that owns Convia's own
+	   product.
+
+	   It is an application identifier rather than a name, because names are
+	   not unique and there is no lookup by one. The application is created
+	   once by an operator and its identifier is configured here.
+
+	   Unset means Convia serves the platform and not its own interface, which
+	   is a supported deployment: the session surface is simply not registered.
+	*/
+	firstPartyApplicationEnvironment = "CONVIA_FIRST_PARTY_APPLICATION"
 )
 
 /*
@@ -114,6 +127,16 @@ type Config struct {
 	Database    Database
 	Media       Media
 	Redis       Redis
+
+	/*
+		FirstPartyApplication is the tenant that owns Convia's own product, and
+		the only one a browser session can ever act within.
+
+		Empty means nobody signs in to Convia itself. That is a deployment
+		choice rather than a fault — Convia is a platform first — and the
+		session routes are absent rather than refusing.
+	*/
+	FirstPartyApplication string
 
 	/*
 		TrustedProxies are the networks whose forwarded headers Convia believes.
@@ -225,15 +248,60 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	firstParty, err := loadFirstPartyApplication()
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		Environment:    environment,
-		HTTPHost:       host,
-		HTTPPort:       port,
-		Database:       database,
-		Media:          mediaPlane,
-		Redis:          shared,
-		TrustedProxies: trustedProxies,
+		Environment:           environment,
+		HTTPHost:              host,
+		HTTPPort:              port,
+		Database:              database,
+		Media:                 mediaPlane,
+		Redis:                 shared,
+		FirstPartyApplication: firstParty,
+		TrustedProxies:        trustedProxies,
 	}, nil
+}
+
+/*
+loadFirstPartyApplication reads which tenant owns Convia's own product.
+
+The shape is checked here and the existence is not: whether the application is
+there is a question for the database, and asking it during configuration would
+make a process that cannot start when PostgreSQL is briefly unavailable. What
+this catches is the mistake somebody actually makes — configuring a name, or a
+credential, where an application identifier belongs.
+*/
+func loadFirstPartyApplication() (string, error) {
+	identifier := strings.TrimSpace(os.Getenv(firstPartyApplicationEnvironment))
+	if identifier == "" {
+		return "", nil
+	}
+
+	/*
+		The shape is checked here rather than by calling into the applications
+		domain, because configuration is a leaf: everything imports it, and
+		importing a domain back would be the first edge of a cycle. What it
+		costs is one literal describing a format that is already fixed by a
+		database constraint and a test.
+	*/
+	const prefix = "app_"
+	random, found := strings.CutPrefix(identifier, prefix)
+	if !found || len(random) != 26 {
+		return "", fmt.Errorf("%s must be an application identifier beginning with %s",
+			firstPartyApplicationEnvironment, prefix)
+	}
+
+	for _, character := range random {
+		base32 := (character >= 'A' && character <= 'Z') || (character >= '2' && character <= '7')
+		if !base32 {
+			return "", fmt.Errorf("%s must be an application identifier beginning with %s",
+				firstPartyApplicationEnvironment, prefix)
+		}
+	}
+	return identifier, nil
 }
 
 /*

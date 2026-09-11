@@ -4,6 +4,29 @@ An **application** proves who it is to Convia with an API key. This document rec
 
 > **Status.** Both surfaces are authenticated. An application presents an application key; an operator presents an operator key. There is no configuration that serves either of them openly, and the `CONVIA_ADMIN_API` gate that once stood in for operator authentication has been removed. See [Not Yet Implemented](#not-yet-implemented) for what is still missing.
 
+## Four Families, Two Kinds of Caller
+
+Convia issues four kinds of credential. Three are held by software and travel in
+an `Authorization` header; the fourth is held by a person and travels in a
+cookie.
+
+| Family | Prefix | Proves | Carries scopes? |
+| --- | --- | --- | --- |
+| Application | `cvk_` | which tenant is calling | yes |
+| Operator | `cvo_` | authority over Convia itself | yes |
+| Invitation | `cvi_` | one person, one call | no — fixed at issue |
+| Session | `cvs_` | **who a person is** | **no** |
+
+The last row is the one that is different in kind rather than in degree. A
+session carries no authority over a tenant, and nothing converts one into a
+credential that does — because a person holding an application's scopes could
+mint a permanent key that outlives their session entirely. See
+[`sessions.md`](sessions.md) and
+[ADR 0007](adr/0007-a-session-is-a-person-not-a-tenants-authority.md).
+
+**A password is hashed differently from every other secret here**, and the
+contradiction is deliberate: see *Storage* below.
+
 ## Two Surfaces
 
 | | Tenant-facing | Operator |
@@ -166,6 +189,16 @@ Convia stores `SHA-256(secret)` and never the secret.
 **Why not bcrypt, scrypt, or Argon2?** Those exist to make guessing expensive when the secret is a human-chosen password with maybe 30 bits of entropy. This secret is 26 base32 characters from `crypto/rand` — roughly 130 bits — so it cannot be guessed, dictionary-attacked, or found in a rainbow table. A deliberately slow hash would add latency to every authenticated request and buy nothing against an attacker who would need to exhaust a 130-bit space regardless.
 
 The comparison is `crypto/subtle.ConstantTimeCompare`, so the time taken does not depend on which byte differs.
+
+### A password is the one exception, and it proves the rule
+
+The paragraph above is right about keys and wrong about passwords, so Convia does both — and picks between them by asking **where the entropy came from** rather than by habit.
+
+A person's password is short, chosen, and often reused. It *can* be guessed, dictionary-attacked, and found in a table. So an account's password is stored as **argon2id** at 64 MiB, three passes, with a per-password salt, and the parameters travel inside the stored value so the cost can be raised later without invalidating everybody at once.
+
+A **session token**, which Convia generates rather than a person choosing, goes straight back to SHA-256 for the reason given above.
+
+Two rules, side by side, each with its reason written down — so neither looks like an oversight from the other's point of view. See [`sessions.md`](sessions.md).
 
 ## Scopes
 

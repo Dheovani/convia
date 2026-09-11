@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"convia/internal/accounts"
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/config"
@@ -29,6 +30,7 @@ import (
 	presenceredis "convia/internal/presence/redis"
 	"convia/internal/rooms"
 	"convia/internal/server"
+	"convia/internal/sessions"
 	"convia/internal/users"
 	"convia/internal/webhooks"
 )
@@ -58,6 +60,18 @@ Scopes default to every one Convia recognizes when none are named. Available:
 
 The secret is printed once and never stored. Running these commands requires
 database access, which is the authority the first credential is minted from.
+
+An account is a person who signs in to Convia's own interface. There is no
+self-service sign-up: open registration needs email verification, which needs a
+mailer Convia does not have, so accounts are created here:
+
+  convia account create <email> <display-name>   Create an account
+  convia account suspend <account-id>            Stop somebody signing in
+  convia account activate <account-id>           Let them sign in again
+
+The password is generated rather than chosen, printed once, and never stored.
+These commands need CONVIA_FIRST_PARTY_APPLICATION set to the application that
+owns Convia's own product.
 `
 
 func main() {
@@ -83,7 +97,7 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 		case "help", "-h", "--help":
 			fmt.Print(usage)
 			return nil
-		case "migrate", "serve", "operator":
+		case "migrate", "serve", "operator", "account":
 		default:
 			fmt.Print(usage)
 			return fmt.Errorf("unknown command %q", arguments[0])
@@ -100,6 +114,8 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 		return serve(ctx, logger, cfg)
 	case arguments[0] == "operator":
 		return operatorCommand(ctx, logger, cfg, arguments[1:])
+	case arguments[0] == "account":
+		return accountCommand(ctx, logger, cfg, arguments[1:])
 	default:
 		return migrate(ctx, logger, cfg, arguments[1:])
 	}
@@ -207,6 +223,26 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	presenceService := presence.NewService(presenceStore, applicationService, userService, announcer, logger)
 
 	/*
+		Convia's own product, if this deployment serves one.
+
+		Both services are nil when no first-party application is configured,
+		which removes the session routes entirely rather than registering
+		routes nobody can authenticate to. That is the same shape the media
+		plane and webhooks already have, and the contract test proves the
+		absence removes rather than opens.
+	*/
+	var (
+		accountService *accounts.Service
+		sessionService *sessions.Service
+	)
+	if cfg.FirstPartyApplication != "" {
+		accountService = accounts.NewService(accounts.NewStore(pool), userService,
+			cfg.FirstPartyApplication, logger)
+		sessionService = sessions.NewService(sessions.NewStore(pool), accountService,
+			applicationService, userService, cfg.FirstPartyApplication, logger)
+	}
+
+	/*
 		Both surfaces are authenticated, so both are always served. The tenant
 		surface takes its tenant from an application's key; the operator
 		surface names the tenant in the path and proves the authority to reach
@@ -240,6 +276,21 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Invitations:             invitations.NewHolderHandler(logger, invitationService),
 
 		IdempotencyKeys: idempotencyService,
+	}
+
+	/*
+		Assigned only when there is a first-party application, so that a nil
+		service never reaches the route table as a non-nil interface holding a
+		nil pointer — which would register the routes and then panic on the
+		first request.
+	*/
+	if sessionService != nil {
+		dependencies.SessionAuthenticator = sessionService
+		dependencies.Sessions = sessions.NewHandler(logger, sessionService)
+		warnIfNobodyCanSignIn(signalContext, logger, accountService)
+	} else {
+		logger.Info("no first-party application is configured, so nobody signs in to Convia itself",
+			"remedy", "set CONVIA_FIRST_PARTY_APPLICATION to serve Convia's own interface")
 	}
 
 	warnIfUnadministered(signalContext, logger, operatorService)
@@ -498,6 +549,31 @@ func openPresence(settings config.Redis, logger *slog.Logger) (presence.Store, f
 			logger.Warn("closing the presence store", "error", err)
 		}
 	}, nil
+}
+
+/*
+warnIfNobodyCanSignIn reports a session surface nobody can reach.
+
+A deployment that configured a first-party application and created no accounts
+serves a sign-in form that every password fails against, and nothing about that
+looks like a misconfiguration from the outside. It is the same advisory
+warnIfUnadministered gives for an instance with no operator, and it names the
+command that fixes it for the same reason.
+*/
+func warnIfNobodyCanSignIn(ctx context.Context, logger *slog.Logger, service *accounts.Service) {
+	probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	total, err := service.CountActive(probe)
+	if err != nil {
+		logger.Warn("could not check whether anybody can sign in", "error", err)
+		return
+	}
+
+	if total == 0 {
+		logger.Warn("a first-party application is configured but no account can sign in",
+			"remedy", "create one with: convia account create <email> <display-name>")
+	}
 }
 
 /*
