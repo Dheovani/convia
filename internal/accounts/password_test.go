@@ -105,6 +105,18 @@ func TestAnUnreadableDigestIsReportedRatherThanTreatedAsAMismatch(t *testing.T) 
 		"$argon2id$v=99$m=65536,t=3,p=1$c2FsdA$aGFzaA",
 		"$argon2id$v=19$m=nonsense,t=3,p=1$c2FsdA$aGFzaA",
 		"$argon2id$v=19$m=65536,t=3$c2FsdA$aGFzaA",
+
+		/*
+			A cost wider than the parameter argon2 takes it in. These are
+			refused rather than truncated, which is the difference between
+			three hundred passes being rejected and being run as forty-four.
+		*/
+		"$argon2id$v=19$m=65536,t=300,p=1$c2FsdA$aGFzaA",
+		"$argon2id$v=19$m=65536,t=3,p=256$c2FsdA$aGFzaA",
+		"$argon2id$v=19$m=4294967296,t=3,p=1$c2FsdA$aGFzaA",
+
+		// A cost of zero, which argon2 has no meaning for.
+		"$argon2id$v=19$m=65536,t=0,p=1$c2FsdA$aGFzaA",
 	}
 
 	for _, digest := range unreadable {

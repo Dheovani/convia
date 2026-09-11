@@ -302,31 +302,54 @@ func decode(stored Digest) (salt, key []byte, memory uint32, iterations, paralle
 	return salt, key, memory, iterations, parallelism, nil
 }
 
-// parameters reads the cost field of an encoded digest.
-func parameters(field string) (memory uint32, iterations, parallelism uint8, err error) {
-	var read [3]uint64
+/*
+parameters reads the cost field of an encoded digest.
 
+Each of the three is parsed at the width argon2.IDKey accepts it in, so the
+conversions at the end cannot truncate. Parsing them all as thirty-two bits and
+checking afterwards states the same bound twice and leaves the conversion
+itself unguarded, which is both harder to read and the shape a static analyser
+is right to distrust.
+*/
+func parameters(field string) (memory uint32, iterations, parallelism uint8, err error) {
 	pieces := strings.Split(field, ",")
 	if len(pieces) != 3 {
-		return 0, 0, 0, fmt.Errorf("%w: parameters %q", ErrPasswordUnreadable, field)
+		return 0, 0, 0, unreadableParameters(field)
 	}
 
-	for index, prefix := range []string{"m=", "t=", "p="} {
-		digits, found := strings.CutPrefix(pieces[index], prefix)
-		if !found {
-			return 0, 0, 0, fmt.Errorf("%w: parameters %q", ErrPasswordUnreadable, field)
-		}
-
-		value, convertErr := strconv.ParseUint(digits, 10, 32)
-		if convertErr != nil || value == 0 {
-			return 0, 0, 0, fmt.Errorf("%w: parameters %q", ErrPasswordUnreadable, field)
-		}
-
-		read[index] = value
+	memoryDigits, memoryLabelled := strings.CutPrefix(pieces[0], "m=")
+	iterationDigits, iterationsLabelled := strings.CutPrefix(pieces[1], "t=")
+	parallelismDigits, parallelismLabelled := strings.CutPrefix(pieces[2], "p=")
+	if !memoryLabelled || !iterationsLabelled || !parallelismLabelled {
+		return 0, 0, 0, unreadableParameters(field)
 	}
 
-	if read[1] > 255 || read[2] > 255 {
-		return 0, 0, 0, fmt.Errorf("%w: parameters %q", ErrPasswordUnreadable, field)
+	memoryValue, memoryErr := strconv.ParseUint(memoryDigits, 10, 32)
+	iterationValue, iterationErr := strconv.ParseUint(iterationDigits, 10, 8)
+	parallelismValue, parallelismErr := strconv.ParseUint(parallelismDigits, 10, 8)
+	if memoryErr != nil || iterationErr != nil || parallelismErr != nil {
+		return 0, 0, 0, unreadableParameters(field)
 	}
-	return uint32(read[0]), uint8(read[1]), uint8(read[2]), nil
+
+	/*
+		Zero is refused for all three because argon2 has no meaning for it.
+		A digest carrying one was not written by this package, and running it
+		would derive a key no other implementation agrees with.
+	*/
+	if memoryValue == 0 || iterationValue == 0 || parallelismValue == 0 {
+		return 0, 0, 0, unreadableParameters(field)
+	}
+
+	return uint32(memoryValue), uint8(iterationValue), uint8(parallelismValue), nil
+}
+
+/*
+unreadableParameters reports a cost field this build cannot make sense of.
+
+The field is quoted back because an operator reading the log needs to see what
+was actually stored, and it carries no secret: the salt and the key are
+separate fields of the digest and neither reaches here.
+*/
+func unreadableParameters(field string) error {
+	return fmt.Errorf("%w: parameters %q", ErrPasswordUnreadable, field)
 }

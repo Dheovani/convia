@@ -92,6 +92,20 @@ func createAccount(ctx context.Context, service *accounts.Service, arguments []s
 
 	fmt.Printf("Created account %s for %s (%s)\n", account.ID, account.DisplayName, account.Email)
 	fmt.Printf("Convia user: %s\n\n", account.UserID)
+
+	/*
+		This is the one place in Convia that undoes the redaction on Password,
+		and undoing it takes a conversion somebody had to write deliberately:
+		String, GoString and LogValue all return [redacted], so no formatting
+		verb reaches the characters by accident. The explicit string() here is
+		the design working rather than failing.
+
+		Static analysis reads it as a password reaching an output call, which
+		it is, and there is no other channel for it to take. The digest is
+		one-way and nothing stores the password, so a build that did not print
+		it here would create accounts nobody could ever sign in to.
+		`convia operator issue` hands over a credential the same way.
+	*/
 	fmt.Printf("%s\n\n", string(password))
 	fmt.Print("This password is shown once and is not stored. Convia cannot show it again.\n")
 	fmt.Print("Hand it over out of band, and ask them to change it after signing in.\n")
