@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"convia/internal/accounts"
 	"convia/internal/api"
 	"convia/internal/applications"
 	"convia/internal/calls"
@@ -25,6 +26,7 @@ import (
 	"convia/internal/presence"
 	"convia/internal/rooms"
 	"convia/internal/secret"
+	"convia/internal/sessions"
 	"convia/internal/users"
 	"convia/internal/webhooks"
 )
@@ -224,9 +226,20 @@ func newEveryDependency(application stubApplications, user stubUsers, credential
 		stubAuthenticator{principal: samplePrincipal()})
 }
 
+/*
+dependencyLogger is where the stub handlers in these fixtures write.
+
+It is a variable rather than a local so that a test which needs to see what a
+*handler* logged can swap it — which one does, because the difference between
+"the middleware refused this" and "the handler had to refuse it itself" is
+visible in the log and nowhere else. Tests in this package do not run in
+parallel, and the test that swaps it restores it.
+*/
+var dependencyLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
+
 func newAuthenticatedDependency(application stubApplications, user stubUsers,
 	credential stubCredentials, verifier stubAuthenticator) Dependencies {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := dependencyLogger
 
 	operatorService := stubOperatorAuthenticator{principal: sampleOperator()}
 
@@ -267,6 +280,9 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantPresence: presence.NewTenantHandler(logger, presence.NewService(presence.NewMemory(),
 			servedTenant{}, user, events.NewAnnouncer(events.NewBroker(), nil, logger), logger)),
 
+		SessionAuthenticator: stubSessionAuthenticator{principal: samplePerson()},
+		Sessions:             sessions.NewHandler(logger, stubSessions{account: sampleAccount()}),
+
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
 	}
@@ -282,6 +298,81 @@ route beyond it can be reached.
 type servedTenant struct{}
 
 func (servedTenant) Active(context.Context, string) (bool, error) { return true, nil }
+
+/*
+samplePerson is a verified browser session.
+
+It carries no scopes, and there is nothing here that could be turned into a
+credentials.Principal — which is the property the session surface exists to
+preserve.
+*/
+func samplePerson() sessions.Principal {
+	return sessions.Principal{
+		SessionID:     "ses_4XZQP7KN2VJH6TBWMDR3YAFC5E",
+		AccountID:     sampleAccount().ID,
+		UserID:        sampleUser().ID,
+		ApplicationID: sampleApplication().ID,
+	}
+}
+
+// sampleAccount is one person who can sign in to Convia's own product.
+func sampleAccount() accounts.Account {
+	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
+
+	return accounts.Account{
+		ID:          "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Email:       "ana@example.com",
+		DisplayName: "Ana Ribeiro",
+		UserID:      sampleUser().ID,
+		Status:      accounts.StatusActive,
+		CreatedAt:   created,
+		UpdatedAt:   created,
+	}
+}
+
+// stubSessionAuthenticator verifies a presented cookie, or refuses everything.
+type stubSessionAuthenticator struct {
+	principal sessions.Principal
+	err       error
+}
+
+func (stub stubSessionAuthenticator) Authenticate(context.Context, string) (sessions.Principal, error) {
+	if stub.err != nil {
+		return sessions.Principal{}, stub.err
+	}
+	return stub.principal, nil
+}
+
+// stubSessions answers the session surface without a database.
+type stubSessions struct {
+	account accounts.Account
+	err     error
+}
+
+func (stub stubSessions) Begin(context.Context, string, accounts.Password) (sessions.Session, string, error) {
+	if stub.err != nil {
+		return sessions.Session{}, "", stub.err
+	}
+	return sessions.Session{ID: samplePerson().SessionID, AccountID: stub.account.ID},
+		"cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5", nil
+}
+
+func (stub stubSessions) End(context.Context, string) error { return stub.err }
+
+func (stub stubSessions) EndAll(context.Context, string) (int, error) { return 1, stub.err }
+
+func (stub stubSessions) Account(context.Context, string) (accounts.Account, error) {
+	return stub.account, stub.err
+}
+
+func (stub stubSessions) ChangePassword(context.Context, sessions.Principal,
+	accounts.Password, accounts.Password) (sessions.Session, string, error) {
+	if stub.err != nil {
+		return sessions.Session{}, "", stub.err
+	}
+	return sessions.Session{ID: samplePerson().SessionID, AccountID: stub.account.ID},
+		"cvs_2QRSTUVWXYZ234567ABCDEFGH_YH3TKPQ2MWZC7NVJ6BXRD4FGA5", nil
+}
 
 // sampleInvitation is one invitation in the state most responses show it in.
 func sampleInvitation() invitations.Invitation {

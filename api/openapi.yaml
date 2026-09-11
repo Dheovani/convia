@@ -161,6 +161,31 @@ tags:
       See `docs/events.md` for the delivery guarantees, the close codes, and
       what running more than one instance requires.
 
+  - name: Sessions
+    description: |
+      How a person signs in to Convia's own interface.
+
+      This is the only surface in Convia that authenticates a **person** rather
+      than a program, and the only one whose credential is a cookie rather than
+      an `Authorization` header. The two facts are connected: a browser holds a
+      cookie safely and holds a bearer token badly.
+
+      A session carries **no scopes**. That is deliberate and it is the most
+      important thing on this page. Everywhere else in Convia, authority is an
+      application's: a key holds scopes over a whole tenant, and every one of
+      its people is data that key can read. A person is not an integration, so
+      a session is not a key with a different prefix — it proves who somebody
+      is, and what they may do is decided per operation, against them.
+
+      There is no self-service sign-up. Open registration needs email
+      verification, which needs a mailer Convia does not have, so an operator
+      creates the account with `convia account create` and hands over a
+      generated password out of band. There is likewise no password reset: see
+      `docs/sessions.md` for what an operator does instead.
+
+      See `docs/sessions.md` for the cookie's attributes, the two expiry
+      windows, and what signing out actually revokes.
+
   - name: Presence
     description: |
       Who is available right now.
@@ -4062,6 +4087,233 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/sessions:
+    post:
+      operationId: signIn
+      tags: [Sessions]
+      summary: Sign in
+      description: |
+        Exchanges an email and a password for a session, returned as a cookie.
+
+        **Every failure answers identically.** An address nobody has, a wrong
+        password, a suspended account, and a suspended person are one
+        `401 unauthenticated` with one message — so this endpoint cannot be
+        used to find out who has an account here. Convia hashes a decoy
+        password when the address is unknown, so the timing does not answer the
+        question either.
+
+        Failed attempts are budgeted per caller address, separately and far
+        more tightly than the rest of the API: a password can be guessed where
+        an API key cannot.
+
+        The request must come from Convia's own page. `Origin` is required and
+        matched exactly.
+      x-lifecycle: experimental
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInRequest"
+      responses:
+        "201":
+          description: |
+            Signed in. The session travels in a `Set-Cookie` header; the body
+            says who signed in.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              $ref: "#/components/headers/SessionCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignInRefused"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/HashingBusy"
+
+    delete:
+      operationId: signOutEverywhere
+      tags: [Sessions]
+      summary: Sign out of every session
+      description: |
+        Ends every session the account holds, **including the one making the
+        request**.
+
+        Somebody reaching for this believes a device was lost. Sparing the
+        browser asking would mean the operation did not do what it says.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      responses:
+        "204":
+          description: Every session was ended and this browser's cookie cleared.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              $ref: "#/components/headers/ClearedSessionCookie"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/sessions/current:
+    delete:
+      operationId: signOut
+      tags: [Sessions]
+      summary: Sign out
+      description: |
+        Ends the session the request carried, and clears the cookie.
+
+        Only the first of those is the sign-out. A session token is a bearer
+        credential, so Convia revokes the row rather than trusting the client
+        to forget it; clearing the cookie is a courtesy to a browser that will
+        otherwise keep sending something that no longer works.
+
+        It answers the same way whether or not the session was still live, so
+        it cannot be used to ask whether one is.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      responses:
+        "204":
+          description: The session was ended and the cookie cleared.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              $ref: "#/components/headers/ClearedSessionCookie"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me:
+    get:
+      operationId: getMe
+      tags: [Sessions]
+      summary: Who is signed in
+      description: |
+        Reports the person the session belongs to.
+
+        This is the first request a freshly loaded page makes, every time, to
+        decide whether to show a sign-in form — so a request carrying no cookie
+        is an ordinary `401` that costs nothing and is not treated as a failed
+        attempt.
+
+        `user_id` is the identifier every other part of Convia addresses this
+        person by, so a client can recognize itself in a roster without asking
+        again.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: The person who is signed in.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/password:
+    patch:
+      operationId: changePassword
+      tags: [Sessions]
+      summary: Change your password
+      description: |
+        Replaces the password, having checked the current one.
+
+        Three things happen together, and the grouping is the point:
+
+        - the password changes;
+        - **every other session is ended**, because the ordinary reason to
+          change a password is believing somebody else has it;
+        - **this session is rotated** — a new session, a new secret, a new
+          cookie — because the token in this browser may have leaked too, and
+          keeping it alive would keep the leak alive.
+
+        So the person stays signed in here and nowhere else. The current
+        password is required: a stolen session must not be enough to lock the
+        owner out of their own account.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeRequest"
+      responses:
+        "204":
+          description: |
+            The password was changed. The rotated session travels in a
+            `Set-Cookie` header.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              $ref: "#/components/headers/SessionCookie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/HashingBusy"
+
   /v1/presence:
     get:
       operationId: listPresence
@@ -4544,6 +4796,29 @@ paths:
 
 components:
   securitySchemes:
+    SessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-convia_session
+      description: |
+        A person signs in to Convia's own interface and holds a session cookie.
+
+        This is a fourth family of credential, alongside an application's, an
+        operator's, and an invitation's, and it is the only one that is not a
+        bearer token in a header. It is never accepted in an `Authorization`
+        header and the other three are never accepted here — each surface reads
+        only its own kind, so a credential offered to the wrong one is not
+        rejected so much as never looked at.
+
+        **It carries no scopes.** An application key holds authority over a
+        whole tenant; a session proves who one person is. What that person may
+        do is decided per operation rather than by a scope list, which is what
+        keeps signing in from being a way to obtain an application's authority.
+
+        Convia stores only a digest, so a copy of the database yields no
+        working sessions, and revocation takes effect on the next request
+        because Convia is the only party that verifies it.
+
     InvitationKey:
       type: http
       scheme: bearer
@@ -5721,6 +5996,90 @@ components:
             and checked the same way as on a removal: promoting someone is
             exactly the authority the moderator role exists for.
 
+    AccountId:
+      type: string
+      description: |
+        Opaque, immutable public identifier of an account — a person who can
+        sign in to Convia's own interface. Clients store it as a reference and
+        must never parse it.
+      pattern: "^acc_[A-Z2-7]{26}$"
+      example: acc_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    SignInRequest:
+      type: object
+      description: An email and a password.
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+          description: |
+            The address the account was created with. Matching is
+            case-insensitive: Convia stores one lowercased form, because
+            somebody who signed up as `Ana@example.com` and types
+            `ana@example.com` later is the same person.
+          example: ana@example.com
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: The password. Convia never logs it and never stores it.
+
+    PasswordChangeRequest:
+      type: object
+      description: |
+        The current password, and the one to replace it with.
+      required: [current_password, new_password]
+      additionalProperties: false
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: |
+            Required. A session that was stolen must not be enough to lock the
+            owner out of their own account.
+        new_password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          description: |
+            At least twelve characters, and that is the only rule. Composition
+            requirements — a capital, a digit, a symbol — make passwords more
+            predictable rather than less, because people satisfy them in the
+            same few ways.
+
+    Me:
+      type: object
+      description: |
+        The person a session belongs to.
+
+        There is no session identifier here, no expiry, and no list of other
+        sessions. A page does not need to know when its own credential lapses:
+        it finds out by being refused, which is the only answer that cannot be
+        stale.
+      required: [account_id, user_id, email, display_name]
+      additionalProperties: false
+      properties:
+        account_id:
+          $ref: "#/components/schemas/AccountId"
+        user_id:
+          allOf:
+            - $ref: "#/components/schemas/UserId"
+          description: |
+            The Convia user representing this person in the first-party
+            application. It is what every other endpoint addresses them by.
+        email:
+          type: string
+          format: email
+          example: ana@example.com
+        display_name:
+          type: string
+          maxLength: 120
+          example: Ana Ribeiro
+
     PresenceState:
       type: string
       description: |
@@ -6588,6 +6947,32 @@ components:
         maxLength: 512
 
   headers:
+    SessionCookie:
+      description: |
+        The session, as a cookie.
+
+        `__Host-convia_session`, with `HttpOnly`, `Secure`, `SameSite=Lax`,
+        `Path=/`, and no `Domain`. The `__Host-` prefix is enforced by the
+        browser rather than by Convia: only the exact host that set it can set
+        it, so a compromised sibling subdomain cannot overwrite or shadow it.
+
+        `Max-Age` carries the idle window rather than the absolute one, so a
+        browser stops sending a cookie that stopped working.
+      schema:
+        type: string
+      example: __Host-convia_session=cvs_...; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax
+
+    ClearedSessionCookie:
+      description: |
+        The same cookie, expired. Every attribute matches the one that set it,
+        because a browser matches a replacement by name, path, and domain.
+
+        Clearing it is the lesser half of signing out; revoking the session is
+        the half that counts.
+      schema:
+        type: string
+      example: __Host-convia_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax
+
     RequestId:
       description: |
         Correlation identifier of the request. Convia echoes a safe
@@ -6643,6 +7028,100 @@ components:
             error:
               code: invalid_request
               message: The request body must not be empty.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    SessionRequired:
+      description: |
+        The request carried no usable session.
+
+        There is no `WWW-Authenticate` header, deliberately: the credential is a
+        cookie, and no authentication scheme is registered for one. Naming a
+        scheme Convia does not accept would tell a client to do something that
+        cannot work.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unauthenticated
+              message: The request did not carry a usable session.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    SignInRefused:
+      description: |
+        The email and password do not sign anybody in.
+
+        Every reason produces this one answer: an address nobody has, a wrong
+        password, a suspended account, a suspended person. Telling them apart
+        would make this endpoint a way to discover who has an account.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unauthenticated
+              message: The email and password do not match an account.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    WrongOrigin:
+      description: |
+        A state-changing request did not come from Convia's own page.
+
+        `Origin` is required on every unsafe method on this surface and matched
+        exactly against the address Convia was reached at. Exactly, rather than
+        by suffix: a sibling subdomain is *same-site*, so `SameSite=Lax` does
+        not see it, and an exact match is what does.
+
+        An absent `Origin` is refused rather than allowed. Browsers have sent
+        it on non-GET requests for years, and a request without one did not
+        come from a page.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: forbidden
+              message: This request did not come from Convia's own page.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    HashingBusy:
+      description: |
+        Convia declined to verify a password right now.
+
+        **This is not a refusal of the credentials.** Hashing a password costs
+        deliberate memory and time, so the number done at once is bounded — the
+        alternative is letting anybody who can reach the API decide how much
+        memory the process allocates. Beyond the bound, a request waits briefly
+        and is then told to come back rather than being queued behind a timeout
+        nobody will wait out.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+        Retry-After:
+          description: How many seconds to wait before trying again.
+          schema:
+            type: integer
+          example: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unavailable
+              message: Convia is verifying too many passwords at once. Try again in a moment.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     PresenceState:
