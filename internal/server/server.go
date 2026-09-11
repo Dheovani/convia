@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -19,6 +20,7 @@ import (
 	"convia/internal/presence"
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
+	"convia/internal/sessions"
 	"convia/internal/users"
 	"convia/internal/webhooks"
 )
@@ -63,6 +65,17 @@ const (
 		above any plausible number of simultaneously misconfigured clients.
 	*/
 	authFailureKeys = 10_000
+
+	/*
+		signInFailureBurst and signInFailurePeriod budget failed sign-ins.
+
+		Ten a minute per address. A person who has mistyped their password ten
+		times in a minute is not typing, and ten attempts a minute is far below
+		what guessing needs to be worth attempting — while still leaving a
+		household or an office behind one address able to sign in normally.
+	*/
+	signInFailureBurst  = 10
+	signInFailurePeriod = time.Minute
 )
 
 /*
@@ -157,6 +170,15 @@ type Dependencies struct {
 	Invitations             *invitations.HolderHandler
 
 	/*
+		The browser surface. A session is the fourth credential family and the
+		first that a person rather than a program presents. It is wired like
+		the others: leaving either of these out removes the routes, rather than
+		serving them to nobody in particular.
+	*/
+	SessionAuthenticator sessionAuthenticator
+	Sessions             *sessions.Handler
+
+	/*
 		IdempotencyKeys lets a caller retry a creation without risking a second
 		resource. Leaving it out does not remove the routes it guards, because
 		the header is optional and every request that omits it is served
@@ -195,6 +217,21 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	*/
 	failures := ratelimit.New(authFailureBurst, authFailurePeriod, authFailureKeys)
 
+	/*
+		A budget of its own for the browser surface, and a much smaller one.
+
+		The sixty-a-minute figure above is justified by a secret nobody can
+		search: a failed application key tells an attacker nothing, so the limit
+		is there to stop a flood rather than to stop guessing. **A password can
+		be guessed**, so reusing that number here would import a rationale that
+		does not hold.
+
+		It is a separate limiter as well as a smaller one, so that a browser
+		with a stale cookie cannot spend the budget that protects the API for
+		every other caller behind the same address.
+	*/
+	signingIn := ratelimit.New(signInFailureBurst, signInFailurePeriod, authFailureKeys)
+
 	resolve := newResolver(dependencies.TrustedProxies)
 
 	rt := newRoutes(logger)
@@ -211,13 +248,32 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			served = idempotent(logger, dependencies.IdempotencyKeys, served)
 		}
 
+		/*
+			Every surface is named here, and the default panics. `handler` runs
+			at startup, so a surface somebody adds and forgets to wire brings
+			the process down instead of serving its routes to anybody who
+			asks — which is what the omission used to do, silently.
+		*/
 		switch entry.surface {
+		case surfacePublic:
+			// Served as it is. Operational endpoints only.
+		case surfaceSignIn:
+			served = budgeted(logger, signingIn, resolve, served)
 		case surfaceTenant:
-			served = authenticate(logger, tenantVerifier{dependencies.Authenticator}, failures, resolve, served)
+			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
+				failures, resolve, served)
 		case surfaceOperator:
-			served = authenticate(logger, operatorVerifier{dependencies.OperatorAuthenticator}, failures, resolve, served)
+			served = authenticate(logger, operatorVerifier{service: dependencies.OperatorAuthenticator},
+				failures, resolve, served)
 		case surfaceInvitation:
-			served = authenticate(logger, invitationVerifier{dependencies.InvitationAuthenticator}, failures, resolve, served)
+			served = authenticate(logger, invitationVerifier{service: dependencies.InvitationAuthenticator},
+				failures, resolve, served)
+		case surfaceSession:
+			served = authenticate(logger, sessionVerifier{service: dependencies.SessionAuthenticator},
+				signingIn, resolve, served)
+		default:
+			panic(fmt.Sprintf("server: route %s %s is on surface %d, which nothing authenticates",
+				entry.method, entry.path, entry.surface))
 		}
 		rt.handle(entry.method, entry.path, served)
 	}
@@ -228,10 +284,11 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 /*
 surface names which authority a route acts with.
 
-It is an enumeration rather than a pair of booleans so that "authenticated by
-nobody in particular" cannot be expressed: a route is public, acts for an
-application, or acts for an operator, and there is no fourth state to get
-wrong.
+It is an enumeration rather than a set of booleans so that "authenticated by
+nobody in particular" cannot be expressed. Every value is named in the switch
+that wraps handlers, and the default there panics at startup, so adding one
+without deciding what verifies it is a process that does not start rather than
+an API that is open.
 */
 type surface int
 
@@ -253,6 +310,26 @@ const (
 		shape, before any lookup.
 	*/
 	surfaceInvitation
+	/*
+		surfaceSession acts for one person signed in to Convia's own product.
+
+		It is the only surface whose credential is a cookie rather than a
+		header, and the only one whose principal carries no scopes. A person is
+		not an integration: what they may do is decided per operation, against
+		them, rather than by an authority over a whole tenant.
+	*/
+	surfaceSession
+	/*
+		surfaceSignIn is how somebody gets a session, and it authenticates
+		nobody.
+
+		It is not surfacePublic, because it is not free: it is the one
+		unauthenticated route in Convia where guessing pays, so it carries a
+		budget of its own. Separating it from the public operational endpoints
+		is what makes that visible in the route table rather than hidden in a
+		handler.
+	*/
+	surfaceSignIn
 )
 
 /*
@@ -280,9 +357,20 @@ type route struct {
 	idempotent bool
 }
 
-// authenticated reports whether the route demands a credential of any kind.
+/*
+authenticated reports whether the route demands a credential of any kind.
+
+The surfaces are listed rather than compared against the public one, because
+signing in is neither: it demands no credential and is not free. A list means a
+surface added later has to be classified deliberately.
+*/
 func (entry route) authenticated() bool {
-	return entry.surface != surfacePublic
+	switch entry.surface {
+	case surfaceTenant, surfaceOperator, surfaceInvitation, surfaceSession:
+		return true
+	default:
+		return false
+	}
 }
 
 /*
@@ -536,6 +624,39 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodGet, path: api.Prefix + "/events", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantEvents.Stream)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.Sessions != nil {
+		/*
+			Convia's own product, signed in to from a browser.
+
+			Signing in is on its own surface: it authenticates nobody and is
+			therefore not wrapped by the credential middleware, but it is the
+			one unauthenticated route where guessing pays, so it carries a
+			budget of its own.
+
+			It is deliberately **not** marked idempotent. An Idempotency-Key is
+			claimed inside the authentication wrapper precisely so an
+			unauthenticated caller cannot reserve keys, and this route is
+			unauthenticated by definition — marking it would hand a stranger
+			exactly what that ordering exists to prevent.
+
+			Nothing here changes state on a GET. That is what lets SameSite=Lax
+			count as a CSRF layer at all, since Lax still sends the cookie on a
+			top-level GET navigation, and a test asserts it.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/sessions", surface: surfaceSignIn,
+				handler: http.HandlerFunc(dependencies.Sessions.SignIn)},
+			route{method: http.MethodDelete, path: api.Prefix + "/sessions/current", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.Sessions.SignOut)},
+			route{method: http.MethodDelete, path: api.Prefix + "/sessions", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.Sessions.SignOutEverywhere)},
+			route{method: http.MethodGet, path: api.Prefix + "/me", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.Sessions.Me)},
+			route{method: http.MethodPatch, path: api.Prefix + "/me/password", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.Sessions.ChangePassword)},
 		)
 	}
 
