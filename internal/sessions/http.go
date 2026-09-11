@@ -239,9 +239,11 @@ so the mistake is visible.
 func (handler *Handler) principal(response http.ResponseWriter, request *http.Request) (Principal, bool) {
 	principal, found := PrincipalFromContext(request.Context())
 	if !found {
+		path := strings.ReplaceAll(request.URL.Path, "\n", "")
+		path = strings.ReplaceAll(path, "\r", "")
 		handler.logger.Error("authenticated route reached without a session",
 			"method", request.Method,
-			"path", request.URL.Path,
+			"path", path,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
@@ -324,8 +326,11 @@ func ownOrigin(request *http.Request) string {
 }
 
 func (handler *Handler) refuseOrigin(response http.ResponseWriter, request *http.Request, reason string) {
+	safeReason := strings.ReplaceAll(reason, "\n", "")
+	safeReason = strings.ReplaceAll(safeReason, "\r", "")
+
 	handler.logger.Warn("a state-changing request was refused on its origin",
-		"reason", reason,
+		"reason", safeReason,
 		"method", request.Method,
 		"path", request.URL.Path,
 		"request_id", api.RequestIDFromContext(request.Context()),
@@ -421,10 +426,12 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 			api.NewFailure(http.StatusNotFound, api.CodeNotFound, "The account does not exist."))
 
 	default:
+		path := strings.ReplaceAll(request.URL.Path, "\n", "")
+		path = strings.ReplaceAll(path, "\r", "")
 		handler.logger.Error("session request failed",
 			"error", err,
 			"method", request.Method,
-			"path", request.URL.Path,
+			"path", path,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusInternalServerError,
