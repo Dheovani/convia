@@ -186,6 +186,31 @@ tags:
       See `docs/sessions.md` for the cookie's attributes, the two expiry
       windows, and what signing out actually revokes.
 
+  - name: Messages
+    description: |
+      What people said, and the order they said it in.
+
+      **A conversation is a room.** There is no separate conversation resource
+      and no identifier for one: a room is already the place, a call is the
+      occasion held in it, and a room's messages are its history. Messages
+      therefore outlive the calls held in the room, which is what lets a
+      history be something to open rather than something that ends with the
+      meeting.
+
+      A message's order comes from its `sequence`, allocated by Convia, and
+      never from its timestamp. A deployment is several instances, each
+      stamping `created_at` from its own clock, and two clocks that are merely
+      synchronised are not the same clock.
+
+      Convia is authoritative for the identifier, the room, the position, the
+      timestamps, and who the author was. The body belongs to whoever wrote it
+      and is stored **without interpretation**: no markdown is parsed, no
+      mention is extracted, no link is fetched.
+
+      **Who may read or write is not yet modelled.** These endpoints check that
+      attribution is truthful — that a named author exists, belongs to the
+      calling application, and is somebody Convia still serves — and check
+      nothing else. An application decides who belongs in which of its rooms.
   - name: Presence
     description: |
       Who is available right now.
@@ -2652,6 +2677,468 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  /v1/rooms/{room_id}/messages:
+    post:
+      operationId: postOwnRoomMessage
+      tags: [Messages]
+      summary: Say something in a room
+      description: |
+        Records something one of the caller's own people said in one of the
+        caller's own rooms.
+
+        The room is named in the path because **a conversation is a room**:
+        there is no separate conversation resource, and a room's messages are
+        its history. Messages outlive the calls held in the room.
+
+        The body names **which person** is speaking, as either `user_id` or
+        `invitation_id` and exactly one of the two. An invitation identifies a
+        guest, who Convia knows nothing else about. The tenant comes from the
+        presented credential, so no request field could name another
+        application's room or person.
+
+        The reply carries a `sequence`: the message's position in this room's
+        history. It is what orders a room, and it is not a timestamp — see the
+        `Message` schema.
+
+        A closed room answers `409 conflict`; a deleted one answers
+        `404 not found`.
+
+        Supply an `Idempotency-Key` to make a retry after a timeout safe. This
+        is the operation where it matters most: a duplicated room is an
+        administrative annoyance, while a message sent twice is something
+        everybody in the room sees.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageRequest"
+            example:
+              user_id: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
+              body: Standup in five minutes.
+      responses:
+        "201":
+          description: The message was recorded.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    get:
+      operationId: readOwnRoomHistory
+      tags: [Messages]
+      summary: Read a room's history
+      description: |
+        Returns one window of what was said in one of the caller's own rooms.
+
+        Paging is by **keyset on the sequence**, in one of two directions,
+        because the two readings a client performs are genuinely different:
+
+        - `older` — backwards from the newest. This is opening a room, and it
+          is the default.
+        - `newer` — forwards from a position. This is catching up after being
+          away.
+
+        The `cursor` is a message's `sequence` rather than an opaque token.
+        Unlike a room listing's cursor, which wraps an internal pair, a
+        sequence is already published in every message and is what read state
+        is expressed in, so hiding it would be ceremony. Omitting it starts
+        from the end the direction begins at.
+
+        Withdrawn messages appear as tombstones: they keep their position and
+        carry `deleted: true` with no `body`. A history that closed over the
+        hole would move every later message and slide some past a client's
+        cursor unseen.
+
+        A room that is not the caller's answers `404 not found` rather than an
+        empty page, which would otherwise read as "nothing was ever said
+        here".
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:read"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MessageCursor"
+        - $ref: "#/components/parameters/HistoryDirection"
+      responses:
+        "200":
+          description: One window of the room's history.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/rooms/{room_id}/read_state:
+    put:
+      operationId: markOwnRoomRead
+      tags: [Messages]
+      summary: Mark a room read
+      description: |
+        Records that one of the caller's own people has read a room up to a
+        position.
+
+        **Read state is durable, and presence is not.** Presence is a claim with
+        an expiry, honestly described as "this was true a moment ago". Read
+        state is a fact about something a person did: it does not decay, and a
+        badge that came back because a laptop closed would be wrong in a way
+        people notice immediately.
+
+        It is a **position, not a set**. Convia records the furthest sequence
+        reached, never which messages were read — the set would be the size of
+        the history times the number of readers, and nothing needs to know that
+        message 12 was read while 11 was not.
+
+        **It only ever moves forward.** A mark at or behind the stored position
+        is accepted and changes nothing rather than being refused: two devices
+        report independently and out of order, and a phone finishing a second
+        after the laptop must not pull the badge backwards. The reply is
+        therefore the position that now holds, which is not always the one that
+        was sent.
+
+        A position beyond the room's newest message answers `400
+        invalid_request`. Accepting it would make the unread count negative and
+        would silently suppress messages the client never received.
+
+        `PUT` rather than `POST` because it sets a position rather than
+        appending to anything, and sending it twice is the same outcome as
+        sending it once.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReadStateRequest"
+            example:
+              user_id: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
+              sequence: 42
+      responses:
+        "200":
+          description: The position that now holds.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    get:
+      operationId: readOwnRoomReadState
+      tags: [Messages]
+      summary: Read how far somebody has read
+      description: |
+        Reports how far one of the caller's own people has read in a room, and
+        how much they have not.
+
+        `unread` is derived from `sequence` on every read rather than stored, so
+        the two cannot drift apart. It excludes two things, and both are product
+        decisions rather than optimizations: **the person's own messages**,
+        because nobody has an unread message from themselves and a badge that
+        counted them would light up as they typed; and **withdrawn messages**,
+        because a tombstone is the absence of something to read.
+
+        Somebody who has never opened the room is not an error. They read
+        nothing, so `sequence` is `0` — a position nothing occupies, since
+        messages count from one — and `updated_at` is absent.
+
+        The person is named in the query rather than in a body, because this is
+        a read and a `GET` carrying a body is a shape caches and proxies
+        mishandle.
+
+        It needs `messages:read` rather than `messages:write`: the unread count
+        is derived from the history, so answering it tells the caller how much
+        of a conversation exists that they have not seen.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:read"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/ReaderID"
+      responses:
+        "200":
+          description: How far they have read.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/messages/{message_id}:
+    get:
+      operationId: readOwnMessage
+      tags: [Messages]
+      summary: Read one message
+      description: |
+        Returns one message from the caller's own application.
+
+        A message is addressed directly, without its room, because a client
+        holding an identifier should not have to remember where it came from.
+        A message belonging to another application answers `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:read"]
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: The message.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    patch:
+      operationId: editOwnMessage
+      tags: [Messages]
+      summary: Change what a message says
+      description: |
+        Replaces the body of a message and records that it was edited.
+
+        **Only the author may edit.** The request names which person is
+        editing, and Convia compares that against the stored message: naming
+        somebody else answers `409 conflict`, not `403 forbidden`, because the
+        credential was granted everything this surface can grant and a
+        different scope would not help. It named the wrong person.
+
+        Convia records **that** a message was edited, in `edited_at`, and not
+        what it said before. Keeping the previous text would double the storage
+        of the most abundant row in the system and create a second copy to find
+        when somebody asks to be erased.
+
+        A withdrawn message answers `409 conflict`: the author already decided
+        to remove it, and an edit must not be able to put it back.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:write"]
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageRequest"
+            example:
+              user_id: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
+              body: Standup in ten minutes, sorry.
+      responses:
+        "200":
+          description: The message as it now reads.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/messages/{message_id}/delete:
+    post:
+      operationId: withdrawOwnMessage
+      tags: [Messages]
+      summary: Withdraw a message
+      description: |
+        Withdraws a message, leaving a tombstone where it was.
+
+        The row stays, keeps its position in the history, and loses its body.
+        Two reasons: a history that closed over the hole would move every later
+        message and slide some past a client's cursor unseen, and "this message
+        was deleted" is what a reader expects to see — text that silently
+        vanishes is more confusing than an acknowledged absence.
+
+        This is a `POST` to a sub-resource rather than a `DELETE` on the
+        message, because the request has to name **which person** is
+        withdrawing it and a `DELETE` carrying a body is a shape many clients
+        cannot send. Removing a participant is spelled the same way for the
+        same reason.
+
+        The reply is the tombstone rather than `204 no content`, because a
+        client needs the `deleted_at` it now carries in order to render it.
+
+        **Only the author may withdraw**, and naming somebody else answers
+        `409 conflict`. Withdrawing a message that is already withdrawn is not
+        an error: the caller asked for a state the message is in.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["messages:write"]
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageAuthor"
+            example:
+              user_id: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
+      responses:
+        "200":
+          description: The message as a tombstone.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /v1/rooms/{room_id}/calls:
     post:
@@ -6200,6 +6687,220 @@ components:
         - webhooks:write
         - presence:read
         - presence:write
+        - messages:read
+        - messages:write
+
+    MessageId:
+      type: string
+      description: Opaque, immutable public identifier of a message.
+      pattern: "^msg_[A-Z2-7]{26}$"
+      example: msg_6TBWNDR3YAFC5E7QK4XMZP2VJH
+
+    MessageAuthor:
+      type: object
+      description: |
+        Which person is speaking, editing, or withdrawing.
+
+        Exactly one of the two is required. `user_id` names one of the
+        application's people; `invitation_id` names a guest, who has no Convia
+        user and about whom Convia learns nothing else — the application knows
+        who it sent the invitation to.
+
+        This is the same shape a participant takes on a roster, deliberately.
+        It is the same question about the same people, and answering it two
+        ways is how a roster and a history would come to disagree about who was
+        in the room.
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        invitation_id:
+          $ref: "#/components/schemas/InvitationId"
+      additionalProperties: false
+
+    MessageRequest:
+      type: object
+      description: |
+        Something somebody said, or the replacement for it.
+
+        Posting and editing take the same shape because they are the same
+        statement: this person, these words.
+      required: [body]
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        invitation_id:
+          $ref: "#/components/schemas/InvitationId"
+        body:
+          type: string
+          description: |
+            What was said, stored without interpretation.
+
+            Surrounding whitespace is trimmed, and a message that is only
+            whitespace is refused as empty. Line breaks and tabs are allowed —
+            this is the one field in Convia where a control character is, since
+            every other caller-supplied text is a label — and every other
+            control character is refused.
+
+            The bound is a storage bound rather than a product opinion.
+            Messages are the most abundant row Convia holds, and a field with
+            no ceiling is one an application can turn into a blob store.
+          minLength: 1
+          maxLength: 4000
+          example: Standup in five minutes.
+      additionalProperties: false
+
+    Message:
+      type: object
+      description: One thing somebody said in a room.
+      required: [id, application_id, room_id, sequence, deleted, created_at]
+      properties:
+        id:
+          $ref: "#/components/schemas/MessageId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            The message's position in its room's history, and the only ordering
+            a client should use.
+
+            **Not a timestamp, and this is the point.** A deployment is several
+            instances, each stamping `created_at` from its own clock, so two
+            messages written milliseconds apart on different machines can carry
+            timestamps in the wrong order. The sequence is allocated by Convia
+            under the room's lock, which makes it the one answer two instances
+            cannot disagree about.
+
+            What may be assumed: it is **strictly increasing within a room**, so
+            a higher sequence was said later; it is **per room**, and every room
+            counts from 1; and it is **not dense**. Gaps are permitted, because
+            erasing a message for real rather than withdrawing it leaves one.
+          example: 42
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        invitation_id:
+          $ref: "#/components/schemas/InvitationId"
+        body:
+          type: string
+          description: |
+            What was said.
+
+            **Absent once the message is withdrawn.** A tombstone carrying an
+            empty string would be indistinguishable from a bug, so the field is
+            omitted and `deleted` says why.
+          maxLength: 4000
+          example: Standup in five minutes.
+        deleted:
+          type: boolean
+          description: |
+            Whether the message was withdrawn.
+
+            A withdrawn message keeps its row and its position and loses its
+            body. The history does not close over the hole, because doing so
+            would move every later message and slide some past a client's
+            cursor unseen.
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          description: |
+            When the instance that handled the request recorded the message.
+
+            It is a report, not an ordering. Use `sequence` to order a room.
+          example: "2026-09-11T14:02:31.114523Z"
+        edited_at:
+          type: string
+          format: date-time
+          description: |
+            When the body was last replaced, absent if it never was.
+
+            Convia records **that** a message was edited and not what it said
+            before. Keeping the previous text would double the storage of the
+            most abundant row in the system and create a second copy to find
+            when somebody asks to be erased.
+          example: "2026-09-11T14:05:02.887301Z"
+        deleted_at:
+          type: string
+          format: date-time
+          description: When the message was withdrawn, absent if it was not.
+          example: "2026-09-11T14:09:44.201118Z"
+
+    ReadStateRequest:
+      type: object
+      description: How far somebody has read.
+      required: [user_id, sequence]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: |
+            The furthest message read, by its `sequence`. A position beyond
+            the room's newest message is refused.
+          example: 42
+
+    ReadState:
+      type: object
+      description: |
+        How far one person has read in one room, and how much they have not.
+      required: [room_id, user_id, sequence, unread]
+      additionalProperties: false
+      properties:
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        sequence:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            The furthest message this person has read.
+
+            `0` means they have read nothing: sequences count from one, so it
+            is a position nothing occupies, which is what a room somebody has
+            never opened needs to say.
+          example: 42
+        unread:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            How many messages after `sequence` they have not read.
+
+            Derived on every read rather than stored, so it cannot drift from
+            the history. It excludes their own messages and withdrawn ones.
+          example: 3
+        updated_at:
+          type: string
+          format: date-time
+          description: |
+            When the position last moved forward, absent for somebody who has
+            read nothing.
+          example: "2026-09-11T14:11:02.004512Z"
+
+    MessagePage:
+      type: object
+      description: One window of a room's history.
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        next_cursor:
+          type: string
+          description: |
+            The `sequence` to continue from, absent when the window reached the
+            end of the history in the direction it was reading.
+          example: "17"
 
     WebhookEndpointId:
       type: string
@@ -6435,6 +7136,9 @@ components:
         - participant.removed
         - participant.role_changed
         - invitation.declined
+        - message.posted
+        - message.edited
+        - message.deleted
         - presence.changed
 
     EventSubjectType:
@@ -6447,6 +7151,7 @@ components:
         - participant
         - invitation
         - user
+        - message
 
     EventSubject:
       type: object
@@ -6837,6 +7542,59 @@ components:
       description: The operator credential's opaque identifier.
       schema:
         $ref: "#/components/schemas/OperatorCredentialId"
+
+    MessageID:
+      name: message_id
+      in: path
+      required: true
+      description: The message's opaque identifier.
+      schema:
+        $ref: "#/components/schemas/MessageId"
+
+    ReaderID:
+      name: user_id
+      in: query
+      required: true
+      description: |
+        Whose read state to report. Required: there is no sensible default,
+        since the credential names an application rather than a person.
+      schema:
+        $ref: "#/components/schemas/UserId"
+
+    MessageCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        The `sequence` to read a room's history from, exclusive.
+
+        Unlike the opaque cursor a room listing returns, this is a plain
+        number, because it is one a client already holds: every message
+        publishes its sequence, and read state is expressed in the same value.
+        Encoding it would hide something the client needs anyway.
+
+        Omitting it starts from the end the direction begins at: the newest
+        message for `older`, the very beginning for `newer`.
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+      example: 41
+
+    HistoryDirection:
+      name: direction
+      in: query
+      required: false
+      description: |
+        Which way through the history to read.
+
+        `older` pages backwards from the newest, which is what opening a room
+        does. `newer` pages forwards from a position, which is what catching up
+        after being away does.
+      schema:
+        type: string
+        enum: [older, newer]
+        default: older
 
     RoomID:
       name: room_id

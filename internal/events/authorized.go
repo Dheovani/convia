@@ -33,6 +33,14 @@ func readingScopeFor(kind Type) credentials.Scope {
 		return credentials.ScopeParticipantsRead
 	case InvitationDeclined:
 		return credentials.ScopeInvitationsRead
+	case MessagePosted, MessageEdited, MessageDeleted:
+		/*
+			messages:read rather than rooms:read, and the split is the point:
+			listing rooms is administration, while being told what was said in
+			one is being told about a conversation. A credential that may not
+			read a history must not learn its shape from the stream either.
+		*/
+		return credentials.ScopeMessagesRead
 	case PresenceChanged:
 		return credentials.ScopePresenceRead
 	default:

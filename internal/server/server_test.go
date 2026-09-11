@@ -21,6 +21,7 @@ import (
 	"convia/internal/events"
 	"convia/internal/invitations"
 	"convia/internal/media"
+	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/presence"
@@ -262,6 +263,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantCalls:        calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
 		TenantParticipants: participants.NewTenantHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		TenantInvitations:  invitations.NewTenantHandler(logger, stubInvitations{invitation: sampleInvitation()}),
+		TenantMessages:     messages.NewTenantHandler(logger, stubMessages{message: sampleMessage()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -819,6 +821,66 @@ func sampleRoom() rooms.Room {
 		CreatedAt:       sampleApplication().CreatedAt,
 		UpdatedAt:       sampleApplication().UpdatedAt,
 	}
+}
+
+func sampleMessage() messages.Message {
+	return messages.Message{
+		ID:            "msg_6TBWNDR3YAFC5E7QK4XMZP2VJH",
+		ApplicationID: sampleApplication().ID,
+		RoomID:        sampleRoom().ID,
+		Sequence:      42,
+		Author:        messages.Author{UserID: sampleUser().ID},
+		Body:          "Standup in five minutes.",
+		CreatedAt:     sampleApplication().CreatedAt,
+	}
+}
+
+/*
+stubMessages stands in for the messages service.
+
+Transport tests need to control what a handler receives without PostgreSQL;
+whether the domain rules hold is settled by the messages package tests.
+*/
+type stubMessages struct {
+	message   messages.Message
+	page      messages.Page
+	readState messages.ReadState
+	err       error
+}
+
+func (stub stubMessages) Post(context.Context, string, string, messages.Author, string) (messages.Message, error) {
+	return stub.message, stub.err
+}
+
+func (stub stubMessages) Get(context.Context, string, string) (messages.Message, error) {
+	return stub.message, stub.err
+}
+
+func (stub stubMessages) History(context.Context, string, string,
+	messages.HistoryOptions) (messages.Page, error) {
+	if stub.err != nil {
+		return messages.Page{}, stub.err
+	}
+	if len(stub.page.Messages) == 0 {
+		return messages.Page{Messages: []messages.Message{stub.message}}, nil
+	}
+	return stub.page, nil
+}
+
+func (stub stubMessages) Edit(context.Context, string, string, messages.Author, string) (messages.Message, error) {
+	return stub.message, stub.err
+}
+
+func (stub stubMessages) Delete(context.Context, string, string, messages.Author) (messages.Message, error) {
+	return stub.message, stub.err
+}
+
+func (stub stubMessages) MarkRead(context.Context, string, string, string, int64) (messages.ReadState, error) {
+	return stub.readState, stub.err
+}
+
+func (stub stubMessages) ReadState(context.Context, string, string, string) (messages.ReadState, error) {
+	return stub.readState, stub.err
 }
 
 /*
