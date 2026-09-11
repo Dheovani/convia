@@ -328,11 +328,13 @@ func ownOrigin(request *http.Request) string {
 func (handler *Handler) refuseOrigin(response http.ResponseWriter, request *http.Request, reason string) {
 	safeReason := strings.ReplaceAll(reason, "\n", "")
 	safeReason = strings.ReplaceAll(safeReason, "\r", "")
+	safePath := strings.ReplaceAll(request.URL.Path, "\n", "")
+	safePath = strings.ReplaceAll(safePath, "\r", "")
 
 	handler.logger.Warn("a state-changing request was refused on its origin",
 		"reason", safeReason,
 		"method", request.Method,
-		"path", request.URL.Path,
+		"path", safePath,
 		"request_id", api.RequestIDFromContext(request.Context()),
 	)
 
