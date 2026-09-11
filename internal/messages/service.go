@@ -201,12 +201,9 @@ func (service *Service) History(ctx context.Context, applicationID, roomID strin
 		direction = Older
 	}
 
-	limit := options.Limit
-	switch {
-	case limit <= 0:
-		limit = defaultPageSize
-	case limit > maxPageSize:
-		limit = maxPageSize
+	limit, err := pageSize(options.Limit)
+	if err != nil {
+		return Page{}, err
 	}
 
 	window, more, err := service.store.Page(ctx, applicationID, room.ID, direction, options.After, limit)
@@ -373,6 +370,29 @@ func (service *Service) requireRoom(ctx context.Context, applicationID, roomID s
 	}
 
 	return room, nil
+}
+
+/*
+pageSize settles how many messages one window holds.
+
+A limit above the maximum is **refused rather than clamped**, which is what
+`docs/api-conventions.md` promises and what every other listing in Convia does.
+Silently returning a hundred to a client that asked for five hundred teaches it
+that it received everything, and the page it never knew to ask for is the part
+it loses.
+*/
+func pageSize(requested int) (int, error) {
+	switch {
+	case requested == 0:
+		return defaultPageSize, nil
+	case requested < 0 || requested > maxPageSize:
+		return 0, ValidationError{
+			Field:   "limit",
+			Message: fmt.Sprintf("The limit must be between 1 and %d.", maxPageSize),
+		}
+	default:
+		return requested, nil
+	}
 }
 
 // requireApplication refuses to serve a tenant Convia has stopped serving.

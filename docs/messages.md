@@ -78,6 +78,40 @@ is what read state will be expressed in, so encoding it would be ceremony.
 An absent cursor means the end the direction starts from: the newest message for
 `older`, the very beginning for `newer`.
 
+## The API
+
+| Route | Scope | What it does |
+| --- | --- | --- |
+| `POST /v1/rooms/{room_id}/messages` | `messages:write` | say something |
+| `GET /v1/rooms/{room_id}/messages` | `messages:read` | read a window of the history |
+| `GET /v1/messages/{message_id}` | `messages:read` | read one message |
+| `PATCH /v1/messages/{message_id}` | `messages:write` | change what it says |
+| `POST /v1/messages/{message_id}/delete` | `messages:write` | withdraw it |
+
+The tenant comes from the presented credential, so no request field could name
+another application's room or person.
+
+**The two scopes are separate, and neither implies the other.** A credential
+that lists rooms and reads their settings is doing administration; one that
+reads their history is reading people's conversations, and a deployment that
+wants the first without the second must be able to say so. Writing without
+reading is a real shape too: a service that announces deployments into a room
+has no business reading what people replied.
+
+Withdrawing is a `POST` to a sub-resource rather than a `DELETE`, because the
+request has to name **which person** is withdrawing and a `DELETE` carrying a
+body is a shape many clients cannot send. Removing a participant is spelled the
+same way for the same reason.
+
+Posting accepts an `Idempotency-Key`. It is the operation where a retry after a
+timeout is most visibly wrong: a duplicated room is an administrative annoyance,
+while a message sent twice is something everybody in the room sees.
+
+**Naming somebody else's message answers `409 conflict`, not `403 forbidden`.**
+The credential was granted everything this surface can grant, so sending the
+caller after a different scope would send them after something that would not
+help. They named the wrong person.
+
 ## Authorship
 
 An author is **a user, or a guest carrying nothing but the invitation they
@@ -124,7 +158,7 @@ cannot follow a deletion: the author already decided to withdraw it.
 | | |
 | --- | --- |
 | Body | 1–4000 characters, counted as characters rather than bytes |
-| Page size | 25 by default, 100 at most |
+| Page size | 25 by default, 100 at most — a larger limit is **refused**, not clamped |
 
 The body bound is a storage bound rather than a product opinion. Messages are
 the most abundant row Convia will ever hold, and a field with no ceiling is one

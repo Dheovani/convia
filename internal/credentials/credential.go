@@ -153,6 +153,27 @@ const (
 		for.
 	*/
 	ScopePresenceWrite Scope = "presence:write"
+	/*
+		ScopeMessagesRead permits reading what was said in the application's
+		rooms.
+
+		It is separate from ScopeRoomsRead, and the separation is the point: a
+		credential that lists rooms and reads their settings is doing
+		administration, while one that reads their history is reading people's
+		conversations. A deployment that wants the first without the second
+		must be able to say so.
+	*/
+	ScopeMessagesRead Scope = "messages:read"
+	/*
+		ScopeMessagesWrite permits writing, editing, and withdrawing messages
+		in the application's rooms.
+
+		It does not carry ScopeMessagesRead. Posting into a room without being
+		able to read it back is a real shape — a service that announces
+		deployments or alerts into a channel has no business reading what
+		people replied.
+	*/
+	ScopeMessagesWrite Scope = "messages:write"
 )
 
 /*
@@ -172,6 +193,7 @@ func Scopes() []Scope {
 		ScopeEventsRead,
 		ScopeWebhooksRead, ScopeWebhooksWrite,
 		ScopePresenceRead, ScopePresenceWrite,
+		ScopeMessagesRead, ScopeMessagesWrite,
 	}
 }
 

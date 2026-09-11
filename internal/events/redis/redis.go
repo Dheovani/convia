@@ -110,6 +110,19 @@ type Relay struct {
 	stopped  sync.Once
 	running  sync.WaitGroup
 
+	/*
+		subscribed is closed once Redis has confirmed this relay's subscription
+		to the shared channel.
+
+		Nothing in production waits on it, because New deliberately does not
+		wait for Redis at all. It exists because "this relay exists" and "this
+		relay receives" are two different facts, and anything that needs the
+		second one has no other way to learn it: pub/sub delivers to the
+		subscribers that exist at the moment of the publish, so a publish sent
+		into the gap between them reaches nobody and reports success.
+	*/
+	subscribed chan struct{}
+
 	dropped atomic.Int64
 }
 
@@ -165,9 +178,10 @@ func New(settings Config, logger *slog.Logger) (*Relay, error) {
 		logger:   logger,
 		origin:   settings.Origin,
 		timeout:  timeout,
-		queued:   make(chan events.Event, queueDepth),
-		received: make(chan events.Event, queueDepth),
-		stopping: make(chan struct{}),
+		queued:     make(chan events.Event, queueDepth),
+		received:   make(chan events.Event, queueDepth),
+		stopping:   make(chan struct{}),
+		subscribed: make(chan struct{}),
 	}
 
 	relay.running.Add(2)
@@ -285,6 +299,19 @@ func (relay *Relay) listen() {
 
 	subscription := relay.client.Subscribe(ctx, Channel)
 	defer subscription.Close()
+
+	/*
+		Receive blocks until Redis confirms the subscription, which is the
+		documented way to tell "asked to subscribe" apart from "is subscribed".
+		A failure here is not fatal and is not even reported: the connection is
+		re-established underneath, and refusing to carry events because the
+		first attempt did not land is the behaviour New exists to avoid. What a
+		failure costs is that `subscribed` stays open, so nothing is told a
+		subscription is live when it is not.
+	*/
+	if _, err := subscription.Receive(ctx); err == nil {
+		close(relay.subscribed)
+	}
 
 	incoming := subscription.Channel()
 

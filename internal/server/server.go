@@ -15,6 +15,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/events"
 	"convia/internal/invitations"
+	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
 	"convia/internal/presence"
@@ -133,6 +134,7 @@ type Dependencies struct {
 	TenantCalls        *calls.TenantHandler
 	TenantParticipants *participants.TenantHandler
 	TenantInvitations  *invitations.TenantHandler
+	TenantMessages     *messages.TenantHandler
 
 	/*
 		TenantEvents is the one route that is not a request and a response. It
@@ -511,6 +513,39 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.TenantRooms.Close)},
 			route{method: http.MethodPost, path: api.Prefix + "/rooms/{room_id}/reopen", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantRooms.Reopen)},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantMessages != nil {
+		/*
+			An application addressing what was said in its own rooms.
+
+			History hangs off the room because a conversation is a room, and a
+			single message is addressed directly because a client holding one
+			identifier should not have to remember which room it came from.
+
+			Posting is idempotent by key. It is the operation where a retry
+			after a timeout is most visibly wrong: a duplicated room is an
+			administrative annoyance, while a message sent twice is something
+			everybody in the room sees.
+
+			Withdrawing is a POST to a sub-resource rather than a DELETE,
+			because the request has to name which person is withdrawing it and
+			a DELETE carrying a body is a shape many clients cannot send. It is
+			the same answer, for the same reason, as removing a participant.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/rooms/{room_id}/messages",
+				surface: surfaceTenant, idempotent: true,
+				handler: http.HandlerFunc(dependencies.TenantMessages.Post)},
+			route{method: http.MethodGet, path: api.Prefix + "/rooms/{room_id}/messages", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantMessages.History)},
+			route{method: http.MethodGet, path: api.Prefix + "/messages/{message_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantMessages.Get)},
+			route{method: http.MethodPatch, path: api.Prefix + "/messages/{message_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantMessages.Edit)},
+			route{method: http.MethodPost, path: api.Prefix + "/messages/{message_id}/delete", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantMessages.Delete)},
 		)
 	}
 

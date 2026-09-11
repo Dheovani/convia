@@ -60,24 +60,27 @@ func connected(t *testing.T, origin string) *Relay {
 }
 
 /*
-waitUntilSubscribed waits until Redis reports a subscriber on the channel.
+waitUntilSubscribed waits until **this** relay's subscription is live.
 
-Without it these tests would race the subscription rather than the behaviour
-they are about, and would fail occasionally for a reason that has nothing to do
-with Convia.
+It used to ask Redis how many subscribers the channel had and accept any
+non-zero answer, which is a different question and the wrong one. The channel
+is shared, so in a test that opens two relays the second one's wait was
+satisfied by the first one's subscription and returned immediately — and a
+publish that followed could reach nobody. That is what made
+TestTheEnvelopeSurvivesTheRoundTrip fail under -race and -shuffle, where the
+window is wide enough to lose.
+
+The relay now closes `subscribed` when Redis confirms its own subscription, so
+this waits on the fact it actually needs.
 */
 func waitUntilSubscribed(t *testing.T, relay *Relay) {
 	t.Helper()
 
-	deadline := time.Now().Add(waitFor)
-	for time.Now().Before(deadline) {
-		counts, err := relay.client.PubSubNumSub(context.Background(), Channel).Result()
-		if err == nil && counts[Channel] > 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-relay.subscribed:
+	case <-time.After(waitFor):
+		t.Fatal("the relay never subscribed to the shared channel")
 	}
-	t.Fatal("the relay never subscribed to the shared channel")
 }
 
 // next takes the event a relay should already have received.
