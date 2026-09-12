@@ -58,6 +58,17 @@ go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
 The race detector requires cgo and a C compiler. If your machine has neither, say so in the pull request and rely on CI for that check.
 
+Convia's own interface lives in `web/` and has checks of its own:
+
+```sh
+cd web
+npm ci
+npm run build   # type-checks, then bundles into internal/web/assets/dist
+npm test
+```
+
+Build it **before** running the Go suite if you have touched anything about how it is served: the tests in `internal/web` skip when no bundle is compiled in, so without one they pass by not running. CI builds it for exactly that reason.
+
 Actionlint runs ShellCheck against the inline scripts in workflow files. The GitHub runner may ship an older ShellCheck than your machine, so a workflow change that passes locally can still fail in CI.
 
 ## Change Expectations
@@ -104,6 +115,7 @@ Branch protection on `main` requires these checks:
 | Workflow    | Check                        | What it covers                                                             |
 | ----------- | ---------------------------- | -------------------------------------------------------------------------- |
 | `CI`        | `Validate Go project`        | Actionlint, formatting, `go vet`, Staticcheck, race tests, coverage, build |
+| `CI`        | `Validate the web interface` | The interface's types, bundle, and tests                                   |
 | `CI`        | `Integration tests`          | Tests against PostgreSQL, and migrations applied, reverted, and reapplied  |
 | `Security`  | `Go vulnerability scan`      | `govulncheck` against the module and the Go toolchain                       |
 | `Security`  | `CodeQL analysis`            | Static analysis with the extended security queries                          |

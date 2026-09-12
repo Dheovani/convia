@@ -190,6 +190,21 @@ type Dependencies struct {
 		did not.
 	*/
 	IdempotencyKeys keyRegistry
+
+	/*
+		Interface is Convia's own page, served from this same origin at every
+		path the API has not claimed.
+
+		Same origin is not a convenience. It is what makes the session cookie
+		first-party, what gives SameSite something to compare against, and what
+		makes CORS unnecessary rather than merely configured. A bundle served
+		from anywhere else would turn each of those into a setting.
+
+		Leaving it out serves no interface and changes nothing else: an
+		unmatched path answers with the API's own not-found, which is what
+		every Convia did before there was a page.
+	*/
+	Interface http.Handler
 }
 
 // New constructs the Convia HTTP server.
@@ -237,7 +252,7 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 
 	resolve := newResolver(dependencies.TrustedProxies)
 
-	rt := newRoutes(logger)
+	rt := newRoutes(logger, dependencies.Interface)
 	for _, entry := range routeTable(logger, dependencies) {
 		served := entry.handler
 
@@ -256,12 +271,22 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			at startup, so a surface somebody adds and forgets to wire brings
 			the process down instead of serving its routes to anybody who
 			asks — which is what the omission used to do, silently.
+
+			The two browser surfaces are additionally wrapped by [sameOrigin],
+			inside authentication rather than outside it. A request carrying no
+			session is answered as unauthenticated whatever page it came from,
+			which is both the more accurate answer and the cheaper one; the
+			origin question is only interesting once there is a session to
+			spend. It is applied here, to the surface, rather than inside each
+			handler, because a CSRF check that every new route has to remember
+			is one a new route will eventually forget — and four of them
+			already had.
 		*/
 		switch entry.surface {
 		case surfacePublic:
 			// Served as it is. Operational endpoints only.
 		case surfaceSignIn:
-			served = budgeted(logger, signingIn, resolve, served)
+			served = budgeted(logger, signingIn, resolve, sameOrigin(logger, served))
 		case surfaceTenant:
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
 				failures, resolve, served)
@@ -273,7 +298,7 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 				failures, resolve, served)
 		case surfaceSession:
 			served = authenticate(logger, sessionVerifier{service: dependencies.SessionAuthenticator},
-				signingIn, resolve, served)
+				signingIn, resolve, sameOrigin(logger, served))
 		default:
 			panic(fmt.Sprintf("server: route %s %s is on surface %d, which nothing authenticates",
 				entry.method, entry.path, entry.surface))

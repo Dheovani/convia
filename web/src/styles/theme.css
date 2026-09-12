@@ -1,0 +1,186 @@
+@import 'tailwindcss';
+
+/*
+Convia's design tokens, declared as Tailwind's theme.
+
+They are the same tokens they were before Tailwind: real CSS custom properties,
+defined once, named for the job they do — the ground a surface sits on, the ink
+on it — rather than for what they look like. A token called `--color-gray-700`
+has to be renamed the day it stops being gray; one called `--color-surface-deep`
+does not.
+
+Declaring them here rather than in a config file is what makes `bg-surface-deep`
+and `var(--color-surface-deep)` the same value rather than two that have to be
+kept in step.
+*/
+@theme {
+  /* The three zones, from the furthest back to the nearest. */
+  --color-surface-sunken: #0b0b10;
+  --color-surface-deep: #121218;
+  --color-surface: #17171f;
+  --color-surface-raised: #1f1f29;
+  --color-surface-hover: #23232e;
+
+  --color-line: #2a2a36;
+  --color-line-strong: #3a3a49;
+
+  --color-ink: #ecedf2;
+  --color-ink-dim: #9b9dac;
+  --color-ink-faint: #6b6d7c;
+  --color-on-accent: #ffffff;
+
+  /*
+  One accent, used for exactly two things: the mark, and the thing that is
+  currently true — the selected room, the focused field, the unread count. A
+  second accent would make both of those mean less.
+  */
+  --color-accent: #7c5cff;
+  --color-accent-strong: #8f74ff;
+  --color-accent-soft: rgba(124, 92, 255, 0.16);
+
+  --color-danger: #ff5c7c;
+  --color-positive: #3ddc97;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /*
+  Inter and Space Grotesk are the intended faces. They are not bundled: the
+  Content-Security-Policy this page is served under allows no third-party
+  origin, so a webfont has to be committed to the repository rather than
+  fetched, and that is a decision about repository weight rather than about
+  design. The stacks below are what a system actually has, in the same
+  proportions, so little shifts when the faces arrive.
+  */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui,
+    'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo,
+    Consolas, monospace;
+
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+
+/*
+The layout's two fixed widths, and the one duration everything animates over.
+
+They are ordinary custom properties rather than theme tokens because neither has
+a Tailwind namespace to belong to: a rail is not a spacing step, and generating
+`w-rail` alongside `p-rail` and `gap-rail` would be three utilities where one
+value was wanted.
+*/
+:root {
+  color-scheme: dark;
+
+  --rail-width: 68px;
+  --sidebar-width: 268px;
+  --transition: 120ms;
+}
+
+/*
+The light palette is the same roles at the same contrasts, not a second design.
+
+Dark is the default because this is a place people keep open beside their work
+for hours, and a light surface at that size is the one they turn off.
+
+Redefining the theme's own variables is all this takes, because every utility
+Tailwind generates refers to them by `var()` rather than by value. There is no
+`dark:` variant anywhere in this interface for the same reason: the colour is
+decided here, once, instead of at every element that uses one.
+*/
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+
+    --color-surface-sunken: #e9eaf0;
+    --color-surface-deep: #f3f4f8;
+    --color-surface: #ffffff;
+    --color-surface-raised: #f4f5f9;
+    --color-surface-hover: #eceef4;
+
+    --color-line: #dfe1ea;
+    --color-line-strong: #c7cad6;
+
+    --color-ink: #15161c;
+    --color-ink-dim: #5c5f70;
+    --color-ink-faint: #8b8e9e;
+
+    --color-accent: #6341ef;
+    --color-accent-strong: #5433e3;
+    --color-accent-soft: rgba(99, 65, 239, 0.12);
+
+    --color-danger: #d32d55;
+    --color-positive: #12855c;
+
+    --shadow-raised: 0 1px 2px rgba(18, 20, 30, 0.08),
+      0 8px 24px rgba(18, 20, 30, 0.06);
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /*
+  One focus ring, everywhere, and it is never removed.
+
+  Keyboard navigation is a requirement of this milestone rather than a
+  courtesy, and the usual `outline: none` is how interfaces lose it silently.
+  Declaring it here rather than per component means a control cannot be added
+  without it.
+  */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/*
+Motion is a preference, not a default. Everything that moves here is an
+affordance rather than information, so removing it costs nothing.
+*/
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition: 0ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

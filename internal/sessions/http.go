@@ -5,22 +5,11 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"convia/internal/accounts"
 	"convia/internal/api"
 )
-
-/*
-forwardedProtocolHeader is what a reverse proxy uses to say which scheme the
-client actually spoke.
-
-It is consulted only to reconstruct this instance's own origin for the check
-below, and only where a proxy is in front. Convia never trusts it for anything
-a caller could benefit from getting wrong.
-*/
-const forwardedProtocolHeader = "X-Forwarded-Proto"
 
 // Handler exposes the session surface over HTTP.
 type Handler struct {
@@ -88,10 +77,6 @@ answers every failure identically.
 func (handler *Handler) SignIn(response http.ResponseWriter, request *http.Request) {
 	handler.private(response)
 
-	if !handler.sameOrigin(response, request) {
-		return
-	}
-
 	var body signInRequest
 	if failure := api.DecodeJSON(response, request, &body); failure != nil {
 		handler.writeFailure(response, request, failure)
@@ -129,10 +114,6 @@ func (handler *Handler) SignOut(response http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
-	if !handler.sameOrigin(response, request) {
-		return
-	}
-
 	if err := handler.service.End(request.Context(), principal.SessionID); err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -155,10 +136,6 @@ func (handler *Handler) SignOutEverywhere(response http.ResponseWriter, request 
 	if !ok {
 		return
 	}
-	if !handler.sameOrigin(response, request) {
-		return
-	}
-
 	if _, err := handler.service.EndAll(request.Context(), principal.AccountID); err != nil {
 		handler.writeError(response, request, err)
 		return
@@ -207,10 +184,6 @@ func (handler *Handler) ChangePassword(response http.ResponseWriter, request *ht
 	if !ok {
 		return
 	}
-	if !handler.sameOrigin(response, request) {
-		return
-	}
-
 	var body passwordRequest
 	if failure := api.DecodeJSON(response, request, &body); failure != nil {
 		handler.writeFailure(response, request, failure)
@@ -251,95 +224,6 @@ func (handler *Handler) principal(response http.ResponseWriter, request *http.Re
 		return Principal{}, false
 	}
 	return principal, true
-}
-
-/*
-sameOrigin refuses a state-changing request that did not come from Convia's own
-page.
-
-This is the layer that actually carries CSRF on this surface, and it is worth
-saying why the others do not carry it alone.
-
-`SameSite=Lax` stops a cross-*site* POST, but a sibling subdomain is same-site:
-`docs.convia.example` posting to `app.convia.example` is something Lax does not
-see at all. And the JSON content-type requirement, which blocks the
-`enctype="text/plain"` form trick, does nothing for a route that takes no body.
-
-So `Origin` is required on every unsafe method and matched **exactly** against
-this instance's own origin. Exact, not a suffix: a suffix match is what would
-let the sibling subdomain back in, which is the whole attack this is for.
-
-Absence fails closed. Every browser has sent `Origin` on non-GET requests for
-years, and a request without one on this surface did not come from a page.
-`Sec-Fetch-Site` is consulted when present as a second opinion, but never as a
-substitute — it shipped in the same browser generation as SameSite, so the
-clients that lack one lack the other, and treating them as independent layers
-would be counting the same protection twice.
-*/
-func (handler *Handler) sameOrigin(response http.ResponseWriter, request *http.Request) bool {
-	if safeMethod(request.Method) {
-		return true
-	}
-
-	if site := request.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
-		handler.refuseOrigin(response, request, "sec-fetch-site "+site)
-		return false
-	}
-
-	origin := request.Header.Get("Origin")
-	if origin == "" || origin == "null" {
-		handler.refuseOrigin(response, request, "absent")
-		return false
-	}
-
-	if !strings.EqualFold(origin, ownOrigin(request)) {
-		handler.refuseOrigin(response, request, "mismatch")
-		return false
-	}
-	return true
-}
-
-// safeMethod reports a method that cannot change anything, and therefore needs
-// no origin check.
-func safeMethod(method string) bool {
-	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
-}
-
-/*
-ownOrigin reconstructs the origin this instance is being reached at.
-
-It is derived from the request rather than configured, so a deployment does not
-have to declare its own address twice and cannot get the two out of step. Host
-is what the router already matched on, and the scheme comes from the connection
-or from the proxy that terminated it.
-*/
-func ownOrigin(request *http.Request) string {
-	scheme := "http"
-	switch {
-	case request.TLS != nil:
-		scheme = "https"
-	case strings.EqualFold(request.Header.Get(forwardedProtocolHeader), "https"):
-		scheme = "https"
-	}
-
-	return (&url.URL{Scheme: scheme, Host: request.Host}).String()
-}
-
-func (handler *Handler) refuseOrigin(response http.ResponseWriter, request *http.Request, reason string) {
-	safeReason := strings.ReplaceAll(reason, "\n", "")
-	safeReason = strings.ReplaceAll(safeReason, "\r", "")
-	safePath := strings.ReplaceAll(request.URL.Path, "\n", "")
-	safePath = strings.ReplaceAll(safePath, "\r", "")
-
-	handler.logger.Warn("a state-changing request was refused on its origin",
-		"reason", safeReason,
-		"method", request.Method,
-		"path", safePath,
-		"request_id", api.RequestIDFromContext(request.Context()),
-	)
-
-	handler.writeFailure(response, request, api.NewFailure(http.StatusForbidden, api.CodeForbidden,
-		"This request did not come from Convia's own page."))
 }
 
 /*

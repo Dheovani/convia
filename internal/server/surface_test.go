@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"convia/internal/sessions"
 )
 
 // wildcard matches the {name} placeholders in a route pattern.
@@ -170,5 +172,57 @@ func TestNoSessionRouteChangesStateOnAGet(t *testing.T) {
 				"SameSite=Lax will not protect it: the cookie rides along on a top-level "+
 				"GET navigation.", entry.method, entry.path)
 		}
+	}
+}
+
+/*
+TestEveryStateChangingSessionRouteChecksItsOrigin walks the table rather than
+naming routes, because the layer it guards is the one a new route silently
+misses.
+
+`SameSite=Lax` is not the whole defence and was never claimed to be: it treats
+a sibling subdomain as same-site, so a page on any host under the registrable
+domain can make a cookie-carrying POST that Lax sends the session along with.
+The exact-match Origin check is the layer that sees that, and a route which
+forgets it is protected by nothing a sibling subdomain cannot defeat.
+
+Nothing is named here. Adding a route to this surface adds a case.
+*/
+func TestEveryStateChangingSessionRouteChecksItsOrigin(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	checked := 0
+	for _, entry := range routeTable(logger, testDependencies()) {
+		if entry.surface != surfaceSession && entry.surface != surfaceSignIn {
+			continue
+		}
+		if entry.method == http.MethodGet || entry.method == http.MethodHead {
+			continue
+		}
+		checked++
+
+		t.Run(entry.method+" "+entry.path, func(t *testing.T) {
+			target := wildcard.ReplaceAllString(entry.path, "x")
+
+			request := httptest.NewRequest(entry.method, target, strings.NewReader("{}"))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("Origin", "https://convia.example.attacker")
+			request.AddCookie(&http.Cookie{
+				Name:  sessions.CookieName,
+				Value: "cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5",
+			})
+
+			response := httptest.NewRecorder()
+			New("127.0.0.1:0", logger, testDependencies()).Handler.ServeHTTP(response, request)
+
+			if response.Code != http.StatusForbidden {
+				t.Errorf("status = %d, want %d: this route changed state for a request that "+
+					"came from another origin.\nbody: %s", response.Code, http.StatusForbidden, response.Body)
+			}
+		})
+	}
+
+	if checked == 0 {
+		t.Fatal("no state-changing route on the session surface, so this test proved nothing")
 	}
 }

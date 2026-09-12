@@ -30,6 +30,8 @@ Presence is the one advisory thing Convia holds: an application heartbeats for e
 
 A room remembers what was said in it. **A conversation is a room** rather than a second noun beside it, so messages outlive the calls held in the place — a history is something to open, not something that ends with the meeting. Order is a per-room sequence allocated by PostgreSQL under the room's row lock rather than a timestamp, because several instances stamp `created_at` from several clocks and a chat that shows a reply above the thing it replies to is broken in a way people notice. An edit records that it happened and not what it said before; a deletion leaves a tombstone that keeps its place, so a history never closes over a hole and slides messages past a reader's cursor. Nothing anybody said reaches the log. See [`docs/messages.md`](docs/messages.md).
 
+Convia has its own interface. It lives in `web/`, is built with React, TypeScript, Tailwind and Vite, and is **compiled into the Convia binary and served from the same origin as the API** — which is what makes the session cookie first-party, gives `SameSite` something to compare against, and makes CORS unnecessary rather than merely configured. A person signs in, sees the rooms they are in with what they have not read, and reads and writes in them. It is built on the public session surface and nothing else: no privileged path, no internal endpoint, no acting with the first-party application's key. A binary built without the bundle still serves the API and says so. See [`docs/interface.md`](docs/interface.md) and [ADR 0009](docs/adr/0009-convia-serves-its-own-interface-from-its-own-origin.md).
+
 Webhooks exist for what a client must not miss: an application registers a destination, Convia signs every delivery with a secret shown once, retries on a published schedule, disables a receiver that has stopped answering, and keeps a readable record of every attempt. It refuses to connect to anything that is not the public internet, checked at the socket on every attempt rather than at the hostname once. See [`docs/webhooks.md`](docs/webhooks.md).
 
 [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
@@ -46,6 +48,7 @@ The public API is specified in [`api/openapi.yaml`](api/openapi.yaml), an OpenAP
 
 - Go 1.26.6, as declared in `go.mod`
 - Docker, for the local PostgreSQL instance and for a container build
+- Node 24, as declared in `web/.nvmrc`, to build Convia's own interface. Only that: nothing in the Go build, the tests, or the container's Go stage needs it, and a Convia built without it serves the API and says the interface is absent.
 
 ## Run
 
@@ -58,6 +61,15 @@ docker compose up -d
 go run ./cmd/convia migrate up
 go run ./cmd/convia
 ```
+
+That serves the API. To serve Convia's own interface as well, build it first — it is compiled into the binary, so `go run` alone produces one without it:
+
+```sh
+cd web && npm install && npm run build && cd ..
+go run ./cmd/convia
+```
+
+A binary with no bundle serves the API normally and answers the page with 503 and the command above. `npm run dev` inside `web/` serves the interface with hot reloading and proxies `/v1` to a Convia on port 8080, so the browser still sees one origin.
 
 Both API surfaces require a credential, so a fresh instance needs one operator key before it can do anything. Issuing one over the API requires presenting one, so the first is minted against the database:
 
@@ -120,6 +132,12 @@ CONVIA_TEST_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode
 
 Each database test creates and drops its own database, so runs never share state.
 
+The interface has its own suite, and the Go tests that cover how it is *served* need a build to exist — without one they skip, so CI builds the bundle before running them:
+
+```sh
+cd web && npm install && npm test
+```
+
 ## Build
 
 Build the Go executable:
@@ -128,7 +146,7 @@ Build the Go executable:
 go build -o convia ./cmd/convia
 ```
 
-Build the container image:
+Build the container image. It builds the interface in a Node stage of its own and compiles it into the binary, so this needs no Node installed:
 
 ```sh
 docker build -t convia .
@@ -138,7 +156,7 @@ docker build -t convia .
 
 GitHub Actions validates the project through three workflows:
 
-- `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package.
+- `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package. It builds the interface first, so the tests covering how it is served run rather than skip, and validates the interface's own types and tests in a job of its own.
 - `Security` runs Go vulnerability analysis and CodeQL with extended security queries on pushes, pull requests, a weekly schedule, and manual requests.
 - `Container` builds the production image, verifies its non-root user, and smoke tests the health and readiness endpoints against a real PostgreSQL instance.
 
