@@ -151,3 +151,58 @@ func (store *Store) LastSequence(ctx context.Context, roomID string) (int64, err
 	}
 	return sequence, nil
 }
+
+/*
+UnreadByRoom counts what one person has not read across several rooms at once.
+
+**One statement for the whole sidebar.** Asking per room would be a query per
+row on the screen, and a sidebar is the one view that is redrawn constantly. The
+rooms are passed as an array rather than looped over for the same reason.
+
+A room the person has never opened has no read-state row, which the left join
+turns into position zero, which is the whole history unread. Rooms with nothing
+unread are absent from the result rather than present as zero: the caller knows
+which rooms it asked about and a missing key is cheaper than a zero.
+
+The two exclusions are the ones ReadStateOf already makes, for the same reasons:
+nobody has an unread message from themselves, and a tombstone is the absence of
+something to read.
+*/
+func (store *Store) UnreadByRoom(ctx context.Context, applicationID, userID string, roomIDs []string) (map[string]int64, error) {
+	if len(roomIDs) == 0 {
+		return map[string]int64{}, nil
+	}
+
+	const statement = `SELECT messages.room_id, count(*)
+	                   FROM messages
+	                   LEFT JOIN room_read_state AS state
+	                       ON state.room_id = messages.room_id AND state.user_id = $2
+	                   WHERE messages.application_id = $1
+	                     AND messages.room_id = ANY($3)
+	                     AND messages.deleted_at IS NULL
+	                     AND messages.author_user_id IS DISTINCT FROM $2
+	                     AND messages.sequence > coalesce(state.sequence, 0)
+	                   GROUP BY messages.room_id`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, userID, roomIDs)
+	if err != nil {
+		return nil, fmt.Errorf("count unread messages: %w", err)
+	}
+	defer rows.Close()
+
+	unread := make(map[string]int64, len(roomIDs))
+	for rows.Next() {
+		var (
+			roomID string
+			count  int64
+		)
+		if err := rows.Scan(&roomID, &count); err != nil {
+			return nil, fmt.Errorf("read an unread count: %w", err)
+		}
+		unread[roomID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read unread counts: %w", err)
+	}
+	return unread, nil
+}

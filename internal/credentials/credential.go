@@ -174,6 +174,24 @@ const (
 		people replied.
 	*/
 	ScopeMessagesWrite Scope = "messages:write"
+	/*
+		ScopeMembersRead permits reading who belongs to the application's rooms.
+
+		It is separate from ScopeRoomsRead for the reason ScopeMessagesRead is:
+		a room's settings are administration, while who is in it is a fact about
+		people and the associations between them.
+	*/
+	ScopeMembersRead Scope = "members:read"
+	/*
+		ScopeMembersWrite permits giving and taking away places in the
+		application's rooms.
+
+		It is deliberately **not** implied by ScopeRoomsWrite. A credential that
+		creates and renames rooms has never been able to touch people, and
+		folding membership into it would silently widen every key already
+		issued into one that can put anybody anywhere.
+	*/
+	ScopeMembersWrite Scope = "members:write"
 )
 
 /*
@@ -194,6 +212,7 @@ func Scopes() []Scope {
 		ScopeWebhooksRead, ScopeWebhooksWrite,
 		ScopePresenceRead, ScopePresenceWrite,
 		ScopeMessagesRead, ScopeMessagesWrite,
+		ScopeMembersRead, ScopeMembersWrite,
 	}
 }
 

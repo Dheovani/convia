@@ -100,8 +100,8 @@ func newFixtureWith(t *testing.T, plane calls.MediaPlane) fixture {
 	t.Cleanup(pool.Close)
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, logger)
 	broker := events.NewBroker()
 	// No durable sink: these tests are about what the domain announces,
 	// not about where it is later delivered.

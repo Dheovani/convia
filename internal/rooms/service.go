@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/users"
 )
 
 const (
@@ -26,15 +27,38 @@ type tenants interface {
 	Active(ctx context.Context, applicationID string) (bool, error)
 }
 
+/*
+people is the behavior this package needs from the identity domain.
+
+It arrives with membership and for no other reason. A room needed to know
+nothing about individual people while only applications addressed one; giving
+somebody a place in a room is the first operation that has to check the person
+is real, is this application's, and has not been suspended.
+
+Only reading is needed, so the dependency stays one-directional: the identity
+domain knows nothing about rooms.
+*/
+type people interface {
+	Get(ctx context.Context, applicationID, id string) (users.User, error)
+}
+
 // Service applies Convia's rules for rooms.
 type Service struct {
 	store   *Store
 	tenants tenants
+	people  people
 	logger  *slog.Logger
+	now     func() time.Time
 }
 
-func NewService(store *Store, owner tenants, logger *slog.Logger) *Service {
-	return &Service{store: store, tenants: owner, logger: logger}
+func NewService(store *Store, owner tenants, directory people, logger *slog.Logger) *Service {
+	return &Service{
+		store:   store,
+		tenants: owner,
+		people:  directory,
+		logger:  logger,
+		now:     func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
+	}
 }
 
 /*

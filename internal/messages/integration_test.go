@@ -92,8 +92,8 @@ func newFixture(t *testing.T) fixture {
 	t.Cleanup(pool.Close)
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, logger)
 	announcer := events.NewAnnouncer(events.NewBroker(), nil, logger)
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
 		media.Absent{}, announcer, logger)

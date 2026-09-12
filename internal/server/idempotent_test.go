@@ -598,3 +598,19 @@ func TestKeysBelongToTheCallerThatPresentedThem(t *testing.T) {
 		t.Error("an unauthenticated request produced a key scope")
 	}
 }
+
+func (service *countingRooms) AddMember(context.Context, string, string, string) (rooms.Member, bool, error) {
+	return rooms.Member{}, false, nil
+}
+
+func (service *countingRooms) RemoveMember(context.Context, string, string, string) (bool, error) {
+	return false, nil
+}
+
+func (service *countingRooms) Members(context.Context, string, string, rooms.MembershipOptions) (rooms.Membership, error) {
+	return rooms.Membership{}, nil
+}
+
+func (service *countingRooms) RoomsOf(context.Context, string, string, rooms.MembershipOptions) (rooms.Membership, error) {
+	return rooms.Membership{}, nil
+}

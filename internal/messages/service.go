@@ -577,3 +577,17 @@ func (service *Service) record(ctx context.Context, event string, message Messag
 
 	service.logger.InfoContext(ctx, event, attributes...)
 }
+
+/*
+UnreadByRoom counts what one person has not read across several rooms at once.
+
+It is on the service rather than reached through the store directly because the
+sidebar is a read the session surface performs on every draw, and a caller that
+had to assemble it from parts would assemble it differently each time.
+*/
+func (service *Service) UnreadByRoom(ctx context.Context, applicationID, userID string, roomIDs []string) (map[string]int64, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return nil, err
+	}
+	return service.store.UnreadByRoom(ctx, applicationID, userID, roomIDs)
+}

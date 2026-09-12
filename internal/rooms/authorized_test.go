@@ -311,3 +311,19 @@ func TestAnApplicationScopeCannotReachTheOperatorSurface(t *testing.T) {
 		t.Error("an application scope reached the operator surface")
 	}
 }
+
+func (fake *recordingService) AddMember(context.Context, string, string, string) (Member, bool, error) {
+	return Member{}, false, fake.err
+}
+
+func (fake *recordingService) RemoveMember(context.Context, string, string, string) (bool, error) {
+	return false, fake.err
+}
+
+func (fake *recordingService) Members(context.Context, string, string, MembershipOptions) (Membership, error) {
+	return Membership{}, fake.err
+}
+
+func (fake *recordingService) RoomsOf(context.Context, string, string, MembershipOptions) (Membership, error) {
+	return Membership{}, fake.err
+}

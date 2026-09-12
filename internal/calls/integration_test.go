@@ -22,6 +22,7 @@ import (
 	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/rooms"
+	"convia/internal/users"
 )
 
 /*
@@ -99,7 +100,8 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	t.Cleanup(pool.Close)
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
+	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, logger)
 
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
