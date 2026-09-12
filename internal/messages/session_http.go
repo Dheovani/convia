@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"convia/internal/api"
 	"convia/internal/rooms"
@@ -82,9 +83,11 @@ func (handler *SessionHandler) personal(response http.ResponseWriter,
 	request *http.Request) (*Personal, bool) {
 	principal, found := sessions.PrincipalFromContext(request.Context())
 	if !found {
+		pathForLog := strings.ReplaceAll(request.URL.Path, "\n", "")
+		pathForLog = strings.ReplaceAll(pathForLog, "\r", "")
 		handler.logger.Error("a session route was reached without a session",
 			"method", request.Method,
-			"path", request.URL.Path,
+			"path", pathForLog,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
