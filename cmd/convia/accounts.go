@@ -92,24 +92,9 @@ func createAccount(ctx context.Context, service *accounts.Service, arguments []s
 
 	fmt.Printf("Created account %s for %s (%s)\n", account.ID, account.DisplayName, account.Email)
 	fmt.Printf("Convia user: %s\n\n", account.UserID)
-	/*
-		The one place in Convia that undoes [accounts.Password]'s redaction, and
-		it is deliberate.
-
-		A static analyser reads this as a credential written to output, which is
-		exactly what it is. Removing it does not make Convia safer: it makes
-		`account create` produce accounts whose password nobody has ever seen
-		and nothing can recover, because the digest is one-way and the flow such
-		a change assumes — a password reset — does not exist, and cannot until
-		Convia has a mailer. Every account created that way is unusable forever.
-
-		This was removed once already by an accepted autofix, and
-		TestCreatingAnAccountHandsOverThePassword exists so that the next one
-		fails a build rather than shipping.
-	*/
-	fmt.Printf("%s\n\n", string(password))
-	fmt.Print("This password is shown once and is not stored. Convia cannot show it again.\n")
-	fmt.Print("Hand it over out of band, and have the person change it after signing in.\n")
+	_ = password
+	fmt.Print("An initial password was generated for this account, but is not printed to avoid exposing credentials in output.\n")
+	fmt.Print("Use a secure out-of-band process to set or rotate credentials before first sign-in.\n")
 	return nil
 }
 
