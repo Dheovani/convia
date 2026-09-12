@@ -348,6 +348,28 @@ func failureFor(err error, logger *slog.Logger, request *http.Request) *api.Fail
 		return api.NewFailure(http.StatusNotFound, api.CodeNotFound,
 			"The requested room does not exist.")
 
+	/*
+		The person named, not the room. An application is entitled to be told
+		the difference about its own people; the session surface never returns
+		these, because a person names nobody but themselves.
+	*/
+	case errors.Is(err, ErrUserNotFound):
+		return api.NewFailure(http.StatusNotFound, api.CodeNotFound,
+			"The requested user does not exist.")
+
+	case errors.Is(err, ErrUserUnavailable):
+		return api.NewFailure(http.StatusConflict, api.CodeConflict,
+			"The user is suspended and cannot be given a place in a room.")
+
+	/*
+		Not reachable from this surface and mapped anyway, so that a future
+		route cannot leak the distinction by falling through to a 500. A person
+		is told the room is not there, never that it exists without them.
+	*/
+	case errors.Is(err, ErrNotAMember):
+		return api.NewFailure(http.StatusNotFound, api.CodeNotFound,
+			"The requested room does not exist.")
+
 	case errors.Is(err, ErrAliasTaken):
 		return api.NewFailure(http.StatusConflict, api.CodeConflict,
 			"Another room of this application already uses that alias.")

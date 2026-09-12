@@ -123,6 +123,102 @@ Room creation, closure, reopening, and deletion are audited. The record names th
 
 **Neither the alias nor the name is recorded.** Both are labels an application chose, and either may say something about the people using the room — `private-therapy-group` is an alias someone could plausibly write. What an operator needs is which room changed and into what state, and a test asserts the labels stay out.
 
+## Membership
+
+Who belongs to a room.
+
+Migration `00009` recorded that Convia does **not** model this, and gave a
+reason: Convia held no credentials for an application's people, so it could not
+enforce a policy about who belongs, and the application already knew. **M18
+invalidated that reason.** A person now signs in to Convia's own product and
+presents a session, and at that moment Convia is the only party that can answer
+whether they may open a room. So the concept arrives now, when something finally
+depends on it, rather than having been guessed at earlier.
+
+### It gates people, not applications
+
+An application's key already carries full authority over its own rooms.
+Requiring it to add itself as a member before posting a deployment notice would
+be ceremony that protects nobody, so **the tenant surface is not gated by
+membership**. Membership is what the *session* surface checks, where somebody
+acts as themselves.
+
+That is the line:
+
+| | says |
+| --- | --- |
+| The application's key | which application is calling |
+| Membership | which of that application's people may be where |
+
+Deriving membership from participation was considered and rejected. A chat-first
+room is one somebody joins and reads before any call happens in it, so a rule
+built on `participants` would leave every silent room with no members at all.
+
+### No role, no lifecycle
+
+A participant has a role because a call has something to moderate: removing
+somebody mid-conversation is an act with a victim and a witness. A room member
+has no such power to hold — the application manages membership through its own
+surface — and a column nothing reads is one that will acquire a meaning by
+accident.
+
+A participation records `joined`, `left` and `removed` because a call's roster
+is the record of one occasion. Membership is **current state**: somebody is in
+the room or they are not. Leaving and coming back leaves no trail here, and the
+audit log already records both acts for anybody who needs the history.
+
+A guest has no membership. They have no Convia user, their stint is one call,
+and they reach it with an invitation rather than by belonging anywhere.
+
+### What it costs and what it does not
+
+**Adding is idempotent by the person.** Adding somebody twice is the same
+outcome as adding them once, which is why it is a `PUT` on the person's own
+address rather than a `POST` to a collection. It answers `201` the first time
+and `200` afterwards, so an application reconciling its own list against
+Convia's can tell whether it changed anything. Only a change is audited, because
+a trail full of events where nothing happened is one nobody reads.
+
+**Removing leaves what they said.** The messages are the room's record of a
+conversation that did happen, and withdrawing them would rewrite it for
+everybody still there. Removing a person from the record entirely is erasure,
+which is a different act and the person's to ask for. Removing somebody who was
+not there is not an error.
+
+**A closed room still takes members.** Closing stops new calls and new messages;
+it does not evict the people who were there, and adding somebody to a finished
+room so that they can read its history is reasonable. A deleted room is refused.
+
+**A suspended person is refused.** Suspension withdraws access, and handing
+somebody a room to write in would be the one place it did not.
+
+### The API
+
+| Route | Scope | What it does |
+| --- | --- | --- |
+| `PUT /v1/rooms/{room_id}/members/{user_id}` | `members:write` | give somebody a place |
+| `DELETE /v1/rooms/{room_id}/members/{user_id}` | `members:write` | take it away |
+| `GET /v1/rooms/{room_id}/members` | `members:read` | who is in this room |
+| `GET /v1/users/{user_id}/rooms` | `members:read` | what rooms is this person in |
+
+**The scopes are new rather than reused, and that is deliberate.** A credential
+that creates and renames rooms has never been able to touch people. Folding
+membership into `rooms:write` would silently widen every key already issued into
+one that can put anybody anywhere.
+
+Listings are ordered by the column their index already holds — the person for a
+room's members, the room for somebody's rooms — so the cursor is the last
+identifier on the page rather than an encoded pair. A member carries **no
+display name**, for the reason a call roster does not.
+
+### Not built yet
+
+The session surface. Membership exists and is enforceable, but nothing enforces
+it yet, because no route lets a person act as themselves on a room. That is the
+next step, and it is what `M31-009` is finally for: `GET /v1/me/rooms`, and the
+message routes underneath it, where the author is the session rather than a
+field in the request.
+
 ## Not Yet Implemented
 
 - **Membership and access policy** (`M08-010`). Convia holds no credentials for an application's people, so it cannot decide who may enter a room; the application already knows. Inventing a policy model Convia could not enforce would be worse than having none.

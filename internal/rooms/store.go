@@ -384,3 +384,183 @@ func DecodeCursor(value string) (Cursor, error) {
 	}
 	return Cursor{CreatedAt: time.UnixMicro(parsed).UTC(), ID: id}, nil
 }
+
+// memberColumns is the projection every membership read shares.
+const memberColumns = "application_id, room_id, user_id, created_at"
+
+/*
+AddMember gives somebody a place in a room, reporting whether this call gave it.
+
+It is idempotent by the person. Adding somebody already in the room returns the
+place they already had rather than a conflict: an application retrying after a
+timeout, or reconciling its own list against Convia's, is doing something
+ordinary and should not have to tell the two cases apart.
+*/
+func (store *Store) AddMember(ctx context.Context, member Member) (Member, bool, error) {
+	const statement = `INSERT INTO room_members (` + memberColumns + `)
+	                   VALUES ($1, $2, $3, $4)
+	                   ON CONFLICT (room_id, user_id) DO NOTHING
+	                   RETURNING ` + memberColumns
+
+	rows, err := store.pool.Query(ctx, statement,
+		member.ApplicationID, member.RoomID, member.UserID, member.CreatedAt)
+	if err != nil {
+		return Member{}, false, fmt.Errorf("add a member: %w", err)
+	}
+
+	added, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[memberRow])
+	if errors.Is(err, pgx.ErrNoRows) {
+		/*
+			DO NOTHING returns no row when the person is already there, which is
+			indistinguishable from a failed insert until it is read back. The
+			read is on the unusual path only, so the ordinary one stays a single
+			statement.
+		*/
+		existing, readErr := store.Member(ctx, member.ApplicationID, member.RoomID, member.UserID)
+		return existing, false, readErr
+	}
+
+	if err != nil {
+		return Member{}, false, fmt.Errorf("read the added member: %w", err)
+	}
+
+	return added.member(), true, nil
+}
+
+// Member returns one person's place in a room.
+func (store *Store) Member(ctx context.Context, applicationID, roomID, userID string) (Member, error) {
+	const statement = `SELECT ` + memberColumns + ` FROM room_members
+	                   WHERE application_id = $1 AND room_id = $2 AND user_id = $3`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, roomID, userID)
+	if err != nil {
+		return Member{}, fmt.Errorf("query a member: %w", err)
+	}
+
+	record, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[memberRow])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Member{}, ErrNotAMember
+	}
+
+	if err != nil {
+		return Member{}, fmt.Errorf("read a member: %w", err)
+	}
+
+	return record.member(), nil
+}
+
+/*
+RemoveMember takes somebody's place away, reporting whether they had one.
+
+**Nothing happens to what they said.** Removal is about the future: the messages
+are the room's record of a conversation that did happen, and taking them away
+would rewrite it for everybody still there. Erasure is the separate act that
+removes a person from the record, and it is the person's to ask for.
+*/
+func (store *Store) RemoveMember(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	const statement = `DELETE FROM room_members
+	                   WHERE application_id = $1 AND room_id = $2 AND user_id = $3`
+
+	tag, err := store.pool.Exec(ctx, statement, applicationID, roomID, userID)
+	if err != nil {
+		return false, fmt.Errorf("remove a member: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+/*
+Members returns one page of who belongs to a room.
+
+Ordered by the person rather than by when they joined, because that is the order
+the primary key already holds: a membership list has no chronology a reader
+cares about, and sorting one into existence would cost a sort on every page.
+*/
+func (store *Store) Members(ctx context.Context, applicationID, roomID string, after string, limit int) ([]Member, bool, error) {
+	statement := `SELECT ` + memberColumns + ` FROM room_members
+	              WHERE application_id = $1 AND room_id = $2`
+	arguments := []any{applicationID, roomID}
+
+	if after != "" {
+		arguments = append(arguments, after)
+		statement += ` AND user_id > $` + strconv.Itoa(len(arguments))
+	}
+	statement += ` ORDER BY user_id ASC LIMIT ` + strconv.Itoa(limit+1)
+
+	return store.pageMembers(ctx, statement, arguments, limit)
+}
+
+/*
+RoomsOf returns one page of the rooms somebody belongs to.
+
+This is the sidebar, and it is the one membership read that is not scoped to a
+single room, which is what `room_members_user_idx` exists for.
+*/
+func (store *Store) RoomsOf(ctx context.Context, applicationID, userID string, after string, limit int) ([]Member, bool, error) {
+	statement := `SELECT ` + memberColumns + ` FROM room_members
+	              WHERE application_id = $1 AND user_id = $2`
+	arguments := []any{applicationID, userID}
+
+	if after != "" {
+		arguments = append(arguments, after)
+		statement += ` AND room_id > $` + strconv.Itoa(len(arguments))
+	}
+	statement += ` ORDER BY room_id ASC LIMIT ` + strconv.Itoa(limit+1)
+
+	return store.pageMembers(ctx, statement, arguments, limit)
+}
+
+func (store *Store) pageMembers(ctx context.Context, statement string, arguments []any, limit int) ([]Member, bool, error) {
+	rows, err := store.pool.Query(ctx, statement, arguments...)
+	if err != nil {
+		return nil, false, fmt.Errorf("query members: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[memberRow])
+	if err != nil {
+		return nil, false, fmt.Errorf("read members: %w", err)
+	}
+
+	page := make([]Member, 0, len(records))
+	for _, record := range records {
+		page = append(page, record.member())
+	}
+
+	if len(page) > limit {
+		return page[:limit], true, nil
+	}
+	return page, false, nil
+}
+
+/*
+ForgetMemberships removes every place one person held.
+
+It exists for erasure, which is why it takes no room: a person being erased is
+leaving every room at once, and doing it one at a time would leave a window in
+which they were half gone.
+*/
+func (store *Store) ForgetMemberships(ctx context.Context, applicationID, userID string) (int64, error) {
+	const statement = `DELETE FROM room_members WHERE application_id = $1 AND user_id = $2`
+
+	tag, err := store.pool.Exec(ctx, statement, applicationID, userID)
+	if err != nil {
+		return 0, fmt.Errorf("forget memberships: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// memberRow mirrors the membership projection.
+type memberRow struct {
+	ApplicationID string
+	RoomID        string
+	UserID        string
+	CreatedAt     time.Time
+}
+
+func (record memberRow) member() Member {
+	return Member{
+		ApplicationID: record.ApplicationID,
+		RoomID:        record.RoomID,
+		UserID:        record.UserID,
+		CreatedAt:     record.CreatedAt.UTC(),
+	}
+}

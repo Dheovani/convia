@@ -251,7 +251,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		Applications:          applications.NewHandler(logger, application),
 		Users:                 users.NewHandler(logger, user),
 		Credentials:           credentials.NewHandler(logger, credential),
-		Rooms:                 rooms.NewHandler(logger, stubRooms{room: sampleRoom()}),
+		Rooms:                 rooms.NewHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}),
 		Calls:                 calls.NewHandler(logger, stubCalls{call: sampleCall()}),
 		Participants:          participants.NewHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		OperatorCredentials:   operator.NewHandler(logger, stubOperatorCredentials{credential: sampleOperatorCredential()}),
@@ -259,7 +259,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		Authenticator:      verifier,
 		TenantUsers:        users.NewTenantHandler(logger, user),
 		TenantCredentials:  credentials.NewTenantHandler(logger, credential),
-		TenantRooms:        rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom()}),
+		TenantRooms:        rooms.NewTenantHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}),
 		TenantCalls:        calls.NewTenantHandler(logger, stubCalls{call: sampleCall()}),
 		TenantParticipants: participants.NewTenantHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		TenantInvitations:  invitations.NewTenantHandler(logger, stubInvitations{invitation: sampleInvitation()}),
@@ -890,9 +890,10 @@ Transport tests need to control what a handler receives without PostgreSQL;
 whether the domain rules hold is settled by the rooms package tests.
 */
 type stubRooms struct {
-	room rooms.Room
-	page rooms.Page
-	err  error
+	room   rooms.Room
+	member rooms.Member
+	page   rooms.Page
+	err    error
 }
 
 func (stub stubRooms) Create(context.Context, string, rooms.Definition) (rooms.Room, error) {
@@ -1162,4 +1163,35 @@ func (stub stubWebhooks) GetDelivery(context.Context, string, string) (webhooks.
 
 func (stub stubWebhooks) ListDeliveries(context.Context, string, webhooks.DeliveryListOptions) (webhooks.DeliveryPage, error) {
 	return webhooks.DeliveryPage{Deliveries: []webhooks.Delivery{stub.delivery}}, stub.err
+}
+
+func (stub stubRooms) AddMember(context.Context, string, string, string) (rooms.Member, bool, error) {
+	return stub.member, true, stub.err
+}
+
+func (stub stubRooms) RemoveMember(context.Context, string, string, string) (bool, error) {
+	return true, stub.err
+}
+
+func (stub stubRooms) Members(context.Context, string, string, rooms.MembershipOptions) (rooms.Membership, error) {
+	if stub.err != nil {
+		return rooms.Membership{}, stub.err
+	}
+	return rooms.Membership{Members: []rooms.Member{stub.member}}, nil
+}
+
+func (stub stubRooms) RoomsOf(context.Context, string, string, rooms.MembershipOptions) (rooms.Membership, error) {
+	if stub.err != nil {
+		return rooms.Membership{}, stub.err
+	}
+	return rooms.Membership{Members: []rooms.Member{stub.member}}, nil
+}
+
+func sampleMember() rooms.Member {
+	return rooms.Member{
+		ApplicationID: sampleApplication().ID,
+		RoomID:        sampleRoom().ID,
+		UserID:        sampleUser().ID,
+		CreatedAt:     sampleApplication().CreatedAt,
+	}
 }

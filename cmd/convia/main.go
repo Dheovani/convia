@@ -155,7 +155,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, logger)
 
 	mediaPlane, err := openMediaPlane(cfg.Media, logger)
 	if err != nil {

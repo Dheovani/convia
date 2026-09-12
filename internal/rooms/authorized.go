@@ -31,6 +31,10 @@ type service interface {
 	Close(ctx context.Context, applicationID, id string) (Room, error)
 	Reopen(ctx context.Context, applicationID, id string) (Room, error)
 	Delete(ctx context.Context, applicationID, id string) error
+	AddMember(ctx context.Context, applicationID, roomID, userID string) (Member, bool, error)
+	RemoveMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	Members(ctx context.Context, applicationID, roomID string, options MembershipOptions) (Membership, error)
+	RoomsOf(ctx context.Context, applicationID, userID string, options MembershipOptions) (Membership, error)
 }
 
 /*
@@ -124,4 +128,45 @@ func (authorized *Authorized) Delete(ctx context.Context, id string) error {
 		return err
 	}
 	return authorized.service.Delete(ctx, authorized.principal.ApplicationID, id)
+}
+
+/*
+AddMember gives one of the caller's own people a place in one of its rooms.
+
+It needs `members:write` rather than `rooms:write`, and the separation is not
+cosmetic: a credential that creates and renames rooms has never been able to
+touch people, and folding membership into it would silently widen every key
+already issued into one that can put anybody anywhere.
+*/
+func (authorized *Authorized) AddMember(ctx context.Context, roomID, userID string) (Member, bool, error) {
+	if err := authorized.permit(credentials.ScopeMembersWrite); err != nil {
+		return Member{}, false, err
+	}
+	return authorized.service.AddMember(ctx, authorized.principal.ApplicationID, roomID, userID)
+}
+
+// RemoveMember takes away a place in one of the caller's own rooms.
+func (authorized *Authorized) RemoveMember(ctx context.Context, roomID, userID string) (bool, error) {
+	if err := authorized.permit(credentials.ScopeMembersWrite); err != nil {
+		return false, err
+	}
+	return authorized.service.RemoveMember(ctx, authorized.principal.ApplicationID, roomID, userID)
+}
+
+// Members returns one page of who belongs to one of the caller's own rooms.
+func (authorized *Authorized) Members(ctx context.Context, roomID string,
+	options MembershipOptions) (Membership, error) {
+	if err := authorized.permit(credentials.ScopeMembersRead); err != nil {
+		return Membership{}, err
+	}
+	return authorized.service.Members(ctx, authorized.principal.ApplicationID, roomID, options)
+}
+
+// RoomsOf returns one page of the rooms one of the caller's own people is in.
+func (authorized *Authorized) RoomsOf(ctx context.Context, userID string,
+	options MembershipOptions) (Membership, error) {
+	if err := authorized.permit(credentials.ScopeMembersRead); err != nil {
+		return Membership{}, err
+	}
+	return authorized.service.RoomsOf(ctx, authorized.principal.ApplicationID, userID, options)
 }

@@ -18,6 +18,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/config"
 	"convia/internal/database"
+	"convia/internal/users"
 )
 
 /*
@@ -33,6 +34,7 @@ const testDatabaseURLEnvironment = "CONVIA_TEST_DATABASE_URL"
 type fixture struct {
 	service      *Service
 	applications *applications.Service
+	users        *users.Service
 	pool         *pgxpool.Pool
 	first        string
 	second       string
@@ -79,13 +81,15 @@ func newFixture(t *testing.T) fixture {
 	t.Cleanup(pool.Close)
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
 	logs.Reset()
 	return fixture{
-		service:      NewService(NewStore(pool), applicationService, logger),
+		service:      NewService(NewStore(pool), applicationService, userService, logger),
 		applications: applicationService,
+		users:        userService,
 		pool:         pool,
 		first:        first,
 		second:       second,

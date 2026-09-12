@@ -513,6 +513,23 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.TenantRooms.Close)},
 			route{method: http.MethodPost, path: api.Prefix + "/rooms/{room_id}/reopen", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantRooms.Reopen)},
+
+			/*
+				Who belongs to a room. These carry their own scopes rather than the
+				room ones, because a credential that renames rooms has never been
+				able to touch people and must not start now.
+
+				Adding is a PUT on the person's own address: it is idempotent by the
+				person, and a collection POST would promise a new resource each time.
+			*/
+			route{method: http.MethodPut, path: api.Prefix + "/rooms/{room_id}/members/{user_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.AddMember)},
+			route{method: http.MethodDelete, path: api.Prefix + "/rooms/{room_id}/members/{user_id}", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.RemoveMember)},
+			route{method: http.MethodGet, path: api.Prefix + "/rooms/{room_id}/members", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.Members)},
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}/rooms", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantRooms.RoomsOf)},
 		)
 	}
 

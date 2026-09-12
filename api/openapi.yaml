@@ -186,6 +186,30 @@ tags:
       See `docs/sessions.md` for the cookie's attributes, the two expiry
       windows, and what signing out actually revokes.
 
+  - name: Members
+    description: |
+      Who belongs to a room.
+
+      Migration `00009` recorded that Convia does not model this, and gave a
+      reason M18 invalidated: that Convia held no credentials for an
+      application's people, so it could not enforce a policy about who belongs.
+      Since M18 a person signs in to Convia's own product and presents a
+      session, and at that moment Convia is the only party that can answer
+      whether they may open a room.
+
+      **It gates people, not applications.** An application's key already
+      carries full authority over its own rooms. Membership is what the session
+      surface checks, where somebody acts as themselves.
+
+      A member carries **no role and no lifecycle**. A call has a moderator
+      because it has something to moderate; a room member has no such power to
+      hold. And membership is current state rather than the record of an
+      occasion — leaving and coming back leaves no trail here, though the audit
+      log records both acts.
+
+      A guest has no membership. They have no Convia user and reach a call with
+      an invitation rather than by belonging anywhere.
+
   - name: Messages
     description: |
       What people said, and the order they said it in.
@@ -2677,6 +2701,234 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+
+  /v1/rooms/{room_id}/members/{user_id}:
+    put:
+      operationId: addOwnRoomMember
+      tags: [Members]
+      summary: Give somebody a place in a room
+      description: |
+        Gives one of the caller's own people a place in one of its rooms.
+
+        **Membership gates people, not applications.** An application's key
+        already carries full authority over its own rooms; requiring it to add
+        itself before posting a deployment notice would be ceremony that
+        protects nobody. Membership is what the session surface checks, where
+        somebody acts as themselves. The key says which application is calling;
+        membership says which of its people may be where.
+
+        A `PUT` on the person's own address rather than a `POST` to a
+        collection, because the operation is **idempotent by the person**:
+        adding somebody twice is the same outcome as adding them once, and a
+        collection `POST` would promise a new resource each time. It answers
+        `201` the first time and `200` afterwards, so a caller reconciling its
+        own list against Convia's can tell whether it changed anything without
+        comparing timestamps.
+
+        A **closed** room still accepts members: closing stops new calls and new
+        messages, it does not evict the people who were there, and adding
+        somebody to a finished room so they can read its history is reasonable.
+        A **deleted** room answers `404 not found`.
+
+        A suspended person answers `409 conflict`. Suspension withdraws access,
+        and handing somebody a room to write in would be the one place it did
+        not.
+
+        This needs `members:write` and **not** `rooms:write`. A credential that
+        creates and renames rooms has never been able to touch people, and
+        folding membership into it would silently widen every key already
+        issued into one that can put anybody anywhere.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["members:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: They were already a member.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMember"
+        "201":
+          description: They were given a place.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMember"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    delete:
+      operationId: removeOwnRoomMember
+      tags: [Members]
+      summary: Take away a place in a room
+      description: |
+        Takes somebody's place in one of the caller's own rooms away.
+
+        **Nothing happens to what they said.** The messages are the room's
+        record of a conversation that did happen, and withdrawing them would
+        rewrite it for everybody still there. Removing a person from the record
+        entirely is erasure, which is a different act and the person's to ask
+        for.
+
+        Removing somebody who was not a member answers `204` like any other
+        removal: the caller asked for a state the room is already in, and a
+        retried request must not look like a mistake.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["members:write"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: They have no place in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/rooms/{room_id}/members:
+    get:
+      operationId: listOwnRoomMembers
+      tags: [Members]
+      summary: List who belongs to a room
+      description: |
+        Returns one page of who belongs to one of the caller's own rooms.
+
+        Ordered by the person rather than by when they joined, because that is
+        the order the primary key already holds: a membership list has no
+        chronology a reader cares about, and sorting one into existence would
+        cost a sort on every page. The cursor is therefore the last `user_id`
+        on the page.
+
+        A member carries **no display name**, for the reason a call roster does
+        not: copying one here would put a person's name where nobody asked for
+        it and would duplicate something the application owns and can change. A
+        caller that wants a name reads the user.
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["members:read"]
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of the room's members.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMemberPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/users/{user_id}/rooms:
+    get:
+      operationId: listOwnUserRooms
+      tags: [Members]
+      summary: List the rooms somebody belongs to
+      description: |
+        Returns one page of the rooms one of the caller's own people belongs to.
+
+        This is what a sidebar is built from. It hangs off the person rather
+        than off rooms because that is what it is about, and because the rooms
+        listing filters a room's own attributes — membership is not one of
+        them.
+
+        Ordered by room identifier, which is the order the index holds, so the
+        cursor is the last `room_id` on the page. An identifier naming nobody
+        answers `404 not found` rather than an empty page, which a caller would
+        read as "they are in no rooms".
+      x-lifecycle: experimental
+      security:
+        - ApplicationKey: ["members:read"]
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of the rooms they belong to.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMemberPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
 
   /v1/rooms/{room_id}/messages:
     post:
@@ -6689,6 +6941,47 @@ components:
         - presence:write
         - messages:read
         - messages:write
+        - members:read
+        - members:write
+
+    RoomMember:
+      type: object
+      description: |
+        One person's place in one room.
+
+        It carries no display name, for the reason a call roster does not:
+        copying one here would put a person's name where nobody asked for it,
+        and would duplicate something the application owns and can change.
+      required: [application_id, room_id, user_id, created_at]
+      additionalProperties: false
+      properties:
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        created_at:
+          type: string
+          format: date-time
+          description: When they were given the place.
+          example: "2026-09-12T09:14:02.114523Z"
+
+    RoomMemberPage:
+      type: object
+      description: One page of places, in a room or of a person.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoomMember"
+        next_cursor:
+          type: string
+          description: |
+            The identifier to continue from, absent at the end of the listing.
+          example: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
 
     MessageId:
       type: string
@@ -7560,6 +7853,21 @@ components:
         since the credential names an application rather than a person.
       schema:
         $ref: "#/components/schemas/UserId"
+
+    MembershipCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        The identifier to continue a membership listing from, exclusive.
+
+        Membership listings are ordered by the column their index already
+        holds — the person for a room's members, the room for somebody's rooms
+        — so the cursor is the last identifier on the previous page rather than
+        an encoded pair. There is nothing else for it to carry.
+      schema:
+        type: string
+      example: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
 
     MessageCursor:
       name: cursor
