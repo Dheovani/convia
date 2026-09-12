@@ -26,6 +26,7 @@ type stubService struct {
 	message   Message
 	page      Page
 	readState ReadState
+	unread    map[string]int64
 	err       error
 
 	// seen records what the layer above passed down, so a test can assert the
@@ -37,6 +38,7 @@ type stubService struct {
 	seenOptions  HistoryOptions
 	seenReader   string
 	seenSequence int64
+	seenRooms    []string
 }
 
 func (stub *stubService) Post(_ context.Context, _, roomID string, author Author, body string) (Message, error) {
@@ -72,6 +74,11 @@ func (stub *stubService) MarkRead(_ context.Context, _, roomID, userID string, s
 func (stub *stubService) ReadState(_ context.Context, _, roomID, userID string) (ReadState, error) {
 	stub.seenRoomID, stub.seenReader = roomID, userID
 	return stub.readState, stub.err
+}
+
+func (stub *stubService) UnreadByRoom(_ context.Context, _, userID string, roomIDs []string) (map[string]int64, error) {
+	stub.seenReader, stub.seenRooms = userID, roomIDs
+	return stub.unread, stub.err
 }
 
 func quiet() *slog.Logger {

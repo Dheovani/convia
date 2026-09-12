@@ -135,6 +135,7 @@ type Dependencies struct {
 	TenantParticipants *participants.TenantHandler
 	TenantInvitations  *invitations.TenantHandler
 	TenantMessages     *messages.TenantHandler
+	PersonalMessages   *messages.SessionHandler
 
 	/*
 		TenantEvents is the one route that is not a request and a response. It
@@ -713,6 +714,37 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Sessions.Me)},
 			route{method: http.MethodPatch, path: api.Prefix + "/me/password", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.Sessions.ChangePassword)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalMessages != nil {
+		/*
+			A person reading and writing their own conversations.
+
+			Every one of these names nobody. The person comes from the cookie,
+			so no request field could address somebody else's rooms or write in
+			somebody else's name -- not because a handler checks, but because
+			there is nowhere to put it.
+
+			A room this person is not in answers 404 rather than 403. A refusal
+			that separates "not yours" from "does not exist" confirms to somebody
+			outside a conversation that the conversation is happening.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/me/rooms", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.Rooms)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/rooms/{room_id}/messages", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.History)},
+			route{method: http.MethodPost, path: api.Prefix + "/me/rooms/{room_id}/messages", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.Post)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/rooms/{room_id}/read_state", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.ReadState)},
+			route{method: http.MethodPut, path: api.Prefix + "/me/rooms/{room_id}/read_state", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.MarkRead)},
+			route{method: http.MethodPatch, path: api.Prefix + "/me/messages/{message_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.Edit)},
+			route{method: http.MethodPost, path: api.Prefix + "/me/messages/{message_id}/delete", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalMessages.Delete)},
 		)
 	}
 

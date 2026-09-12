@@ -272,6 +272,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantParticipants: participants.NewTenantHandler(logger, participantService),
 		TenantInvitations:  invitations.NewTenantHandler(logger, invitationService),
 		TenantMessages:     messages.NewTenantHandler(logger, messageService),
+		PersonalMessages:   messages.NewSessionHandler(logger, messageService, roomService),
 		TenantEvents:       events.NewTenantHandler(logger, broker),
 		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
 		TenantPresence:     presence.NewTenantHandler(logger, presenceService),

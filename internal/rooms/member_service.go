@@ -256,3 +256,29 @@ func (service *Service) recordMembership(ctx context.Context, event string, memb
 		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
+
+/*
+Many returns several of an application's rooms, keyed by identifier.
+
+It is the read the sidebar performs once instead of once per row. A room that
+does not exist, belongs to another tenant, or is deleted is absent rather than
+reported: the caller already knows which identifiers it asked about, and a
+listing built from memberships has no use for an error about one of them.
+*/
+func (service *Service) Many(ctx context.Context, applicationID string, ids []string) (map[string]Room, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return nil, err
+	}
+
+	found, err := service.store.Many(ctx, applicationID, ids)
+	if err != nil {
+		return nil, err
+	}
+
+	for id, room := range found {
+		if room.Status == StatusDeleted {
+			delete(found, id)
+		}
+	}
+	return found, nil
+}

@@ -564,3 +564,40 @@ func (record memberRow) member() Member {
 		CreatedAt:     record.CreatedAt.UTC(),
 	}
 }
+
+/*
+Many reads several of an application's rooms at once.
+
+It exists for the sidebar, which resolves every room somebody belongs to on
+every draw. Reading them one at a time would be a query per row on the screen,
+which is the shape that makes an interface feel slow — and the same reason the
+unread counts beside them are counted in one statement.
+
+A room the caller asked for and does not own is simply absent from the result
+rather than reported: the tenant is in the statement, so a missing key is the
+only answer a cross-tenant identifier can produce.
+*/
+func (store *Store) Many(ctx context.Context, applicationID string, ids []string) (map[string]Room, error) {
+	if len(ids) == 0 {
+		return map[string]Room{}, nil
+	}
+
+	const statement = `SELECT ` + columns + ` FROM rooms
+	                   WHERE application_id = $1 AND id = ANY($2)`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query rooms: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, fmt.Errorf("read rooms: %w", err)
+	}
+
+	found := make(map[string]Room, len(records))
+	for _, record := range records {
+		found[record.ID] = record.room()
+	}
+	return found, nil
+}

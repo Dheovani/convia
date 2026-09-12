@@ -264,6 +264,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantParticipants: participants.NewTenantHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		TenantInvitations:  invitations.NewTenantHandler(logger, stubInvitations{invitation: sampleInvitation()}),
 		TenantMessages:     messages.NewTenantHandler(logger, stubMessages{message: sampleMessage()}),
+		PersonalMessages: messages.NewSessionHandler(logger, stubMessages{message: sampleMessage()},
+			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -883,6 +885,19 @@ func (stub stubMessages) ReadState(context.Context, string, string, string) (mes
 	return stub.readState, stub.err
 }
 
+func (stub stubMessages) UnreadByRoom(_ context.Context, _, _ string,
+	roomIDs []string) (map[string]int64, error) {
+	if stub.err != nil {
+		return nil, stub.err
+	}
+
+	unread := make(map[string]int64, len(roomIDs))
+	for _, roomID := range roomIDs {
+		unread[roomID] = stub.readState.Unread
+	}
+	return unread, nil
+}
+
 /*
 stubRooms stands in for the rooms service.
 
@@ -892,8 +907,11 @@ whether the domain rules hold is settled by the rooms package tests.
 type stubRooms struct {
 	room   rooms.Room
 	member rooms.Member
-	page   rooms.Page
-	err    error
+	// stranger makes IsMember answer false, which is how a test asks for
+	// somebody who is not in the room.
+	stranger bool
+	page     rooms.Page
+	err      error
 }
 
 func (stub stubRooms) Create(context.Context, string, rooms.Definition) (rooms.Room, error) {
@@ -1185,6 +1203,27 @@ func (stub stubRooms) RoomsOf(context.Context, string, string, rooms.MembershipO
 		return rooms.Membership{}, stub.err
 	}
 	return rooms.Membership{Members: []rooms.Member{stub.member}}, nil
+}
+
+func (stub stubRooms) IsMember(context.Context, string, string, string) (bool, error) {
+	if stub.err != nil {
+		return false, stub.err
+	}
+	return !stub.stranger, nil
+}
+
+func (stub stubRooms) Many(_ context.Context, _ string, ids []string) (map[string]rooms.Room, error) {
+	if stub.err != nil {
+		return nil, stub.err
+	}
+
+	found := make(map[string]rooms.Room, len(ids))
+	for _, id := range ids {
+		room := stub.room
+		room.ID = id
+		found[id] = room
+	}
+	return found, nil
 }
 
 func sampleMember() rooms.Member {

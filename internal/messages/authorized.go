@@ -30,6 +30,7 @@ type service interface {
 	Delete(ctx context.Context, applicationID, id string, author Author) (Message, error)
 	MarkRead(ctx context.Context, applicationID, roomID, userID string, sequence int64) (ReadState, error)
 	ReadState(ctx context.Context, applicationID, roomID, userID string) (ReadState, error)
+	UnreadByRoom(ctx context.Context, applicationID, userID string, roomIDs []string) (map[string]int64, error)
 }
 
 /*

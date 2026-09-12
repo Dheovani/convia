@@ -6,11 +6,7 @@ This document covers what a message is, how a room's history is ordered and
 read, what editing and deleting mean, how read state works, what streams, and
 what erasure removes.
 
-What it does **not** cover is **who may read or write** — per-person
-authorization, which does not exist yet. Today these routes check only that
-attribution is truthful: that a named author exists, belongs to the calling
-application, and is somebody Convia still serves. An application decides who
-belongs in which of its rooms.
+It covers **two surfaces**. An application reaches its own rooms with its key, naming which of its people is speaking. A person reaches the rooms they belong to with a session cookie, and names nobody — see *Acting as yourself*.
 
 ## A conversation is a room
 
@@ -118,6 +114,46 @@ while a message sent twice is something everybody in the room sees.
 The credential was granted everything this surface can grant, so sending the
 caller after a different scope would send them after something that would not
 help. They named the wrong person.
+
+## Acting as yourself
+
+Everything above is the **application** surface: a key says which application is calling, and the request says which of its people is speaking. There is a second surface, reached with a session cookie, where a person acts as themselves.
+
+| Route | What it does |
+| --- | --- |
+| `GET /v1/me/rooms` | the rooms I am in, with what I have not read |
+| `GET /v1/me/rooms/{room_id}/messages` | read a room I am in |
+| `POST /v1/me/rooms/{room_id}/messages` | say something |
+| `GET /v1/me/rooms/{room_id}/read_state` | how far I have read |
+| `PUT /v1/me/rooms/{room_id}/read_state` | mark a room read |
+| `PATCH /v1/me/messages/{message_id}` | change what I said |
+| `POST /v1/me/messages/{message_id}/delete` | withdraw it |
+
+### There is no author field, and that is the whole point
+
+An application names which of its people is speaking because it is acting on their behalf and is the only party that knows. A person cannot name anybody, because naming somebody would mean naming somebody else.
+
+So the request body carries what was written and nothing else. Writing as another person is not validated against and refused — **there is nowhere to put it**. That is the same move M18 made with the tenant: a bug of this shape is unrepresentable rather than merely unlikely. The schema forbids the field too, so a client that sends one is told its request is invalid rather than having it quietly ignored; being ignored would be worse, because the message would be attributed correctly while the caller believed otherwise.
+
+### Membership decides, and a stranger is told the room is not there
+
+This is the first place a session principal decides anything, and what it decides against is [room membership](rooms.md#membership).
+
+**A room this person is not in answers `404 not found`, never `403 forbidden`.** A refusal that separates "not yours" from "does not exist" confirms to somebody outside a conversation that the conversation is happening, which is most of what they were asking. The application surface is entitled to that distinction and gets it; a person is not.
+
+Editing and withdrawing are the exception, and the asymmetry is deliberate: they check **authorship**, not membership. Somebody who wrote a message was in the room when they wrote it, and having been removed since does not hand their own words to anybody else.
+
+### The sidebar
+
+`GET /v1/me/rooms` answers with the rooms and the unread counts together, because a sidebar is redrawn constantly and a request per row on the screen is the shape that makes an interface feel slow. Convia counts every room's unread in one statement and resolves every room in one more, rather than once per row.
+
+A membership whose room has been deleted is skipped rather than reported. Rooms are deleted softly and memberships outlive them until erasure, so it is an ordinary state — and a sidebar that failed because one row had been deleted would be a whole screen lost to a room nobody can open anyway.
+
+### A session still grants no authority over a tenant
+
+Nothing here converts a session into an application key. The shortcut would let anybody who signed in act with the first-party application's full authority, outliving their session and their account, and [ADR 0007](adr/0007-a-session-is-a-person-not-a-tenants-authority.md) records why it stays closed.
+
+Responses carry `Cache-Control: no-store` and `Vary: Cookie`. These bodies are one person's conversations, and a cache that served one to somebody else would be the worst failure this surface could have.
 
 ## Authorship
 

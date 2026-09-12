@@ -186,6 +186,18 @@ tags:
       See `docs/sessions.md` for the cookie's attributes, the two expiry
       windows, and what signing out actually revokes.
 
+  - name: Me
+    description: |
+      What a signed-in person does with their own conversations.
+
+      Every route here names nobody. The person comes from the session cookie, so there is no request field that could address somebody else's rooms or write in somebody else's name — **not because a handler checks, but because there is nowhere to put it**. That is the same move the tenant surface makes with the application: a bug of this shape is unrepresentable rather than merely unlikely.
+
+      These are the first routes in Convia where a session principal decides anything. It still grants no authority over a tenant: nothing here converts a session into an application key, and `docs/adr/0007` says why that shortcut stays closed.
+
+      **A room this person is not in answers `404 not found`, never `403 forbidden`.** A refusal that separates "not yours" from "does not exist" confirms to somebody outside a conversation that the conversation is happening, which is most of what they were asking. The application surface is entitled to that distinction; a person is not.
+
+      Responses carry `Cache-Control: no-store` and `Vary: Cookie`. These bodies are one person's conversations, and a cache that served one to somebody else would be the worst failure this surface could have.
+
   - name: Members
     description: |
       Who belongs to a room.
@@ -4957,6 +4969,339 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/me/rooms:
+    get:
+      operationId: readMySidebar
+      tags: [Me]
+      summary: The rooms I am in
+      description: |
+        Returns the rooms the signed-in person belongs to, with how much they have not read in each.
+
+        This is the sidebar. It names nobody: there is one answer per session, and it is the session's. No request field could ask for somebody else's.
+
+        The unread count travels with the room rather than being fetched per room, because a sidebar is redrawn constantly and a request per row on the screen is the shape that makes an interface feel slow. Convia counts them all in one statement for the same reason.
+
+        A membership whose room has been deleted is skipped rather than reported. Rooms are deleted softly and memberships outlive them until erasure, so it is an ordinary state — and a sidebar that failed because one row had been deleted would be a whole screen lost to a room nobody can open anyway.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: The rooms this person is in.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sidebar"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/messages:
+    get:
+      operationId: readMyHistory
+      tags: [Me]
+      summary: Read a room I am in
+      description: |
+        Returns one window of what was said in a room the signed-in person belongs to.
+
+        Paging works exactly as it does on the application surface: keyset on the sequence, `older` backwards from the newest and `newer` forwards from a position, with the cursor being a message's `sequence`.
+
+        **A room this person is not in answers `404 not found`, never `403 forbidden`.** A refusal that separates "not yours" from "does not exist" confirms to somebody outside a conversation that the conversation is happening, which is most of what they were asking. The application surface is entitled to that distinction; a person is not.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MessageCursor"
+        - $ref: "#/components/parameters/HistoryDirection"
+      responses:
+        "200":
+          description: One window of the room's history.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    post:
+      operationId: sayInMyRoom
+      tags: [Me]
+      summary: Say something in a room I am in
+      description: |
+        Records something the signed-in person said.
+
+        **The body carries what they wrote and nothing else — there is no author field.** That is the whole difference between this surface and the application one. An application names which of its people is speaking because it is acting on their behalf and is the only party that knows; a person cannot name anybody, because naming somebody would mean naming somebody else. Writing as another person is not refused here, it is unrepresentable.
+
+        A room this person is not in answers `404 not found`. A closed room answers `409 conflict`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnMessageRequest"
+            example:
+              body: On my way.
+      responses:
+        "201":
+          description: The message was recorded.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/read_state:
+    get:
+      operationId: readMyReadState
+      tags: [Me]
+      summary: How far I have read in a room
+      description: |
+        Reports how far the signed-in person has read in a room they belong to, and how much they have not.
+
+        It names nobody, for the same reason the sidebar does not: there is one answer per session.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: How far they have read.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    put:
+      operationId: markMyRoomRead
+      tags: [Me]
+      summary: Mark a room read
+      description: |
+        Records that the signed-in person has read a room up to a position.
+
+        The position only ever moves forward: a mark at or behind the stored one is accepted and changes nothing, because two devices report independently and out of order and a phone finishing after the laptop must not pull the badge backwards. The reply is the position that now holds, which is not always the one that was sent.
+
+        A position beyond the room's newest message answers `400 invalid_request`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnReadStateRequest"
+            example:
+              sequence: 42
+      responses:
+        "200":
+          description: The position that now holds.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/messages/{message_id}:
+    patch:
+      operationId: editMyMessage
+      tags: [Me]
+      summary: Change what I said
+      description: |
+        Replaces the body of a message the signed-in person wrote, and records that it was edited.
+
+        **Only the author may edit, and here the author is the session.** A message somebody else wrote answers `409 conflict` — not `403 forbidden`, because there is no permission that would help: the request named the wrong message, not the wrong scope.
+
+        Membership is not re-checked. Somebody who wrote a message was in the room when they wrote it, and having been removed since does not make their own words somebody else's to edit.
+
+        A withdrawn message answers `409 conflict`: the author already decided to remove it, and an edit must not put it back.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnMessageRequest"
+            example:
+              body: On my way — five minutes.
+      responses:
+        "200":
+          description: The message as it now reads.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/messages/{message_id}/delete:
+    post:
+      operationId: withdrawMyMessage
+      tags: [Me]
+      summary: Withdraw something I said
+      description: |
+        Withdraws a message the signed-in person wrote, leaving a tombstone where it was.
+
+        The row stays, keeps its position in the history, and loses its body — a history that closed over the hole would move every later message and slide some past a reader's cursor unseen.
+
+        A `POST` to a sub-resource rather than a `DELETE`, matching the application surface. There the reason was that the request has to name who is withdrawing; here it does not, but spelling one operation two ways across two surfaces would be a difference a reader has to explain rather than one that means something.
+
+        Withdrawing something already withdrawn is not an error. A message somebody else wrote answers `409 conflict`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: The message as a tombstone.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me:
     get:
       operationId: getMe
@@ -6943,6 +7288,79 @@ components:
         - messages:write
         - members:read
         - members:write
+
+    OwnMessageRequest:
+      type: object
+      description: |
+        Something the signed-in person is saying, or the replacement for it.
+
+        It carries no author. That is the whole difference from `MessageRequest`, which an application sends: the application names which of its people is speaking, and a person cannot name anybody, because naming somebody would mean naming somebody else.
+      required: [body]
+      additionalProperties: false
+      properties:
+        body:
+          type: string
+          description: What was said, stored without interpretation.
+          minLength: 1
+          maxLength: 4000
+          example: On my way.
+
+    OwnReadStateRequest:
+      type: object
+      description: How far the signed-in person has read. It names nobody.
+      required: [sequence]
+      additionalProperties: false
+      properties:
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+          description: The furthest message read, by its `sequence`.
+          example: 42
+
+    SidebarRoom:
+      type: object
+      description: |
+        One room in somebody's sidebar, with what they have not read in it.
+
+        The unread count travels with the room rather than being fetched separately, because a sidebar is redrawn constantly and a request per row on the screen is the shape that makes an interface feel slow.
+      required: [id, name, status, unread]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/RoomId"
+        alias:
+          type: string
+          description: The stable name the application chose, absent for an anonymous room.
+          example: weekly-standup
+        name:
+          type: string
+          description: The label a person reads.
+          example: Weekly Standup
+        status:
+          $ref: "#/components/schemas/RoomStatus"
+        unread:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            How many messages this person has not read. Excludes their own messages and withdrawn ones.
+          example: 3
+
+    Sidebar:
+      type: object
+      description: One page of the rooms somebody is in.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SidebarRoom"
+        next_cursor:
+          type: string
+          description: The room identifier to continue from, absent at the end of the listing.
+          example: room_7KQZP4XN2VJH6TBWMDR3YAFC5E
 
     RoomMember:
       type: object
