@@ -15,3 +15,12 @@ coverage.out
 .DS_Store
 Thumbs.db
 
+# The frontend
+#
+# node_modules is restored from package-lock.json. The built bundle is not
+# committed either: it is generated from web/ by `npm run build` and compiled
+# into the binary from there, so committing it would be committing the same
+# source twice and inviting the two to disagree. The page served when it is
+# absent is committed, because the embed pattern has to match something.
+web/node_modules/
+internal/web/assets/dist/

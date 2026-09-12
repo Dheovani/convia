@@ -16,16 +16,21 @@ import (
 )
 
 /*
-asPerson presents the session cookie a signed-in person's browser would send.
+asPerson presents what a signed-in person's browser would send: the session
+cookie, and the origin of the page that made the request.
 
-The value only has to have the right shape: the verifier in these fixtures is a
-stub, and whether a real token authenticates is settled by the sessions package.
+The cookie value only has to have the right shape, because the verifier in
+these fixtures is a stub and whether a real token authenticates is settled by
+the sessions package. The `Origin` header is not decoration — every unsafe
+method on this surface is refused without a matching one — so a fixture that
+omitted it would be modelling something no browser sends.
 */
 func asPerson(request *http.Request) *http.Request {
 	request.AddCookie(&http.Cookie{
 		Name:  sessions.CookieName,
 		Value: "cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5",
 	})
+	request.Header.Set("Origin", "http://"+request.Host)
 	return request
 }
 

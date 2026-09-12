@@ -33,6 +33,7 @@ import (
 	"convia/internal/server"
 	"convia/internal/sessions"
 	"convia/internal/users"
+	"convia/internal/web"
 	"convia/internal/webhooks"
 )
 
@@ -296,6 +297,26 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	} else {
 		logger.Info("no first-party application is configured, so nobody signs in to Convia itself",
 			"remedy", "set CONVIA_FIRST_PARTY_APPLICATION to serve Convia's own interface")
+	}
+
+	/*
+		Convia's own page, served from this same origin at every path the API
+		has not claimed.
+
+		It is wired whether or not anybody can sign in. The two are separate
+		questions: an instance with no first-party application still serves the
+		page, and the page still answers — with a sign-in form nothing will
+		accept, which is a truthful thing for it to do and easier to diagnose
+		than a blank 404.
+
+		A binary built without the frontend bundle says so at startup and in
+		the page itself, rather than being silently absent.
+	*/
+	site := web.New(logger)
+	dependencies.Interface = site
+	if !site.Built() {
+		logger.Warn("this binary carries no interface, so only the API is served",
+			"remedy", "build it with: cd web && npm install && npm run build")
 	}
 
 	warnIfUnadministered(signalContext, logger, operatorService)

@@ -200,7 +200,9 @@ So `Origin` is **required** on every unsafe method here, matched **exactly** aga
 
 One invariant holds the first row up: **no route on this surface changes state on a GET**, because `SameSite=Lax` sends the cookie on a top-level GET navigation. A test walks the route table and enforces it.
 
-There is **no CORS configuration**, because there is no cross-origin to permit.
+**The check is middleware, applied to the surface, not a call inside each handler.** It started as the latter and that was a mistake with a cost: when M31 added seven person-facing routes for messages, four of them changed state and none of them called it. Nothing failed, because nothing was watching — the check was a habit each new handler had to remember. It is now wrapped around every route declared on a browser surface, inside authentication so that a request with no session is still answered as unauthenticated, and a second test walks the table and refuses to let a state-changing route exist without it.
+
+There is **no CORS configuration**, because there is no cross-origin to permit. [ADR 0009](adr/0009-convia-serves-its-own-interface-from-its-own-origin.md) records why the interface is served from this same origin, which is what keeps that true.
 
 ## What is written down, and what is not
 
@@ -233,5 +235,5 @@ Named here rather than discovered later.
 
 - **No per-account rate limiting.** Failed sign-ins are budgeted per caller address, separately from and far more tightly than the rest of the API. An attacker spread across many addresses is bounded only by the password's entropy. A naive per-account lockout is a denial of service against a named person; doing it properly needs state shared between instances, which the Redis from M16 now makes possible.
 - **Revocation does not reach a live event stream.** `GET /v1/events` verifies once at the handshake and then streams for hours, so signing out everywhere leaves an open stream running until it closes. It is a pre-existing gap that applies equally to a revoked application key.
-- **No security headers.** They arrive with the interface that needs them: serving a page from this origin makes an XSS in that page a Convia problem, and a Content-Security-Policy constrains how the bundle is built, so it is decided alongside the bundle rather than bolted on.
+- ~~**No security headers.**~~ They arrived with the interface, as this said they would. The page is served under `default-src 'none'` with no `unsafe-inline`, alongside `nosniff`, `no-referrer`, and `same-origin` opener isolation. See [`interface.md`](interface.md#the-policy). The API's own responses still carry none of their own, which matters less than it sounds — they are JSON, served with a correct content type behind `nosniff` — but it is a real remaining difference and is named here rather than counted as done.
 - **No password reset, and no email verification.** Both wait for a mailer. See *Getting an account* for what an operator does meanwhile, and why that channel deserves care.

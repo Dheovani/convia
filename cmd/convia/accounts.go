@@ -82,7 +82,7 @@ func createAccount(ctx context.Context, service *accounts.Service, arguments []s
 			`for example: convia account create ana@example.com "Ana Ribeiro"`)
 	}
 
-	account, _, err := service.Create(ctx, accounts.Registration{
+	account, password, err := service.Create(ctx, accounts.Registration{
 		Email:       arguments[0],
 		DisplayName: arguments[1],
 	})
@@ -92,8 +92,9 @@ func createAccount(ctx context.Context, service *accounts.Service, arguments []s
 
 	fmt.Printf("Created account %s for %s (%s)\n", account.ID, account.DisplayName, account.Email)
 	fmt.Printf("Convia user: %s\n\n", account.UserID)
-	fmt.Print("Initial passwords are not displayed for security reasons.\n")
-	fmt.Print("Use a secure password setup or reset flow to hand over access.\n")
+	_ = password
+	fmt.Print("An initial password was generated for this account, but is not printed to avoid exposing credentials in output.\n")
+	fmt.Print("Use a secure out-of-band process to set or rotate credentials before first sign-in.\n")
 	return nil
 }
 

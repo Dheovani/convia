@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -60,8 +59,14 @@ func somebody() accounts.Account {
 	}
 }
 
-// signedIn builds a request carrying a verified session, as the middleware
-// would have left it.
+/*
+signedIn builds a request carrying a verified session, as the middleware would
+have left it.
+
+It carries no Origin header, because nothing in this package reads one. Whether
+a state-changing request came from Convia's own page is decided by the surface
+in internal/server, in front of every handler here.
+*/
 func signedIn(method, target, body string) *http.Request {
 	var request *http.Request
 	if body == "" {
@@ -71,124 +76,12 @@ func signedIn(method, target, body string) *http.Request {
 		request.Header.Set("Content-Type", "application/json")
 	}
 
-	request.Header.Set("Origin", "http://"+request.Host)
 	return request.WithContext(ContextWithPrincipal(request.Context(), Principal{
 		SessionID:     "ses_4XZQP7KN2VJH6TBWMDR3YAFC5E",
 		AccountID:     somebody().ID,
 		UserID:        somebody().UserID,
 		ApplicationID: "app_MXHJAY4MJNX2FO22XWJ3XNCKHT",
 	}))
-}
-
-/*
-TestAStateChangingRequestMustComeFromConviasOwnPage is the CSRF layer that
-actually carries this surface.
-
-SameSite=Lax does not see a sibling subdomain, because a sibling is *same-site*.
-The JSON content-type requirement does nothing for a route with no body. So the
-Origin check is what is left, and it has to refuse an absent header rather than
-wave it through — a request without one did not come from a page.
-*/
-func TestAStateChangingRequestMustComeFromConviasOwnPage(t *testing.T) {
-	handler := NewHandler(quiet(), &stubService{account: somebody()})
-
-	refused := map[string]string{
-		"absent":              "",
-		"null":                "null",
-		"a sibling subdomain": "http://docs.example.com",
-		"another scheme":      "https://example.com",
-		"a suffix of ours":    "http://evil-example.com",
-		"a prefix of ours":    "http://example.com.evil.test",
-	}
-
-	for name, origin := range refused {
-		t.Run(name, func(t *testing.T) {
-			request := signedIn(http.MethodDelete, "/v1/sessions/current", "")
-			if origin == "" {
-				request.Header.Del("Origin")
-			} else {
-				request.Header.Set("Origin", origin)
-			}
-
-			response := httptest.NewRecorder()
-			handler.SignOut(response, request)
-
-			if response.Code != http.StatusForbidden {
-				t.Errorf("Origin %q was accepted: status = %d", origin, response.Code)
-			}
-		})
-	}
-}
-
-/*
-TestOurOwnOriginIsAccepted is the other half: the check must not be so strict
-that the product cannot use its own API.
-*/
-func TestOurOwnOriginIsAccepted(t *testing.T) {
-	handler := NewHandler(quiet(), &stubService{account: somebody()})
-
-	request := signedIn(http.MethodDelete, "/v1/sessions/current", "")
-	response := httptest.NewRecorder()
-	handler.SignOut(response, request)
-
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusNoContent, response.Body)
-	}
-	if cookie := response.Header().Get("Set-Cookie"); !strings.Contains(cookie, "Max-Age=0") {
-		t.Errorf("signing out did not clear the cookie: %q", cookie)
-	}
-}
-
-/*
-TestAForeignSecFetchSiteIsRefusedEvenWithAMatchingOrigin covers the belt to the
-Origin check's braces.
-
-It is not an independent layer — `Sec-Fetch-Site` shipped with SameSite and is
-absent on exactly the clients that ignore SameSite — but where a browser sends
-it, a value of anything but same-origin is a request that did not come from
-this page, whatever the Origin header says.
-*/
-func TestAForeignSecFetchSiteIsRefusedEvenWithAMatchingOrigin(t *testing.T) {
-	handler := NewHandler(quiet(), &stubService{account: somebody()})
-
-	request := signedIn(http.MethodDelete, "/v1/sessions/current", "")
-	request.Header.Set("Sec-Fetch-Site", "cross-site")
-
-	response := httptest.NewRecorder()
-	handler.SignOut(response, request)
-
-	if response.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want %d", response.Code, http.StatusForbidden)
-	}
-}
-
-/*
-TestReadingWhoIsSignedInNeedsNoOrigin keeps the check from breaking an ordinary
-read.
-
-A safe method changes nothing, so forging one achieves nothing, and requiring
-an Origin on it would refuse a plain browser navigation for no benefit.
-*/
-func TestReadingWhoIsSignedInNeedsNoOrigin(t *testing.T) {
-	handler := NewHandler(quiet(), &stubService{account: somebody()})
-
-	request := signedIn(http.MethodGet, "/v1/me", "")
-	request.Header.Del("Origin")
-
-	response := httptest.NewRecorder()
-	handler.Me(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body)
-	}
-
-	var body meResponse
-	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
-		t.Fatalf("read the response: %v", err)
-	}
-	if body.AccountID != somebody().ID || body.UserID != somebody().UserID {
-		t.Errorf("answered %+v", body)
-	}
 }
 
 /*
@@ -223,7 +116,6 @@ func TestSigningInRefusesEveryFailureIdentically(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/sessions",
 		strings.NewReader(`{"email":"nobody@example.com","password":"whatever"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Origin", "http://"+request.Host)
 
 	response := httptest.NewRecorder()
 	handler.SignIn(response, request)
@@ -256,7 +148,6 @@ func TestBusyIsNotARefusal(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/sessions",
 		strings.NewReader(`{"email":"ana@example.com","password":"whatever"}`))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Origin", "http://"+request.Host)
 
 	response := httptest.NewRecorder()
 	handler.SignIn(response, request)
