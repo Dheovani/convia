@@ -283,6 +283,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		PersonalMessages: messages.NewSessionHandler(logger, stubMessages{message: sampleMessage()},
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
+		PersonalEvents: events.NewPersonHandler(logger, events.NewBroker(),
+			stubSessionAuthenticator{principal: samplePerson()}, stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -1254,6 +1256,13 @@ func (stub stubRooms) Acquaintances(context.Context, string, string, rooms.Membe
 		return rooms.Acquaintances{}, stub.err
 	}
 	return rooms.Acquaintances{UserIDs: []string{stub.member.UserID}}, nil
+}
+
+func (stub stubRooms) RoomIDsOf(context.Context, string, string) ([]string, error) {
+	if stub.err != nil {
+		return nil, stub.err
+	}
+	return []string{stub.room.ID}, nil
 }
 
 func (stub stubRooms) Many(_ context.Context, _ string, ids []string) (map[string]rooms.Room, error) {

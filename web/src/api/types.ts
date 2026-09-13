@@ -94,6 +94,24 @@ export interface PersonPage {
   next_cursor?: string
 }
 
+/*
+ConviaEvent is one thing that happened in a room this person is in.
+
+`type` is a string rather than a union of the five this interface understands,
+because the vocabulary is additive: Convia may deliver a type this build has
+never heard of, and the contract says to ignore it rather than fail. `data` is
+loose for the same reason — a key this build does not know is not an error.
+*/
+export interface ConviaEvent {
+  id: string
+  version: number
+  type: string
+  occurred_at: string
+  application_id: string
+  subject: { type: string; id: string }
+  data?: Record<string, unknown>
+}
+
 export interface RoomMember {
   application_id: string
   room_id: string

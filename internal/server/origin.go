@@ -42,6 +42,13 @@ substitute — it shipped in the same browser generation as SameSite, so the
 clients that lack one lack the other, and treating them as independent layers
 would be counting the same protection twice.
 
+**A WebSocket handshake is checked too**, although it is a GET. It changes
+nothing, but it opens a connection that goes on carrying whatever the cookie is
+entitled to, and a page on a sibling subdomain that could open one would be
+reading somebody's conversations as they happen. That is cross-site WebSocket
+hijacking, and SameSite does not see it for the reason it does not see a sibling
+POST. Browsers send `Origin` on every handshake, so the same exact match holds.
+
 It is middleware rather than a call inside each handler because that is the
 difference between a rule and a habit. Applied here it covers every route
 declared on a browser surface, including the ones nobody has written yet; a
@@ -49,7 +56,7 @@ route added to the table cannot be served without it.
 */
 func sameOrigin(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if safeMethod(request.Method) {
+		if safeMethod(request.Method) && !upgrading(request) {
 			next.ServeHTTP(response, request)
 			return
 		}
@@ -75,6 +82,17 @@ func sameOrigin(logger *slog.Logger, next http.Handler) http.Handler {
 // no origin check.
 func safeMethod(method string) bool {
 	return method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions
+}
+
+/*
+upgrading reports a request asking to become a WebSocket.
+
+It reads the header rather than the route, so a handshake is checked wherever
+one is attempted on a browser surface — including a route that never meant to
+accept one, where the refusal costs nothing.
+*/
+func upgrading(request *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(request.Header.Get("Upgrade")), "websocket")
 }
 
 /*

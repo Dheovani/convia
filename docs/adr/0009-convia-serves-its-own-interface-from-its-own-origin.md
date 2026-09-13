@@ -50,7 +50,7 @@ So the interface hangs off the handler that answers unmatched paths, and that ha
 - Releasing the interface means releasing Convia. There is no way to ship a page against an older API, which removes a class of skew and removes the ability to hotfix the page alone. That trade is accepted.
 - The container image gains a Node stage. The Go stage does not depend on Node being present — it copies a directory — so a build without the interface stays possible and stays honest.
 - `connect-src 'self'` in the policy will have to change when calls arrive: joining one means a WebSocket to the media server, which is a different origin. It is left at `'self'` deliberately rather than widened in advance, so that the day it changes, somebody decides what to allow.
-- The interface **polls**. Convia's event stream is on the surface an application reaches with its key; a person has no way to subscribe to their own rooms. That is a gap this decision exposes rather than one it creates, and it is recorded in `TODO.md` rather than worked around.
+- The interface **polls**. Convia's event stream is on the surface an application reaches with its key; a person has no way to subscribe to their own rooms. That is a gap this decision exposes rather than one it creates, and it is recorded in `TODO.md` rather than worked around. It was closed by [ADR 0010](0010-a-persons-stream-is-authorized-per-room.md), which also needed no change to the policy: `connect-src 'self'` already admits a WebSocket to the same host.
 
 ## Related
 

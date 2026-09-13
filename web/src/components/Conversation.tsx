@@ -175,7 +175,7 @@ function Entry({
 }
 
 export function Conversation({ room, account, onExpired, onActivity, onLeave }: ConversationProps) {
-  const { messages, loading, failed, send, edit, withdraw } = useConversation(room.id, onExpired)
+  const { messages, loading, failed, send, edit, withdraw } = useConversation(room.id, onExpired, onActivity)
   const {
     members,
     loaded: membersLoaded,

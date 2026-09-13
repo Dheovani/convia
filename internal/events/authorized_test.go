@@ -52,10 +52,19 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeMessagesRead),
 			expected:  []Type{MessagePosted, MessageEdited, MessageDeleted},
 		},
+		/*
+			members:read rather than rooms:read, for the reason messages have
+			their own scope: a listing of rooms is administration, and who is in
+			one is a fact about people.
+		*/
+		"membership only": {
+			principal: holding(credentials.ScopeEventsRead, credentials.ScopeMembersRead),
+			expected:  []Type{MemberAdded, MemberRemoved},
+		},
 		"everything": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead,
 				credentials.ScopeParticipantsRead, credentials.ScopeInvitationsRead,
-				credentials.ScopeMessagesRead, credentials.ScopePresenceRead),
+				credentials.ScopeMessagesRead, credentials.ScopeMembersRead, credentials.ScopePresenceRead),
 			expected: Types(),
 		},
 		/*

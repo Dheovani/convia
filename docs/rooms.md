@@ -257,9 +257,12 @@ A person opens a room with **a name and nothing else**. An alias is the applicat
 
 An application owns its people's names and reads them itself, which is why a `RoomMember` carries none. A person has no other way to learn what to call somebody, and everybody they can see is somebody they already share a room with, so the session surface's `Person` carries a display name. Names are resolved in one read for the whole page rather than one per row.
 
+#### Being told
+
+Every change of membership is announced, whichever surface made it: `room.member_added` and `room.member_removed`, about the room, naming the person in `data.user_id`. Only a change is announced, as only a change is audited. An application receives them with `members:read`, by stream or by webhook; a person receives them for the rooms they are in, including the one they were just added to or removed from. Leaving and being removed are one type, because membership records no actor. Erasure announces nothing. See [`events.md`](events.md#a-persons-stream).
+
 #### Not built yet
 
-- **Nothing announces a change of membership.** There is no `member.*` event, so being added to a room is discovered when the sidebar next asks. That matters little until a person can subscribe to anything at all, which is `M18-018`.
 - **No `Idempotency-Key` on this surface.** The idempotency guard identifies a caller by an application or operator credential, and a session is neither. Opening a room twice opens two rooms; the interface disables its button while a request is in flight.
 - **Contacts, requests, and blocking.** Still `M32`. Sharing a room answers how one person names another for now; it does not answer who may reach whom without one.
 

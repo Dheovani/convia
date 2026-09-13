@@ -4,14 +4,12 @@ import { api, ApiError } from '../api/client'
 import type { SidebarRoom } from '../api/types'
 
 /*
-sidebarInterval is how often the room list is asked again.
+sidebarInterval is how often the room list is asked again while the event
+stream is not open.
 
-Convia has a real-time event stream, but it is on the surface an *application*
-reaches with its key, not the one a person reaches with a cookie: there is no
-way for this page to subscribe to its own rooms yet. Until there is, the sidebar
-polls, and the interval is the honest cost of that — fifteen seconds is slow
-enough to be unnoticeable in load and fast enough that a badge is never stale
-for long.
+Fifteen seconds is slow enough to be unnoticeable in load and fast enough that a
+badge is never stale for long. While the stream is open the list is read when an
+event says it changed, and not on a timer at all.
 */
 const sidebarInterval = 15_000
 
@@ -46,8 +44,12 @@ useRooms keeps the sidebar current.
 `onExpired` is called when Convia says the session is gone, which is the one
 failure that is not this view's to report: the whole interface has to go back to
 the sign-in form, and a stale room list behind it would be somebody else's.
+
+`live` says whether the event stream is open. The list is read again whenever it
+changes, which is what catches up on anything that happened while the stream was
+down — an event is not stored for a connection that was not there to receive it.
 */
-export function useRooms(onExpired: () => void): Rooms {
+export function useRooms(onExpired: () => void, live = false): Rooms {
   const [rooms, setRooms] = useState<SidebarRoom[]>([])
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
@@ -60,18 +62,18 @@ export function useRooms(onExpired: () => void): Rooms {
 
   useEffect(() => {
     const controller = new AbortController()
-    let live = true
+    let active = true
 
     async function load() {
       try {
         const page = await api.rooms(controller.signal)
-        if (!live) {
+        if (!active) {
           return
         }
         setRooms(page.data)
         setFailed(false)
       } catch (error) {
-        if (!live || controller.signal.aborted) {
+        if (!active || controller.signal.aborted) {
           return
         }
         if (error instanceof ApiError && error.unauthenticated) {
@@ -80,21 +82,21 @@ export function useRooms(onExpired: () => void): Rooms {
         }
         setFailed(true)
       } finally {
-        if (live) {
+        if (active) {
           setLoading(false)
         }
       }
     }
 
     void load()
-    const timer = window.setInterval(() => void load(), sidebarInterval)
+    const timer = live ? undefined : window.setInterval(() => void load(), sidebarInterval)
 
     return () => {
-      live = false
+      active = false
       controller.abort()
       window.clearInterval(timer)
     }
-  }, [reloads])
+  }, [reloads, live])
 
   const remember = useCallback((room: SidebarRoom) => {
     setRooms((current) =>
