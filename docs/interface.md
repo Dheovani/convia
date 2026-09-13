@@ -38,6 +38,7 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 
 | | |
 | --- | --- |
+| `POST /v1/accounts` | create an account and sign in; the cookie comes back on the response |
 | `POST /v1/sessions` | sign in; the cookie comes back on the response |
 | `GET /v1/me` | who is signed in — asked **before the first paint** |
 | `GET /v1/me/rooms` | the sidebar: rooms and unread counts in one request |
@@ -55,7 +56,9 @@ There is **no token in the page**. The session is a cookie the script cannot rea
 
 ## Three things the interface must not undo
 
-**A failed sign-in says one thing.** Convia answers identically whether the address is unknown or the password is wrong, so that the form is not a way to find out who has an account. Wording the two differently in the client would give away exactly what the server refused to. A test asserts the message, and asserts that it never contains the words that would leak it.
+**A failed sign-in says one thing.** Convia answers identically whether the username is unknown or the password is wrong. Wording the two differently in the client would give away exactly what the server refused to. A test asserts the message, and asserts that it never contains the words that would leak it. The form never repeats the server's own prose either: the status decides the words.
+
+**Creating an account warns before, not after.** The password seals the account's key, so a forgotten one cannot be reset by anybody. The registration form says so above the button, checks the username's rule, the password's length and the confirmation before sending anything, and a taken username keeps what was typed.
 
 **An unreachable server is not a wrong password.** A network failure and a refusal are different types in the client for this reason: telling somebody their password is wrong when the connection dropped is a lie that costs them their next ten minutes.
 

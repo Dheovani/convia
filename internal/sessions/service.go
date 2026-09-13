@@ -20,7 +20,8 @@ concurrency bound is applied. None of that belongs here: this package owns what
 happens *after* somebody proves who they are.
 */
 type directory interface {
-	Authenticate(ctx context.Context, email string, password accounts.Password) (accounts.Account, error)
+	Register(ctx context.Context, username string, password accounts.Password) (accounts.Account, error)
+	Authenticate(ctx context.Context, username string, password accounts.Password) (accounts.Account, error)
 	Get(ctx context.Context, id string) (accounts.Account, error)
 	ChangePassword(ctx context.Context, id string, current, next accounts.Password) error
 }
@@ -79,21 +80,40 @@ which answers with one indistinguishable refusal. What happens here is what
 follows: enforcing the ceiling on concurrent sessions, minting a secret, and
 recording the row.
 */
-func (service *Service) Begin(ctx context.Context, email string, password accounts.Password) (Session, string, error) {
-	account, err := service.accounts.Authenticate(ctx, email, password)
+func (service *Service) Begin(ctx context.Context, username string, password accounts.Password) (Session, string, error) {
+	account, err := service.accounts.Authenticate(ctx, username, password)
 	if err != nil {
 		return Session{}, "", err
 	}
+	return service.open(ctx, account.ID)
+}
 
+/*
+Register creates an account and signs its owner in, in one request.
+
+Somebody who has just chosen a password should not be asked to type it again to
+prove they know it. The account domain decides whether the account can exist;
+what happens here is only what would have happened on signing in.
+*/
+func (service *Service) Register(ctx context.Context, username string, password accounts.Password) (Session, string, error) {
+	account, err := service.accounts.Register(ctx, username, password)
+	if err != nil {
+		return Session{}, "", err
+	}
+	return service.open(ctx, account.ID)
+}
+
+// open mints a session for an account that has just proved who it is.
+func (service *Service) open(ctx context.Context, accountID string) (Session, string, error) {
 	at := now()
-	if err := service.makeRoom(ctx, account.ID, at); err != nil {
+	if err := service.makeRoom(ctx, accountID, at); err != nil {
 		return Session{}, "", err
 	}
 
 	value := NewSecret()
 	session := Session{
 		ID:                NewID(),
-		AccountID:         account.ID,
+		AccountID:         accountID,
 		CreatedAt:         at,
 		LastSeenAt:        at,
 		AbsoluteExpiresAt: at.Add(AbsoluteLifetime),
@@ -337,8 +357,8 @@ func (service *Service) Prune(ctx context.Context, grace time.Duration) (int, er
 audit records a change to who is signed in.
 
 The account and session identifiers are recorded; the token never is, and
-neither is the email. Convia assigned both identifiers, so they say what an
-operator needs without putting a credential or a contactable address into a log
+neither is the username. Convia derived both identifiers, so they say what an
+operator needs without putting a credential or a person's chosen name into a log
 that is shipped and retained.
 */
 func (service *Service) audit(ctx context.Context, event string, session Session) {

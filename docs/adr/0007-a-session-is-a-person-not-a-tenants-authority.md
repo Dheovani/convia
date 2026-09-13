@@ -1,6 +1,6 @@
 # ADR 0007 — A session is a person, not a tenant's authority
 
-**Status:** Accepted
+**Status:** Accepted. *Accounts are created by an operator* is superseded by [ADR 0011](0011-an-account-is-local-and-its-identifier-is-its-key.md); everything else here stands.
 **Date:** 2026-09-11
 **Milestone:** M18 — Standalone Web Application
 

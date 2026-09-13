@@ -215,7 +215,7 @@ describe('being told rather than asking', () => {
   it('reads who is here again when somebody joins', async () => {
     const members = `/v1/me/rooms/${room().id}/members`
     const server = conversation().on('GET', members, {
-      body: { data: [{ user_id: ana.user_id, display_name: ana.display_name }] },
+      body: { data: [{ user_id: ana.user_id, display_name: ana.username }] },
     })
     server.install()
     render(<Workspace account={ana} onSignedOut={() => {}} />)

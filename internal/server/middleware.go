@@ -392,7 +392,7 @@ func budgeted(logger *slog.Logger, failures *ratelimit.Limiter, resolve resolver
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		source := resolve.clientAddress(request)
 		if !failures.Allows(source) {
-			slowDown(logger, response, request, "", failures.RetryAfter(source))
+			slowDown(logger, response, request, "", failures.RetryAfter(source), failedAttempts)
 			return
 		}
 
@@ -402,6 +402,29 @@ func budgeted(logger *slog.Logger, failures *ratelimit.Limiter, resolve resolver
 		if recorder.status >= http.StatusBadRequest {
 			failures.Record(source)
 		}
+	})
+}
+
+/*
+rationed limits a route by how often it is used at all, successes included.
+
+[budgeted] charges only failures, because a person who signs in correctly has
+done nothing worth limiting. Registering is the opposite: what it guards against
+is somebody succeeding too often — filling an installation with accounts, or
+walking a list of names to see which are taken — so every attempt is charged,
+and charged before the work, which costs two argon2id derivations.
+*/
+func rationed(logger *slog.Logger, uses *ratelimit.Limiter, resolve resolver, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		source := resolve.clientAddress(request)
+		if !uses.Allows(source) {
+			slowDown(logger, response, request, "", uses.RetryAfter(source),
+				"Too many accounts were attempted from this address. Retry later.")
+			return
+		}
+
+		uses.Record(source)
+		next.ServeHTTP(response, request)
 	})
 }
 
@@ -428,7 +451,7 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 		*/
 		source := resolve.clientAddress(request)
 		if !failures.Allows(source) {
-			slowDown(logger, response, request, verify.challenge(), failures.RetryAfter(source))
+			slowDown(logger, response, request, verify.challenge(), failures.RetryAfter(source), failedAttempts)
 			return
 		}
 
@@ -503,15 +526,18 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 	}
 }
 
+// failedAttempts is what a caller that spent its budget for failures is told.
+const failedAttempts = "Too many failed authentication attempts. Retry later."
+
 /*
-slowDown refuses a caller that has spent its budget for failed attempts.
+slowDown refuses a caller that has spent a budget.
 
 Retry-After is rounded up to a whole second, because RFC 9110 defines it in
 seconds and rounding down would invite a client to retry just before it is
 welcome.
 */
 func slowDown(logger *slog.Logger, response http.ResponseWriter, request *http.Request,
-	challenge string, wait time.Duration) {
+	challenge string, wait time.Duration, message string) {
 	seconds := int(math.Ceil(wait.Seconds()))
 	if seconds < 1 {
 		seconds = 1
@@ -522,8 +548,7 @@ func slowDown(logger *slog.Logger, response http.ResponseWriter, request *http.R
 		response.Header().Set("WWW-Authenticate", challenge)
 	}
 
-	failure := api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
-		"Too many failed authentication attempts. Retry later.")
+	failure := api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited, message)
 	if err := api.WriteFailure(response, request, failure); err != nil {
 		logger.Error("write rate limited response",
 			"error", err,

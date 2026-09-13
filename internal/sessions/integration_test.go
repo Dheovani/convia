@@ -79,31 +79,31 @@ func newFixture(t *testing.T) fixture {
 	t.Cleanup(pool.Close)
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	application, err := applicationService.Create(context.Background(), "Convia")
-	if err != nil {
+	if err := applicationService.EnsureFirstParty(context.Background()); err != nil {
 		t.Fatalf("create the first-party application: %v", err)
 	}
 
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	accountService := accounts.NewService(accounts.NewStore(pool), userService, application.ID, logger)
+	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
 
-	account, password, err := accountService.Create(context.Background(), accounts.Registration{
-		Email: "ana@example.com", DisplayName: "Ana Ribeiro"})
+	const password accounts.Password = "correct horse battery staple"
+	account, err := accountService.Register(context.Background(), "ana", password)
 	if err != nil {
-		t.Fatalf("create the account: %v", err)
+		t.Fatalf("register the account: %v", err)
 	}
 
 	store := NewStore(pool)
 	logs.Reset()
 
 	return fixture{
-		service:      NewService(store, accountService, applicationService, userService, application.ID, logger),
+		service: NewService(store, accountService, applicationService, userService,
+			applications.FirstPartyID, logger),
 		store:        store,
 		accounts:     accountService,
 		applications: applicationService,
 		users:        userService,
 		pool:         pool,
-		application:  application.ID,
+		application:  applications.FirstPartyID,
 		account:      account,
 		password:     password,
 		logs:         logs,
@@ -135,11 +135,34 @@ func execute(t *testing.T, databaseURL, statement string) {
 func (setup fixture) signIn(t *testing.T) (Session, string) {
 	t.Helper()
 
-	session, token, err := setup.service.Begin(context.Background(), setup.account.Email, setup.password)
+	session, token, err := setup.service.Begin(context.Background(), setup.account.Username, setup.password)
 	if err != nil {
 		t.Fatalf("Begin() error = %v", err)
 	}
 	return session, token
+}
+
+// TestRegisteringOpensASession for the account it made, against a real database.
+func TestRegisteringOpensASession(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+
+	session, token, err := setup.service.Register(ctx, "bruno", "another good password")
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	principal, err := setup.service.Authenticate(ctx, token)
+	if err != nil {
+		t.Fatalf("the session registering opened does not authenticate: %v", err)
+	}
+	if principal.SessionID != session.ID || principal.AccountID == setup.account.ID {
+		t.Errorf("the principal is %+v, want the new account's own session", principal)
+	}
+
+	if _, _, err := setup.service.Register(ctx, "bruno", "another good password"); !errors.Is(err, accounts.ErrUsernameTaken) {
+		t.Errorf("registering a taken username error = %v, want %v", err, accounts.ErrUsernameTaken)
+	}
 }
 
 // TestSigningInAndBackOutAgain is the round trip, against a real database.

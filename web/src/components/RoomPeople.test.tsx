@@ -8,7 +8,7 @@ import { FakeConvia, ana, message, room } from '../test/server'
 
 afterEach(() => vi.unstubAllGlobals())
 
-const herself: Person = { user_id: ana.user_id, display_name: ana.display_name }
+const herself: Person = { user_id: ana.user_id, display_name: ana.username }
 const bruno: Person = { user_id: 'usr_BRUNOALVES7QK4XMZP2VJH6TBW', display_name: 'Bruno Alves' }
 const carla: Person = { user_id: 'usr_CARLASOUZA7QK4XMZP2VJH6TBW', display_name: 'Carla Souza' }
 

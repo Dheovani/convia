@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,14 +14,14 @@ import (
 
 const (
 	/*
-		maxConcurrentHashes bounds how many passwords are hashed at once.
+		maxConcurrentHashes bounds how many argon2id derivations run at once.
 
-		argon2id at 64 MiB is a memory cost paid per concurrent hash, and
-		signing in is **unauthenticated** — so without a bound, anybody who can
-		reach the API can ask Convia to allocate as much memory as it has. Four
-		is a quarter of a gigabyte at peak, which is a deliberate number rather
-		than a guess: raise the parameters or this bound and the product of the
-		two is what the process must be given.
+		argon2id at 64 MiB is a memory cost paid per concurrent derivation, and
+		signing in and registering are **unauthenticated** — so without a
+		bound, anybody who can reach the API can ask Convia to allocate as much
+		memory as it has. Four is a quarter of a gigabyte at peak, which is a
+		deliberate number rather than a guess: raise the parameters or this
+		bound and the product of the two is what the process must be given.
 
 		Requests beyond it wait briefly and are then refused as busy. Queueing
 		them instead would turn a flood into a slow death, because the server's
@@ -39,16 +40,15 @@ const (
 )
 
 /*
-ErrUnauthenticated reports that a presented email and password do not sign
+ErrUnauthenticated reports that a presented username and password do not sign
 anybody in.
 
-Every reason collapses to this one error — unknown address, wrong password,
+Every reason collapses to this one error — unknown username, wrong password,
 suspended account, deleted account, a digest this version cannot read. A caller
 learns that the pair does not work and nothing more, which is the same promise
-the other three credential families already make, and which is what stops the
-sign-in form from being a way to discover who has an account.
+the other three credential families already make.
 */
-var ErrUnauthenticated = errors.New("the email and password do not authenticate")
+var ErrUnauthenticated = errors.New("the username and password do not authenticate")
 
 /*
 ErrBusy reports that Convia declined to hash a password right now.
@@ -68,7 +68,6 @@ second path for people who signed in rather than being asserted.
 */
 type people interface {
 	Resolve(ctx context.Context, applicationID string, identity users.Identity) (users.User, bool, error)
-	Get(ctx context.Context, applicationID, id string) (users.User, error)
 }
 
 /*
@@ -104,13 +103,14 @@ func NewService(store *Store, directory people, firstPartyApplication string, lo
 }
 
 /*
-decoy is the digest an unknown email is compared against.
+decoy is the digest an unknown username is compared against.
 
-Without it, signing in with an address nobody has would return as soon as the
-lookup missed, while a real address would take the tens of milliseconds argon2id
-costs. That difference is measurable from across the internet and would turn the
-sign-in form into a way to enumerate who has an account — undoing the
-indistinguishable refusal that [ErrUnauthenticated] exists for.
+Without it, signing in as a name nobody has would return as soon as the lookup
+missed, while a real one would take the tens of milliseconds argon2id costs.
+Registering already tells somebody whether a name is taken, so this is not what
+stands between a stranger and a list of usernames; what it keeps is the promise
+that **the sign-in form itself** answers every failure alike, in time as well as
+in words.
 
 It is built once, at startup, with the parameters currently in force. A test
 asserts that it matches them, because the day somebody raises the cost and this
@@ -127,105 +127,112 @@ func mustHash(password Password) Digest {
 }
 
 /*
-Registration is what an operator supplies to create an account.
+Register creates an account for the person asking, and the user row that
+represents it.
 
-There is no password field, and its absence is the security decision this type
-exists to carry. Convia generates the password, so an operator cannot choose a
-weak one, cannot reuse one across the accounts they create, and never has to be
-trusted to have picked well. What they receive is returned once and never
-stored.
+Everything cheap is checked before anything expensive: the username's shape, the
+password's length, and whether the name is taken, so that a refusal costs a
+lookup rather than two argon2id derivations and a user row nobody will use.
+The unique index still decides a race between two people choosing one name.
+
+The identifier is the fingerprint of a key generated here, and the user row is
+resolved by it, so an account's `external_subject` in the first-party
+application is its identifier rather than its username. A subject stays
+reserved after a user is deleted, and a username is a thing a person chose and
+may one day want back.
 */
-type Registration struct {
-	Email       string
-	DisplayName string
-}
-
-/*
-Create makes an account and the user row that represents it.
-
-The identifier is generated first, because the user row is resolved by it: an
-account's `external_subject` in the first-party application is its own account
-identifier, rather than the email. That matters — a subject stays reserved after
-a user is deleted, so using the address would make it unusable forever by the
-person who owned it.
-*/
-func (service *Service) Create(ctx context.Context, registration Registration) (Account, Password, error) {
-	email, err := NormalizeEmail(registration.Email)
+func (service *Service) Register(ctx context.Context, username string, password Password) (Account, error) {
+	name, err := NormalizeUsername(username)
 	if err != nil {
-		return Account{}, "", err
+		return Account{}, err
 	}
 
-	displayName, err := NormalizeDisplayName(registration.DisplayName)
+	password, err = NormalizePassword(password)
 	if err != nil {
-		return Account{}, "", err
+		return Account{}, err
 	}
 
-	id := NewID()
-
-	person, _, err := service.people.Resolve(ctx, service.application, users.Identity{
-		ExternalSubject: id,
-		DisplayName:     displayName,
-	})
+	taken, err := service.store.UsernameTaken(ctx, name)
 	if err != nil {
-		return Account{}, "", fmt.Errorf("resolve the account's user: %w", err)
+		return Account{}, err
+	}
+	if taken {
+		return Account{}, ErrUsernameTaken
 	}
 
-	password := NewPassword()
+	identity, err := NewIdentity()
+	if err != nil {
+		return Account{}, err
+	}
+
 	digest, err := service.hash(ctx, password)
 	if err != nil {
-		return Account{}, "", err
+		return Account{}, err
+	}
+
+	sealed, err := service.seal(ctx, identity, password)
+	if err != nil {
+		return Account{}, err
+	}
+
+	person, _, err := service.people.Resolve(ctx, service.application, users.Identity{
+		ExternalSubject: identity.ID(),
+		DisplayName:     name,
+	})
+	if err != nil {
+		return Account{}, fmt.Errorf("resolve the account's user: %w", err)
 	}
 
 	created := now()
 	account := Account{
-		ID:          id,
-		Email:       email,
-		DisplayName: displayName,
-		UserID:      person.ID,
-		Status:      StatusActive,
-		CreatedAt:   created,
-		UpdatedAt:   created,
+		ID:        identity.ID(),
+		Username:  name,
+		PublicKey: identity.Public,
+		UserID:    person.ID,
+		Status:    StatusActive,
+		CreatedAt: created,
+		UpdatedAt: created,
 	}
 
-	if err := service.store.Create(ctx, account, digest); err != nil {
-		return Account{}, "", err
+	if err := service.store.Create(ctx, account, digest, sealed); err != nil {
+		return Account{}, err
 	}
 
-	service.audit(ctx, "account.created", account)
-	return account, password, nil
+	service.audit(ctx, "account.registered", account)
+	return account, nil
 }
 
 /*
-Authenticate verifies an email and a password.
+Authenticate verifies a username and a password.
 
 The order of the checks is the whole security of this function, and it is the
 order internal/credentials already established: **the password is verified
-first, and the lifecycle second.** Checking status first would reveal that an
-address belongs to a suspended account without needing its password; reporting
+first, and the lifecycle second.** Checking status first would reveal that a
+name belongs to a suspended account without needing its password; reporting
 suspension differently after a correct password would confirm that the password
 was right. Both are oracles, and both are avoided by doing the expensive,
 uninformative work first and answering identically afterwards.
 
-An address nobody has is compared against a decoy so that it costs the same as
+A username nobody has is compared against a decoy so that it costs the same as
 one somebody does.
 */
-func (service *Service) Authenticate(ctx context.Context, email string, password Password) (Account, error) {
-	normalized, err := NormalizeEmail(email)
+func (service *Service) Authenticate(ctx context.Context, username string, password Password) (Account, error) {
+	normalized, err := NormalizeUsername(username)
 	if err != nil {
 		/*
-			A malformed address cannot match anything, and the caller learns
+			A malformed username cannot match anything, and the caller learns
 			only what every other failure tells them. It is deliberately not
 			reported as a validation error: doing so would distinguish "this is
-			not an address" from "this is not your password", which is a
+			not a username" from "this is not your password", which is a
 			distinction an attacker can use to skip work.
 		*/
 		return Account{}, ErrUnauthenticated
 	}
 
-	account, digest, err := service.store.Credentials(ctx, normalized)
+	account, digest, sealed, err := service.store.Credentials(ctx, normalized)
 	if errors.Is(err, ErrNotFound) {
 		/*
-			Hashed anyway, against the decoy, so an unknown address costs what a
+			Hashed anyway, against the decoy, so an unknown name costs what a
 			known one costs. The result is discarded: it cannot match, and if it
 			somehow did, the answer is still a refusal.
 		*/
@@ -253,13 +260,13 @@ func (service *Service) Authenticate(ctx context.Context, email string, password
 	}
 
 	/*
-		A digest made with weaker parameters is replaced now, which is the only
-		moment Convia holds the password in the clear. A failure here is logged
-		and swallowed: the person signed in correctly, and refusing them because
-		an optional upgrade did not land would be the worse outcome.
+		Secrets derived with weaker parameters are replaced now, which is the
+		only moment Convia holds the password in the clear. A failure here is
+		logged and swallowed: the person signed in correctly, and refusing them
+		because an optional upgrade did not land would be the worse outcome.
 	*/
-	if Stale(digest) {
-		service.rehash(ctx, account.ID, password)
+	if Stale(digest) || SealStale(sealed) {
+		service.upgrade(ctx, account, sealed, password)
 	}
 
 	service.audit(ctx, "account.authenticated", account)
@@ -267,15 +274,22 @@ func (service *Service) Authenticate(ctx context.Context, email string, password
 }
 
 /*
-ChangePassword replaces a password, having checked the current one.
+ChangePassword replaces a password, having checked the current one, and seals
+the account's key again under the new one.
 
 The caller is already this account, so there is nothing to enumerate and the
 failure can say what it means. What it must not do is skip the current-password
-check: a session that was stolen would otherwise be enough to lock the owner
-out of their own account permanently.
+check: a session that was stolen would otherwise be enough to lock the owner out
+of their own account permanently — and, since the key is sealed by the password,
+out of their own identity with it.
 */
 func (service *Service) ChangePassword(ctx context.Context, id string, current, next Password) error {
-	account, digest, err := service.credentialsOf(ctx, id)
+	account, err := service.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	_, digest, sealed, err := service.store.Credentials(ctx, account.Username)
 	if err != nil {
 		return err
 	}
@@ -294,12 +308,22 @@ func (service *Service) ChangePassword(ctx context.Context, id string, current, 
 		return err
 	}
 
+	identity, err := service.open(ctx, sealed, account.PublicKey, current)
+	if err != nil {
+		return err
+	}
+
 	replacement, err := service.hash(ctx, normalized)
 	if err != nil {
 		return err
 	}
 
-	if err := service.store.SetPassword(ctx, id, replacement, now()); err != nil {
+	resealed, err := service.seal(ctx, identity, normalized)
+	if err != nil {
+		return err
+	}
+
+	if err := service.store.SetSecrets(ctx, id, replacement, resealed, now()); err != nil {
 		return err
 	}
 
@@ -322,11 +346,6 @@ func (service *Service) Activate(ctx context.Context, id string) (Account, error
 	return service.transition(ctx, id, StatusActive, "account.activated")
 }
 
-// CountActive reports how many people can sign in, for the startup advisory.
-func (service *Service) CountActive(ctx context.Context) (int, error) {
-	return service.store.CountActive(ctx)
-}
-
 func (service *Service) transition(ctx context.Context, id string, status Status, event string) (Account, error) {
 	account, err := service.store.SetStatus(ctx, id, status, now())
 	if err != nil {
@@ -335,20 +354,6 @@ func (service *Service) transition(ctx context.Context, id string, status Status
 
 	service.audit(ctx, event, account)
 	return account, nil
-}
-
-// credentialsOf reads an account and its digest by identifier.
-func (service *Service) credentialsOf(ctx context.Context, id string) (Account, Digest, error) {
-	account, err := service.store.Get(ctx, id)
-	if err != nil {
-		return Account{}, "", err
-	}
-
-	stored, digest, err := service.store.Credentials(ctx, account.Email)
-	if err != nil {
-		return Account{}, "", err
-	}
-	return stored, digest, nil
 }
 
 /*
@@ -391,6 +396,45 @@ func (service *Service) verify(ctx context.Context, stored Digest, password Pass
 	return matches, err
 }
 
+// seal encrypts a key under the same bound, because sealing derives with argon2id too.
+func (service *Service) seal(ctx context.Context, identity Identity, password Password) (SealedKey, error) {
+	release, err := service.acquire(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+
+	return Seal(identity, password)
+}
+
+/*
+open decrypts a key under the bound.
+
+It is only ever called after the same password verified against the digest, so
+a key that does not open is not somebody mistyping: the digest and the sealed
+key disagree about the password, and the row needs an operator. It is reported
+as unreadable and logged, never as a refusal.
+*/
+func (service *Service) open(ctx context.Context, sealed SealedKey, public ed25519.PublicKey,
+	password Password) (Identity, error) {
+	release, err := service.acquire(ctx)
+	if err != nil {
+		return Identity{}, err
+	}
+	defer release()
+
+	identity, err := Open(sealed, public, password)
+	if errors.Is(err, errKeyNotOpened) {
+		err = fmt.Errorf("%w: the password verified but does not open the key", ErrKeyUnreadable)
+	}
+	if err != nil {
+		service.logger.Error("a stored identity key could not be opened",
+			"error", err, "request_id", api.RequestIDFromContext(ctx))
+		return Identity{}, err
+	}
+	return identity, nil
+}
+
 /*
 acquire takes a place in the hashing bound, or gives up.
 
@@ -418,30 +462,40 @@ func (service *Service) acquire(ctx context.Context) (func(), error) {
 }
 
 /*
-rehash replaces a digest made with weaker parameters.
+upgrade replaces a digest and a sealed key made with weaker parameters.
 
 Best effort by design: it runs after a successful sign-in, and its failure
-costs an upgrade rather than an authentication.
+costs an upgrade rather than an authentication. Both are replaced together, as
+every change to them is, so the two never describe different passwords.
 */
-func (service *Service) rehash(ctx context.Context, id string, password Password) {
+func (service *Service) upgrade(ctx context.Context, account Account, sealed SealedKey, password Password) {
+	identity, err := service.open(ctx, sealed, account.PublicKey, password)
+	if err != nil {
+		return
+	}
+
 	digest, err := service.hash(ctx, password)
 	if err != nil {
 		return
 	}
 
-	if err := service.store.SetPassword(ctx, id, digest, now()); err != nil {
-		service.logger.Warn("a password could not be re-hashed with the current parameters",
-			"error", err, "account_id", id)
+	resealed, err := service.seal(ctx, identity, password)
+	if err != nil {
+		return
+	}
+
+	if err := service.store.SetSecrets(ctx, account.ID, digest, resealed, now()); err != nil {
+		service.logger.Warn("an account's secrets could not be re-derived with the current parameters",
+			"error", err, "account_id", account.ID)
 	}
 }
 
 /*
 audit records a change to who may sign in.
 
-The account identifier is recorded and the email is not. An address is the
-person's own and appears in nothing else Convia writes down; an identifier
-Convia assigned says the same thing for an operator reading a log, without
-putting a contactable address in a file that is shipped and retained.
+The account identifier is recorded and the username is not. An identifier Convia
+derived says the same thing for an operator reading a log, without putting what
+a person chose to be called into a file that is shipped and retained.
 */
 func (service *Service) audit(ctx context.Context, event string, account Account) {
 	service.logger.Info("audit event",

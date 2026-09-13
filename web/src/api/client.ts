@@ -145,8 +145,13 @@ function query(parameters: Record<string, string | number | undefined>): string 
 }
 
 export const api = {
-  signIn(email: string, password: string): Promise<Account> {
-    return call<Account>('/sessions', { method: 'POST', body: { email, password } })
+  signIn(username: string, password: string): Promise<Account> {
+    return call<Account>('/sessions', { method: 'POST', body: { username, password } })
+  },
+
+  // register creates an account and signs its owner in, in one request.
+  register(username: string, password: string): Promise<Account> {
+    return call<Account>('/accounts', { method: 'POST', body: { username, password } })
   },
 
   signOut(): Promise<void> {

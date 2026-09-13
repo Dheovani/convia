@@ -164,7 +164,7 @@ func TestEveryStateChangingSessionRouteDocumentsItsOriginRefusal(t *testing.T) {
 
 	checked := 0
 	for _, entry := range routeTable(logger, testDependencies()) {
-		if entry.surface != surfaceSession && entry.surface != surfaceSignIn {
+		if !reachedByABrowser(entry.surface) {
 			continue
 		}
 		if entry.method == http.MethodGet || entry.method == http.MethodHead {
@@ -199,17 +199,67 @@ in as an account the attacker controls, which is a real attack with a boring
 name.
 */
 func TestSigningInIsAlsoGuarded(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, api.Prefix+"/sessions",
-		strings.NewReader(`{"email":"ana@example.com","password":"correct horse battery"}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Origin", "http://docs.example.com")
+	for _, path := range []string{"/sessions", "/accounts"} {
+		request := httptest.NewRequest(http.MethodPost, api.Prefix+path,
+			strings.NewReader(`{"username":"ana","password":"correct horse battery"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", "http://docs.example.com")
 
-	response := serveBrowser(request)
+		response := serveBrowser(request)
 
-	if response.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
+		if response.Code != http.StatusForbidden {
+			t.Errorf("POST %s status = %d, want %d: %s", path, response.Code, http.StatusForbidden, response.Body)
+		}
+		if response.Header().Get("Set-Cookie") != "" {
+			t.Errorf("POST %s from another page was given a session", path)
+		}
 	}
-	if response.Header().Get("Set-Cookie") != "" {
-		t.Error("a request from another page was given a session")
+}
+
+/*
+TestRegisteringIsRationedBySuccessesToo is the limit that keeps one address
+from filling an installation with accounts, which a budget of failures would
+never see: every one of these succeeds.
+
+It is also asserted that a request from another page spends nothing, because
+the origin is checked before the allowance is charged — otherwise any page a
+person visits could use up their household's registrations.
+*/
+func TestRegisteringIsRationedBySuccessesToo(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	handler := New("127.0.0.1:0", logger, testDependencies()).Handler
+
+	register := func(origin string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodPost, api.Prefix+"/accounts",
+			strings.NewReader(`{"username":"ana","password":"correct horse battery"}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Origin", origin)
+
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	for range registrationBurst * 2 {
+		if response := register("http://docs.example.com"); response.Code != http.StatusForbidden {
+			t.Fatalf("a foreign origin status = %d, want %d", response.Code, http.StatusForbidden)
+		}
+	}
+
+	own := asPerson(httptest.NewRequest(http.MethodPost, "/", nil)).Header.Get("Origin")
+	for attempt := range registrationBurst {
+		if response := register(own); response.Code != http.StatusCreated {
+			t.Fatalf("registration %d status = %d, want %d: %s", attempt+1, response.Code,
+				http.StatusCreated, response.Body)
+		}
+	}
+
+	response := register(own)
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("registration %d status = %d, want %d", registrationBurst+1, response.Code,
+			http.StatusTooManyRequests)
+	}
+	if response.Header().Get("Retry-After") == "" {
+		t.Error("the refusal does not say when to try again")
 	}
 }

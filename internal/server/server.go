@@ -77,6 +77,18 @@ const (
 	*/
 	signInFailureBurst  = 10
 	signInFailurePeriod = time.Minute
+
+	/*
+		registrationBurst and registrationPeriod ration registering, per
+		address, successes included.
+
+		Twenty an hour. Enough for a household or an office behind one address
+		to create their accounts in one sitting, trying a few names that turn
+		out to be taken; far too few to fill an installation with accounts, or
+		to walk a list of names to learn which exist.
+	*/
+	registrationBurst  = 20
+	registrationPeriod = time.Hour
 )
 
 /*
@@ -257,6 +269,7 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		every other caller behind the same address.
 	*/
 	signingIn := ratelimit.New(signInFailureBurst, signInFailurePeriod, authFailureKeys)
+	registering := ratelimit.New(registrationBurst, registrationPeriod, authFailureKeys)
 
 	resolve := newResolver(dependencies.TrustedProxies)
 
@@ -295,6 +308,10 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			// Served as it is. Operational endpoints only.
 		case surfaceSignIn:
 			served = budgeted(logger, signingIn, resolve, sameOrigin(logger, served))
+		case surfaceRegistration:
+			// The origin is checked first, so another page cannot spend the
+			// allowance of the person whose browser it is running in.
+			served = sameOrigin(logger, rationed(logger, registering, resolve, served))
 		case surfaceTenant:
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
 				failures, resolve, served)
@@ -366,6 +383,17 @@ const (
 		handler.
 	*/
 	surfaceSignIn
+	/*
+		surfaceRegistration is how somebody creates their account, and it too
+		authenticates nobody.
+
+		It is not surfaceSignIn, because the two are limited in opposite ways.
+		Signing in is budgeted by its failures, since success is what a person
+		is there for. Registering is rationed by every use, since success is the
+		thing to limit: an installation that accepts unlimited accounts from one
+		address is one anybody can fill.
+	*/
+	surfaceRegistration
 )
 
 /*
@@ -737,6 +765,8 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			top-level GET navigation, and a test asserts it.
 		*/
 		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/accounts", surface: surfaceRegistration,
+				handler: http.HandlerFunc(dependencies.Sessions.Register)},
 			route{method: http.MethodPost, path: api.Prefix + "/sessions", surface: surfaceSignIn,
 				handler: http.HandlerFunc(dependencies.Sessions.SignIn)},
 			route{method: http.MethodDelete, path: api.Prefix + "/sessions/current", surface: surfaceSession,

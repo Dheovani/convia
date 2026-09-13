@@ -177,11 +177,11 @@ tags:
       a session is not a key with a different prefix — it proves who somebody
       is, and what they may do is decided per operation, against them.
 
-      There is no self-service sign-up. Open registration needs email
-      verification, which needs a mailer Convia does not have, so an operator
-      creates the account with `convia account create` and hands over a
-      generated password out of band. There is likewise no password reset: see
-      `docs/sessions.md` for what an operator does instead.
+      A person creates their own account on the installation, with a username
+      and a password, and nothing else — no email and no operator. The password
+      also seals the account's private key, whose fingerprint is the account
+      identifier, so **there is no password reset**: nothing can reopen the key
+      without it. See `docs/sessions.md`.
 
       See `docs/sessions.md` for the cookie's attributes, the two expiry
       windows, and what signing out actually revokes.
@@ -4838,20 +4838,84 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/accounts:
+    post:
+      operationId: register
+      tags: [Sessions]
+      summary: Create an account
+      description: |
+        Creates an account for the person asking and signs them in, returning
+        the session as a cookie.
+
+        The account's identifier is the fingerprint of a key pair generated
+        for it, and the private half is stored only sealed by the password
+        given here. **Nothing can reset that password**: forgetting it loses
+        the account, because nothing else opens its key.
+
+        A username that is taken answers `409`, which necessarily says the name
+        exists — a registration form cannot avoid it, and a username is half of
+        a handle that is meant to be shared.
+
+        Every attempt is charged to the caller's address, **successes
+        included**, because what this guards against is somebody succeeding too
+        often: twenty an hour, then `429`.
+
+        The request must come from Convia's own page. `Origin` is required and
+        matched exactly, and it is checked before the attempt is charged.
+      x-lifecycle: experimental
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegistrationRequest"
+      responses:
+        "201":
+          description: |
+            The account exists and its owner is signed in. The session travels
+            in a `Set-Cookie` header; the body says who they are.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              $ref: "#/components/headers/SessionCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/HashingBusy"
+
   /v1/sessions:
     post:
       operationId: signIn
       tags: [Sessions]
       summary: Sign in
       description: |
-        Exchanges an email and a password for a session, returned as a cookie.
+        Exchanges a username and a password for a session, returned as a
+        cookie.
 
-        **Every failure answers identically.** An address nobody has, a wrong
+        **Every failure answers identically.** A username nobody has, a wrong
         password, a suspended account, and a suspended person are one
-        `401 unauthenticated` with one message — so this endpoint cannot be
-        used to find out who has an account here. Convia hashes a decoy
-        password when the address is unknown, so the timing does not answer the
-        question either.
+        `401 unauthenticated` with one message. Convia hashes a decoy password
+        when the username is unknown, so the timing is the same too.
 
         Failed attempts are budgeted per caller address, separately and far
         more tightly than the rest of the API: a password can be guessed where
@@ -5661,7 +5725,9 @@ paths:
 
         So the person stays signed in here and nowhere else. The current
         password is required: a stolen session must not be enough to lock the
-        owner out of their own account.
+        owner out of their own account. The account's key is sealed again under
+        the new password and is otherwise unchanged, so the account identifier
+        and handle stay what they were.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -7387,33 +7453,65 @@ components:
     AccountId:
       type: string
       description: |
-        Opaque, immutable public identifier of an account — a person who can
-        sign in to Convia's own interface. Clients store it as a reference and
-        must never parse it.
+        Immutable public identifier of an account — a person who can sign in to
+        Convia's own interface. It is the fingerprint of the account's public
+        key: the first sixteen bytes of its SHA-256 digest, in base32. Clients
+        store it as a reference.
       pattern: "^acc_[A-Z2-7]{26}$"
       example: acc_7KQZP4XN2VJH6TBWMDR3YAFC5E
 
+    Username:
+      type: string
+      description: |
+        What a person chose to be called, unique on this installation and fixed
+        once chosen. Lowercase ASCII letters, digits, dots, dashes and
+        underscores, beginning with a letter or a digit — a wider alphabet
+        would let two names look identical while being different. Input is
+        matched case-insensitively and stored lowercased.
+      pattern: "^[a-z0-9][a-z0-9._-]{2,31}$"
+      example: ana
+
     SignInRequest:
       type: object
-      description: An email and a password.
-      required: [email, password]
+      description: A username and a password.
+      required: [username, password]
       additionalProperties: false
       properties:
-        email:
+        username:
           type: string
-          format: email
-          maxLength: 320
+          minLength: 1
+          maxLength: 32
           description: |
-            The address the account was created with. Matching is
-            case-insensitive: Convia stores one lowercased form, because
-            somebody who signed up as `Ana@example.com` and types
-            `ana@example.com` later is the same person.
-          example: ana@example.com
+            The username the account was created with. Matching is
+            case-insensitive.
+          example: ana
         password:
           type: string
           minLength: 1
           maxLength: 256
           description: The password. Convia never logs it and never stores it.
+
+    RegistrationRequest:
+      type: object
+      description: The username and password a person chooses for their account.
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 32
+          description: |
+            The username to take. See `Username` for what is accepted; it is
+            lowercased before it is stored.
+          example: ana
+        password:
+          type: string
+          minLength: 12
+          maxLength: 256
+          description: |
+            At least twelve characters, and that is the only rule. It signs the
+            person in and seals their key, so **it cannot be reset**.
 
     PasswordChangeRequest:
       type: object
@@ -7448,7 +7546,7 @@ components:
         sessions. A page does not need to know when its own credential lapses:
         it finds out by being refused, which is the only answer that cannot be
         stale.
-      required: [account_id, user_id, email, display_name]
+      required: [account_id, user_id, username, handle]
       additionalProperties: false
       properties:
         account_id:
@@ -7459,14 +7557,17 @@ components:
           description: |
             The Convia user representing this person in the first-party
             application. It is what every other endpoint addresses them by.
-        email:
+        username:
+          $ref: "#/components/schemas/Username"
+        handle:
           type: string
-          format: email
-          example: ana@example.com
-        display_name:
-          type: string
-          maxLength: 120
-          example: Ana Ribeiro
+          description: |
+            How this person is named to somebody else: the username, a `#`, the
+            account identifier without its prefix, and one check character
+            computed with the Luhn mod 32 algorithm, which catches a mistyped
+            character before anything is sent.
+          pattern: "^[a-z0-9][a-z0-9._-]{2,31}#[A-Z2-7]{27}$"
+          example: ana#7KQZP4XN2VJH6TBWMDR3YAFC5EC
 
     PresenceState:
       type: string
@@ -8911,11 +9012,11 @@ components:
 
     SignInRefused:
       description: |
-        The email and password do not sign anybody in.
+        The username and password do not sign anybody in.
 
-        Every reason produces this one answer: an address nobody has, a wrong
+        Every reason produces this one answer: a username nobody has, a wrong
         password, a suspended account, a suspended person. Telling them apart
-        would make this endpoint a way to discover who has an account.
+        would say more about an account than its name.
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestId"
@@ -8926,7 +9027,7 @@ components:
           example:
             error:
               code: unauthenticated
-              message: The email and password do not match an account.
+              message: The username and password do not match an account.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     WrongOrigin:

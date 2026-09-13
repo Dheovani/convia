@@ -63,17 +63,12 @@ Scopes default to every one Convia recognizes when none are named. Available:
 The secret is printed once and never stored. Running these commands requires
 database access, which is the authority the first credential is minted from.
 
-An account is a person who signs in to Convia's own interface. There is no
-self-service sign-up: open registration needs email verification, which needs a
-mailer Convia does not have, so accounts are created here:
+An account is a person who signs in to Convia's own interface. People create
+their own from the sign-in page, with a username and a password nobody else
+sees. Whoever runs Convia can stop somebody signing in, and let them back:
 
-  convia account create <email> <display-name>   Create an account
-  convia account suspend <account-id>            Stop somebody signing in
-  convia account activate <account-id>           Let them sign in again
-
-The password is generated rather than chosen, printed once, and never stored.
-These commands need CONVIA_FIRST_PARTY_APPLICATION set to the application that
-owns Convia's own product.
+  convia account suspend <account-id>    Stop somebody signing in
+  convia account activate <account-id>   Let them sign in again
 `
 
 func main() {
@@ -227,24 +222,22 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	presenceService := presence.NewService(presenceStore, applicationService, userService, announcer, logger)
 
 	/*
-		Convia's own product, if this deployment serves one.
+		Convia's own product, which every installation serves.
 
-		Both services are nil when no first-party application is configured,
-		which removes the session routes entirely rather than registering
-		routes nobody can authenticate to. That is the same shape the media
-		plane and webhooks already have, and the contract test proves the
-		absence removes rather than opens.
+		Its application is made here on the first start and left alone on every
+		later one, so a person who installed Convia can register and sign in
+		without anybody administering a tenant first. Nothing is configured: an
+		instance that needed a setting before anybody could sign in used to
+		serve a sign-in form that refused everyone and said nothing useful.
 	*/
-	var (
-		accountService *accounts.Service
-		sessionService *sessions.Service
-	)
-	if cfg.FirstPartyApplication != "" {
-		accountService = accounts.NewService(accounts.NewStore(pool), userService,
-			cfg.FirstPartyApplication, logger)
-		sessionService = sessions.NewService(sessions.NewStore(pool), accountService,
-			applicationService, userService, cfg.FirstPartyApplication, logger)
+	if err := applicationService.EnsureFirstParty(signalContext); err != nil {
+		return err
 	}
+
+	accountService := accounts.NewService(accounts.NewStore(pool), userService,
+		applications.FirstPartyID, logger)
+	sessionService := sessions.NewService(sessions.NewStore(pool), accountService,
+		applicationService, userService, applications.FirstPartyID, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -283,33 +276,15 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Invitations:             invitations.NewHolderHandler(logger, invitationService),
 
 		IdempotencyKeys: idempotencyService,
-	}
 
-	/*
-		Assigned only when there is a first-party application, so that a nil
-		service never reaches the route table as a non-nil interface holding a
-		nil pointer — which would register the routes and then panic on the
-		first request.
-	*/
-	if sessionService != nil {
-		dependencies.SessionAuthenticator = sessionService
-		dependencies.Sessions = sessions.NewHandler(logger, sessionService)
-		dependencies.PersonalEvents = events.NewPersonHandler(logger, broker, sessionService, roomService)
-		warnIfNobodyCanSignIn(signalContext, logger, accountService)
-	} else {
-		logger.Info("no first-party application is configured, so nobody signs in to Convia itself",
-			"remedy", "set CONVIA_FIRST_PARTY_APPLICATION to serve Convia's own interface")
+		SessionAuthenticator: sessionService,
+		Sessions:             sessions.NewHandler(logger, sessionService),
+		PersonalEvents:       events.NewPersonHandler(logger, broker, sessionService, roomService),
 	}
 
 	/*
 		Convia's own page, served from this same origin at every path the API
 		has not claimed.
-
-		It is wired whether or not anybody can sign in. The two are separate
-		questions: an instance with no first-party application still serves the
-		page, and the page still answers — with a sign-in form nothing will
-		accept, which is a truthful thing for it to do and easier to diagnose
-		than a blank 404.
 
 		A binary built without the frontend bundle says so at startup and in
 		the page itself, rather than being silently absent.
@@ -577,31 +552,6 @@ func openPresence(settings config.Redis, logger *slog.Logger) (presence.Store, f
 			logger.Warn("closing the presence store", "error", err)
 		}
 	}, nil
-}
-
-/*
-warnIfNobodyCanSignIn reports a session surface nobody can reach.
-
-A deployment that configured a first-party application and created no accounts
-serves a sign-in form that every password fails against, and nothing about that
-looks like a misconfiguration from the outside. It is the same advisory
-warnIfUnadministered gives for an instance with no operator, and it names the
-command that fixes it for the same reason.
-*/
-func warnIfNobodyCanSignIn(ctx context.Context, logger *slog.Logger, service *accounts.Service) {
-	probe, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	total, err := service.CountActive(probe)
-	if err != nil {
-		logger.Warn("could not check whether anybody can sign in", "error", err)
-		return
-	}
-
-	if total == 0 {
-		logger.Warn("a first-party application is configured but no account can sign in",
-			"remedy", "create one with: convia account create <email> <display-name>")
-	}
 }
 
 /*

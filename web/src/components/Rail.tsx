@@ -6,6 +6,8 @@ interface RailProps {
   mode: Mode
   onMode: (mode: Mode) => void
   displayName: string
+  // handle is how this person is named to somebody else, shown on the avatar.
+  handle: string
   onSignOut: () => void
 }
 
@@ -33,7 +35,7 @@ function initials(name: string): string {
   return (first + last).toUpperCase()
 }
 
-export function Rail({ mode, onMode, displayName, onSignOut }: RailProps) {
+export function Rail({ mode, onMode, displayName, handle, onSignOut }: RailProps) {
   return (
     <nav
       className="row-span-2 flex flex-col items-center gap-3 border-r border-line
@@ -68,7 +70,7 @@ export function Rail({ mode, onMode, displayName, onSignOut }: RailProps) {
         <span
           className="grid size-9 place-items-center rounded-full bg-accent-soft text-xs
             font-semibold text-accent"
-          title={displayName}
+          title={handle}
           aria-hidden="true"
         >
           {initials(displayName)}

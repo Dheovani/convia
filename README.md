@@ -24,7 +24,7 @@ A media plane exists behind that boundary: a call asks LiveKit for the room its 
 
 Control events stream: an application opens one WebSocket at `/v1/events` and is told what happened while it is still news — a call starting or ending, a roster changing, an invitation declined. The stream carries nothing upstream, so it cannot become a way to push media, and a credential is told only about the things it could already have read. Nothing is stored, and a subscriber that falls behind is disconnected with a reason rather than quietly losing an event. A deployment running more than one instance sets `CONVIA_REDIS_URL` and events are carried between them; one instance needs nothing, and an unreachable Redis narrows the stream rather than failing anything. A signed-in person has a stream of their own at `/v1/me/events`, authorized per room rather than per tenant, which is how Convia's interface is told what changed instead of asking. See [`docs/events.md`](docs/events.md).
 
-People sign in to Convia's own product with a fourth family of credential, `cvs_`, which lives only in a cookie and **carries no authority over a tenant** — a session proves who somebody is, and nothing anywhere turns one into an application key. Passwords are argon2id where every other Convia secret is a plain digest, because the rule is chosen by where the entropy came from. Every sign-in failure answers identically, and an unknown address is hashed against a decoy so the timing does not answer either. Accounts are created by an operator: open registration needs email verification, which needs a mailer Convia does not have. See [`docs/sessions.md`](docs/sessions.md).
+People sign in to Convia's own product with a fourth family of credential, `cvs_`, which lives only in a cookie and **carries no authority over a tenant** — a session proves who somebody is, and nothing anywhere turns one into an application key. Passwords are argon2id where every other Convia secret is a plain digest, because the rule is chosen by where the entropy came from. Every sign-in failure answers identically, and an unknown username is hashed against a decoy so the timing does not answer either. **A person creates their own account** from the sign-in page, with a username and a password and nothing else: accounts belong to the installation, the way entries belong to a password manager's file. An account's identifier is the fingerprint of a key pair generated for it, and the private key is stored only sealed by the password — so nobody with the database can use it, and **there is no password reset**. A person is named to somebody else by a handle, `username#IDENTIFIER` with a check character that catches a typo. Nothing needs configuring: Convia makes its own application the first time it starts. See [`docs/sessions.md`](docs/sessions.md) and [ADR 0011](docs/adr/0011-an-account-is-local-and-its-identifier-is-its-key.md).
 
 Presence is the one advisory thing Convia holds: an application heartbeats for each of a person's devices, Convia aggregates them into one answer and expires it on a clock that is never the caller's. Whether somebody is *in a call* is a different, durable question and is deliberately not a field on it. Presence streams as `presence.changed` and is the one event type Convia refuses to deliver by webhook, because a redelivered presence report arrives after it stopped being true. See [`docs/presence.md`](docs/presence.md).
 
@@ -67,6 +67,13 @@ That serves the API. To serve Convia's own interface as well, build it first —
 ```sh
 cd web && npm install && npm run build && cd ..
 go run ./cmd/convia
+```
+
+For testing locally, one script does all of that together — starts the containers, applies the migrations, builds and starts Convia, and serves the interface with hot reloading at `http://localhost:5173` — and Ctrl+C stops both. It reads `.env`, starts LiveKit and Redis only when `.env` configures them, and leaves the containers running. Create an account on the sign-in page.
+
+```sh
+./scripts/dev.sh     # macOS, Linux, Git Bash
+./scripts/dev.ps1    # Windows PowerShell
 ```
 
 A binary with no bundle serves the API normally and answers the page with 503 and the command above. `npm run dev` inside `web/` serves the interface with hot reloading and proxies `/v1` to a Convia on port 8080, so the browser still sees one origin.

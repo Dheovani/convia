@@ -197,19 +197,12 @@ func Stale(stored Digest) bool {
 		return true // Unreadable is as good a reason to replace it as weak.
 	}
 
-	return memory < argonMemory || iterations < argonIterations || parallelism < argonParallelism
+	return weaker(memory, iterations, parallelism)
 }
 
-/*
-NewPassword generates a password strong enough that nobody has to think about
-whether it is.
-
-It is what `convia account create` prints once. Twenty-six base32 characters is
-the same shape and the same entropy as every other secret Convia generates, and
-it is meant to be pasted rather than typed or remembered.
-*/
-func NewPassword() Password {
-	return Password(rand.Text())
+// weaker reports whether derivation parameters fall short of the ones in force.
+func weaker(memory uint32, iterations, parallelism uint8) bool {
+	return memory < argonMemory || iterations < argonIterations || parallelism < argonParallelism
 }
 
 /*
@@ -272,34 +265,44 @@ silently treated as a password that does not match — that would look like a
 person mistyping and would send them to a reset they do not need.
 */
 func decode(stored Digest) (salt, key []byte, memory uint32, iterations, parallelism uint8, err error) {
-	fields := strings.Split(string(stored), "$")
+	return decodeAs(string(stored), digestVariant, ErrPasswordUnreadable)
+}
+
+/*
+decodeAs reads any value in the encoded argon2 shape: a stored digest, or a
+sealed key, which carries its derivation parameters the same way. What differs
+is the variant expected and the error that says the value could not be read.
+*/
+func decodeAs(encoded, variant string, unreadable error) (salt, value []byte, memory uint32,
+	iterations, parallelism uint8, err error) {
+	fields := strings.Split(encoded, "$")
 	if len(fields) != 6 || fields[0] != "" {
-		return nil, nil, 0, 0, 0, ErrPasswordUnreadable
+		return nil, nil, 0, 0, 0, unreadable
 	}
 
-	if fields[1] != digestVariant {
-		return nil, nil, 0, 0, 0, fmt.Errorf("%w: variant %q", ErrPasswordUnreadable, fields[1])
+	if fields[1] != variant {
+		return nil, nil, 0, 0, 0, fmt.Errorf("%w: variant %q", unreadable, fields[1])
 	}
 
 	var version int
 	if _, err := fmt.Sscanf(fields[2], "v=%d", &version); err != nil || version != argon2.Version {
-		return nil, nil, 0, 0, 0, fmt.Errorf("%w: version %q", ErrPasswordUnreadable, fields[2])
+		return nil, nil, 0, 0, 0, fmt.Errorf("%w: version %q", unreadable, fields[2])
 	}
 
-	memory, iterations, parallelism, err = parameters(fields[3])
+	memory, iterations, parallelism, err = parameters(fields[3], unreadable)
 	if err != nil {
 		return nil, nil, 0, 0, 0, err
 	}
 
 	if salt, err = base64.RawStdEncoding.DecodeString(fields[4]); err != nil {
-		return nil, nil, 0, 0, 0, fmt.Errorf("%w: salt", ErrPasswordUnreadable)
+		return nil, nil, 0, 0, 0, fmt.Errorf("%w: salt", unreadable)
 	}
 
-	if key, err = base64.RawStdEncoding.DecodeString(fields[5]); err != nil {
-		return nil, nil, 0, 0, 0, fmt.Errorf("%w: key", ErrPasswordUnreadable)
+	if value, err = base64.RawStdEncoding.DecodeString(fields[5]); err != nil {
+		return nil, nil, 0, 0, 0, fmt.Errorf("%w: value", unreadable)
 	}
 
-	return salt, key, memory, iterations, parallelism, nil
+	return salt, value, memory, iterations, parallelism, nil
 }
 
 /*
@@ -311,24 +314,31 @@ checking afterwards states the same bound twice and leaves the conversion
 itself unguarded, which is both harder to read and the shape a static analyser
 is right to distrust.
 */
-func parameters(field string) (memory uint32, iterations, parallelism uint8, err error) {
+func parameters(field string, unreadable error) (memory uint32, iterations, parallelism uint8, err error) {
+	/*
+		The field is quoted back because an operator reading the log needs to
+		see what was actually stored, and it carries no secret: the salt and the
+		derived value are separate fields and neither reaches here.
+	*/
+	refuse := fmt.Errorf("%w: parameters %q", unreadable, field)
+
 	pieces := strings.Split(field, ",")
 	if len(pieces) != 3 {
-		return 0, 0, 0, unreadableParameters(field)
+		return 0, 0, 0, refuse
 	}
 
 	memoryDigits, memoryLabelled := strings.CutPrefix(pieces[0], "m=")
 	iterationDigits, iterationsLabelled := strings.CutPrefix(pieces[1], "t=")
 	parallelismDigits, parallelismLabelled := strings.CutPrefix(pieces[2], "p=")
 	if !memoryLabelled || !iterationsLabelled || !parallelismLabelled {
-		return 0, 0, 0, unreadableParameters(field)
+		return 0, 0, 0, refuse
 	}
 
 	memoryValue, memoryErr := strconv.ParseUint(memoryDigits, 10, 32)
 	iterationValue, iterationErr := strconv.ParseUint(iterationDigits, 10, 8)
 	parallelismValue, parallelismErr := strconv.ParseUint(parallelismDigits, 10, 8)
 	if memoryErr != nil || iterationErr != nil || parallelismErr != nil {
-		return 0, 0, 0, unreadableParameters(field)
+		return 0, 0, 0, refuse
 	}
 
 	/*
@@ -337,19 +347,8 @@ func parameters(field string) (memory uint32, iterations, parallelism uint8, err
 		would derive a key no other implementation agrees with.
 	*/
 	if memoryValue == 0 || iterationValue == 0 || parallelismValue == 0 {
-		return 0, 0, 0, unreadableParameters(field)
+		return 0, 0, 0, refuse
 	}
 
 	return uint32(memoryValue), uint8(iterationValue), uint8(parallelismValue), nil
-}
-
-/*
-unreadableParameters reports a cost field this build cannot make sense of.
-
-The field is quoted back because an operator reading the log needs to see what
-was actually stored, and it carries no secret: the salt and the key are
-separate fields of the digest and neither reaches here.
-*/
-func unreadableParameters(field string) error {
-	return fmt.Errorf("%w: parameters %q", ErrPasswordUnreadable, field)
 }

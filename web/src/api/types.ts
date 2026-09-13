@@ -9,12 +9,18 @@ of keeping thirty lines in step with the contract is lower than the cost of the
 tooling.
 */
 
-// Account is the person the session belongs to.
+/*
+Account is the person the session belongs to.
+
+`handle` is how they are named to somebody else — the username, a #, and the
+account identifier with a check character — and it is rendered by Convia so the
+page never has to compute the check character itself.
+*/
 export interface Account {
   account_id: string
   user_id: string
-  email: string
-  display_name: string
+  username: string
+  handle: string
 }
 
 export type RoomStatus = 'open' | 'closed' | 'deleted'

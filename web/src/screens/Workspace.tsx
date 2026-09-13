@@ -145,7 +145,8 @@ export function Workspace({
         <Rail
           mode={mode}
           onMode={setMode}
-          displayName={account.display_name}
+          displayName={account.username}
+          handle={account.handle}
           onSignOut={() => void signOut()}
         />
 
