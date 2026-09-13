@@ -3,11 +3,23 @@ import type {
   HistoryDirection,
   Message,
   MessagePage,
+  OwnRoom,
+  PersonPage,
   ReadState,
+  RoomMember,
   Sidebar,
 } from './types'
 
 const prefix = '/v1'
+
+/*
+pageLimit is the largest page Convia serves.
+
+The lists of people are read as one page of it. Somebody who shares rooms with
+more than a hundred people would see the first hundred, which is a gap the
+interface will have to page through once there is a screen where it matters.
+*/
+const pageLimit = 100
 
 /*
 ApiFailure is the error body every Convia route answers with.
@@ -185,5 +197,33 @@ export const api = {
       method: 'PUT',
       body: { sequence },
     })
+  },
+
+  // createRoom opens a room with this person in it. It sends a name and nothing
+  // else, because nothing else is a person's to decide.
+  createRoom(name: string): Promise<OwnRoom> {
+    return call<OwnRoom>('/me/rooms', { method: 'POST', body: { name } })
+  },
+
+  members(roomId: string, signal?: AbortSignal): Promise<PersonPage> {
+    const path = `/me/rooms/${encodeURIComponent(roomId)}/members` + query({ limit: pageLimit })
+    return call<PersonPage>(path, signal ? { signal } : {})
+  },
+
+  addMember(roomId: string, userId: string): Promise<RoomMember> {
+    return call<RoomMember>(
+      `/me/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`,
+      { method: 'PUT' },
+    )
+  },
+
+  leave(roomId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/leave`, { method: 'POST' })
+  },
+
+  // people is everybody this person could add to a room: the people they
+  // already share one with, and nobody else.
+  people(signal?: AbortSignal): Promise<PersonPage> {
+    return call<PersonPage>('/me/people' + query({ limit: pageLimit }), signal ? { signal } : {})
   },
 }

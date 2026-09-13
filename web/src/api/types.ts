@@ -68,3 +68,35 @@ export interface ReadState {
 }
 
 export type HistoryDirection = 'older' | 'newer'
+
+// OwnRoom is a room as the person who opened it sees it.
+export interface OwnRoom {
+  id: string
+  name: string
+  status: RoomStatus
+  created_at: string
+}
+
+/*
+Person is somebody this person can see, by the name they go by.
+
+It exists on this surface and not on the application's, where a member carries
+no name: an application owns its people's names and reads them itself, and a
+person has no other way to learn what to call somebody.
+*/
+export interface Person {
+  user_id: string
+  display_name: string
+}
+
+export interface PersonPage {
+  data: Person[]
+  next_cursor?: string
+}
+
+export interface RoomMember {
+  application_id: string
+  room_id: string
+  user_id: string
+  created_at: string
+}

@@ -20,6 +20,24 @@ interface Rooms {
   loading: boolean
   failed: boolean
   refresh: () => void
+  /*
+  remember and forget change the list before Convia is asked again.
+
+  Opening a room and leaving one both change what the sidebar should show, and
+  waiting for the next read would draw the old list for a moment after the
+  person already acted. The read that follows reconciles either way.
+  */
+  remember: (room: SidebarRoom) => void
+  forget: (roomId: string) => void
+}
+
+// byIdentifier keeps a locally remembered room where Convia would list it, so
+// the row does not jump when the next read arrives.
+function byIdentifier(left: SidebarRoom, right: SidebarRoom): number {
+  if (left.id === right.id) {
+    return 0
+  }
+  return left.id < right.id ? -1 : 1
 }
 
 /*
@@ -78,5 +96,17 @@ export function useRooms(onExpired: () => void): Rooms {
     }
   }, [reloads])
 
-  return { rooms, loading, failed, refresh }
+  const remember = useCallback((room: SidebarRoom) => {
+    setRooms((current) =>
+      current.some((known) => known.id === room.id)
+        ? current
+        : [...current, room].sort(byIdentifier),
+    )
+  }, [])
+
+  const forget = useCallback((roomId: string) => {
+    setRooms((current) => current.filter((known) => known.id !== roomId))
+  }, [])
+
+  return { rooms, loading, failed, refresh, remember, forget }
 }

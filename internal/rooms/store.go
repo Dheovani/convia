@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/users"
 )
 
 // uniqueViolation is the SQLSTATE PostgreSQL reports for a violated unique
@@ -92,11 +94,53 @@ func optionalAlias(alias string) *string {
 
 // Create inserts a room, refusing an alias another room already holds.
 func (store *Store) Create(ctx context.Context, room Room) error {
+	return insertRoom(ctx, store.pool, room)
+}
+
+/*
+CreateWithMember inserts a room and its first member as one write.
+
+It is how a person opens a room, and the two rows are one fact rather than two
+steps. Written separately, a failure between them would leave a room nobody is
+in — and on the session surface, where reaching a room requires being in it,
+nobody who can see that room could ever reach it again.
+*/
+func (store *Store) CreateWithMember(ctx context.Context, room Room, member Member) error {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin creating a room: %w", err)
+	}
+	// A commit makes this a no-op; anything else undoes the room with its member.
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if err := insertRoom(ctx, transaction, room); err != nil {
+		return err
+	}
+
+	const statement = `INSERT INTO room_members (` + memberColumns + `) VALUES ($1, $2, $3, $4)`
+	if _, err := transaction.Exec(ctx, statement,
+		member.ApplicationID, member.RoomID, member.UserID, member.CreatedAt); err != nil {
+		return fmt.Errorf("add the room's first member: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit the room: %w", err)
+	}
+	return nil
+}
+
+// executor is what inserting a room needs, which a pool and a transaction both
+// provide.
+type executor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func insertRoom(ctx context.Context, target executor, room Room) error {
 	const statement = `INSERT INTO rooms
 	                   (id, application_id, alias, name, metadata, max_participants, status, created_at, updated_at)
 	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := target.Exec(ctx, statement,
 		room.ID,
 		room.ApplicationID,
 		optionalAlias(room.Alias),
@@ -600,4 +644,82 @@ func (store *Store) Many(ctx context.Context, applicationID string, ids []string
 		found[record.ID] = record.room()
 	}
 	return found, nil
+}
+
+/*
+SharesRoom reports whether two people are both in a room that still exists.
+
+It is how the session surface decides who one person may name. A deleted room
+does not count: it is gone from the API, and a membership it left behind must
+not keep introducing the people who were in it.
+*/
+func (store *Store) SharesRoom(ctx context.Context, applicationID, userID, otherID string) (bool, error) {
+	const statement = `SELECT EXISTS (
+	                       SELECT 1
+	                       FROM room_members AS mine
+	                       JOIN room_members AS theirs ON theirs.room_id = mine.room_id
+	                       JOIN rooms ON rooms.id = mine.room_id
+	                       WHERE mine.application_id = $1
+	                         AND mine.user_id = $2
+	                         AND theirs.user_id = $3
+	                         AND rooms.status <> $4)`
+
+	var shares bool
+	if err := store.pool.QueryRow(ctx, statement, applicationID, userID, otherID,
+		StatusDeleted).Scan(&shares); err != nil {
+		return false, fmt.Errorf("check for a shared room: %w", err)
+	}
+	return shares, nil
+}
+
+/*
+Acquaintances returns one page of the people somebody shares a room with.
+
+It is the whole of discovery on the session surface: a person can name only
+somebody they already share a room with, so this is the list of everybody they
+could add. Nobody else is reachable, which is what keeps a lookup from becoming
+a way to find out who has an account.
+
+Two exclusions are made here rather than by the caller, so that a page is a
+page. A deleted room introduces nobody, for the reason SharesRoom gives. A
+person who is not active is left out, because they cannot be given a place, and
+listing them would tell somebody about another person's suspension.
+
+Ordered by the person's identifier with the last one as the cursor, which is
+the order the primary key already holds.
+*/
+func (store *Store) Acquaintances(ctx context.Context, applicationID, userID string,
+	after string, limit int) ([]string, bool, error) {
+	statement := `SELECT DISTINCT theirs.user_id
+	              FROM room_members AS mine
+	              JOIN room_members AS theirs ON theirs.room_id = mine.room_id
+	              JOIN rooms ON rooms.id = mine.room_id
+	              JOIN users ON users.id = theirs.user_id
+	              WHERE mine.application_id = $1
+	                AND mine.user_id = $2
+	                AND theirs.user_id <> $2
+	                AND rooms.status <> $3
+	                AND users.status = $4`
+	arguments := []any{applicationID, userID, StatusDeleted, users.StatusActive}
+
+	if after != "" {
+		arguments = append(arguments, after)
+		statement += ` AND theirs.user_id > $` + strconv.Itoa(len(arguments))
+	}
+	statement += ` ORDER BY theirs.user_id LIMIT ` + strconv.Itoa(limit+1)
+
+	rows, err := store.pool.Query(ctx, statement, arguments...)
+	if err != nil {
+		return nil, false, fmt.Errorf("query acquaintances: %w", err)
+	}
+
+	identifiers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, false, fmt.Errorf("read acquaintances: %w", err)
+	}
+
+	if len(identifiers) > limit {
+		return identifiers[:limit], true, nil
+	}
+	return identifiers, false, nil
 }

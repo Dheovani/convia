@@ -5011,6 +5011,233 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+    post:
+      operationId: createMyRoom
+      tags: [Me]
+      summary: Open a room
+      description: |
+        Opens a room with the signed-in person already in it.
+
+        **The body carries a name and nothing else.** An alias is the application's own namespace, metadata is the application's own data, and a capacity is a policy — a person setting any of them would be deciding something on the application's behalf, and an alias in particular would let one person squat a name the application meant to use.
+
+        The person is in the room from the moment it exists: the room and its first member are written together. Written separately, a failure between them would leave a room nobody is in, and on this surface a room nobody is in is a room no person can ever reach.
+
+        `403 forbidden` answers both a request that did not come from Convia's own page and a person whose user the application has suspended.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnRoomRequest"
+            example:
+              name: Weekend plans
+      responses:
+        "201":
+          description: The room was opened, with this person in it.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnRoom"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/members:
+    get:
+      operationId: listMyRoomMembers
+      tags: [Me]
+      summary: Who is in a room I am in
+      description: |
+        Returns one page of the people in a room the signed-in person belongs to, by the names they go by.
+
+        Unlike the application surface, each member carries a display name. An application owns its people's names and reads them itself; a person has no other way to learn what to call somebody, and everybody listed is somebody they already share this room with.
+
+        A room this person is not in answers `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of the people in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/members/{user_id}:
+    put:
+      operationId: addMyRoomMember
+      tags: [Me]
+      summary: Add somebody to a room I am in
+      description: |
+        Gives somebody a place in a room the signed-in person is in.
+
+        **Only somebody this person already shares a room with can be added.** That is the whole of discovery on this surface. A lookup by address would confirm whether an address has an account, and the sign-in form already refuses to be that oracle.
+
+        Every reason somebody cannot be added is the same `404 not found`: an identifier that names nobody, a stranger, and somebody who shares a room but is suspended. Distinguishing them would reveal which identifiers exist, or another person's suspension. A room this person is not in answers `404` as well.
+
+        Idempotent by the person, as on the application surface: `201` the first time and `200` afterwards.
+
+        There is no way to remove somebody else. Membership carries no role for that power to rest on.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: The person was already in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMember"
+        "201":
+          description: The person was given a place.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomMember"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/leave:
+    post:
+      operationId: leaveMyRoom
+      tags: [Me]
+      summary: Leave a room
+      description: |
+        Takes the signed-in person's own place in a room away.
+
+        A `POST` to an action rather than a `DELETE` on a member's address: the address would have to name a person, and the only person it could ever name on this surface is the caller.
+
+        What they said stays, as it does when an application removes somebody. A room this person is not in answers `404 not found`, and so does a second attempt to leave.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The person is no longer in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/people:
+    get:
+      operationId: listMyPeople
+      tags: [Me]
+      summary: People I could add
+      description: |
+        Returns one page of the people the signed-in person shares a room with — everybody they could add to a room of theirs.
+
+        A room that has been deleted introduces nobody, and a suspended person is left out: they cannot be given a place, and listing them would tell somebody about another person's suspension. The signed-in person is not listed.
+
+        Ordered by the person's identifier; the cursor is the last `user_id` on the page.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of the people this person could add.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me/rooms/{room_id}/messages:
     get:
       operationId: readMyHistory
@@ -5092,6 +5319,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -5185,6 +5414,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -5240,6 +5471,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -5289,6 +5522,8 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
         "404":
           $ref: "#/components/responses/NotFound"
         "405":
@@ -7399,6 +7634,70 @@ components:
           type: string
           description: |
             The identifier to continue from, absent at the end of the listing.
+          example: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
+
+    OwnRoomRequest:
+      type: object
+      description: |
+        The accepted body when a person opens a room.
+
+        It carries a name and nothing else. An alias is the application's own namespace, metadata is the application's own data, and a capacity is a policy: a person setting any of them would be deciding something on the application's behalf.
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          example: Weekend plans
+
+    OwnRoom:
+      type: object
+      description: A room as the person who opened it sees it.
+      required: [id, name, status, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/RoomId"
+        name:
+          type: string
+          example: Weekend plans
+        status:
+          $ref: "#/components/schemas/RoomStatus"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-09-13T10:02:41.004812Z"
+
+    Person:
+      type: object
+      description: |
+        Somebody a signed-in person can see, by the name they go by.
+
+        Unlike `RoomMember`, this carries a display name. An application owns its people's names and reads them itself; a person has no other way to learn what to call somebody, and everybody this describes is somebody they already share a room with.
+      required: [user_id, display_name]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        display_name:
+          type: string
+          description: The name the application gave this person. It may be empty.
+          example: Ana Ribeiro
+
+    PersonPage:
+      type: object
+      description: One page of people.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Person"
+        next_cursor:
+          type: string
+          description: The identifier to continue from, absent at the end of the listing.
           example: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
 
     MessageId:

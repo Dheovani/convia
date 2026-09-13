@@ -107,6 +107,22 @@ func (stub stubUsers) Get(context.Context, string, string) (users.User, error) {
 	return stub.user, stub.err
 }
 
+// Many answers every identifier asked about with the stub's user under that
+// identifier, so a list of people renders one named row per person.
+func (stub stubUsers) Many(_ context.Context, _ string, ids []string) (map[string]users.User, error) {
+	if stub.err != nil {
+		return nil, stub.err
+	}
+
+	found := make(map[string]users.User, len(ids))
+	for _, id := range ids {
+		user := stub.user
+		user.ID = id
+		found[id] = user
+	}
+	return found, nil
+}
+
 func (stub stubUsers) List(context.Context, string, users.ListOptions) (users.Page, error) {
 	return stub.page, stub.err
 }
@@ -266,6 +282,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantMessages:     messages.NewTenantHandler(logger, stubMessages{message: sampleMessage()}),
 		PersonalMessages: messages.NewSessionHandler(logger, stubMessages{message: sampleMessage()},
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
+		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -910,8 +927,14 @@ type stubRooms struct {
 	// stranger makes IsMember answer false, which is how a test asks for
 	// somebody who is not in the room.
 	stranger bool
-	page     rooms.Page
-	err      error
+	// unshared makes SharesRoom answer false, which is how a test asks for
+	// somebody the person could not name.
+	unshared bool
+	// refuseAdd makes AddMember fail with this error and nothing else, which
+	// is how a test asks for somebody the domain will not give a place.
+	refuseAdd error
+	page      rooms.Page
+	err       error
 }
 
 func (stub stubRooms) Create(context.Context, string, rooms.Definition) (rooms.Room, error) {
@@ -1184,6 +1207,9 @@ func (stub stubWebhooks) ListDeliveries(context.Context, string, webhooks.Delive
 }
 
 func (stub stubRooms) AddMember(context.Context, string, string, string) (rooms.Member, bool, error) {
+	if stub.refuseAdd != nil {
+		return rooms.Member{}, false, stub.refuseAdd
+	}
 	return stub.member, true, stub.err
 }
 
@@ -1210,6 +1236,24 @@ func (stub stubRooms) IsMember(context.Context, string, string, string) (bool, e
 		return false, stub.err
 	}
 	return !stub.stranger, nil
+}
+
+func (stub stubRooms) CreateFor(context.Context, string, string, rooms.Definition) (rooms.Room, error) {
+	return stub.room, stub.err
+}
+
+func (stub stubRooms) SharesRoom(context.Context, string, string, string) (bool, error) {
+	if stub.err != nil {
+		return false, stub.err
+	}
+	return !stub.unshared, nil
+}
+
+func (stub stubRooms) Acquaintances(context.Context, string, string, rooms.MembershipOptions) (rooms.Acquaintances, error) {
+	if stub.err != nil {
+		return rooms.Acquaintances{}, stub.err
+	}
+	return rooms.Acquaintances{UserIDs: []string{stub.member.UserID}}, nil
 }
 
 func (stub stubRooms) Many(_ context.Context, _ string, ids []string) (map[string]rooms.Room, error) {
