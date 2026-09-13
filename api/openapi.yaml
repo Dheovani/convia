@@ -5238,6 +5238,73 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/me/events:
+    get:
+      operationId: streamMyEvents
+      tags: [Me]
+      summary: Listen to the rooms I am in
+      description: |
+        Upgrades the connection to a WebSocket and delivers the events about the rooms the signed-in person is in, as they happen. It is how Convia's own interface stops asking every few seconds.
+
+        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, and `room.member_removed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. Calls, participants, and presence are absent because nothing on this surface reads them yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
+
+        Which rooms is read before the upgrade, kept current by the membership events the stream carries, and read again every minute, when the session is also checked again. A session that stops authenticating — signed out, expired, or suspended — ends the stream with close code `4001`, which a reconnect would not change. Within that minute a stream may still carry events about a room its person has just left; what they name is identifiers, and reading any of it asks for membership again.
+
+        Like every state-changing request on this surface, and unlike every other `GET`, the handshake must come from Convia's own page: an `Origin` other than this one is refused with `403 forbidden`, because the connection would go on carrying whatever the cookie is entitled to.
+
+        The stream is one direction and stores nothing, exactly as `GET /v1/events` describes. A client that reconnects, or is closed with `4000`, re-reads what it shows. `docs/events.md` has the close codes in full.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - name: Connection
+          in: header
+          required: true
+          description: Must be `Upgrade`.
+          schema:
+            type: string
+        - name: Upgrade
+          in: header
+          required: true
+          description: Must be `websocket`.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Version
+          in: header
+          required: true
+          description: Must be `13`, the version RFC 6455 defines.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Key
+          in: header
+          required: true
+          description: The client's handshake nonce, as RFC 6455 requires.
+          schema:
+            type: string
+      responses:
+        "101":
+          description: |
+            The connection is now a WebSocket carrying `Event` objects as text messages, one event per message.
+
+            Convia sends a ping every 30 seconds and closes the connection if it is not answered within 10.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me/rooms/{room_id}/messages:
     get:
       operationId: readMyHistory
@@ -5891,7 +5958,9 @@ paths:
         `events:read` grants the connection, and each event is delivered only
         to a credential that could have read the thing it is about — call
         events need `calls:read`, participant events need `participants:read`,
-        and invitation events need `invitations:read`. A credential granted
+        invitation events need `invitations:read`, message events need
+        `messages:read`, membership events need `members:read`, and presence
+        events need `presence:read`. A credential granted
         `events:read` and no read scope is refused rather than given a
         connection that could never carry anything.
 
@@ -8149,6 +8218,8 @@ components:
         - message.posted
         - message.edited
         - message.deleted
+        - room.member_added
+        - room.member_removed
         - presence.changed
 
     EventSubjectType:
@@ -8162,6 +8233,7 @@ components:
         - invitation
         - user
         - message
+        - room
 
     EventSubject:
       type: object
@@ -8229,7 +8301,10 @@ components:
         and whichever of `user_id` or `invitation_id` identifies the person,
         plus `removed_by` and `removed_by_participant_id` on a removal.
         Invitation events carry `call_id`, `role`, `guest`, `status`, and
-        `user_id` when the invitation names somebody.
+        `user_id` when the invitation names somebody. Message events carry
+        `room_id`, `sequence`, `guest`, `deleted`, `edited`, and whichever of
+        `user_id` or `invitation_id` wrote the message. Membership events are
+        about the room and carry `user_id`, the person whose place changed.
 
         New keys may be added, so a client must ignore ones it does not know.
       additionalProperties: true

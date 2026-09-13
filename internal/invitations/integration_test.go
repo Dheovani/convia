@@ -112,11 +112,11 @@ func newFixture(t *testing.T) fixture {
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, logger)
 	broker := events.NewBroker()
 	// No durable sink: these tests are about what the domain announces,
 	// not about where it is later delivered.
 	announcer := events.NewAnnouncer(broker, nil, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
 		issuingPlane{}, announcer, logger)
 	participantService := participants.NewService(participants.NewStore(pool),

@@ -553,6 +553,23 @@ func (store *Store) RoomsOf(ctx context.Context, applicationID, userID string, a
 	return store.pageMembers(ctx, statement, arguments, limit)
 }
 
+// RoomIDsOf returns every room somebody belongs to, unpaged. It is served by
+// the same index as RoomsOf.
+func (store *Store) RoomIDsOf(ctx context.Context, applicationID, userID string) ([]string, error) {
+	const statement = `SELECT room_id FROM room_members WHERE application_id = $1 AND user_id = $2`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("query a person's rooms: %w", err)
+	}
+
+	identifiers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("read a person's rooms: %w", err)
+	}
+	return identifiers, nil
+}
+
 func (store *Store) pageMembers(ctx context.Context, statement string, arguments []any, limit int) ([]Member, bool, error) {
 	rows, err := store.pool.Query(ctx, statement, arguments...)
 	if err != nil {

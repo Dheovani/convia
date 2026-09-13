@@ -139,6 +139,13 @@ type Dependencies struct {
 	PersonalRooms      *rooms.SessionHandler
 
 	/*
+		PersonalEvents is a signed-in person's own stream, authorized per room
+		rather than per tenant. Like TenantEvents it outlives the write
+		timeouts by hijacking its connection.
+	*/
+	PersonalEvents *events.PersonHandler
+
+	/*
 		TenantEvents is the one route that is not a request and a response. It
 		is left out of the write timeouts the rest of the surface is served
 		under, because a stream is supposed to outlive them, and the handler
@@ -798,6 +805,23 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.PersonalRooms.Leave)},
 			route{method: http.MethodGet, path: api.Prefix + "/me/people", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.PersonalRooms.People)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalEvents != nil {
+		/*
+			A person listening to the rooms they are in.
+
+			It is a GET because a WebSocket handshake is one, and it changes
+			nothing, so the invariant this surface depends on holds. It is not
+			exempt from the origin check the way other GETs are, though: a
+			handshake opens a connection that carries whatever the cookie is
+			entitled to, and [sameOrigin] treats it as the state-changing
+			request it effectively is.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/me/events", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalEvents.Stream)},
 		)
 	}
 

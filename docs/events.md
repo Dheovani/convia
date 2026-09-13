@@ -17,6 +17,9 @@ Convia records a great deal and streams very little. The line is not "what is in
 | `participant.removed` | participant | Somebody was put out. |
 | `participant.role_changed` | participant | What somebody may do changed. |
 | `invitation.declined` | invitation | An invitee said they are not coming. |
+| `message.posted`, `message.edited`, `message.deleted` | message | Somebody said something in a room, changed it, or withdrew it. See [`messages.md`](messages.md). |
+| `room.member_added` | room | Somebody now has a place in the room. `data.user_id` says who. |
+| `room.member_removed` | room | Somebody no longer does, whether they left or the application removed them. |
 | `presence.changed` | user | Convia will now say something different about whether somebody is available. |
 
 Everything else Convia records is deliberately absent, and each has a reason:
@@ -27,6 +30,8 @@ Everything else Convia records is deliberately absent, and each has a reason:
 - **An invitation being redeemed.** This one *is* somebody else's act, but it already arrives as `participant.joined`, carrying the invitation that let them in. Publishing both would report one arrival twice.
 
 Declining is the exception among invitations because it is the invitee's own decision, it is the only signal that somebody is not coming, and nothing else observes it.
+
+Membership is the exception among rooms, for the same kind of reason. While only an application changed who was in a room, announcing it would have told the application what it just did. Since M18 a person adds another person, and the one added is not the one who made the request: their sidebar has no other way to learn it. Leaving and being removed are one type because membership records no actor, and a type that claimed to know which it was would be guessing. Only a change is announced, as only a change is audited, and erasure announces nothing — broadcasting every room somebody had been in would publish exactly the record erasure removes.
 
 Presence is the other exception, and it is the interesting one: an application asserts it, which is exactly why rooms and users are absent. The difference is that **the assertion is not the change**. What a subscriber is told is the aggregate across a person's devices, and the moment a claim lapsed on a timer — and the instance that sent the heartbeat knows neither. It comes with two rules of its own, both in [`presence.md`](presence.md): a heartbeat that changes nothing announces nothing, and `presence.changed` is the one event type Convia refuses to deliver by webhook.
 
@@ -62,6 +67,7 @@ Each event is delivered only to a credential that could have read the thing it i
 | `participant.*` | `participants:read` |
 | `invitation.*` | `invitations:read` |
 | `message.*` | `messages:read` |
+| `room.member_*` | `members:read` |
 | `presence.*` | `presence:read` |
 
 So a key holding `events:read` and `calls:read` receives call events and nothing else. A key holding `events:read` and no read scope is **refused** rather than given an empty connection — an empty stream is indistinguishable from a quiet one, and a client would wait indefinitely for events that were never going to come.
@@ -105,6 +111,42 @@ The version travels on each event rather than being negotiated once per connecti
 
 Two rules for a client that wants to keep working across Convia releases: **ignore an event type you do not recognize**, and **ignore a `data` key you do not recognize**. Both sets are additive.
 
+## A person's stream
+
+Convia's own interface listens too, with a session rather than a key:
+
+```
+GET /v1/me/events
+Cookie: __Host-convia_session=cvs_...
+Origin: https://convia.example
+Connection: Upgrade
+Upgrade: websocket
+```
+
+It is not the application's stream with a different credential, and the difference is the design. An application's stream is authorized once, for a whole tenant, by scopes that cannot change while it is open. **A person's is authorized per room**, and which rooms is exactly what changes while it is open. [ADR 0010](adr/0010-a-persons-stream-is-authorized-per-room.md) records why it is built the way it is.
+
+**It carries what the person could already read, and nothing else.** That is the rule an application's stream follows with scopes, applied to a person:
+
+| Carried | Delivered when |
+| --- | --- |
+| `message.*` | it names a room the person is in |
+| `room.member_*` about somebody else | it names a room the person is in |
+| `room.member_*` about the person | they were in the room before it, **or** are in it after |
+
+The last row is the one that needs saying. Somebody just added was not in the room a moment ago, and somebody just removed no longer is, so judging either by one side alone would withhold exactly the event the person needs. Calls, participants, and presence are absent because nothing on the session surface reads them yet; they arrive when something does.
+
+The envelope is the same, **without `correlation_id`**. The request that caused an event was usually somebody else's, and the identifier exists to be matched against an access log only an operator reads.
+
+**Which rooms is read before the upgrade**, so a person whose rooms cannot be read is told so with a `500` rather than handed a silent socket. It is then kept current by the membership events the stream itself carries, and **read again every minute**, when the session is also authenticated again:
+
+- A session that no longer authenticates — signed out, expired, suspended — closes the stream with **`4001`**. A reconnect would be refused before the upgrade, and a browser hides a refused handshake's status from scripts, so this close is the one moment the reason can still be said.
+- A check that could not be made — the database did not answer — leaves the stream open. It says nothing about the person, and closing every stream on an instance over it would send every tab to reconnect into the same outage.
+- A membership event lost between instances costs at most that minute, because the next read finds the room anyway.
+
+Stated rather than hidden: **within that minute**, a stream may still carry events about a room its person has just left, or a session that has just ended. What travels is identifiers, and reading what they point at asks for membership and a session again, on every request.
+
+**The handshake must come from Convia's own page**, though it is a GET. It opens a connection that goes on carrying whatever the cookie is entitled to, so a page on a sibling subdomain that could open one would be reading somebody's conversations as they happen — cross-site WebSocket hijacking, which `SameSite` does not see for the reason it does not see a sibling's POST. The exact-match `Origin` check every state-changing request on the session surface passes is applied to it too, and an `Origin` other than this instance's is refused with `403`.
+
 ## Nothing is stored
 
 An event goes to the streams open at the moment it is published, and is then gone.
@@ -135,6 +177,7 @@ That is deliberately louder than dropping an event and carrying on. A subscriber
 | `1001` | This instance is shutting down. | Reconnect; you will reach another instance. |
 | `1003` | You sent a message. The stream is one direction. | Fix the client; do not retry blindly. |
 | `4000` | You fell behind and events were dropped. | Re-read over REST, then reconnect. |
+| `4001` | A person's stream only: the session that opened it no longer authenticates. | Sign in again; a reconnect will be refused. |
 
 `4000` is in the range RFC 6455 reserves for applications, because falling behind is not a transport condition and borrowing a protocol code for it would say something untrue.
 
@@ -150,7 +193,9 @@ A control stream is legitimately silent for hours — a tenant with no calls run
 | --- | --- | --- |
 | Streams per application | 8 | One per instance of an application's backend, with room for a rolling deployment. The stream carries the whole tenant, so it is not one per user. |
 | Streams per Convia instance | 1024 | So that many tenants cannot together do what one is already stopped from doing. |
-| Queue per stream | 256 events | See *Falling behind*. |
+| Streams per person | 16 | A browser opens one per tab, and a person may hold ten sessions. It still bounds what one stolen cookie can hold open. |
+| People's streams per Convia instance | 4096 | Counted apart from the applications', so that signed-in tabs cannot refuse every tenant its backend stream. |
+| Queue per stream | 256 events, or 64 on a person's | See *Falling behind*. A person's carries their rooms rather than a tenant, and there are far more people than backends, so a queue allocated in full per tab is smaller. |
 | Bytes read from a client | 1024 | The point at which Convia stops reading something it is going to refuse anyway. |
 
 Both ceilings are answered with the same `429`, so a tenant is never told anything about the instance's total load.

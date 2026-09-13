@@ -14,6 +14,9 @@ What streams:
   - somebody joining, leaving, being removed, or having their role changed,
     because that is the roster, and a roster that is seconds out of date shows
     people who are not there;
+  - somebody being given a place in a room or losing one, because since M18 a
+    person can do that to another person, and the person it was done to is not
+    the one who made the request;
   - whether somebody is available, because that is the shortest-lived thing
     Convia holds at all.
 
@@ -132,6 +135,23 @@ const (
 	// tombstone. It keeps its place in the history.
 	MessageDeleted Type = "message.deleted"
 	/*
+		MemberAdded reports that somebody now has a place in a room.
+
+		Rooms do not stream, and membership did not either while only an
+		application changed it. Since M18-003 a person adds another person, and
+		the one added is waiting on a sidebar that has no other way to learn it.
+		The name is the audit trail's, as every type's is.
+	*/
+	MemberAdded Type = "room.member_added"
+	/*
+		MemberRemoved reports that somebody no longer has a place in a room,
+		whether they left or the application removed them.
+
+		The two are one type because membership records no actor, and a type
+		that claimed to know which it was would be guessing.
+	*/
+	MemberRemoved Type = "room.member_removed"
+	/*
 		PresenceChanged reports that Convia will now say something different
 		about whether one of an application's people is available.
 
@@ -161,6 +181,7 @@ func Types() []Type {
 		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
 		InvitationDeclined,
 		MessagePosted, MessageEdited, MessageDeleted,
+		MemberAdded, MemberRemoved,
 		PresenceChanged,
 	}
 }
@@ -208,6 +229,9 @@ const (
 
 	// SubjectMessage means the subject identifier addresses a message.
 	SubjectMessage SubjectType = "message"
+
+	// SubjectRoom means the subject identifier addresses a room.
+	SubjectRoom SubjectType = "room"
 )
 
 /*
@@ -238,6 +262,8 @@ func subjectOf(kind Type) (SubjectType, bool) {
 		return SubjectInvitation, true
 	case MessagePosted, MessageEdited, MessageDeleted:
 		return SubjectMessage, true
+	case MemberAdded, MemberRemoved:
+		return SubjectRoom, true
 	case PresenceChanged:
 		return SubjectUser, true
 	default:

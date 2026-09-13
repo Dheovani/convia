@@ -156,8 +156,6 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, logger)
-
 	mediaPlane, err := openMediaPlane(cfg.Media, logger)
 	if err != nil {
 		return err
@@ -201,6 +199,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		when the second one does.
 	*/
 	announcer := events.NewAnnouncer(broker, dispatcher, logger)
+
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
 
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
 		mediaPlane, announcer, logger)
@@ -294,6 +294,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	if sessionService != nil {
 		dependencies.SessionAuthenticator = sessionService
 		dependencies.Sessions = sessions.NewHandler(logger, sessionService)
+		dependencies.PersonalEvents = events.NewPersonHandler(logger, broker, sessionService, roomService)
 		warnIfNobodyCanSignIn(signalContext, logger, accountService)
 	} else {
 		logger.Info("no first-party application is configured, so nobody signs in to Convia itself",

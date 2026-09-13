@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, ApiError } from '../api/client'
 import type { Person } from '../api/types'
+import { useEvents } from './events'
 
 interface Members {
   members: Person[]
@@ -15,14 +16,17 @@ useMembers reads who is in a room, by name.
 
 It does not poll. Who is in a room changes far less often than what is said in
 it, so it is read when the conversation opens, when somebody looks at the list,
-after somebody is added, and when a message arrives from somebody it does not
-know — which is how a newcomer is noticed without asking every few seconds.
+after somebody is added, when the event stream says somebody joined or left, and
+when a message arrives from somebody it does not know — which is how a newcomer
+is still noticed while the stream is down.
 
 A failure here is not the conversation's failure. Names make a conversation
 easier to read; their absence does not make it unreadable, so this reports
 `failed` and leaves the rest of the screen alone.
 */
 export function useMembers(roomId: string, onExpired: () => void): Members {
+  const { listen } = useEvents()
+
   const [members, setMembers] = useState<Person[]>([])
   const [loaded, setLoaded] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -35,12 +39,12 @@ export function useMembers(roomId: string, onExpired: () => void): Members {
 
   useEffect(() => {
     const controller = new AbortController()
-    let live = true
+    let active = true
 
     api
       .members(roomId, controller.signal)
       .then((page) => {
-        if (!live) {
+        if (!active) {
           return
         }
         setMembers(page.data)
@@ -48,7 +52,7 @@ export function useMembers(roomId: string, onExpired: () => void): Members {
         setFailed(false)
       })
       .catch((error: unknown) => {
-        if (!live || controller.signal.aborted) {
+        if (!active || controller.signal.aborted) {
           return
         }
         if (error instanceof ApiError && error.unauthenticated) {
@@ -59,10 +63,21 @@ export function useMembers(roomId: string, onExpired: () => void): Members {
       })
 
     return () => {
-      live = false
+      active = false
       controller.abort()
     }
   }, [roomId, reloads])
+
+  useEffect(
+    () =>
+      listen((event) => {
+        const membership = event.type === 'room.member_added' || event.type === 'room.member_removed'
+        if (membership && event.subject.id === roomId) {
+          reload()
+        }
+      }),
+    [roomId, listen, reload],
+  )
 
   return { members, loaded, failed, reload }
 }

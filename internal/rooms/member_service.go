@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"convia/internal/api"
+	"convia/internal/events"
 	"convia/internal/users"
 )
 
@@ -45,7 +46,7 @@ func (service *Service) AddMember(ctx context.Context, applicationID, roomID, us
 	// Convia's would otherwise fill the audit trail with events where nothing
 	// happened, which is how a trail stops being read.
 	if added {
-		service.recordMembership(ctx, "room.member_added", member)
+		service.announceMembership(ctx, events.MemberAdded, member)
 	}
 
 	return member, added, nil
@@ -75,7 +76,7 @@ func (service *Service) RemoveMember(ctx context.Context, applicationID, roomID,
 	}
 
 	if removed {
-		service.recordMembership(ctx, "room.member_removed", Member{
+		service.announceMembership(ctx, events.MemberRemoved, Member{
 			ApplicationID: applicationID, RoomID: room.ID, UserID: userID})
 	}
 	return removed, nil
@@ -247,14 +248,45 @@ func (service *Service) requirePerson(ctx context.Context, applicationID, userID
 	return nil
 }
 
-// recordMembership writes the audit entry for a change to who belongs where.
-func (service *Service) recordMembership(ctx context.Context, event string, member Member) {
-	service.logger.InfoContext(ctx, event,
+/*
+announceMembership records a change to who belongs where, and tells whoever is
+listening.
+
+Only a change is announced, for the reason only a change is audited. The event
+names the room and the person and nothing else: membership records no actor, so
+there is no truthful way to say whether somebody left or was removed, and the
+room's name is the application's label rather than a value Convia assigned.
+
+**Erasure announces nothing.** ForgetMemberships is Convia ceasing to hold that a
+person was ever anywhere, and announcing each room they had been in would
+broadcast exactly the record erasure exists to remove.
+*/
+func (service *Service) announceMembership(ctx context.Context, kind events.Type, member Member) {
+	service.logger.InfoContext(ctx, string(kind),
 		"application_id", member.ApplicationID,
 		"room_id", member.RoomID,
 		"user_id", member.UserID,
 		"request_id", api.RequestIDFromContext(ctx),
 	)
+
+	service.stream.Publish(ctx, events.New(kind, member.ApplicationID, member.RoomID,
+		api.RequestIDFromContext(ctx), events.Data{"user_id": member.UserID}))
+}
+
+/*
+RoomIDsOf returns every room somebody belongs to, as identifiers alone.
+
+It is what a person's event stream covers, read when the stream opens and again
+while it stays open. It is not paged, because a stream needs the whole set and
+paging it would be several reads that could disagree with each other.
+
+It checks neither the application nor the person. Its one caller has just
+verified a session, which already asked both questions, and a person Convia
+stops serving is found by the stream's next check of that session rather than
+here.
+*/
+func (service *Service) RoomIDsOf(ctx context.Context, applicationID, userID string) ([]string, error) {
+	return service.store.RoomIDsOf(ctx, applicationID, userID)
 }
 
 /*

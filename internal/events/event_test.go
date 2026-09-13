@@ -80,6 +80,8 @@ func TestTheSubjectCannotDisagreeWithTheType(t *testing.T) {
 		MessagePosted:          SubjectMessage,
 		MessageEdited:          SubjectMessage,
 		MessageDeleted:         SubjectMessage,
+		MemberAdded:            SubjectRoom,
+		MemberRemoved:          SubjectRoom,
 		PresenceChanged:        SubjectUser,
 	}
 

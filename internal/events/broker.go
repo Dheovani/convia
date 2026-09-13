@@ -24,6 +24,18 @@ const (
 	QueueDepth = 256
 
 	/*
+		PersonQueueDepth is the same allowance for a person's stream, and it is
+		smaller on purpose.
+
+		An application's stream carries its whole tenant; a person's carries
+		the rooms they are in. There are also many more people than backends,
+		and a queue is allocated in full when a stream opens, so the depth is
+		multiplied by every signed-in tab. Sixty-four is still more than one
+		person reads in the seconds a pause lasts.
+	*/
+	PersonQueueDepth = 64
+
+	/*
 		MaxStreamsPerApplication bounds one tenant's concurrent streams.
 
 		Every instance of an application's backend needs one stream, not one
@@ -34,7 +46,16 @@ const (
 	MaxStreamsPerApplication = 8
 
 	/*
-		MaxStreams bounds the whole instance.
+		MaxStreamsPerPerson bounds one person's concurrent streams.
+
+		A browser opens one per tab, and a person may hold ten sessions at once
+		(sessions.MaxPerAccount). Sixteen allows several tabs across a few
+		devices and still bounds what one stolen cookie can hold open.
+	*/
+	MaxStreamsPerPerson = 16
+
+	/*
+		MaxStreams bounds the application streams on this instance.
 
 		It exists so that many tenants cannot together do what one tenant is
 		already stopped from doing. Reaching it is answered the same way as
@@ -42,6 +63,18 @@ const (
 		anything about the instance's total load.
 	*/
 	MaxStreams = 1024
+
+	/*
+		MaxPersonStreams bounds the people's streams on this instance, apart
+		from the applications'.
+
+		They are counted separately so that people signing in cannot crowd out
+		the backends of every other tenant: a thousand open tabs on Convia's
+		own product would otherwise refuse every application its stream on this
+		instance. At the smaller queue depth, the whole allowance is a few tens
+		of megabytes held at rest.
+	*/
+	MaxPersonStreams = 4096
 )
 
 /*
@@ -105,8 +138,17 @@ than delaying the request that produced the event.
 type Broker struct {
 	mutex   sync.Mutex
 	streams map[*Stream]struct{}
-	perTeam map[string]int
 	stopped bool
+
+	/*
+		The ceilings' counts, one pair for applications and one for people.
+		They are kept rather than derived from the map above so that opening a
+		stream costs a lookup rather than a walk over every other stream.
+	*/
+	applications int
+	perTeam      map[string]int
+	people       int
+	perPerson    map[string]int
 
 	/*
 		serving counts the goroutines that hold a stream, so that stopping can
@@ -129,8 +171,9 @@ type Broker struct {
 // alone, which is every deployment running one.
 func NewBroker() *Broker {
 	return &Broker{
-		streams: make(map[*Stream]struct{}),
-		perTeam: make(map[string]int),
+		streams:   make(map[*Stream]struct{}),
+		perTeam:   make(map[string]int),
+		perPerson: make(map[string]int),
 	}
 }
 
@@ -159,6 +202,14 @@ type Stream struct {
 	broker        *Broker
 	applicationID string
 	wanted        map[Type]struct{}
+
+	/*
+		person is who the stream is for when a person opened it, and nil when
+		an application did. It is set when the stream opens and never replaced,
+		so reading the pointer needs no lock; what it points at changes, and
+		only under the broker's.
+	*/
+	person *audience
 
 	events chan Event
 	done   chan struct{}
@@ -209,6 +260,163 @@ func (stream *Stream) Close() {
 }
 
 /*
+Reconcile replaces the rooms a person's stream covers with a fresh read of them.
+
+The read happens outside the broker's lock, because it is a query, and a
+membership can change while it runs. So the changes about this person that
+arrive meanwhile are kept and applied on top of what was read. Each one states
+whether the person is in a room, rather than a difference, so applying them in
+order onto a read taken at any moment in between gives the state after the
+last of them — whichever side of the read each one actually committed on.
+
+A read that fails leaves what the stream already covered in place and reports
+the error. The previous answer is stale by at most one interval, and a stream
+that covered nothing at all would look exactly like a quiet one.
+
+It may only be called on a stream a person opened, by the goroutine serving it.
+*/
+func (stream *Stream) Reconcile(read func() ([]string, error)) error {
+	person := stream.person
+	if person == nil {
+		panic("events: Reconcile called on an application's stream, which covers a tenant rather than rooms")
+	}
+
+	stream.broker.mutex.Lock()
+	person.reading = true
+	person.changes = nil
+	stream.broker.mutex.Unlock()
+
+	identifiers, err := read()
+
+	stream.broker.mutex.Lock()
+	defer stream.broker.mutex.Unlock()
+
+	changes := person.changes
+	person.reading = false
+	person.changes = nil
+
+	if err != nil {
+		return err
+	}
+
+	rooms := make(map[string]struct{}, len(identifiers))
+	for _, roomID := range identifiers {
+		rooms[roomID] = struct{}{}
+	}
+	for _, change := range changes {
+		if change.member {
+			rooms[change.roomID] = struct{}{}
+		} else {
+			delete(rooms, change.roomID)
+		}
+	}
+	person.rooms = rooms
+	return nil
+}
+
+/*
+outgoing is an event as this subscriber receives it.
+
+A person is not told which request caused something. The correlation
+identifier is another person's request, and it exists to be matched against an
+access log only an operator reads — so it is of no use to a person, and it is
+not Convia's to hand one person about another.
+*/
+func (stream *Stream) outgoing(event Event) Event {
+	if stream.person != nil {
+		event.CorrelationID = ""
+	}
+	return event
+}
+
+/*
+audience is whom a person's stream is for, and which rooms it covers right now.
+
+It is what makes a person's stream authorized per room rather than per tenant:
+an event reaches it only when it names a room the person is in. The rooms are
+held here rather than asked about per event, because an event is delivered
+under the broker's lock to every stream at once, and a query there would put
+the database inside publishing — which must not be able to block.
+*/
+type audience struct {
+	userID string
+	rooms  map[string]struct{}
+
+	// reading is true while [Stream.Reconcile] is reading the person's rooms,
+	// and changes holds what arrived about them meanwhile.
+	reading bool
+	changes []membership
+}
+
+// membership is one change to whether a person is in a room.
+type membership struct {
+	roomID string
+	member bool
+}
+
+/*
+admits reports whether an event reaches this person, and keeps their rooms
+current as it goes.
+
+A change to the person's own membership is delivered if they were in the room
+before it **or** are in it after. Being added is news to somebody who was not
+there yet, and being removed is news to somebody who no longer is; judging
+either by one side alone would withhold exactly the event the person needs.
+
+It is called with the broker's lock held.
+*/
+func (person *audience) admits(event Event) bool {
+	roomID, scoped := roomOf(event)
+	if !scoped {
+		return false
+	}
+
+	_, before := person.rooms[roomID]
+	if !about(event, person.userID) {
+		return before
+	}
+
+	member := event.Type == MemberAdded
+	if member {
+		person.rooms[roomID] = struct{}{}
+	} else {
+		delete(person.rooms, roomID)
+	}
+	if person.reading {
+		person.changes = append(person.changes, membership{roomID: roomID, member: member})
+	}
+	return before || member
+}
+
+/*
+roomOf names the room an event happened in, when it happened in one.
+
+Only the types a person's stream carries are named here. Anything else is not
+about a room as far as a person is concerned, so it reaches nobody through this
+path, which is the answer that fails closed when a type is added.
+*/
+func roomOf(event Event) (string, bool) {
+	switch event.Type {
+	case MemberAdded, MemberRemoved:
+		return event.Subject.ID, event.Subject.ID != ""
+	case MessagePosted, MessageEdited, MessageDeleted:
+		roomID, named := event.Data["room_id"].(string)
+		return roomID, named && roomID != ""
+	default:
+		return "", false
+	}
+}
+
+// about reports whether an event changes one person's own membership.
+func about(event Event, userID string) bool {
+	if event.Type != MemberAdded && event.Type != MemberRemoved {
+		return false
+	}
+	named, _ := event.Data["user_id"].(string)
+	return named == userID
+}
+
+/*
 Subscribe opens a stream of the named event types for one application.
 
 The types are settled here, at the point where the caller's authority is
@@ -217,6 +425,20 @@ subscriber therefore cannot widen what it receives after connecting, and there
 is no message it could send that would try.
 */
 func (broker *Broker) Subscribe(applicationID string, types []Type) (*Stream, error) {
+	return broker.open(applicationID, types, nil)
+}
+
+/*
+subscribePerson opens a stream for one of an application's people.
+
+It covers no rooms until [Stream.Reconcile] says which, so a stream that is
+opened and never reconciled carries nothing rather than everything.
+*/
+func (broker *Broker) subscribePerson(applicationID, userID string, types []Type) (*Stream, error) {
+	return broker.open(applicationID, types, &audience{userID: userID, rooms: make(map[string]struct{})})
+}
+
+func (broker *Broker) open(applicationID string, types []Type, person *audience) (*Stream, error) {
 	if len(types) == 0 {
 		return nil, ErrNothingToDeliver
 	}
@@ -236,22 +458,47 @@ func (broker *Broker) Subscribe(applicationID string, types []Type) (*Stream, er
 		return nil, ErrStopped
 	}
 
-	if len(broker.streams) >= MaxStreams || broker.perTeam[applicationID] >= MaxStreamsPerApplication {
-		return nil, ErrTooManyStreams
+	depth := QueueDepth
+	if person == nil {
+		if broker.applications >= MaxStreams || broker.perTeam[applicationID] >= MaxStreamsPerApplication {
+			return nil, ErrTooManyStreams
+		}
+	} else {
+		if broker.people >= MaxPersonStreams || broker.perPerson[person.userID] >= MaxStreamsPerPerson {
+			return nil, ErrTooManyStreams
+		}
+		depth = PersonQueueDepth
 	}
 
 	stream := &Stream{
 		broker:        broker,
 		applicationID: applicationID,
 		wanted:        wanted,
-		events:        make(chan Event, QueueDepth),
+		person:        person,
+		events:        make(chan Event, depth),
 		done:          make(chan struct{}),
 	}
 
 	broker.streams[stream] = struct{}{}
-	broker.perTeam[applicationID]++
+	broker.count(stream, 1)
 	broker.serving.Add(1)
 	return stream, nil
+}
+
+// count moves a stream's ceilings by one in either direction. It is called with
+// the broker's lock held.
+func (broker *Broker) count(stream *Stream, delta int) {
+	total, perKey, key := &broker.applications, broker.perTeam, stream.applicationID
+	if stream.person != nil {
+		total, perKey, key = &broker.people, broker.perPerson, stream.person.userID
+	}
+
+	*total += delta
+	if remaining := perKey[key] + delta; remaining > 0 {
+		perKey[key] = remaining
+	} else {
+		delete(perKey, key)
+	}
 }
 
 /*
@@ -301,6 +548,9 @@ func (broker *Broker) deliver(event Event) {
 	var behind []*Stream
 	for stream := range broker.streams {
 		if stream.applicationID != event.ApplicationID || !stream.Wants(event.Type) {
+			continue
+		}
+		if stream.person != nil && !stream.person.admits(event) {
 			continue
 		}
 
@@ -392,11 +642,7 @@ func (broker *Broker) endLocked(stream *Stream, ending Ending) {
 	}
 
 	delete(broker.streams, stream)
-	if remaining := broker.perTeam[stream.applicationID] - 1; remaining > 0 {
-		broker.perTeam[stream.applicationID] = remaining
-	} else {
-		delete(broker.perTeam, stream.applicationID)
-	}
+	broker.count(stream, -1)
 
 	stream.once.Do(func() {
 		stream.ending.Store(int32(ending))

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/coder/websocket"
@@ -12,6 +13,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/credentials"
+	"convia/internal/sessions"
 )
 
 const (
@@ -56,6 +58,29 @@ const (
 		about when capacity returns.
 	*/
 	retryAfterSeconds = "5"
+
+	/*
+		recheckInterval is how often a person's stream asks again whether it
+		should still be open, and which rooms it covers.
+
+		A session is verified when a stream opens and a socket outlives any
+		request, so without asking again a person who signed out everywhere —
+		or was suspended — would keep receiving events on a connection opened
+		before. Their rooms are read again at the same moment, which bounds
+		what a membership event lost between instances can cost.
+
+		A minute is the window both of those stay open for, and it is stated
+		rather than hidden. Shorter multiplies a few indexed reads by every
+		open tab; the events carry identifiers rather than anything said, and
+		reading what they point at asks the database again, where membership
+		is checked on every request.
+	*/
+	recheckInterval = time.Minute
+
+	// recheckTimeout bounds one recheck, which runs on the goroutine that
+	// writes events and would otherwise hold them back for as long as the
+	// database took to answer.
+	recheckTimeout = 10 * time.Second
 )
 
 /*
@@ -67,6 +92,17 @@ range the specification reserves for applications, and docs/events.md is where
 it is published.
 */
 const statusBehind websocket.StatusCode = 4000
+
+/*
+statusSessionEnded tells a person their stream closed because the session that
+opened it no longer authenticates anybody.
+
+It is its own code so that an interface can go straight to its sign-in form. A
+reconnect would be refused before the upgrade, and a refused WebSocket handshake
+reaches a script without its status, so this is the one moment the reason can
+still be said.
+*/
+const statusSessionEnded websocket.StatusCode = 4001
 
 // TenantHandler serves an application its own live control events.
 type TenantHandler struct {
@@ -106,16 +142,46 @@ func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http
 	}
 	defer stream.Close()
 
-	/*
-		Nothing clears the server's read and write deadlines here, and nothing
-		needs to: net/http clears them itself when a handler hijacks the
-		connection. What bounds a stream instead is the deadline on each
-		individual write below, plus the heartbeat — both of which bound an
-		operation rather than the connection, which is the difference between a
-		stream that can last hours and one the server closes after thirty
-		seconds. A test pins that, because it is a property of the standard
-		library that this package depends on rather than one it enforces.
-	*/
+	connection, ok := accept(handler.logger, response, request, "application_id", principal.ApplicationID)
+	if !ok {
+		return
+	}
+	defer connection.CloseNow()
+
+	handler.logger.Info("event stream opened",
+		"application_id", principal.ApplicationID,
+		"request_id", api.RequestIDFromContext(request.Context()),
+		"active_streams", handler.broker.Active(),
+	)
+
+	status, reason := deliver(request.Context(), connection, stream, nil)
+
+	handler.logger.Info("event stream closed",
+		"application_id", principal.ApplicationID,
+		"request_id", api.RequestIDFromContext(request.Context()),
+		"close_status", int(status),
+		"close_reason", reason,
+		"delivered", stream.Delivered(),
+	)
+}
+
+/*
+accept upgrades a request whose subscription has already been decided.
+
+Nothing clears the server's read and write deadlines here, and nothing needs
+to: net/http clears them itself when a handler hijacks the connection. What
+bounds a stream instead is the deadline on each individual write, plus the
+heartbeat — both of which bound an operation rather than the connection, which
+is the difference between a stream that can last hours and one the server
+closes after thirty seconds. A test pins that, because it is a property of the
+standard library that this package depends on rather than one it enforces.
+*/
+func accept(
+	logger *slog.Logger,
+	response http.ResponseWriter,
+	request *http.Request,
+	who ...any,
+) (*websocket.Conn, bool) {
 	connection, err := websocket.Accept(response, request, &websocket.AcceptOptions{
 		/*
 			Compression buys little on a stream of identifiers and enumerations,
@@ -131,32 +197,26 @@ func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http
 			a wrong Origin and a missing Upgrade header look identical from
 			outside.
 		*/
-		handler.logger.Info("event stream upgrade refused",
+		logger.Info("event stream upgrade refused", append([]any{
 			"error", err,
-			"application_id", principal.ApplicationID,
 			"request_id", api.RequestIDFromContext(request.Context()),
-		)
-		return
+		}, who...)...)
+		return nil, false
 	}
-	defer connection.CloseNow()
 
 	connection.SetReadLimit(maxClientMessageBytes)
+	return connection, true
+}
 
-	handler.logger.Info("event stream opened",
-		"application_id", principal.ApplicationID,
-		"request_id", api.RequestIDFromContext(request.Context()),
-		"active_streams", handler.broker.Active(),
-	)
+/*
+recheck is work a stream repeats while it is open.
 
-	status, reason := handler.deliver(request.Context(), connection, stream)
-
-	handler.logger.Info("event stream closed",
-		"application_id", principal.ApplicationID,
-		"request_id", api.RequestIDFromContext(request.Context()),
-		"close_status", int(status),
-		"close_reason", reason,
-		"delivered", stream.Delivered(),
-	)
+It returns a close status and true when the stream must end, and false to carry
+on. A stream without one runs for as long as its subscriber reads.
+*/
+type recheck struct {
+	every time.Duration
+	run   func(ctx context.Context) (websocket.StatusCode, string, bool)
 }
 
 /*
@@ -168,9 +228,12 @@ nobody reading would answer a heartbeat it had itself sent. The reader is owned
 by this function, is bounded by the connection, and is waited for before
 returning.
 */
-func (handler *TenantHandler) deliver(ctx context.Context, connection *websocket.Conn,
-	stream *Stream) (websocket.StatusCode, string) {
-
+func deliver(
+	ctx context.Context,
+	connection *websocket.Conn,
+	stream *Stream,
+	again *recheck,
+) (websocket.StatusCode, string) {
 	listening, stopListening := context.WithCancel(ctx)
 	defer stopListening()
 
@@ -181,7 +244,7 @@ func (handler *TenantHandler) deliver(ctx context.Context, connection *websocket
 		refuseClientMessages(listening, connection)
 	}()
 
-	status, reason := handler.pump(listening, connection, stream)
+	status, reason := pump(listening, connection, stream, again)
 
 	/*
 		The close frame goes first and the reader is waited for second. Closing
@@ -200,13 +263,26 @@ pump is the writing half: events out, heartbeats out, nothing in.
 
 The heartbeat is sent from here rather than from its own goroutine so that
 writing stays single-threaded, and a client that stops answering is noticed as
-part of the same loop that would have delivered its events.
+part of the same loop that would have delivered its events. A recheck runs here
+for the same reason.
 */
-func (handler *TenantHandler) pump(ctx context.Context, connection *websocket.Conn,
-	stream *Stream) (websocket.StatusCode, string) {
-
+func pump(
+	ctx context.Context,
+	connection *websocket.Conn,
+	stream *Stream,
+	again *recheck,
+) (websocket.StatusCode, string) {
 	ticker := time.NewTicker(heartbeat)
 	defer ticker.Stop()
+
+	// A nil channel is never ready, which is how a stream with nothing to
+	// recheck leaves that case out of the select below.
+	var rechecks <-chan time.Time
+	if again != nil {
+		rechecking := time.NewTicker(again.every)
+		defer rechecking.Stop()
+		rechecks = rechecking.C
+	}
 
 	for {
 		select {
@@ -218,7 +294,7 @@ func (handler *TenantHandler) pump(ctx context.Context, connection *websocket.Co
 
 		case event := <-stream.Events():
 			writing, cancel := context.WithTimeout(ctx, writeTimeout)
-			err := wsjson.Write(writing, connection, event)
+			err := wsjson.Write(writing, connection, stream.outgoing(event))
 			cancel()
 
 			if err != nil {
@@ -232,6 +308,11 @@ func (handler *TenantHandler) pump(ctx context.Context, connection *websocket.Co
 
 			if err != nil {
 				return closeStatusFor(err), "the connection stopped answering"
+			}
+
+		case <-rechecks:
+			if status, reason, ended := again.run(ctx); ended {
+				return status, reason
 			}
 		}
 	}
@@ -339,6 +420,218 @@ func (handler *TenantHandler) refuse(response http.ResponseWriter, request *http
 func (handler *TenantHandler) fail(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
 		handler.logger.Error("write event stream failure",
+			"error", err, "request_id", api.RequestIDFromContext(request.Context()))
+	}
+}
+
+/*
+sessionAuthenticator is how a person's stream asks whether its session still
+authenticates anybody. sessions.Service satisfies it.
+*/
+type sessionAuthenticator interface {
+	Authenticate(ctx context.Context, token string) (sessions.Principal, error)
+}
+
+/*
+memberships is how a person's stream learns which rooms it covers.
+rooms.Service satisfies it.
+
+It is declared here and satisfied from outside, which is what keeps this
+package a leaf: the rooms domain imports this one to announce, so this one can
+never import it.
+*/
+type memberships interface {
+	RoomIDsOf(ctx context.Context, applicationID, userID string) ([]string, error)
+}
+
+/*
+PersonHandler serves a signed-in person the events about the rooms they are in.
+
+It is not the tenant's handler with a different verifier, and the difference is
+the design. An application's stream is authorized once, for a whole tenant, by
+scopes that do not change while it is open. A person's is authorized **per
+room**, and which rooms is exactly the thing that changes while it is open:
+somebody adds them, or they leave in another tab. So the rooms are read before
+the upgrade, kept current by the membership events the stream itself carries,
+and read again on an interval along with the session.
+*/
+type PersonHandler struct {
+	logger   *slog.Logger
+	broker   *Broker
+	sessions sessionAuthenticator
+	rooms    memberships
+
+	// every is how often the stream rechecks, which is recheckInterval outside
+	// the tests that need to watch it happen.
+	every time.Duration
+}
+
+func NewPersonHandler(
+	logger *slog.Logger,
+	broker *Broker,
+	sessions sessionAuthenticator,
+	rooms memberships,
+) *PersonHandler {
+	return &PersonHandler{logger: logger, broker: broker, sessions: sessions, rooms: rooms, every: recheckInterval}
+}
+
+/*
+Stream upgrades the request and delivers the person's events until one side
+stops.
+
+What the stream covers is read before the upgrade, for the reason the tenant's
+handler gives: a person whose rooms cannot be read is told so with a status
+code, rather than handed a socket that would stay silent forever.
+*/
+func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http.Request) {
+	principal, found := sessions.PrincipalFromContext(request.Context())
+	token, presented := sessions.Present(request)
+	if !found || !presented {
+		path := strings.ReplaceAll(strings.ReplaceAll(request.URL.Path, "\n", ""), "\r", "")
+		handler.logger.Error("a session route was reached without a session",
+			"method", request.Method,
+			"path", path,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+		handler.fail(response, request, api.NewFailure(http.StatusUnauthorized,
+			api.CodeUnauthenticated, "The request did not carry a usable credential."))
+		return
+	}
+
+	stream, err := AsPerson(handler.broker, principal).Subscribe()
+	if err != nil {
+		handler.refuse(response, request, principal, err)
+		return
+	}
+	defer stream.Close()
+
+	if err := stream.Reconcile(handler.roomsOf(request.Context(), principal)); err != nil {
+		handler.logger.Error("read the rooms a person's event stream covers",
+			"error", err,
+			"session_id", principal.SessionID,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
+			api.CodeInternal, "The server encountered an unexpected condition."))
+		return
+	}
+
+	connection, ok := accept(handler.logger, response, request, "session_id", principal.SessionID)
+	if !ok {
+		return
+	}
+	defer connection.CloseNow()
+
+	handler.logger.Info("person event stream opened",
+		"session_id", principal.SessionID,
+		"request_id", api.RequestIDFromContext(request.Context()),
+		"active_streams", handler.broker.Active(),
+	)
+
+	status, reason := deliver(request.Context(), connection, stream, &recheck{
+		every: handler.every,
+		run: func(ctx context.Context) (websocket.StatusCode, string, bool) {
+			return handler.recheck(ctx, token, principal, stream)
+		},
+	})
+
+	handler.logger.Info("person event stream closed",
+		"session_id", principal.SessionID,
+		"request_id", api.RequestIDFromContext(request.Context()),
+		"close_status", int(status),
+		"close_reason", reason,
+		"delivered", stream.Delivered(),
+	)
+}
+
+/*
+recheck asks whether the stream should stay open, and which rooms it covers.
+
+A session that no longer authenticates ends the stream. A check that could not
+be made does not: the database being briefly unreachable says nothing about the
+person, and closing every stream on an instance because of it would send every
+open tab to reconnect at once, into the same outage.
+
+Authenticating again also counts as using the session, exactly as a request
+does. An open tab keeps its session from going idle, which is what the tab
+polling every few seconds already did.
+*/
+func (handler *PersonHandler) recheck(
+	ctx context.Context,
+	token string,
+	principal sessions.Principal,
+	stream *Stream,
+) (websocket.StatusCode, string, bool) {
+	checking, cancel := context.WithTimeout(ctx, recheckTimeout)
+	defer cancel()
+
+	_, err := handler.sessions.Authenticate(checking, token)
+	if errors.Is(err, sessions.ErrUnauthenticated) {
+		return statusSessionEnded, "the session this stream was opened with has ended", true
+	}
+	if err != nil {
+		handler.logger.Warn("a person's event stream could not recheck its session",
+			"error", err, "session_id", principal.SessionID)
+		return 0, "", false
+	}
+
+	if err := stream.Reconcile(handler.roomsOf(checking, principal)); err != nil {
+		handler.logger.Warn("a person's event stream could not read their rooms again",
+			"error", err, "session_id", principal.SessionID)
+	}
+	return 0, "", false
+}
+
+func (handler *PersonHandler) roomsOf(ctx context.Context, principal sessions.Principal) func() ([]string, error) {
+	return func() ([]string, error) {
+		return handler.rooms.RoomIDsOf(ctx, principal.ApplicationID, principal.UserID)
+	}
+}
+
+// refuse answers a person's subscription that was not opened, before any
+// upgrade. See TenantHandler.refuse.
+func (handler *PersonHandler) refuse(
+	response http.ResponseWriter,
+	request *http.Request,
+	principal sessions.Principal,
+	err error,
+) {
+	switch {
+	case errors.Is(err, ErrTooManyStreams):
+		handler.logger.Warn("person event stream refused because a ceiling was reached",
+			"session_id", principal.SessionID,
+			"active_streams", handler.broker.Active(),
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+		response.Header().Set("Retry-After", retryAfterSeconds)
+		handler.fail(response, request, api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
+			"Too many event streams are open. Close one or retry later."))
+
+	case errors.Is(err, ErrStopped):
+		handler.fail(response, request, api.NewFailure(http.StatusServiceUnavailable,
+			api.CodeUnavailable, "This instance is shutting down and is not accepting event streams."))
+
+	default:
+		handler.logger.Error("open person event stream",
+			"error", err,
+			"session_id", principal.SessionID,
+			"request_id", api.RequestIDFromContext(request.Context()),
+		)
+		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
+			api.CodeInternal, "The server encountered an unexpected condition."))
+	}
+}
+
+/*
+fail answers privately, like every refusal on the session surface: whether a
+stream opened depends on the cookie, and a cache that kept the answer would
+serve it to somebody else.
+*/
+func (handler *PersonHandler) fail(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Add("Vary", "Cookie")
+	if err := api.WriteFailure(response, request, failure); err != nil {
+		handler.logger.Error("write person event stream failure",
 			"error", err, "request_id", api.RequestIDFromContext(request.Context()))
 	}
 }
