@@ -116,18 +116,77 @@ func (service *Service) Create(ctx context.Context, applicationID string, defini
 		return Room{}, err
 	}
 
+	room, err := define(applicationID, definition)
+	if err != nil {
+		return Room{}, err
+	}
+
+	if err := service.store.Create(ctx, room); err != nil {
+		return Room{}, err
+	}
+
+	service.audit(ctx, "room.created", room)
+	return room, nil
+}
+
+/*
+CreateFor makes a room with one person already in it.
+
+It is how somebody signed in to Convia's own product opens a place to talk. The
+membership is part of the creation rather than a step after it, for the reason
+Store.CreateWithMember gives: a room nobody is in is a room no person can reach.
+
+The person is checked first, so a suspended one is refused before anything is
+written rather than left owning a room they cannot open.
+*/
+func (service *Service) CreateFor(ctx context.Context, applicationID, userID string,
+	definition Definition) (Room, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return Room{}, err
+	}
+
+	if err := service.requirePerson(ctx, applicationID, userID); err != nil {
+		return Room{}, err
+	}
+
+	room, err := define(applicationID, definition)
+	if err != nil {
+		return Room{}, err
+	}
+
+	member := Member{
+		ApplicationID: applicationID,
+		RoomID:        room.ID,
+		UserID:        userID,
+		CreatedAt:     room.CreatedAt,
+	}
+	if err := service.store.CreateWithMember(ctx, room, member); err != nil {
+		return Room{}, err
+	}
+
+	service.audit(ctx, "room.created", room)
+	service.recordMembership(ctx, "room.member_added", member)
+	return room, nil
+}
+
+// define validates what a caller asked for and builds the room it describes,
+// without writing anything.
+func define(applicationID string, definition Definition) (Room, error) {
 	alias, err := NormalizeAlias(definition.Alias)
 	if err != nil {
 		return Room{}, err
 	}
+
 	name, err := NormalizeName(definition.Name)
 	if err != nil {
 		return Room{}, err
 	}
+
 	metadata, err := NormalizeMetadata(definition.Metadata)
 	if err != nil {
 		return Room{}, err
 	}
+
 	capacity, err := NormalizeMaxParticipants(definition.MaxParticipants)
 	if err != nil {
 		return Room{}, err
@@ -145,12 +204,6 @@ func (service *Service) Create(ctx context.Context, applicationID string, defini
 		CreatedAt:       created,
 		UpdatedAt:       created,
 	}
-
-	if err := service.store.Create(ctx, room); err != nil {
-		return Room{}, err
-	}
-
-	service.audit(ctx, "room.created", room)
 	return room, nil
 }
 

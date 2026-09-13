@@ -44,6 +44,11 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 | `GET/POST /v1/me/rooms/{id}/messages` | read a room, say something |
 | `PUT /v1/me/rooms/{id}/read_state` | how far it has been read |
 | `PATCH`/`POST …/delete` on a message | change or withdraw your own words |
+| `POST /v1/me/rooms` | open a room, with a name and nothing else |
+| `GET /v1/me/rooms/{id}/members` | who is here, by name — also how speakers are named |
+| `GET /v1/me/people` | who could be added |
+| `PUT /v1/me/rooms/{id}/members/{user_id}` | add somebody |
+| `POST /v1/me/rooms/{id}/leave` | leave |
 | `DELETE /v1/sessions/current` | sign out |
 
 There is **no token in the page**. The session is a cookie the script cannot read, which is what makes it survive an XSS in this very bundle — and also what means the page cannot answer "who am I" by itself. It asks. That is why `GET /v1/me` happens before anything is drawn: guessing would flash the sign-in form at somebody already signed in, on every reload.
@@ -55,6 +60,16 @@ There is **no token in the page**. The session is a cookie the script cannot rea
 **An unreachable server is not a wrong password.** A network failure and a refusal are different types in the client for this reason: telling somebody their password is wrong when the connection dropped is a lie that costs them their next ten minutes.
 
 **What was typed survives a failure.** The composer clears only once Convia has taken the message. Clearing on submit is the common shortcut and it loses the words on every failure — and the words are the one thing on the screen that cannot be fetched again.
+
+## Who a person can add
+
+The people panel offers everybody Convia lists under `GET /v1/me/people` who is not already in the room, and **nothing else — there is no field to type an address or an identifier into**. That is the client half of a rule the server makes: a person names only somebody they already share a room with, because a lookup by address would confirm who has an account. A text box would be an invitation to guess at exactly that. See [`rooms.md`](rooms.md#acting-as-yourself).
+
+When somebody cannot be added, the panel says one sentence. Convia gives one answer for a stranger, an identifier that names nobody, and somebody suspended, and wording them differently here would be inventing the distinction the server refused to make.
+
+There is no way to remove anybody. Convia offers none to a person, and a button that could only ever fail is worse than no button. Leaving asks first, because getting back in needs somebody still inside.
+
+Speakers are named from the member list, which is read when a conversation opens rather than polled. A message from somebody the list does not know asks for it again, once per person: that is how somebody added a moment ago gets a name, and the once is what keeps an author who has since left from turning into a request loop.
 
 ## It polls, and that is a gap rather than a design
 
@@ -123,7 +138,8 @@ Named here rather than discovered later.
 
 - **No real-time.** See above: there is nothing for a person to subscribe to. `M18-018`.
 - **No router.** There is one screen and a selected room, and the URL does not change. It works because the server answers every path with the page, so adding a router later is additive.
-- **No room creation, and no way to add anybody.** A person can read and write in the rooms they are already in. Putting somebody in a room is an application's decision today, made with a key — `M18-003` is what makes it a person's.
+- **The lists of people are one page.** Somebody who shares rooms with more than a hundred people sees the first hundred. Paging wants a screen where it matters.
+- **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.
 - **No calls.** `M18-004` through `M18-008`, and the policy change that comes with them.
 - **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
 - **The webfonts are not bundled.** See *The design*.

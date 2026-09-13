@@ -136,6 +136,7 @@ type Dependencies struct {
 	TenantInvitations  *invitations.TenantHandler
 	TenantMessages     *messages.TenantHandler
 	PersonalMessages   *messages.SessionHandler
+	PersonalRooms      *rooms.SessionHandler
 
 	/*
 		TenantEvents is the one route that is not a request and a response. It
@@ -770,6 +771,33 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.PersonalMessages.Edit)},
 			route{method: http.MethodPost, path: api.Prefix + "/me/messages/{message_id}/delete", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.PersonalMessages.Delete)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalRooms != nil {
+		/*
+			A person opening rooms and deciding who is in them.
+
+			Four acts and no more: open a room, add somebody, leave, and see who
+			is here and who could be. Removing somebody else is absent, because
+			membership carries no role for that power to rest on, and deciding
+			moderation by accident is what M32-004 warns against.
+
+			Discovery is a shared room. A person names only somebody they are
+			already in a room with, so nothing here confirms whether an address
+			or an identifier belongs to anybody.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/me/rooms", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalRooms.Create)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/rooms/{room_id}/members", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalRooms.Members)},
+			route{method: http.MethodPut, path: api.Prefix + "/me/rooms/{room_id}/members/{user_id}",
+				surface: surfaceSession, handler: http.HandlerFunc(dependencies.PersonalRooms.AddMember)},
+			route{method: http.MethodPost, path: api.Prefix + "/me/rooms/{room_id}/leave", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalRooms.Leave)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/people", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalRooms.People)},
 		)
 	}
 

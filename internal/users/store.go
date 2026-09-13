@@ -186,6 +186,43 @@ func (store *Store) Get(ctx context.Context, applicationID, id string) (User, er
 }
 
 /*
+Many reads several of an application's people at once.
+
+It exists for the lists a signed-in person sees — who is in a room, who they
+could add to one — which name everybody on the screen. Reading them one at a
+time would be a query per row, which is the shape rooms.Store.Many exists to
+avoid for the sidebar.
+
+A deleted user, or one belonging to another application, is absent rather than
+reported: the caller already knows which identifiers it asked about.
+*/
+func (store *Store) Many(ctx context.Context, applicationID string, ids []string) (map[string]User, error) {
+	if len(ids) == 0 {
+		return map[string]User{}, nil
+	}
+
+	const statement = `SELECT ` + columns + ` FROM users
+	                   WHERE application_id = $1 AND id = ANY($2) AND status <> $3`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, ids, StatusDeleted)
+	if err != nil {
+		return nil, fmt.Errorf("query users: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, fmt.Errorf("read users: %w", err)
+	}
+
+	found := make(map[string]User, len(records))
+	for _, record := range records {
+		user := record.user()
+		found[user.ID] = user
+	}
+	return found, nil
+}
+
+/*
 List returns a page of the users of one application, newest first.
 
 Paging is keyset based on the same ordering the index provides, so a page stays

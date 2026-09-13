@@ -32,21 +32,37 @@ export function Workspace({
   const [mode, setMode] = useState<Mode>('chat')
   const [selected, setSelected] = useState<string | null>(null)
 
-  const { rooms, loading, failed, refresh } = useRooms(onSignedOut)
+  const { rooms, loading, failed, refresh, remember, forget } = useRooms(onSignedOut)
 
   /*
   Something has to be open, and the first room is the only defensible guess
-  until the interface remembers where somebody was. Once a choice has been made
-  it is kept, including when the room list is refreshed under it.
+  until the interface remembers where somebody was.
+
+  Only an empty choice is filled. A chosen room that is momentarily missing from
+  the list — opened a moment before the read that will include it, or read by a
+  request that started before it existed — is left chosen, and the conversation
+  reappears when the list catches up rather than jumping somewhere else first.
   */
   useEffect(() => {
     if (selected === null && rooms.length > 0) {
       setSelected(rooms[0]?.id ?? null)
     }
-    if (selected !== null && rooms.length > 0 && !rooms.some((room) => room.id === selected)) {
-      setSelected(rooms[0]?.id ?? null)
-    }
   }, [rooms, selected])
+
+  async function create(name: string) {
+    const room = await api.createRoom(name)
+    remember({ id: room.id, name: room.name, status: room.status, unread: 0 })
+    setSelected(room.id)
+    refresh()
+  }
+
+  async function leave(roomId: string) {
+    await api.leave(roomId)
+    const next = rooms.find((room) => room.id !== roomId)?.id ?? null
+    forget(roomId)
+    setSelected(next)
+    refresh()
+  }
 
   async function signOut() {
     try {
@@ -82,7 +98,13 @@ export function Workspace({
           bg-surface-deep md:max-h-none md:border-r md:border-b-0"
         aria-label="Conversations"
       >
-        <Sidebar rooms={rooms} selected={selected} loading={loading} onSelect={setSelected} />
+        <Sidebar
+          rooms={rooms}
+          selected={selected}
+          loading={loading}
+          onSelect={setSelected}
+          onCreate={create}
+        />
         {failed && (
           <p className="m-0 border-t border-line px-4 py-2 text-[0.75rem] text-ink-faint" role="status">
             Convia could not be reached. Retrying.
@@ -95,7 +117,7 @@ export function Workspace({
           <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
             <p className="m-0">Nothing is open.</p>
             <p className="m-0 text-[0.85rem] text-ink-faint">
-              Pick a conversation on the left, or ask somebody to add you to one.
+              Pick a conversation on the left, or open a new one.
             </p>
           </div>
         ) : (
@@ -105,6 +127,7 @@ export function Workspace({
             account={account}
             onExpired={onSignedOut}
             onActivity={refresh}
+            onLeave={leave}
           />
         )}
       </main>
