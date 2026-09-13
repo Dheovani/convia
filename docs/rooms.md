@@ -211,16 +211,59 @@ room's members, the room for somebody's rooms — so the cursor is the last
 identifier on the page rather than an encoded pair. A member carries **no
 display name**, for the reason a call roster does not.
 
-### Not built yet
+### Acting as yourself
 
-The session surface. Membership exists and is enforceable, but nothing enforces
-it yet, because no route lets a person act as themselves on a room. That is the
-next step, and it is what `M31-009` is finally for: `GET /v1/me/rooms`, and the
-message routes underneath it, where the author is the session rather than a
-field in the request.
+The session surface arrived in two steps. `M31-009` let a person read and write in the rooms they are already in — see [`messages.md`](messages.md#acting-as-yourself). `M18-003` lets them open rooms and decide who is in them, which is what makes Convia's own product usable without an application key behind every room.
+
+| Route | What it does |
+| --- | --- |
+| `POST /v1/me/rooms` | open a room; whoever opens it is in it |
+| `GET /v1/me/rooms/{room_id}/members` | who is here, by name |
+| `PUT /v1/me/rooms/{room_id}/members/{user_id}` | add somebody |
+| `POST /v1/me/rooms/{room_id}/leave` | leave |
+| `GET /v1/me/people` | who I could add |
+
+**Four acts, and the list is the design.** A person may open a room, add somebody, leave, and see who is here and who could be. Everything else a room can undergo stays with the application, where scopes exist.
+
+#### A person names only somebody they already share a room with
+
+That is the whole of discovery. There is no lookup by address, because a lookup that confirmed whether an address has an account would be an enumeration oracle — which the sign-in form deliberately refuses to be, and which `M32-002` names as the thing to avoid.
+
+Sharing a room is the consent. Somebody already decided those two people belong in one place, so letting one of them bring the other somewhere else reveals nothing and invites nobody new. The consequence is honest rather than a gap: the graph has roots, and somebody — an application, or an operator seeding Convia's own product — has to put a person in their first room.
+
+A deleted room introduces nobody. It is gone from the API, and a membership it left behind must not keep introducing the people who were in it.
+
+#### Every reason somebody cannot be added is one answer
+
+An identifier that names nobody, a stranger, and somebody who shares a room but is suspended all answer `404 not found` with the same words. The first distinction would reveal which identifiers exist; the last would tell one person about another's suspension. For the same reason, `GET /v1/me/people` leaves suspended people out rather than listing people who cannot be added.
+
+The application surface keeps all three distinctions. An application is entitled to know them about its own people; a person is not.
+
+#### Opening a room is one write
+
+The room and its first member are written in one transaction. As two writes, a failure between them would leave a room nobody is in — and on this surface, where reaching a room requires being in it, nobody who can see that room could ever reach it again. A test makes the member insert fail against the real foreign key and asserts the room did not survive.
+
+A person opens a room with **a name and nothing else**. An alias is the application's own namespace, metadata is its own data, and a capacity is a policy; a person setting any of them would be deciding something on the application's behalf, and an alias in particular would let one person squat a name the application meant to use. The schema forbids the other fields, so a client sending one is told so rather than having it quietly ignored.
+
+#### What a person cannot do
+
+**Remove somebody else.** Membership carries no role, so there is no owner for that power to rest on. Inventing one here would be deciding moderation by accident, and `M32-004` names moderation as the part of this area that is dangerous to guess at.
+
+**Rename, close, or delete a room.** Without a role there is no good answer to who may, and a room is named when it is opened.
+
+**Leave on somebody else's behalf.** Leaving is `POST …/leave` rather than `DELETE …/members/{user_id}`, because on this surface that address could only ever name the caller, and a path carrying an identifier with exactly one legal value is a path inviting somebody to try another.
+
+#### Members carry names here, and not on the application surface
+
+An application owns its people's names and reads them itself, which is why a `RoomMember` carries none. A person has no other way to learn what to call somebody, and everybody they can see is somebody they already share a room with, so the session surface's `Person` carries a display name. Names are resolved in one read for the whole page rather than one per row.
+
+#### Not built yet
+
+- **Nothing announces a change of membership.** There is no `member.*` event, so being added to a room is discovered when the sidebar next asks. That matters little until a person can subscribe to anything at all, which is `M18-018`.
+- **No `Idempotency-Key` on this surface.** The idempotency guard identifies a caller by an application or operator credential, and a session is neither. Opening a room twice opens two rooms; the interface disables its button while a request is in flight.
+- **Contacts, requests, and blocking.** Still `M32`. Sharing a room answers how one person names another for now; it does not answer who may reach whom without one.
 
 ## Not Yet Implemented
 
-- **Membership and access policy** (`M08-010`). Convia holds no credentials for an application's people, so it cannot decide who may enter a room; the application already knows. Inventing a policy model Convia could not enforce would be worse than having none.
 - **Erasure**, as above.
-- **Membership as a policy Convia enforces.** Still deliberately absent, and M10 restated why: Convia holds no credentials for an application's people. See [`participants.md`](participants.md).
+- **Moderation.** Membership is enforced on the session surface, but it carries no role: only the application can remove somebody else, or rename, close, or delete a room. Who else may is `M32-004`'s question, and it is deliberately not guessed at here. The reason `00009` and M10 gave for not modelling membership at all — that Convia held no credentials for an application's people — stopped being true when people began signing in, and is recorded above under *Membership*.

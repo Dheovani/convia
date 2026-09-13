@@ -1,15 +1,18 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 
-import type { Account, Message, SidebarRoom } from '../api/types'
+import type { Account, Message, Person, SidebarRoom } from '../api/types'
 import { useConversation } from '../state/useConversation'
+import { useMembers } from '../state/useMembers'
 import { Composer } from './Composer'
 import { Button, input } from './controls'
+import { label, RoomPeople } from './RoomPeople'
 
 interface ConversationProps {
   room: SidebarRoom
   account: Account
   onExpired: () => void
   onActivity: () => void
+  onLeave: (roomId: string) => Promise<void>
 }
 
 function when(timestamp: string): string {
@@ -38,14 +41,22 @@ A withdrawn message keeps its place and loses its words, which is what Convia
 stores: the record that something was said and taken back is part of the
 conversation, and collapsing the gap would silently rewrite what people
 remember reading.
+
+The author's name is shown when it changes, and read out every time. Repeating
+it on each line of a run is noise to somebody looking; omitting it from a line is
+a line with no speaker to somebody listening.
 */
 function Entry({
   message,
+  name,
+  showName,
   mine,
   onEdit,
   onWithdraw,
 }: {
   message: Message
+  name: string
+  showName: boolean
   mine: boolean
   onEdit: (body: string) => Promise<void>
   onWithdraw: () => Promise<void>
@@ -113,12 +124,19 @@ function Entry({
         </form>
       ) : (
         <>
-          <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.body}</span>
-          {message.edited_at !== undefined && (
-            <span className="text-[0.72rem] text-ink-faint" title={`Edited ${message.edited_at}`}>
-              (edited)
-            </span>
-          )}
+          <div className="min-w-0 flex-1">
+            {showName ? (
+              <p className="m-0 text-[0.8rem] font-semibold text-ink">{name}</p>
+            ) : (
+              <span className="sr-only">{name}: </span>
+            )}
+            <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.body}</span>
+            {message.edited_at !== undefined && (
+              <span className="ml-1 text-[0.72rem] text-ink-faint" title={`Edited ${message.edited_at}`}>
+                (edited)
+              </span>
+            )}
+          </div>
           {mine && (
             /*
             The actions appear on hover and on focus. Focus is the half that is
@@ -126,7 +144,7 @@ function Entry({
             keyboard.
             */
             <span
-              className="ml-auto flex gap-1 opacity-0 transition-opacity group-hover:opacity-100
+              className="flex flex-none gap-1 opacity-0 transition-opacity group-hover:opacity-100
                 focus-within:opacity-100"
             >
               <button
@@ -156,9 +174,66 @@ function Entry({
   )
 }
 
-export function Conversation({ room, account, onExpired, onActivity }: ConversationProps) {
+export function Conversation({ room, account, onExpired, onActivity, onLeave }: ConversationProps) {
   const { messages, loading, failed, send, edit, withdraw } = useConversation(room.id, onExpired)
+  const {
+    members,
+    loaded: membersLoaded,
+    failed: membersFailed,
+    reload: reloadMembers,
+  } = useMembers(room.id, onExpired)
+
+  const [showPeople, setShowPeople] = useState(false)
+  const panel = useId()
   const foot = useRef<HTMLDivElement>(null)
+
+  const byId = useMemo(() => new Map(members.map((person) => [person.user_id, person])), [members])
+
+  /*
+  A message from somebody the member list does not know asks for the list again,
+  once per person.
+
+  It is how somebody added a moment ago gets a name without the list being read
+  every few seconds. The set is what bounds it: somebody who is still unknown
+  after the list was read again has left, and asking a third time would not
+  change that.
+  */
+  const asked = useRef(new Set<string>())
+  useEffect(() => {
+    if (!membersLoaded) {
+      return
+    }
+    const unknown = messages
+      .map((message) => message.user_id)
+      .filter(
+        (userId): userId is string =>
+          userId !== undefined &&
+          userId !== account.user_id &&
+          !byId.has(userId) &&
+          !asked.current.has(userId),
+      )
+    if (unknown.length === 0) {
+      return
+    }
+    for (const userId of unknown) {
+      asked.current.add(userId)
+    }
+    reloadMembers()
+  }, [messages, membersLoaded, byId, account.user_id, reloadMembers])
+
+  function nameOf(message: Message): string {
+    if (message.user_id === undefined) {
+      return 'A guest'
+    }
+    if (message.user_id === account.user_id) {
+      return 'You'
+    }
+    const person: Person | undefined = byId.get(message.user_id)
+    if (person !== undefined) {
+      return label(person)
+    }
+    return membersLoaded ? 'Somebody who left' : 'Somebody'
+  }
 
   /*
   The view follows the conversation as it grows. It is `auto` rather than
@@ -170,78 +245,116 @@ export function Conversation({ room, account, onExpired, onActivity }: Conversat
   }, [messages.length])
 
   let previousDay = ''
+  let previousAuthor: string | undefined
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={room.name}>
-      <header className="flex items-baseline gap-3 border-b border-line px-5 py-3">
+      <header className="flex items-center gap-3 border-b border-line px-5 py-3">
         <h2 className="m-0 font-display text-base font-semibold">{room.name}</h2>
         {room.alias !== undefined && (
           <span className="font-mono text-[0.78rem] text-ink-faint">{room.alias}</span>
         )}
         {room.status === 'closed' && (
           <span
-            className="ml-auto rounded-full bg-surface-raised px-2 py-0.5 text-[0.68rem]
-              tracking-[0.06em] text-ink-faint uppercase"
+            className="rounded-full bg-surface-raised px-2 py-0.5 text-[0.68rem] tracking-[0.06em]
+              text-ink-faint uppercase"
           >
             closed
           </span>
         )}
+        <Button
+          size="small"
+          className="ml-auto"
+          aria-expanded={showPeople}
+          aria-controls={panel}
+          onClick={() => {
+            const opening = !showPeople
+            setShowPeople(opening)
+            if (opening) {
+              reloadMembers()
+            }
+          }}
+        >
+          People
+        </Button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
-        {loading && messages.length === 0 && (
-          <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">Loading…</p>
-        )}
-        {failed && (
-          <p className="mt-0 mb-3 text-[0.85rem] text-danger" role="alert">
-            This conversation could not be read. Convia will try again.
-          </p>
-        )}
-        {!loading && !failed && messages.length === 0 && (
-          <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">
-            Nothing has been said here yet.
-          </p>
-        )}
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
+            {loading && messages.length === 0 && (
+              <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">Loading…</p>
+            )}
+            {failed && (
+              <p className="mt-0 mb-3 text-[0.85rem] text-danger" role="alert">
+                This conversation could not be read. Convia will try again.
+              </p>
+            )}
+            {!loading && !failed && messages.length === 0 && (
+              <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">
+                Nothing has been said here yet.
+              </p>
+            )}
 
-        <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
-          {messages.map((message) => {
-            const today = day(message.created_at)
-            const opensADay = today !== previousDay
-            previousDay = today
+            <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
+              {messages.map((message) => {
+                const today = day(message.created_at)
+                const opensADay = today !== previousDay
+                const changesAuthor = message.user_id !== previousAuthor
+                previousDay = today
+                previousAuthor = message.deleted ? undefined : message.user_id
 
-            return (
-              <Fragment key={message.id}>
-                {opensADay && (
-                  <li
-                    className="mt-4 mb-2 flex items-center gap-3 text-[0.72rem] tracking-[0.06em]
-                      text-ink-faint uppercase before:h-px before:flex-1 before:bg-line
-                      before:content-[''] after:h-px after:flex-1 after:bg-line after:content-['']"
-                    aria-hidden="true"
-                  >
-                    <span>{today}</span>
-                  </li>
-                )}
-                <Entry
-                  message={message}
-                  mine={message.user_id === account.user_id}
-                  onEdit={(body) => edit(message.id, body)}
-                  onWithdraw={() => withdraw(message.id)}
-                />
-              </Fragment>
-            )
-          })}
-        </ul>
-        <div ref={foot} />
+                return (
+                  <Fragment key={message.id}>
+                    {opensADay && (
+                      <li
+                        className="mt-4 mb-2 flex items-center gap-3 text-[0.72rem] tracking-[0.06em]
+                          text-ink-faint uppercase before:h-px before:flex-1 before:bg-line
+                          before:content-[''] after:h-px after:flex-1 after:bg-line
+                          after:content-['']"
+                        aria-hidden="true"
+                      >
+                        <span>{today}</span>
+                      </li>
+                    )}
+                    <Entry
+                      message={message}
+                      name={nameOf(message)}
+                      showName={opensADay || changesAuthor}
+                      mine={message.user_id === account.user_id}
+                      onEdit={(body) => edit(message.id, body)}
+                      onWithdraw={() => withdraw(message.id)}
+                    />
+                  </Fragment>
+                )
+              })}
+            </ul>
+            <div ref={foot} />
+          </div>
+
+          <Composer
+            roomName={room.name}
+            disabled={room.status !== 'open'}
+            onSend={async (body) => {
+              await send(body)
+              onActivity()
+            }}
+          />
+        </div>
+
+        {showPeople && (
+          <RoomPeople
+            id={panel}
+            room={room}
+            account={account}
+            members={members}
+            membersFailed={membersFailed}
+            onChanged={reloadMembers}
+            onLeave={() => onLeave(room.id)}
+            onExpired={onExpired}
+          />
+        )}
       </div>
-
-      <Composer
-        roomName={room.name}
-        disabled={room.status !== 'open'}
-        onSend={async (body) => {
-          await send(body)
-          onActivity()
-        }}
-      />
     </section>
   )
 }

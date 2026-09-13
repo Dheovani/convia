@@ -282,3 +282,49 @@ func (service *Service) Many(ctx context.Context, applicationID string, ids []st
 	}
 	return found, nil
 }
+
+/*
+SharesRoom reports whether two of an application's people are in a room
+together.
+
+An identifier that could not name anybody answers false rather than an error,
+because the question is only ever asked on behalf of a person, and a person
+must not be able to tell a malformed identifier from a stranger.
+*/
+func (service *Service) SharesRoom(ctx context.Context, applicationID, userID, otherID string) (bool, error) {
+	if !users.ValidID(otherID) {
+		return false, nil
+	}
+	return service.store.SharesRoom(ctx, applicationID, userID, otherID)
+}
+
+// Acquaintances is one page of the people somebody shares a room with.
+type Acquaintances struct {
+	UserIDs    []string
+	NextCursor string
+}
+
+// Acquaintances returns one page of the people somebody could add to a room.
+// See Store.Acquaintances for who is left out and why.
+func (service *Service) Acquaintances(ctx context.Context, applicationID, userID string,
+	options MembershipOptions) (Acquaintances, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return Acquaintances{}, err
+	}
+
+	limit, err := pageSize(options.Limit)
+	if err != nil {
+		return Acquaintances{}, err
+	}
+
+	identifiers, more, err := service.store.Acquaintances(ctx, applicationID, userID, options.Cursor, limit)
+	if err != nil {
+		return Acquaintances{}, err
+	}
+
+	page := Acquaintances{UserIDs: identifiers}
+	if more && len(identifiers) > 0 {
+		page.NextCursor = identifiers[len(identifiers)-1]
+	}
+	return page, nil
+}

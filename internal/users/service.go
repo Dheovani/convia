@@ -314,6 +314,15 @@ func (service *Service) Get(ctx context.Context, applicationID, id string) (User
 	return service.store.Get(ctx, applicationID, id)
 }
 
+// Many returns several of an application's users, keyed by identifier. A user
+// that does not exist, is deleted, or belongs elsewhere is absent.
+func (service *Service) Many(ctx context.Context, applicationID string, ids []string) (map[string]User, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return nil, err
+	}
+	return service.store.Many(ctx, applicationID, ids)
+}
+
 // List returns one page of an application's users, newest first.
 func (service *Service) List(ctx context.Context, applicationID string, options ListOptions) (Page, error) {
 	if err := service.requireApplication(ctx, applicationID); err != nil {

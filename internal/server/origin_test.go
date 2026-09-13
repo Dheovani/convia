@@ -148,6 +148,48 @@ func TestARefusedOriginIsNotCached(t *testing.T) {
 }
 
 /*
+TestEveryStateChangingSessionRouteDocumentsItsOriginRefusal keeps the contract
+honest about the check the middleware makes.
+
+When the Origin check moved from inside a handler to the surface, every unsafe
+route on it began answering 403 to another page — including four that M31 had
+added without documenting one, because at the time they did not refuse. A
+client generated from the specification would not have known the answer
+existed. This walks the table, like the tripwire that enforces the check, so a
+route added later cannot be refused in practice and silent in the contract.
+*/
+func TestEveryStateChangingSessionRouteDocumentsItsOriginRefusal(t *testing.T) {
+	document := loadSpecification(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	checked := 0
+	for _, entry := range routeTable(logger, testDependencies()) {
+		if entry.surface != surfaceSession && entry.surface != surfaceSignIn {
+			continue
+		}
+		if entry.method == http.MethodGet || entry.method == http.MethodHead {
+			continue
+		}
+		checked++
+
+		item := document.Paths.Find(entry.path)
+		if item == nil {
+			t.Errorf("%s %s is not in the specification", entry.method, entry.path)
+			continue
+		}
+		operation := item.GetOperation(entry.method)
+		if operation == nil || operation.Responses.Status(http.StatusForbidden) == nil {
+			t.Errorf("%s %s is refused with 403 when it comes from another page, and the "+
+				"specification does not say so", entry.method, entry.path)
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("no state-changing route on the session surface, so this test proved nothing")
+	}
+}
+
+/*
 TestSigningInIsAlsoGuarded covers the surface that is not surfaceSession.
 
 Signing in authenticates nobody, so the walk over authenticated routes does not
