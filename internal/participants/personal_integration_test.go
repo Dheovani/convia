@@ -560,6 +560,30 @@ func TestAFinishedSessionLeavesAnApplicationsCallRunning(t *testing.T) {
 	}
 }
 
+/*
+TestAnApplicationsCallOutlivesItsLastConnection keeps a report of the last
+departure from ending a call Convia's own product does not hold: the person is
+recorded as having left, and the application still decides when its call ends.
+*/
+func TestAnApplicationsCallOutlivesItsLastConnection(t *testing.T) {
+	setup, _ := newMediaFixture(t)
+	ctx := context.Background()
+
+	call := setup.newCall(t, setup.first, nil)
+	participant := setup.join(t, setup.first, call.ID, setup.newUser(t, setup.first, "ana"), RoleMember)
+
+	if err := setup.service.Reported(ctx, reportAbout(call, media.ReportDisconnected, participant.ID)); err != nil {
+		t.Fatalf("Reported() error = %v", err)
+	}
+
+	if got := setup.participantNow(t, setup.first, participant.ID).Status; got != StatusLeft {
+		t.Errorf("an application's participant whose connection went away is %q, want %q", got, StatusLeft)
+	}
+	if setup.callNow(t, setup.first, call.ID).Ended() {
+		t.Error("an application's call was ended by its last connection going away")
+	}
+}
+
 func TestAReportAboutASessionConviaDoesNotKnowIsIgnored(t *testing.T) {
 	setup, _ := newMediaFixture(t)
 
