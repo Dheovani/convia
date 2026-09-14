@@ -167,6 +167,51 @@ export interface JoinedRoom {
   remote_room?: RemoteRoom
 }
 
+// RoomCall is a call a room is holding now.
+export interface RoomCall {
+  id: string
+  room_id: string
+  status: 'active'
+  created_at: string
+}
+
+export interface RoomCallList {
+  data: RoomCall[]
+}
+
+/*
+CallPresence is somebody in a call now, by the name they go by.
+
+`participant_id` is also who they are to the media server, which is how a
+connection on the screen is matched to a name.
+*/
+export interface CallPresence {
+  participant_id: string
+  user_id: string
+  display_name: string
+  role: 'moderator' | 'member'
+  joined_at: string
+}
+
+export interface CallPresencePage {
+  data: CallPresence[]
+  next_cursor?: string
+}
+
+/*
+JoinSession is what to connect to a call with.
+
+`media_token` is a credential. It is handed to the media client and kept nowhere
+else: not in state, not in storage, not in a log.
+*/
+export interface JoinSession {
+  participant_id: string
+  call_id: string
+  media_url: string
+  media_token: string
+  expires_at: string
+}
+
 export interface RoomMember {
   application_id: string
   room_id: string

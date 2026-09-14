@@ -125,7 +125,12 @@ person rather than a room. Each arrives when the interface can read what it is
 about — calls with M18-004 — and not before.
 */
 func personTypes() []Type {
-	return []Type{MessagePosted, MessageEdited, MessageDeleted, MemberAdded, MemberRemoved}
+	return []Type{
+		MessagePosted, MessageEdited, MessageDeleted,
+		MemberAdded, MemberRemoved,
+		CallStarted, CallEnded,
+		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
+	}
 }
 
 /*

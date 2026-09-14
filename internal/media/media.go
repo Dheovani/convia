@@ -16,15 +16,17 @@ nothing about a provider reaches the domain or the public contract.
 The operations here are the ones Convia's implemented flows require. A call
 begins, so a place for it must be realized; a call ends, so that place must be
 released; a person Convia has admitted needs something to connect with, so a
-credential must be issued.
+credential must be issued; a person Convia put out of a call must stop being in
+it, so their connection must be closed; and a report that somebody went away
+has to be checked against whether they are still there.
 
-Disconnecting someone who was removed is still absent. Convia already ends
-their participation and stops issuing them credentials, and a credential is
-short-lived, so the gap is bounded rather than open. Closing it means asking
-the provider to eject a live connection, which is a fourth operation added when
-the removal flow is finished rather than in anticipation of it.
+The media plane also tells Convia what happened, which is a [Report]. It is
+evidence, never an instruction: Convia decides what a report means for a call,
+and a report that did not come from the media plane is refused before anybody
+reads it.
 
-See docs/adr/0001-control-plane-media-plane-boundary.md.
+See docs/adr/0001-control-plane-media-plane-boundary.md and
+docs/adr/0014-a-call-in-a-room-ends-when-its-people-leave.md.
 */
 package media
 
@@ -186,6 +188,54 @@ func (credential Credential) Issued() bool {
 }
 
 /*
+ErrUnverified reports a report that cannot be shown to have come from the media
+plane.
+
+Every way a report can fail to prove where it came from is this one error: no
+signature, a signature made with another key, one that expired, a body that is
+not the one that was signed. Telling them apart would tell somebody probing the
+endpoint which part of a forgery to fix next.
+*/
+var ErrUnverified = errors.New("the report did not come from the media plane")
+
+/*
+ReportKind is what the media plane says happened.
+
+There are three, because those are the three Convia acts on. A provider says a
+great deal more — tracks published, recordings started, connections degrading —
+and none of it changes a call or a roster, so it is read as nothing rather than
+translated into a vocabulary nothing consumes.
+*/
+type ReportKind string
+
+const (
+	// ReportConnected means somebody connected to a session.
+	ReportConnected ReportKind = "connected"
+	// ReportDisconnected means somebody's connection to a session went away.
+	ReportDisconnected ReportKind = "disconnected"
+	// ReportFinished means the session itself is gone.
+	ReportFinished ReportKind = "finished"
+)
+
+/*
+Report is one thing the media plane observed.
+
+It names the session and, when it is about somebody, the identity they connected
+under — which is Convia's own participant identifier, because that is what an
+admission gives them. Nothing else crosses: no provider identifier for the
+connection, no tracks, no timing.
+
+A Report with no Kind is one Convia has nothing to do about, and it is answered
+as received rather than refused, so that a provider which says more than Convia
+listens to is not told it is doing something wrong.
+*/
+type Report struct {
+	Kind          ReportKind
+	Session       Session
+	ParticipantID string
+}
+
+/*
 Absent is the media plane of a Convia that has none.
 
 It is the implementation this project ships with today, and it is not a stub
@@ -221,4 +271,14 @@ a caller.
 */
 func (Absent) IssueCredential(context.Context, Admission) (Credential, error) {
 	return Credential{}, nil
+}
+
+// Disconnect has nobody to disconnect, because nobody could connect.
+func (Absent) Disconnect(context.Context, Session, string) error {
+	return nil
+}
+
+// Connected reports nobody, for the same reason.
+func (Absent) Connected(context.Context, Session, string) (bool, error) {
+	return false, nil
 }

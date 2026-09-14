@@ -113,6 +113,8 @@ This is **not** a defence against guessing a key. A secret with 130 bits of entr
 
 Checking before verifying has a consequence worth stating plainly: **while an address is out of budget, even a valid key from that address is refused.** Verifying it is precisely the work being declined. Counting a flood without stopping it would protect nothing, so this is the deliberate half of the trade.
 
+**A caller that went away is not charged.** A verification that failed because the request was cancelled while the credential was being read says nothing about the credential. Browsers cancel requests all the time — asking again before an answer arrived, or leaving a page — and charging those let Convia's own page spend its person's budget until everything it asked was refused, leaving a call included. The request is still refused; it is only not counted.
+
 The numbers are chosen around that. One indexed read takes a few hundred microseconds and PostgreSQL serves tens of thousands a second, so a tight budget would buy almost nothing while making the collateral refusal likely. Sixty per minute leaves a misconfigured client retrying every few seconds far from the limit, and still cuts a flood to one attempt a second.
 
 ### Running behind a proxy

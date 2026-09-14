@@ -152,7 +152,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
 	operatorService := operator.NewService(operator.NewStore(pool), logger)
-	mediaPlane, err := openMediaPlane(cfg.Media, logger)
+	mediaPlane, mediaReports, err := openMediaPlane(cfg.Media, logger)
 	if err != nil {
 		return err
 	}
@@ -202,6 +202,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		mediaPlane, announcer, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
 		applicationService, callService, roomService, userService, announcer, logger)
+
+	/*
+		A room tells the call it is holding when it changes under it: deleted,
+		or somebody losing their place. The participants service is built from
+		the rooms service, so it is attached afterwards rather than passed in,
+		and before anything is served.
+	*/
+	roomService.InformCalls(participantService)
 	invitationService := invitations.NewService(invitations.NewStore(pool),
 		applicationService, callService, userService, participantService, announcer, logger)
 	messageService := messages.NewService(messages.NewStore(pool),
@@ -301,6 +309,19 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),
 		RoomInvitations:   peers.NewSessionHandler(logger, peerService, sessionService),
+
+		PersonalCalls: participants.NewSessionHandler(logger, participantService, roomService, userService),
+	}
+
+	/*
+		Only a media plane that exists can report anything, so the route a
+		report is sent to is served only when one is configured.
+	*/
+	mediaAddress := ""
+	if mediaReports != nil {
+		dependencies.MediaReporter = mediaReports
+		dependencies.MediaReports = participants.NewReportHandler(logger, participantService)
+		mediaAddress = mediaReports.ClientURL()
 	}
 
 	/*
@@ -310,7 +331,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		A binary built without the frontend bundle says so at startup and in
 		the page itself, rather than being silently absent.
 	*/
-	site := web.New(logger)
+	site := web.New(logger, mediaAddress)
 	dependencies.Interface = site
 	if !site.Built() {
 		logger.Warn("this binary carries no interface, so only the API is served",
@@ -440,12 +461,16 @@ it is reported at info rather than as a warning: an operator running the
 control plane on its own should not be told every start-up that something is
 wrong. What would be wrong is a half-configured one, and internal/config
 refuses that before this is reached.
+
+The adapter is returned a second time, as itself, because it is also what
+verifies the reports the media plane sends. It is nil when there is no media
+plane, and the caller serves no report route then.
 */
-func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlane, error) {
+func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlane, *livekit.Plane, error) {
 	if !settings.Configured() {
 		logger.Info("no media plane is configured, so calls carry no audio or video",
 			"remedy", "set CONVIA_LIVEKIT_URL, CONVIA_LIVEKIT_API_KEY, and CONVIA_LIVEKIT_API_SECRET")
-		return media.Absent{}, nil
+		return media.Absent{}, nil, nil
 	}
 
 	plane, err := livekit.New(livekit.Config{
@@ -457,13 +482,14 @@ func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlan
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("open the media plane: %w", err)
+		return nil, nil, fmt.Errorf("open the media plane: %w", err)
 	}
 
 	// The URL is logged and the key is not: one is an address, the other is
 	// half of a credential.
-	logger.Info("media plane configured", "url", settings.URL, "timeout", settings.Timeout)
-	return plane, nil
+	logger.Info("media plane configured", "url", settings.URL, "timeout", settings.Timeout,
+		"reports", "/media/reports")
+	return plane, plane, nil
 }
 
 /*

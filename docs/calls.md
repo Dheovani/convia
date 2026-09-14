@@ -49,7 +49,9 @@ Two requests arriving together cannot both win. An application-level check would
 
 Every ending records an **actor** and, optionally, a **reason**.
 
-The actor is `application` or `operator`. It names the authority that made the request, not the person who was talking — who was in the call is a participant, which is M10.
+The actor is `application`, `operator`, `person` or `system`. It names the authority that made the request, not the person who was talking — who was in the call is a participant, which is M10.
+
+`person` is somebody signed in to Convia's own product: they started a call in a room they are in, or were the last to leave one. Which person is not recorded, for the reason the actor never names an application's key. `system` is Convia ending a call nobody asked to end — the media server reported that its last connection went away, or the room it was held in was deleted — and it only ever ends one.
 
 **The actor is decided by the verified credential, never by a request field.** A body that could name the actor would let an application record an operator's name against its own decision, which would make the history worthless exactly when it matters.
 
@@ -77,6 +79,18 @@ This is the decision [`rooms.md`](rooms.md) recorded and this milestone implemen
 - **A conversation already in progress runs to its end.** Closing a room does not touch it. Ending a conversation people are having because an administrator tidied a listing would be the wrong default.
 - **A call in a closed room can still be ended**, by either surface.
 - **A deleted room answers `404 not found`**, not `409`. Closed is a state the application chose and can undo; deleted is gone from the API, and reporting it as closed would invite a caller to reopen something that is not there.
+- **Deleting a room ends the call it was holding**, whoever deleted it, recorded as ended by `system` with the reason *The room was deleted.* Nobody can find a call in a room that is gone, so leaving it running would serve nobody. This is `M18-004`'s, and [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md) records it.
+
+## Calls in Convia's Own Product
+
+A person signed in to Convia reaches a call through the room it is held in, under `/v1/me/rooms/{room_id}/call`. The rules are the product owner's, and [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md) records them:
+
+- **Any member of the room joins its call, and joining a quiet room starts one.** `POST .../call/join` answers `201` when it started the call and `200` when it joined one, and two people starting at once end up in the same call.
+- **Nobody ends a call for everybody.** It ends when its last participant has gone: `person` when they left by asking, `system` when the media server reported their connection gone or their place in the room went away.
+- **Whether a call is empty is decided under the call's lock**, which joining takes too, so somebody arriving as the last person leaves either keeps the call running or starts a new one, and is never seated in a call that ended around them.
+- **The room's owner joins as the call's moderator** and may put somebody out of it, who is disconnected at once.
+
+`GET /v1/me/calls` lists the calls running in the person's rooms. Only calls in rooms a person opened end when they empty; an application's calls end when the application ends them.
 
 ## What an Operator May Do
 
@@ -119,7 +133,6 @@ Starting and ending a call are audited. The record names the call, its room, its
 
 ## Not Yet Implemented
 
-- **Reconciliation of stale active calls** (`M09-015`). A stale active call is one whose conversation is over but whose record was never ended, because a process died between the two. Convia cannot detect one today: with no media plane, it has no evidence about a call independent of the requests it received, so every active call is active as far as anything can tell. When the media plane exists, reconciliation ends such calls with a `system` actor — an actor deliberately absent until something produces it — and the room is freed by the same ending that frees it now.
-- **Anyone to connect to a call.** The media plane is implemented: a call asks it for the room the conversation happens in and releases that room when the call ends, and a call whose session cannot be realized is ended rather than left holding its room. What is missing is the credential a participant would connect with, which arrives with the join sessions of M13. A deployment may also run with no media plane at all, in which case every session realizes as nothing. See [`media.md`](media.md).
+- **Reconciliation of stale active calls** (`M09-015`), in part. The media server now reports what happens to a call's connections, and a call in a room a person opened whose last connection went away, or whose session finished, is ended by `system` as that section of [`media.md`](media.md#what-the-media-server-reports) describes. What is still not built is anything that notices without a report: an application's call is never ended by one, and a call whose reports could not reach Convia runs until somebody ends or leaves it.
 - **Invitations and guests**, the remaining slice of `M10`, deferred to the join sessions of M13 where the party presenting an invitation is no longer the party that granted it. See [`participants.md`](participants.md).
 - **Media** (`M11`, `M12`). The provider's session reference is stored beside the call and never in the public representation: `calls.Call` has no field for it, and a contract test asserts the published schema carries only Convia-owned fields.

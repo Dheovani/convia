@@ -35,6 +35,13 @@ export default defineConfig({
     repository, which is where somebody debugging this should be looking.
     */
     sourcemap: false,
+    /*
+    The media client is one chunk of about 560 kB, loaded only when somebody
+    joins a call rather than with the page. The default warning is about chunks
+    a page waits for, and this is not one, so the limit is set just above it:
+    anything that grows past it still warns.
+    */
+    chunkSizeWarningLimit: 600,
   },
   server: {
     /*

@@ -21,8 +21,43 @@ to the right person, in the right session, for the lifetime Convia's policy
 says.
 */
 type standInPlane struct {
-	mutex    sync.Mutex
-	admitted []media.Admission
+	mutex        sync.Mutex
+	admitted     []media.Admission
+	disconnected []string
+	connected    map[string]bool
+}
+
+func (plane *standInPlane) Disconnect(_ context.Context, _ media.Session, participantID string) error {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+
+	plane.disconnected = append(plane.disconnected, participantID)
+	delete(plane.connected, participantID)
+	return nil
+}
+
+func (plane *standInPlane) Connected(_ context.Context, _ media.Session, participantID string) (bool, error) {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+	return plane.connected[participantID], nil
+}
+
+// connect makes the plane report somebody as connected until they are
+// disconnected.
+func (plane *standInPlane) connect(participantID string) {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+
+	if plane.connected == nil {
+		plane.connected = make(map[string]bool)
+	}
+	plane.connected[participantID] = true
+}
+
+func (plane *standInPlane) disconnections() []string {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+	return append([]string(nil), plane.disconnected...)
 }
 
 func (plane *standInPlane) OpenSession(_ context.Context, request media.SessionRequest) (media.Session, error) {

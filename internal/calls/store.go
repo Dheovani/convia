@@ -252,6 +252,155 @@ func (store *Store) End(ctx context.Context, applicationID, id string,
 	return record.call(), true, nil
 }
 
+// Current returns the active call in a room, or ErrNotFound when it has none.
+func (store *Store) Current(ctx context.Context, applicationID, roomID string) (Call, error) {
+	const statement = `SELECT ` + columns + ` FROM calls
+	                   WHERE application_id = $1 AND room_id = $2 AND status = $3`
+
+	return store.one(ctx, statement, applicationID, roomID, StatusActive)
+}
+
+// ActiveIn returns the active calls in any of the named rooms, newest first.
+func (store *Store) ActiveIn(ctx context.Context, applicationID string, roomIDs []string) ([]Call, error) {
+	const statement = `SELECT ` + columns + ` FROM calls
+	                   WHERE application_id = $1 AND room_id = ANY($2) AND status = $3
+	                   ORDER BY created_at DESC, id DESC`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, roomIDs, StatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("query calls in rooms: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, fmt.Errorf("read calls in rooms: %w", err)
+	}
+
+	running := make([]Call, 0, len(records))
+	for _, record := range records {
+		running = append(running, record.call())
+	}
+	return running, nil
+}
+
+/*
+BySession returns the call a media session realizes, whichever application it
+belongs to. See Service.BySession for why that is safe here and nowhere else.
+*/
+func (store *Store) BySession(ctx context.Context, reference string) (Call, error) {
+	const statement = `SELECT ` + columns + ` FROM calls WHERE media_session = $1`
+
+	return store.one(ctx, statement, reference)
+}
+
+// one reads a single call, reporting ErrNotFound when the statement matched none.
+func (store *Store) one(ctx context.Context, statement string, arguments ...any) (Call, error) {
+	rows, err := store.pool.Query(ctx, statement, arguments...)
+	if err != nil {
+		return Call{}, fmt.Errorf("query call: %w", err)
+	}
+
+	record, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Call{}, ErrNotFound
+	}
+	if err != nil {
+		return Call{}, fmt.Errorf("read call: %w", err)
+	}
+	return record.call(), nil
+}
+
+/*
+presentParticipant is the participation state that keeps a call going.
+
+It is a literal rather than an import so that this package does not depend on
+the participants package, which depends on this one. The constraint on the
+participants table keeps the vocabulary honest, and a test ends a real call
+that a real participant has left rather than trusting this constant.
+*/
+const presentParticipant = "joined"
+
+/*
+EndIfEmpty ends an active call that nobody is in, reporting whether it did.
+
+**The decision and the ending are one transaction under the call's row lock.**
+Joining takes the same lock before it admits anybody, so the count read here is
+the count at the moment of ending. Read without the lock, a person could be
+admitted between the count and the update and find themselves in a call that
+had just ended.
+
+The count is a second statement rather than a condition on the update, and that
+matters. PostgreSQL re-checks an update's condition against a row that changed
+while it waited, but a lock taken without a change is not a change, and a
+subquery keeps the snapshot it started with — so the condition would be judged
+against a roster from before the person who joined.
+*/
+func (store *Store) EndIfEmpty(
+	ctx context.Context,
+	applicationID,
+	id string,
+	by Actor,
+	reason string,
+	at time.Time,
+) (Call, bool, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return Call{}, false, fmt.Errorf("begin ending an empty call: %w", err)
+	}
+	// A commit makes this a no-op; anything else undoes the whole attempt.
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	const lock = `SELECT ` + columns + ` FROM calls
+	              WHERE application_id = $1 AND id = $2 FOR UPDATE`
+
+	rows, err := transaction.Query(ctx, lock, applicationID, id)
+	if err != nil {
+		return Call{}, false, fmt.Errorf("lock call: %w", err)
+	}
+
+	record, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Call{}, false, ErrNotFound
+	}
+	if err != nil {
+		return Call{}, false, fmt.Errorf("read locked call: %w", err)
+	}
+
+	if record.Status != StatusActive {
+		return record.call(), false, nil
+	}
+
+	const occupied = `SELECT EXISTS (SELECT 1 FROM participants WHERE call_id = $1 AND status = $2)`
+
+	var somebody bool
+	if err := transaction.QueryRow(ctx, occupied, id, presentParticipant).Scan(&somebody); err != nil {
+		return Call{}, false, fmt.Errorf("count who is in the call: %w", err)
+	}
+	if somebody {
+		return record.call(), false, nil
+	}
+
+	const end = `UPDATE calls
+	             SET status = $1, ended_at = $2, ended_by = $3, end_reason = $4, updated_at = $2
+	             WHERE id = $5
+	             RETURNING ` + columns
+
+	rows, err = transaction.Query(ctx, end, StatusEnded, at, by, optionalReason(reason), id)
+	if err != nil {
+		return Call{}, false, fmt.Errorf("end empty call: %w", err)
+	}
+
+	ended, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return Call{}, false, fmt.Errorf("read ended call: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return Call{}, false, fmt.Errorf("commit ending an empty call: %w", err)
+	}
+	return ended.call(), true, nil
+}
+
 /*
 AttachSession records which media session realizes a call.
 

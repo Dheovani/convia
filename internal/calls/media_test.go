@@ -21,14 +21,15 @@ it records what it was asked for, so an assertion can be about behavior rather
 than about timing.
 */
 type scriptedMedia struct {
-	mutex     sync.Mutex
-	opened    []string
-	closed    []string
-	admitted  []media.Admission
-	openErr   error
-	closeErr  error
-	admitErr  error
-	reference string
+	mutex        sync.Mutex
+	opened       []string
+	closed       []string
+	admitted     []media.Admission
+	disconnected []string
+	openErr      error
+	closeErr     error
+	admitErr     error
+	reference    string
 }
 
 func (plane *scriptedMedia) OpenSession(_ context.Context, request media.SessionRequest) (media.Session, error) {
@@ -69,6 +70,18 @@ func (plane *scriptedMedia) IssueCredential(_ context.Context, admission media.A
 		Token:     media.Token("token-for-" + admission.ParticipantID),
 		ExpiresAt: time.Now().Add(admission.Lifetime),
 	}, nil
+}
+
+func (plane *scriptedMedia) Disconnect(_ context.Context, _ media.Session, participantID string) error {
+	plane.mutex.Lock()
+	defer plane.mutex.Unlock()
+
+	plane.disconnected = append(plane.disconnected, participantID)
+	return nil
+}
+
+func (plane *scriptedMedia) Connected(context.Context, media.Session, string) (bool, error) {
+	return false, nil
 }
 
 func (plane *scriptedMedia) admissions() []media.Admission {

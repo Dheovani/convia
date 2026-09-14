@@ -399,7 +399,9 @@ func roomOf(event Event) (string, bool) {
 	switch event.Type {
 	case MemberAdded, MemberRemoved:
 		return event.Subject.ID, event.Subject.ID != ""
-	case MessagePosted, MessageEdited, MessageDeleted:
+	case MessagePosted, MessageEdited, MessageDeleted,
+		CallStarted, CallEnded,
+		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged:
 		roomID, named := event.Data["room_id"].(string)
 		return roomID, named && roomID != ""
 	default:

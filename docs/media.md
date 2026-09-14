@@ -56,7 +56,7 @@ CONVIA_LIVEKIT_API_SECRET=a-development-secret-long-enough-to-be-accepted
 
 Those credentials are development-only. They are committed on purpose, they grant nothing anywhere else, and they must never be reused. A real deployment takes its key and secret from the deployment environment or a secret manager.
 
-Only the control API port is published. The ports a participant would connect media on are not, because nobody can connect yet; they arrive with the join sessions of M13.
+The server is told to announce `127.0.0.1` as its address and publishes the two ports a browser carries media on in development mode, `7881/tcp` and `7882/udp`, so a page on this machine can join a call. It also sends its reports to `http://host.docker.internal:8080/media/reports`, which is a Convia running on the host at the port `scripts/dev` uses; change the URL in [`docker-compose.yml`](../docker-compose.yml) if yours runs elsewhere.
 
 ### The integration tests
 
@@ -76,7 +76,7 @@ These matter more here than integration tests usually do. Convia speaks LiveKit'
 
 ## What the adapter does
 
-Two operations, which is all the implemented call flows need:
+Five operations, which is what the implemented call flows need:
 
 **A call starts, so a room is created.** Eagerly, before anyone joins, even though LiveKit would create it on the first connection anyway. That is the point: a call whose media session cannot be realized is ended rather than left holding its room, and that only means anything if Convia talks to the provider while the caller is still waiting. Creating lazily would move the first sign of a broken media plane to a participant failing to connect, long after Convia answered that the call had started.
 
@@ -84,9 +84,38 @@ Two operations, which is all the implemented call flows need:
 
 **Someone Convia admitted needs a credential, so one is signed.** This is the only operation that makes no request at all: a LiveKit access token is signed locally and verified by the server when its holder connects. Admitting somebody therefore cannot time out and never reports the media plane unavailable, which means people can still be let into a running conversation during an outage that would prevent starting a new call.
 
+**Someone Convia put out of a call is disconnected.** Leaving, being removed, and losing one's place in the room all close the person's connection at once, with a token that may act inside that one room and no other. Somebody already gone is a success.
+
+**A report that somebody left is checked.** Convia asks the room whether the person is still connected before believing it, because a reloaded page opens its new connection before the old one is reported gone. See [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md).
+
 The room is named after the call, and a room is never reused across calls.
 
 **Room capacity is not sent to the provider.** ADR 0001 left open whether the media plane should enforce it too; it should not. Convia's capacity can be changed while a call is running, and a number copied to the provider at creation would then be stale in the restrictive direction — a participant Convia admitted would be refused by the provider, and Convia would have no way to explain it.
+
+## What the media server reports
+
+A person whose browser crashes never asks to leave, so the media server has to say so. It sends what happened to `POST /media/reports`, which Convia serves only when a media plane is configured, and a LiveKit server is told where to send it in its own configuration:
+
+```yaml
+webhook:
+  api_key: devkey              # the key Convia is configured with
+  urls:
+    - https://convia.example/media/reports
+```
+
+**Reports have to reach Convia.** Without them a person whose connection dropped stays in the call as far as Convia knows, and a call in a room a person opened runs until somebody leaves it. The address is one the media server can reach, which is frequently a private one.
+
+**Nothing is read before the signature is checked.** A report carries a token signed with the API secret, naming the API key and carrying a digest of the body. The algorithm is pinned, the issuer must be this deployment's key, and a minute of clock skew is allowed. Every way a signature can fail is the same `401`, charged against the same failure budget as a wrong API key.
+
+Convia acts on three kinds and ignores the rest:
+
+| The media server says | Convia |
+| --- | --- |
+| somebody connected | disconnects them again if they are not in the call: removed, gone, or the call is over |
+| somebody's connection went away | asks whether they are still connected, and records them as having left only if not |
+| a room finished | ends the call and records everybody left, when the call is in a room a person opened |
+
+A call in a room a person opened ends when its last participant has left, recorded as ended by `system`. An application's call is never ended by a report. A report about a room Convia does not know is ignored, and one that cannot be checked because the media server did not answer is refused with `503`, so that it is sent again.
 
 ## When it fails
 
@@ -101,16 +130,17 @@ Convia does not retry internally. It reports `503`, and the call is already ende
 
 ## What is not implemented
 
-- **Disconnecting someone who was removed.** Convia ends their participation and stops issuing them credentials, and a credential is short-lived, so the gap is bounded rather than open — but a connection already established is not severed. Closing it means asking the provider to eject a live connection, which is a fourth operation for the removal flow to add.
 - **Rate limits on issuing credentials.** See [`participants.md`](participants.md).
-- **Provider webhooks and events.** Convia has no internal event concept to translate them into yet.
-- **Reconciling rooms the provider still holds.** A session that could not be released is logged and not reclaimed automatically.
+- **Reconciling rooms the provider still holds.** A session that could not be released is logged and not reclaimed automatically, and a report about a room Convia does not know is ignored rather than acted on.
+- **Reconciling calls whose reports never arrived.** A call in a person's room whose last connection went away while reports could not reach Convia stays running until somebody leaves it. Nothing asks the media server who is connected on a schedule.
 - **Retries and circuit breaking.** These should be shaped by measured failure modes, and there are none to measure.
 
 ## Security
 
 The API secret is never logged, never returned, and never included in an error. It is held as a type that renders itself as `[redacted]` through `fmt`, through `%#v`, and through `slog`, so logging a whole configuration struct is harmless. Tests assert each of those paths, including against errors produced by a real server.
 
-The tokens Convia signs for its own API calls live for one minute, carry only the single permission the request needs, and appear nowhere but the `Authorization` header of the request they were minted for.
+The tokens Convia signs for its own API calls live for one minute, carry only the single permission the request needs, and appear nowhere but the `Authorization` header of the request they were minted for. The one that disconnects somebody, or asks whether they are connected, is scoped to that call's room.
+
+A report is attacker-supplied until its signature verifies, and the token it carries is parsed by the reviewed library `M12-001` chose rather than by hand. Nothing in a report is translated before it verifies, and what is translated is three identifiers: which room, which participant, and what happened. The provider's own identifiers, tracks and settings are never read.
 
 The credential handed to a client is the one token that leaves Convia's process. It lives five minutes, is bound to one call and one participant, and carries no administrative permission at all — a moderator moderates through Convia's API, never through the media plane, so that every removal is authorized, recorded, and reflected in Convia's own state. It is a redacting type everywhere except the single line that writes it into the response, and a test asserts it never reaches a log.

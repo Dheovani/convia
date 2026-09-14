@@ -54,6 +54,15 @@ was wrong, without either answer revealing anything about another tenant.
 */
 var ErrCallNotFound = errors.New("call not found")
 
+/*
+ErrRoomNotFound reports a room a person cannot see a call in.
+
+It does not say whether the room exists and they are not in it, for the reason
+every route a person reaches gives: telling them would confirm what they could
+not otherwise learn.
+*/
+var ErrRoomNotFound = errors.New("room not found")
+
 // ErrUserNotFound reports that the person named for a join does not exist.
 var ErrUserNotFound = errors.New("user not found")
 

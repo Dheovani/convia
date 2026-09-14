@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -69,27 +70,62 @@ const (
 )
 
 /*
-policy is what this page is allowed to do.
+policyFor is what this page is allowed to do.
 
 `default-src 'none'` and then back up from there, so anything added later has to
 be allowed deliberately. The build emits no inline script and no inline style,
 which is what lets this omit `unsafe-inline` — the directive that makes most
 policies decorative.
 
-`connect-src 'self'` is worth naming because it will have to change: joining a
-call means a WebSocket to the media server, which is a different origin. That is
-M18-004's to decide, and guessing at it now would be allowing an origin nothing
-yet talks to.
+`connect-src` admits this origin, which carries the API and the event stream,
+and the media server when this installation has one. Joining a call is a
+WebSocket to the media server, which is a different origin, so it is named
+exactly — scheme, host and port, never a wildcard — and named twice: as the
+WebSocket address a browser signals on, and as the same host over HTTP, which
+the media client asks why a connection failed. A Convia with no media server
+allows neither, because nothing on the page would talk to one.
 */
-const policy = "default-src 'none'; " +
-	"script-src 'self'; " +
-	"style-src 'self'; " +
-	"img-src 'self'; " +
-	"font-src 'self'; " +
-	"connect-src 'self'; " +
-	"base-uri 'none'; " +
-	"form-action 'none'; " +
-	"frame-ancestors 'none'"
+func policyFor(mediaAddress string) string {
+	connect := "'self'"
+	if sources := mediaSources(mediaAddress); sources != "" {
+		connect += " " + sources
+	}
+
+	return "default-src 'none'; " +
+		"script-src 'self'; " +
+		"style-src 'self'; " +
+		"img-src 'self'; " +
+		"font-src 'self'; " +
+		"connect-src " + connect + "; " +
+		"base-uri 'none'; " +
+		"form-action 'none'; " +
+		"frame-ancestors 'none'"
+}
+
+/*
+mediaSources renders the media server's address as the sources the page needs to
+reach it, and as nothing for an address that is not a WebSocket one.
+
+The host is refused if it carries anything that could end a source or a
+directive. The address comes from configuration that was already validated, so
+this should never matter; it is here because a policy is the wrong place to
+find out that it did.
+*/
+func mediaSources(address string) string {
+	parsed, err := url.Parse(strings.TrimSpace(address))
+	if err != nil || parsed.Host == "" || strings.ContainsAny(parsed.Host, " ;,'\"") {
+		return ""
+	}
+
+	switch parsed.Scheme {
+	case "wss":
+		return "wss://" + parsed.Host + " https://" + parsed.Host
+	case "ws":
+		return "ws://" + parsed.Host + " http://" + parsed.Host
+	default:
+		return ""
+	}
+}
 
 /*
 Site serves the built interface.
@@ -102,6 +138,7 @@ assembled without it.
 type Site struct {
 	logger *slog.Logger
 	files  fs.FS
+	policy string
 
 	index    []byte
 	indexTag string
@@ -116,9 +153,13 @@ It never fails. A missing bundle is a deployment fact rather than an error, and
 one that has to be reported where an operator will see it — so it is visible in
 the log at startup and in the page itself, rather than in an error nothing but
 main would read.
+
+mediaAddress is where a browser reaches the media server, and empty when this
+installation has none. It is the one origin besides this one the page may
+connect to.
 */
-func New(logger *slog.Logger) *Site {
-	site := &Site{logger: logger}
+func New(logger *slog.Logger, mediaAddress string) *Site {
+	site := &Site{logger: logger, policy: policyFor(mediaAddress)}
 
 	if page, err := assets.ReadFile(notice); err == nil {
 		site.unbuilt = page
@@ -235,9 +276,12 @@ func (site *Site) serveNotice(response http.ResponseWriter, request *http.Reques
 
 func (site *Site) harden(response http.ResponseWriter) {
 	header := response.Header()
-	header.Set("Content-Security-Policy", policy)
+	header.Set("Content-Security-Policy", site.policy)
 	header.Set("X-Content-Type-Options", "nosniff")
 	header.Set("Referrer-Policy", "no-referrer")
 	header.Set("Cross-Origin-Opener-Policy", "same-origin")
-	header.Set("Permissions-Policy", "geolocation=(), payment=(), usb=()")
+
+	// The camera and the microphone are a call's, and only this page's: no
+	// frame it is ever put in may ask for them.
+	header.Set("Permissions-Policy", "camera=(self), microphone=(self), geolocation=(), payment=(), usb=()")
 }

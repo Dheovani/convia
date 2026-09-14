@@ -152,14 +152,16 @@ func TestSomebodyElsesPlaceIsNewsOnlyInsideTheRoom(t *testing.T) {
 TestAPersonIsNotToldWhatTheyCannotRead keeps the stream from being a second way
 to learn what the session surface does not expose.
 
-A call starting names its room, so a filter by room alone would let it through.
-Nothing a person can reach reads calls yet, and the type set is what refuses it.
+An invitation being declined can name a room, so a filter by room alone would let
+it through. Nothing a person can reach reads invitations to a call, and the type
+set is what refuses it. A participant event that names no room reaches nobody,
+whatever its type.
 */
 func TestAPersonIsNotToldWhatTheyCannotRead(t *testing.T) {
 	broker := NewBroker()
 	stream := listen(t, broker, "usr_ana", "room_a")
 
-	broker.Publish(New(CallStarted, "app_1", "call_1", "req_1", Data{"room_id": "room_a"}))
+	broker.Publish(New(InvitationDeclined, "app_1", "inv_1", "req_1", Data{"room_id": "room_a"}))
 	broker.Publish(New(PresenceChanged, "app_1", "usr_bea", "req_1", Data{"state": "online"}))
 	broker.Publish(New(ParticipantJoined, "app_1", "part_1", "req_1", Data{"call_id": "call_1"}))
 	quiet(t, stream)

@@ -61,6 +61,39 @@ type Service struct {
 	stream  announcer
 	logger  *slog.Logger
 	now     func() time.Time
+
+	// calls is told when a room changes under the conversation it is holding.
+	// It is nil until InformCalls is called, and then nothing is told.
+	calls conversations
+}
+
+/*
+conversations is what a room tells the calls held in it when it changes under
+them.
+
+It is declared here and implemented by the participants package, which is the
+only direction the dependency can go: calls and participants read rooms, so a
+room cannot import them back. The two methods are the two ways a room can pull
+the ground out from under a conversation — going away, and somebody losing
+their place in it — and neither returns anything, because the room has already
+changed by the time it says so and nothing a call does may undo that.
+*/
+type conversations interface {
+	RoomDeleted(ctx context.Context, applicationID, roomID string)
+	MemberGone(ctx context.Context, applicationID, roomID, userID string)
+}
+
+/*
+InformCalls tells the rooms service what to tell when a room changes under a
+call.
+
+It is set after construction, and only once, by the composition root. The calls
+and participants services are built from this one, so it cannot be a
+constructor argument without a cycle; it is set before the server starts, so no
+request ever sees it change.
+*/
+func (service *Service) InformCalls(calls conversations) {
+	service.calls = calls
 }
 
 func NewService(store *Store, owner tenants, directory people, stream announcer, logger *slog.Logger) *Service {
@@ -442,6 +475,11 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 	}
 
 	service.audit(ctx, "room.deleted", Room{ID: id, ApplicationID: applicationID})
+
+	// Nobody can find a call in a room that is gone, so the call ends with it.
+	if service.calls != nil {
+		service.calls.RoomDeleted(ctx, applicationID, id)
+	}
 	return nil
 }
 

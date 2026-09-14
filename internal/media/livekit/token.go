@@ -39,6 +39,7 @@ deliberate "no" as a silent "yes" the moment anyone had reason to write one.
 */
 type grant struct {
 	RoomCreate   bool   `json:"roomCreate,omitempty"`
+	RoomAdmin    bool   `json:"roomAdmin,omitempty"`
 	RoomJoin     bool   `json:"roomJoin,omitempty"`
 	Room         string `json:"room,omitempty"`
 	CanPublish   *bool  `json:"canPublish,omitempty"`
@@ -61,6 +62,18 @@ made, and what bounds it is apiTokenLifetime: the token is signed immediately
 before a single request and is worthless a minute later.
 */
 var roomLifecycle = grant{RoomCreate: true}
+
+/*
+moderationOf is the permission Convia uses to act on the people inside one room:
+finding out whether somebody is connected, and disconnecting them.
+
+It is scoped to the room, so a token minted to put one person out of one call
+reaches no other. It is Convia's own and is never in a credential handed to a
+client, for the reason admissionTo gives.
+*/
+func moderationOf(room string) grant {
+	return grant{RoomAdmin: true, Room: room}
+}
 
 /*
 admissionTo is the permission a client connects to one conversation with.

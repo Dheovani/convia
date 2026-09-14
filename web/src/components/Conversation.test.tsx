@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -129,9 +129,13 @@ describe('the sidebar', () => {
 
     await screen.findByText('Standup in five minutes.')
 
-    expect(server.asked('PUT', `/v1/me/rooms/${room().id}/read_state`)?.body).toEqual({
-      sequence: 7,
-    })
+    // Marked from an effect after the message is drawn, so it is waited for
+    // rather than expected in the same instant the text appears.
+    await waitFor(() =>
+      expect(server.asked('PUT', `/v1/me/rooms/${room().id}/read_state`)?.body).toEqual({
+        sequence: 7,
+      }),
+    )
   })
 })
 

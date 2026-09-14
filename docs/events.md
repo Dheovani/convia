@@ -130,10 +130,11 @@ It is not the application's stream with a different credential, and the differen
 | Carried | Delivered when |
 | --- | --- |
 | `message.*` | it names a room the person is in |
+| `call.*` and `participant.*` | it names a room the person is in |
 | `room.member_*` about somebody else | it names a room the person is in |
 | `room.member_*` about the person | they were in the room before it, **or** are in it after |
 
-The last row is the one that needs saying. Somebody just added was not in the room a moment ago, and somebody just removed no longer is, so judging either by one side alone would withhold exactly the event the person needs. Calls, participants, and presence are absent because nothing on the session surface reads them yet; they arrive when something does.
+The last row is the one that needs saying. Somebody just added was not in the room a moment ago, and somebody just removed no longer is, so judging either by one side alone would withhold exactly the event the person needs. Participant events carry `room_id` alongside `call_id` for this, since `M18-004`; one that names no room reaches no person. Presence is absent because nothing on the session surface reads it yet.
 
 The envelope is the same, **without `correlation_id`**. The request that caused an event was usually somebody else's, and the identifier exists to be matched against an access log only an operator reads.
 
