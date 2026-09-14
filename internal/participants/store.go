@@ -350,6 +350,69 @@ func (store *Store) Leave(ctx context.Context, applicationID, id string, at time
 }
 
 /*
+PresentIn returns somebody's participation in a call while they are in it, and
+ErrNotFound when they are not.
+
+A person is in a call at most once at a time, which the unique index on present
+participations guarantees, so this is one row or none.
+*/
+func (store *Store) PresentIn(ctx context.Context, applicationID, callID, userID string) (Participant, error) {
+	const statement = `SELECT ` + columns + ` FROM participants
+	                   WHERE application_id = $1 AND call_id = $2 AND user_id = $3 AND status = $4`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, callID, userID, StatusJoined)
+	if err != nil {
+		return Participant{}, fmt.Errorf("query presence: %w", err)
+	}
+
+	record, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Participant{}, ErrNotFound
+	}
+
+	if err != nil {
+		return Participant{}, fmt.Errorf("read presence: %w", err)
+	}
+
+	return record.participant(), nil
+}
+
+/*
+LeaveEveryone records that everybody still in a call has gone, and returns who that was.
+
+It is for a media session that no longer exists: nobody can be connected to it,
+so nobody is still in the call, and each of them is recorded as having left
+rather than as having been removed, because nobody put them out.
+*/
+func (store *Store) LeaveEveryone(
+	ctx context.Context,
+	applicationID,
+	callID string,
+	at time.Time,
+) ([]Participant, error) {
+	const statement = `UPDATE participants
+	                   SET status = $1, left_at = $2, updated_at = $2
+	                   WHERE application_id = $3 AND call_id = $4 AND status = $5
+	                   RETURNING ` + columns
+
+	rows, err := store.pool.Query(ctx, statement, StatusLeft, at, applicationID, callID, StatusJoined)
+	if err != nil {
+		return nil, fmt.Errorf("record everybody leaving: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, fmt.Errorf("read who left: %w", err)
+	}
+
+	departed := make([]Participant, 0, len(records))
+	for _, record := range records {
+		departed = append(departed, record.participant())
+	}
+	return departed, nil
+}
+
+/*
 Remove records that someone was put out of a call.
 
 Like leaving, it is conditional on the person being present, so a repeated

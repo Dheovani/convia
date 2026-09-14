@@ -117,7 +117,11 @@ Everything above records **who may take part**. `POST /v1/participants/{particip
 
 The application asks on its client's behalf and passes the answer on. The client never holds the application's API key and never speaks to Convia's media infrastructure, which is what lets that infrastructure be replaced without any external consumer noticing.
 
-**Convia decides afresh on every request.** Someone who left, was removed, whose user was suspended, or whose call has ended receives nothing, however recently they were admitted. That is not belt-and-braces — it is the whole enforcement mechanism. The media plane is never told that Convia removed anybody, so what stops them coming back is that Convia stops issuing.
+**Convia decides afresh on every request.** Someone who left, was removed, whose user was suspended, or whose call has ended receives nothing, however recently they were admitted.
+
+**Leaving and being removed close the connection too.** Since `M18-004` the media plane is told: the person's connection is closed as the departure is recorded, and one who connects again with a credential they still hold is reported and disconnected again. See [`media.md`](media.md#what-the-media-server-reports).
+
+**A connection going away is recorded as leaving.** When the media server reports that somebody's connection went away and confirms they are not connected some other way, they are recorded as having left. An application's call is not ended by that, even when nobody is left in it.
 
 **The credential expires in five minutes**, and the trade is deliberate. It is presented once, to open a connection, and the connection outlives it: nothing forces anyone out when it expires. What the short life bounds is how long a copy taken from a log, a crash report, or a device somebody no longer has can still be used to walk into a conversation. The cost is that a client which loses its connection after expiry cannot reconnect with the same credential and has to ask for another — one request against an endpoint the application already calls.
 
@@ -139,6 +143,5 @@ Joining, leaving, removal, a role change, and issuing a connection credential ar
 
 - **Presence beyond a call is still out**, see below. What is no longer missing is guest participation: somebody with no Convia user takes part by redeeming an invitation, identified by that invitation and nothing else. See [`invitations.md`](invitations.md).
 - **Rate limits on issuing credentials** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key, so limiting only this one would be arbitrary. It belongs with a general per-tenant limit rather than here.
-- **Severing a connection already open.** Removing someone stops Convia issuing them credentials immediately, and the one they hold dies within five minutes, but a connection already established is not cut. Doing so means asking the media plane to eject a live participant.
 - **Media capabilities.** What a participant may do with audio, video, or a screen is uniform today: everyone admitted may publish and subscribe, because that is what a call is. The role vocabulary will grow when a distinction exists that is worth enforcing — a listener-only room, or screen sharing in M28. A moderator deliberately gets no extra media permission: moderation is a control-plane decision, and a client able to act directly on the media plane would bypass Convia's authorization and audit trail.
 - **Presence beyond a call.** Whether someone is online, away, or busy is not participation and does not belong here.

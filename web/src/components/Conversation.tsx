@@ -4,6 +4,7 @@ import type { RoomSource } from '../api/client'
 import type { Account, Message, Person, SidebarRoom } from '../api/types'
 import { useConversation } from '../state/useConversation'
 import { useMembers } from '../state/useMembers'
+import { CallButton, CallProblem, CallStage } from './Call'
 import { Composer } from './Composer'
 import { Button, input } from './controls'
 import { label, RoomPeople } from './RoomPeople'
@@ -30,6 +31,11 @@ interface ConversationProps {
   onRoomChanged: () => void
   // onRoomDeleted is set for a room here, which its owner can delete.
   onRoomDeleted?: () => void
+  /*
+  callRunning is whether the room is holding a call. Only a room here can: a
+  visitor joins a call elsewhere with M33-002.
+  */
+  callRunning?: boolean
 }
 
 function when(timestamp: string): string {
@@ -225,6 +231,7 @@ export function Conversation({
   onForget,
   onRoomChanged,
   onRoomDeleted,
+  callRunning = false,
 }: ConversationProps) {
   const { messages, loading, failed, send, edit, withdraw } = useConversation(source, onExpired, onActivity)
   const {
@@ -316,9 +323,10 @@ export function Conversation({
             closed
           </span>
         )}
+        <span className="flex-1" aria-hidden="true" />
+        {source.kind === 'local' && <CallButton room={room} running={callRunning} />}
         <Button
           size="small"
-          className="ml-auto"
           aria-expanded={showPeople}
           aria-controls={panel}
           onClick={() => {
@@ -335,6 +343,13 @@ export function Conversation({
           <RoomSettings room={room} onChanged={onRoomChanged} onDeleted={onRoomDeleted} onExpired={onExpired} />
         )}
       </header>
+
+      {source.kind === 'local' && (
+        <>
+          <CallProblem roomId={room.id} />
+          <CallStage room={room} moderator={room.owned} />
+        </>
+      )}
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

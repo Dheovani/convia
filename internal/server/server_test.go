@@ -313,6 +313,12 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
 		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
 		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
+
+		PersonalCalls: participants.NewSessionHandler(logger, stubPersonalCalls{},
+			stubRooms{room: sampleRoom(), member: sampleMember()}, user),
+
+		MediaReporter: stubMediaReporter{report: sampleReport()},
+		MediaReports:  participants.NewReportHandler(logger, &stubReportService{}),
 	}
 }
 

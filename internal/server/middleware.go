@@ -19,6 +19,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/credentials"
 	"convia/internal/invitations"
+	"convia/internal/media"
 	"convia/internal/operator"
 	"convia/internal/peers"
 	"convia/internal/ratelimit"
@@ -448,6 +449,11 @@ func signed(
 		}
 
 		if err != nil {
+			if abandoned(request) {
+				refuse(logger, response, request, "")
+				return
+			}
+
 			failures.Record(source)
 			if !errors.Is(err, peers.ErrUnauthenticated) {
 				logger.Error("verify signed request", "error", err,
@@ -458,6 +464,76 @@ func signed(
 		}
 
 		next.ServeHTTP(response, request.WithContext(ctx))
+	})
+}
+
+/*
+mediaReporter verifies what the media plane says happened.
+
+It is not a [verifier] either, and for the same reason as a peer: the signature
+covers the body. The media adapter satisfies it; nothing else can, because only
+the adapter holds the secret the signature is made with.
+*/
+type mediaReporter interface {
+	Report(authorization string, body []byte) (media.Report, error)
+}
+
+/*
+reported refuses a report that cannot be shown to have come from the media plane.
+
+It is [signed]'s twin for the one caller that is infrastructure rather than
+somebody: the same budget, charged the same way, and the same refusal whatever
+was wrong with the signature. The body is read here, bounded, because the
+signature covers it, and put back so the handler reads exactly what was
+verified.
+
+A report that verifies and still cannot be read is not charged against the
+budget. It came from the media plane, so it is not somebody guessing, and it is
+answered 400 and logged, because an operator has to find out why.
+*/
+func reported(
+	logger *slog.Logger,
+	verify mediaReporter,
+	failures *ratelimit.Limiter,
+	resolve resolver,
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		source := resolve.clientAddress(request)
+		if !failures.Allows(source) {
+			slowDown(logger, response, request, "", failures.RetryAfter(source), failedAttempts)
+			return
+		}
+
+		body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, api.MaxJSONRequestBytes))
+		if err != nil {
+			failure := api.NewFailure(http.StatusRequestEntityTooLarge, api.CodePayloadTooLarge,
+				fmt.Sprintf("The request body must not exceed %d bytes.", api.MaxJSONRequestBytes))
+			if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
+				logger.Error("write payload too large response", "error", writeErr)
+			}
+			return
+		}
+		request.Body = io.NopCloser(bytes.NewReader(body))
+
+		report, err := verify.Report(request.Header.Get("Authorization"), body)
+		if errors.Is(err, media.ErrUnverified) {
+			failures.Record(source)
+			refuse(logger, response, request, "")
+			return
+		}
+
+		if err != nil {
+			logger.Error("the media plane sent a report that could not be read", "error", err,
+				"request_id", api.RequestIDFromContext(request.Context()))
+			failure := api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest, "The report could not be read.")
+			if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
+				logger.Error("write invalid report response", "error", writeErr)
+			}
+			return
+		}
+
+		next.ServeHTTP(response, request.WithContext(media.ContextWithReport(request.Context(), report)))
 	})
 }
 
@@ -551,6 +627,11 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 
 		verified, err := verify.Verify(request.Context(), token)
 		if err != nil {
+			if abandoned(request) {
+				refuse(logger, response, request, verify.challenge())
+				return
+			}
+
 			failures.Record(source)
 			if !errors.Is(err, errRefused) {
 				/*
@@ -570,6 +651,22 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 
 		next.ServeHTTP(response, request.WithContext(verified))
 	})
+}
+
+/*
+abandoned reports whether the caller went away while its credential was being
+verified.
+
+A verification that failed because nobody was waiting for it proves nothing about
+the credential, and charging it would be wrong in the way that hurts the person
+it protects. A page cancels its own requests all the time — asking again before
+an answer arrived, or being left — and every cancellation that landed during the
+database read used to spend the budget, until everything that page asked,
+leaving a call included, was answered 429. It is still refused, and still not
+logged as an infrastructure failure, because it is neither a grant nor one.
+*/
+func abandoned(request *http.Request) bool {
+	return request.Context().Err() != nil
 }
 
 /*

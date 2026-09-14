@@ -48,7 +48,7 @@ but the first was a dead end — the failure people describe as "it works until
 you refresh".
 */
 func TestAPathInsideThePageAnswersWithThePage(t *testing.T) {
-	site := New(quiet())
+	site := New(quiet(), "")
 	requireBundle(t, site)
 
 	for _, target := range []string{"/", "/rooms", "/rooms/room_123", "/settings/devices"} {
@@ -74,7 +74,7 @@ others — so it must be revalidated, or a deployment would appear not to have
 happened until every browser gave up on its copy.
 */
 func TestAHashedAssetIsCachedForeverAndThePageIsNot(t *testing.T) {
-	site := New(quiet())
+	site := New(quiet(), "")
 	requireBundle(t, site)
 
 	if store := get(t, site, "/").Header().Get("Cache-Control"); store != revalidate {
@@ -90,17 +90,47 @@ func TestAHashedAssetIsCachedForeverAndThePageIsNot(t *testing.T) {
 // TestThePageCarriesItsPolicy keeps the interface from being served without the
 // one header that constrains what a script on it may do.
 func TestThePageCarriesItsPolicy(t *testing.T) {
-	site := New(quiet())
+	site := New(quiet(), "")
 
 	headers := get(t, site, "/").Header()
 
-	if got := headers.Get("Content-Security-Policy"); got != policy {
-		t.Errorf("Content-Security-Policy = %q, want %q", got, policy)
+	if got, want := headers.Get("Content-Security-Policy"), policyFor(""); got != want {
+		t.Errorf("Content-Security-Policy = %q, want %q", got, want)
 	}
-	for _, header := range []string{"X-Content-Type-Options", "Referrer-Policy"} {
+	for _, header := range []string{"X-Content-Type-Options", "Referrer-Policy", "Permissions-Policy"} {
 		if headers.Get(header) == "" {
 			t.Errorf("the page was served without %s", header)
 		}
+	}
+}
+
+/*
+TestThePageMayReachTheMediaServerAndNothingElse keeps the one origin a call adds
+exact.
+
+The page connects to the media server by WebSocket and asks it over HTTP why a
+connection failed, so both are allowed, for that host and port and no other.
+Anything that is not a WebSocket address, or that could smuggle a source into the
+policy, allows nothing.
+*/
+func TestThePageMayReachTheMediaServerAndNothingElse(t *testing.T) {
+	cases := map[string]string{
+		"":                                 "connect-src 'self'; ",
+		"wss://media.convia.example":       "connect-src 'self' wss://media.convia.example https://media.convia.example; ",
+		"ws://127.0.0.1:7880":              "connect-src 'self' ws://127.0.0.1:7880 http://127.0.0.1:7880; ",
+		"wss://media.convia.example:7443/": "connect-src 'self' wss://media.convia.example:7443 https://media.convia.example:7443; ",
+		"https://media.convia.example":     "connect-src 'self'; ",
+		"not an address":                   "connect-src 'self'; ",
+		"wss://media.example; script-src":  "connect-src 'self'; ",
+	}
+
+	for address, want := range cases {
+		t.Run(address, func(t *testing.T) {
+			got := get(t, New(quiet(), address), "/").Header().Get("Content-Security-Policy")
+			if !strings.Contains(got, want) {
+				t.Errorf("Content-Security-Policy = %q, want it to carry %q", got, want)
+			}
+		})
 	}
 }
 
@@ -115,10 +145,12 @@ somebody adds a `<style>` to index.html, this is what should fail rather than
 the policy quietly growing a keyword.
 */
 func TestThePolicyForbidsTheThingThatMakesPoliciesDecorative(t *testing.T) {
-	for _, keyword := range []string{"unsafe-inline", "unsafe-eval", "*"} {
-		if strings.Contains(policy, keyword) {
-			t.Errorf("the policy allows %q, which is most of what it exists to prevent: %s",
-				keyword, policy)
+	for _, policy := range []string{policyFor(""), policyFor("wss://media.convia.example")} {
+		for _, keyword := range []string{"unsafe-inline", "unsafe-eval", "*"} {
+			if strings.Contains(policy, keyword) {
+				t.Errorf("the policy allows %q, which is most of what it exists to prevent: %s",
+					keyword, policy)
+			}
 		}
 	}
 }
@@ -131,7 +163,7 @@ have most often: one built by `go build` alone, with no Node step.
 this binary does not currently have an interface, which is what 503 means.
 */
 func TestABinaryWithoutAnInterfaceSaysSo(t *testing.T) {
-	bare := &Site{logger: quiet(), unbuilt: []byte("<p>not built</p>")}
+	bare := &Site{logger: quiet(), unbuilt: []byte("<p>not built</p>"), policy: policyFor("")}
 
 	response := get(t, bare, "/")
 
@@ -141,7 +173,7 @@ func TestABinaryWithoutAnInterfaceSaysSo(t *testing.T) {
 	if store := response.Header().Get("Cache-Control"); store != "no-store" {
 		t.Errorf("Cache-Control = %q, want no-store: a cached outage outlives the outage", store)
 	}
-	if got := response.Header().Get("Content-Security-Policy"); got != policy {
+	if got := response.Header().Get("Content-Security-Policy"); got != policyFor("") {
 		t.Error("the notice was served without the policy the page is served under")
 	}
 }
@@ -174,7 +206,7 @@ resolves them before it gets there — this asserts the two together, on the
 shapes that get past a naive check.
 */
 func TestNothingEscapesTheBundle(t *testing.T) {
-	site := New(quiet())
+	site := New(quiet(), "")
 	requireBundle(t, site)
 
 	escapes := []string{

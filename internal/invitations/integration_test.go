@@ -58,6 +58,12 @@ func (issuingPlane) IssueCredential(_ context.Context, admission media.Admission
 	}, nil
 }
 
+func (issuingPlane) Disconnect(context.Context, media.Session, string) error { return nil }
+
+func (issuingPlane) Connected(context.Context, media.Session, string) (bool, error) {
+	return false, nil
+}
+
 type fixture struct {
 	service      *Service
 	participants *participants.Service

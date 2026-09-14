@@ -103,8 +103,20 @@ func (service *Service) RemoveMember(ctx context.Context, applicationID, roomID,
 	if removed {
 		service.announceMembership(ctx, events.MemberRemoved, Member{
 			ApplicationID: applicationID, RoomID: room.ID, UserID: userID})
+		service.memberGone(ctx, applicationID, room.ID, userID)
 	}
 	return removed, nil
+}
+
+/*
+memberGone tells the call a room is holding that somebody no longer has a place
+in the room. What that means for the call is the call's to decide; see
+conversations.
+*/
+func (service *Service) memberGone(ctx context.Context, applicationID, roomID, userID string) {
+	if service.calls != nil {
+		service.calls.MemberGone(ctx, applicationID, roomID, userID)
+	}
 }
 
 /*
@@ -174,6 +186,7 @@ func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID s
 	if removed {
 		service.announceMembership(ctx, events.MemberRemoved, Member{
 			ApplicationID: applicationID, RoomID: room.ID, UserID: userID})
+		service.memberGone(ctx, applicationID, room.ID, userID)
 	}
 	return removed, nil
 }

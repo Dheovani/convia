@@ -341,6 +341,47 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /media/reports:
+    post:
+      operationId: receiveMediaReport
+      tags: [Operations]
+      summary: Receive a report from the media plane
+      description: |
+        Where the media server this deployment configured sends what happened to the connections it carries. Nobody integrates with it, which is why it sits outside the versioned API beside the operational endpoints, and it is served only when a media plane is configured.
+
+        **A report is evidence, not an instruction.** Convia acts on three kinds, and checks each against its own record before anything changes:
+
+        - somebody connected who is not in the call — they left it, were removed from it, or it is over — is disconnected again;
+        - somebody whose connection went away is recorded as having left, but only once the media server confirms they are not connected some other way, because reloading a page opens a new connection before the old one is reported gone;
+        - a session that is gone ends its call, when the call is in a room a person opened.
+
+        A call in a room a person opened ends when its last participant has gone, with `system` as the actor. An application's call is never ended by a report, because an application decides when its calls end, but its participants are still recorded as having left.
+
+        Everything else a media server says is received and ignored, and so is a report about a session this deployment does not know. A report that cannot be checked because the media server could not be asked answers `503`, so that it is sent again rather than guessed at.
+      x-lifecycle: experimental
+      security:
+        - MediaReportSignature: []
+      responses:
+        "204":
+          description: The report was received.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /ready:
     get:
       operationId: getReadiness
@@ -5592,6 +5633,260 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/me/calls:
+    get:
+      operationId: listMyCalls
+      tags: [Me]
+      summary: The calls running in the rooms I am in
+      description: |
+        Returns every call running now in a room the signed-in person is in, the most recently started first.
+
+        It is one list rather than a page, because a room holds at most one call and the rooms are the person's own: it is bounded by the same set of rooms their event stream already reads. A room that holds no call is simply absent, and a call that has ended is gone.
+
+        It answers "what could I join", and `call.started` and `call.ended` on the person's stream say when to ask again.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: The calls running in the person's rooms.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCallList"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/call:
+    get:
+      operationId: getMyRoomCall
+      tags: [Me]
+      summary: The call in a room I am in
+      description: |
+        Returns the call a room the signed-in person is in is holding right now.
+
+        A room holds at most one call at a time, and most rooms hold none most of the time: that answers `404 not found`, as does a room this person is not in. There is no history here, and a call that has ended is gone from this address.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The call the room is holding.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCall"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/call/participants:
+    get:
+      operationId: listMyRoomCallParticipants
+      tags: [Me]
+      summary: Who is in the call in a room I am in
+      description: |
+        Returns one page of the people in the room's call now, by the names they go by, the most recent arrival first.
+
+        Only people in the call now are listed. Who was in it before is the call's history, which is not read on this surface. Somebody whose user is gone is left out rather than listed without a name.
+
+        A room this person is not in, and a room holding no call, answer `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of the people in the call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPresencePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/call/join:
+    post:
+      operationId: joinMyRoomCall
+      tags: [Me]
+      summary: Join the call in a room I am in
+      description: |
+        Seats the signed-in person in the room's call and answers with what to connect with.
+
+        **When the room holds no call, this starts one.** Starting a call and joining it are one act for somebody who wants to talk, and a call its starter is not in would be a call nobody is in. `201` means this request started the call, recorded with `person` as the actor; `200` means it joined one already running. Two people starting at once end up in the same call.
+
+        Any member of the room may join. The room's owner joins as the call's `moderator`, and everybody else as a `member`.
+
+        Joining again while already in the call returns the same participation with a fresh credential. That is how a client whose connection dropped, or whose credential expired before it connected, gets back in. Somebody the moderator removed from this call is refused with `403 forbidden`; they may join the room's next call.
+
+        Nobody ends a call for everybody. It ends when its last participant has left, and a person who loses their place in the room — leaving it, or being removed or banned by its owner — is taken out of its call. A closed room keeps the call it was holding and anybody in the room may still join it, but it does not start a new one, which answers `409 conflict`.
+
+        An installation with no media server answers `503 unavailable` before anything is written. A room this person is not in answers `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The person is in the call that was already running, and here is what to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "201":
+          description: This request started the call, the person is in it, and here is what to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/call/leave:
+    post:
+      operationId: leaveMyRoomCall
+      tags: [Me]
+      summary: Leave the call in a room I am in
+      description: |
+        Takes the signed-in person out of the room's call and closes their connection to it.
+
+        **When they were the last one in it, the call ends**, recorded with `person` as the actor. Nobody ends a call for everybody, so this is the only way a person ends one.
+
+        Leaving a call they are not in, or a room that holds no call, succeeds and changes nothing. A room this person is not in answers `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The person is not in the room's call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/call/participants/{user_id}:
+    delete:
+      operationId: removeMyRoomCallParticipant
+      tags: [Me]
+      summary: Put somebody out of the call in a room I own
+      description: |
+        Puts somebody out of the room's call, on the authority of its moderator, and closes their connection at once.
+
+        The person asking must be in the call as its `moderator`, which is what the room's owner joins as. An owner who is not in the call is told to join it with `409 conflict`, and anybody else in the room is refused with `403 forbidden`.
+
+        The person removed cannot come back to this call, however recently they were given a credential: one who connects anyway is disconnected again. The room's next call is a new one, and a removal from a call takes nobody's place in the room — removing somebody from the room is `DELETE /v1/me/rooms/{room_id}/members/{user_id}`.
+
+        Somebody who is not in the call answers `404 not found`, as does a room this person is not in, and a moderator naming themselves is `400`: leaving is `POST .../call/leave`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The person is not in the call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me/people:
     get:
       operationId: listMyPeople
@@ -5640,7 +5935,7 @@ paths:
       description: |
         Upgrades the connection to a WebSocket and delivers the events about the rooms the signed-in person is in, as they happen. It is how Convia's own interface stops asking every few seconds.
 
-        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, and `room.member_removed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. Calls, participants, and presence are absent because nothing on this surface reads them yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
+        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, `room.member_removed`, `call.started`, `call.ended`, `participant.joined`, `participant.left`, `participant.removed`, and `participant.role_changed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. Presence is absent because nothing on this surface reads it yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
 
         Which rooms is read before the upgrade, kept current by the membership events the stream carries, and read again every minute, when the session is also checked again. A session that stops authenticating — signed out, expired, or suspended — ends the stream with close code `4001`, which a reconnect would not change. Within that minute a stream may still carry events about a room its person has just left; what they name is identifiers, and reading any of it asks for membership again.
 
@@ -7579,6 +7874,17 @@ components:
         working sessions, and revocation takes effect on the next request
         because Convia is the only party that verifies it.
 
+    MediaReportSignature:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: |
+        The media plane reporting what happened, proved by a signature made with the media plane's API secret.
+
+        The header carries a signed token with no scheme in front of it. The token names the API key as its issuer, expires within minutes, and carries a digest of the body, so a report that verifies was sent by something holding the secret and was not altered on the way. Only the media plane and Convia hold that secret.
+
+        This signature is accepted nowhere else, and nothing else is accepted here. Every way it can fail is the same `401`.
+
     PeerSignature:
       type: apiKey
       in: header
@@ -8175,7 +8481,17 @@ components:
       description: |
         Who caused a transition. It names the authority that made the request,
         not the person who was talking.
-      enum: [application, operator]
+
+        `person` is somebody signed in to Convia's own product: they started a
+        call in a room they are in, or were the last to leave one. Which person
+        is not said here, because who was in the call is what participants are
+        for.
+
+        `system` is Convia ending a call nobody asked to end: the media plane
+        reported that the last connection to it went away, or the room it was
+        held in was deleted. Nothing starts a call on its own, so `system` only
+        ever appears as `ended_by`.
+      enum: [application, operator, person, system]
 
     CallMetadata:
       type: object
@@ -9374,6 +9690,83 @@ components:
           description: The identifier to continue from, absent at the end of the listing.
           example: usr_7QK4XMZP2VJH6TBWNDR3YAFC5E
 
+    RoomCall:
+      type: object
+      description: |
+        A call as the people in its room see it: which call, where, and since when.
+
+        Its metadata and its history are the application's, and are not published on this surface.
+      required: [id, room_id, status, created_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/CallId"
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        status:
+          type: string
+          enum: [active]
+          description: Always `active`. A call that has ended is not at this address.
+        created_at:
+          type: string
+          format: date-time
+          description: When the call started, as RFC 3339 in UTC.
+          example: "2026-09-14T18:30:00.000Z"
+
+    RoomCallList:
+      type: object
+      description: The calls running in the rooms a person is in.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoomCall"
+
+    CallPresence:
+      type: object
+      description: Somebody in a call now, by the name they go by.
+      required: [participant_id, user_id, display_name, role, joined_at]
+      additionalProperties: false
+      properties:
+        participant_id:
+          type: string
+          description: |
+            The participation, which is also the identity this person appears under to the media plane, so a client can match a connection to a name.
+          example: part_7KQZP4XN2VJH6TBWMDR3YAFC5E
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        display_name:
+          type: string
+          description: The name the application gave this person. It may be empty.
+          example: Ana Ribeiro
+        role:
+          type: string
+          enum: [moderator, member]
+          description: |
+            What the person may do in the call. The room's owner joins as its moderator and everybody else as a member.
+          example: member
+        joined_at:
+          type: string
+          format: date-time
+          description: When this person joined the call, as RFC 3339 in UTC.
+          example: "2026-09-14T18:30:02.000Z"
+
+    CallPresencePage:
+      type: object
+      description: One page of the people in a call.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CallPresence"
+        next_cursor:
+          type: string
+          description: The cursor to continue from, absent at the end of the listing.
+
     MessageId:
       type: string
       description: Opaque, immutable public identifier of a message.
@@ -9908,9 +10301,10 @@ components:
         What the event says beyond naming its subject.
 
         The keys depend on the type. Call events carry `room_id`, `status`, and
-        `actor`. Participant events carry `call_id`, `role`, `status`, `guest`,
-        and whichever of `user_id` or `invitation_id` identifies the person,
-        plus `removed_by` and `removed_by_participant_id` on a removal.
+        `actor`. Participant events carry `call_id`, `room_id`, `role`,
+        `status`, `guest`, and whichever of `user_id` or `invitation_id`
+        identifies the person, plus `removed_by` and
+        `removed_by_participant_id` on a removal.
         Invitation events carry `call_id`, `role`, `guest`, `status`, and
         `user_id` when the invitation names somebody. Message events carry
         `room_id`, `sequence`, `guest`, `deleted`, `edited`, and whichever of

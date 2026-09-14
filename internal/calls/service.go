@@ -48,9 +48,11 @@ and video.
 It is declared here, in the consuming package, and it is exported only so that
 the composition root can name what it is constructing. It is deliberately
 narrow: a call begins, so a place for it must be realized; a call ends, so that
-place must be released; and someone Convia has admitted needs a credential to
-connect with. Nothing here decides *whether* anyone may connect — that is
-settled before the boundary is reached.
+place must be released; someone Convia has admitted needs a credential to
+connect with; someone Convia put out must stop being connected; and a report
+that somebody left has to be checked against whether they still are. Nothing
+here decides *whether* anyone may connect — that is settled before the boundary
+is reached.
 
 media.Absent satisfies it, and is what a Convia with no media plane configured
 uses. See docs/adr/0001-control-plane-media-plane-boundary.md.
@@ -59,6 +61,8 @@ type MediaPlane interface {
 	OpenSession(ctx context.Context, request media.SessionRequest) (media.Session, error)
 	CloseSession(ctx context.Context, session media.Session) error
 	IssueCredential(ctx context.Context, admission media.Admission) (media.Credential, error)
+	Disconnect(ctx context.Context, session media.Session, participantID string) error
+	Connected(ctx context.Context, session media.Session, participantID string) (bool, error)
 }
 
 /*
@@ -249,6 +253,175 @@ func (service *Service) Admit(ctx context.Context, call Call, participantID stri
 	}
 
 	return credential, nil
+}
+
+/*
+Carries reports whether this deployment has a media plane a call could be held
+on.
+
+A call on a Convia without one is a coherent thing for an application, which
+may hold its conversations elsewhere and use Convia for the record. It is not
+for a person pressing a button to talk, who would be let into a call nobody can
+hear, so Convia's own product asks this before starting one.
+*/
+func (service *Service) Carries() bool {
+	_, absent := service.media.(media.Absent)
+	return !absent
+}
+
+/*
+Current returns the conversation a room is holding now.
+
+ErrNotFound means there is none, which is an ordinary answer about a room
+rather than a failure: most rooms are quiet most of the time.
+*/
+func (service *Service) Current(ctx context.Context, applicationID, roomID string) (Call, error) {
+	room, err := service.requireRoom(ctx, applicationID, roomID)
+	if err != nil {
+		return Call{}, err
+	}
+
+	if room.Status == rooms.StatusDeleted {
+		return Call{}, ErrRoomNotFound
+	}
+
+	return service.store.Current(ctx, applicationID, room.ID)
+}
+
+/*
+ActiveIn returns the conversations running in any of the named rooms, newest
+first.
+
+It is how a person sees at once every call they could join. It answers for a set
+of rooms the caller has already resolved rather than for a whole application,
+and a room that is not this application's contributes nothing, because every
+statement is still scoped to the application.
+*/
+func (service *Service) ActiveIn(ctx context.Context, applicationID string, roomIDs []string) ([]Call, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return nil, err
+	}
+
+	if len(roomIDs) == 0 {
+		return []Call{}, nil
+	}
+
+	return service.store.ActiveIn(ctx, applicationID, roomIDs)
+}
+
+/*
+BySession finds the call a media session realizes.
+
+**It is the one read in this package that does not start from an application**,
+and that is deliberate rather than an omission. The media plane knows sessions,
+not tenants, so a report from it can only name the session; the application is
+then taken from the call that was found. What makes this safe is where the
+reference comes from: only a report whose signature proved it came from the
+media plane reaches here, and a session reference is never published, so
+nobody else can name one.
+*/
+func (service *Service) BySession(ctx context.Context, reference string) (Call, error) {
+	if reference == "" {
+		return Call{}, ErrNotFound
+	}
+	return service.store.BySession(ctx, reference)
+}
+
+/*
+EndInRoom ends whatever conversation a room is holding, and does nothing when it
+holds none.
+
+It reads the room's call without asking the room anything first, because it is
+for a room that has just been deleted, and a deleted room is one Current reports
+as missing.
+*/
+func (service *Service) EndInRoom(ctx context.Context, applicationID, roomID string, by Actor, reason string) error {
+	call, err := service.store.Current(ctx, applicationID, roomID)
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+
+	if err != nil {
+		return err
+	}
+
+	_, err = service.End(ctx, applicationID, call.ID, by, reason)
+	return err
+}
+
+/*
+EndIfEmpty ends a conversation nobody is in any more, reporting whether it did.
+
+It is how a call in Convia's own product ends: nobody ends it for everybody, and
+it is over when its last participant has gone. Whether anybody is still there is
+decided under the call's lock, which joining takes too, so a person arriving at
+the moment the last one leaves either finds the call still running or finds it
+over — never inside a call that ended around them.
+*/
+func (service *Service) EndIfEmpty(ctx context.Context, applicationID, id string,
+	by Actor, reason string) (Call, bool, error) {
+	call, ended, err := service.store.EndIfEmpty(ctx, applicationID, id, by, reason, now())
+	if err != nil || !ended {
+		return call, false, err
+	}
+
+	service.releaseSessionOf(ctx, call)
+	service.audit(ctx, events.CallEnded, call)
+	return call, true, nil
+}
+
+/*
+Disconnect closes one person's connection to a call, as far as the media plane
+can be asked to.
+
+It is best-effort, like releasing a session, and for the same reason: Convia's
+record of who is in the call has already changed, and an outage must not undo
+that. What it closes is the gap docs/media.md used to name — a person put out of
+a call staying connected until they chose to go. A failure is logged, and the
+person still cannot come back: a participation that is over is refused a
+credential, and one that connects anyway is reported and disconnected again.
+*/
+func (service *Service) Disconnect(ctx context.Context, call Call, participantID string) {
+	reference, err := service.store.Session(ctx, call.ApplicationID, call.ID)
+	if err == nil {
+		err = service.media.Disconnect(ctx, media.Session{Reference: reference}, participantID)
+	}
+
+	if err != nil {
+		service.logger.Error("a participant who is out of a call was not disconnected",
+			"error", err,
+			"call_id", call.ID,
+			"participant_id", participantID,
+			"application_id", call.ApplicationID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+	}
+}
+
+/*
+Connected reports whether somebody is connected to a call right now, according
+to the media plane.
+
+A report that a connection went away is not proof the person did, because
+reloading a page opens a new connection before the old one is reported gone.
+This is what tells the two apart, and it is not best-effort: taking somebody out
+of a call on a guess would be worse than waiting for the next report.
+*/
+func (service *Service) Connected(ctx context.Context, call Call, participantID string) (bool, error) {
+	reference, err := service.store.Session(ctx, call.ApplicationID, call.ID)
+	if err != nil {
+		return false, fmt.Errorf("read the media session: %w", err)
+	}
+
+	connected, err := service.media.Connected(ctx, media.Session{Reference: reference}, participantID)
+	if err != nil {
+		if media.Retryable(err) {
+			return false, ErrMediaUnavailable
+		}
+		return false, fmt.Errorf("ask whether a participant is connected: %w", err)
+	}
+
+	return connected, nil
 }
 
 /*

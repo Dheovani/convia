@@ -14,14 +14,14 @@ interface RailProps {
 /*
 The rail is the outermost of the three zones: which part of Convia you are in.
 
-Calls and settings are present and disabled rather than absent. An interface
-that grows new top-level destinations as they are built teaches people that its
-shape is unreliable; one that shows where they will be, greyed, teaches them
-where to look later. Each says what it is waiting for.
+Settings is present and disabled rather than absent. An interface that grows new
+top-level destinations as they are built teaches people that its shape is
+unreliable; one that shows where they will be, greyed, teaches them where to look
+later. It says what it is waiting for.
 */
 const destinations: { id: Mode; label: string; ready: boolean; waiting?: string }[] = [
   { id: 'chat', label: 'Chat', ready: true },
-  { id: 'calls', label: 'Calls', ready: false, waiting: 'Calls arrive with M18-004.' },
+  { id: 'calls', label: 'Calls', ready: true },
   { id: 'settings', label: 'Settings', ready: false, waiting: 'Settings arrive later in M18.' },
 ]
 

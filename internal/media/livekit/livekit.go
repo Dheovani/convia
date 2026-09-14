@@ -147,6 +147,16 @@ func New(config Config) (*Plane, error) {
 }
 
 /*
+ClientURL is the address a browser connects to.
+
+It is exported for the one other thing that has to know it: the page's
+Content-Security-Policy, which refuses every connection it was not told about.
+*/
+func (plane *Plane) ClientURL() string {
+	return plane.clientURL
+}
+
+/*
 clientEndpoint decides the address a client is told to connect to.
 
 Clients speak WebSocket where Convia speaks HTTP, against the same server, so
@@ -335,14 +345,74 @@ func (plane *Plane) IssueCredential(_ context.Context, admission media.Admission
 }
 
 /*
-errRoomGone reports a room the provider does not have.
+Disconnect closes one person's connection to the room a call is held in.
 
-It is internal, because the only caller that can meaningfully encounter it
-treats it as success. It still wraps a terminal failure so that escaping is
-safe: were a create ever answered this way, it would be reported as the
-misconfiguration it would have to be rather than retried forever.
+Somebody who is not connected is a success: they may have left a moment before,
+or never connected with the credential they were given, and either way the
+state Convia asked for is the state the room is in. A room that is already gone
+is a success for the same reason.
+
+The provider does not stop the person connecting again with a credential they
+still hold. What stops them is Convia: a participation that is over is refused a
+new credential, and one that connects anyway is reported and disconnected again.
 */
-var errRoomGone = fmt.Errorf("the room no longer exists: %w", media.ErrRejected)
+func (plane *Plane) Disconnect(ctx context.Context, session media.Session, participantID string) error {
+	if !session.Realized() || participantID == "" {
+		return nil
+	}
+
+	body := map[string]any{"room": session.Reference, "identity": participantID}
+
+	err := plane.call(ctx, "RemoveParticipant", moderationOf(session.Reference), body, nil)
+	if errors.Is(err, errRoomGone) {
+		return nil
+	}
+
+	return err
+}
+
+/*
+Connected reports whether somebody is connected to the room a call is held in
+right now.
+
+It exists because a report that somebody left is true of **a connection**, and
+a person is not one connection. Reloading a page opens a new connection under
+the same identity before the old one is reported gone, so believing the report
+alone would take somebody out of a call they are sitting in. Asking the room is
+what tells the two apart.
+*/
+func (plane *Plane) Connected(ctx context.Context, session media.Session, participantID string) (bool, error) {
+	if !session.Realized() || participantID == "" {
+		return false, nil
+	}
+
+	var participant struct {
+		State string `json:"state"`
+	}
+
+	body := map[string]any{"room": session.Reference, "identity": participantID}
+
+	err := plane.call(ctx, "GetParticipant", moderationOf(session.Reference), body, &participant)
+	switch {
+	case errors.Is(err, errRoomGone):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+
+	return participant.State != "DISCONNECTED", nil
+}
+
+/*
+errRoomGone reports a room, or a person in it, that the provider does not have.
+
+The provider answers both with the same code, and every caller that can
+meaningfully encounter it treats it as the state it asked about already being
+true. It still wraps a terminal failure so that escaping is safe: were a create
+ever answered this way, it would be reported as the misconfiguration it would
+have to be rather than retried forever.
+*/
+var errRoomGone = fmt.Errorf("the room or the person in it no longer exists: %w", media.ErrRejected)
 
 /*
 call performs one room service request.

@@ -217,6 +217,20 @@ type Dependencies struct {
 	RoomInvitations   *peers.SessionHandler
 
 	/*
+		PersonalCalls is a signed-in person's calls, in the rooms they are in.
+		Like the other session handlers it is removed with the authenticator.
+	*/
+	PersonalCalls *participants.SessionHandler
+
+	/*
+		What the media plane reports. MediaReporter verifies a report's
+		signature and MediaReports applies it. A Convia with no media plane has
+		neither, and serves no route a report could be sent to.
+	*/
+	MediaReporter mediaReporter
+	MediaReports  *participants.ReportHandler
+
+	/*
 		IdempotencyKeys lets a caller retry a creation without risking a second
 		resource. Leaving it out does not remove the routes it guards, because
 		the header is optional and every request that omits it is served
@@ -331,6 +345,8 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
 		case surfaceVisitor:
 			served = signed(logger, dependencies.PeerAuthenticator, true, failures, resolve, served)
+		case surfaceMedia:
+			served = reported(logger, dependencies.MediaReporter, failures, resolve, served)
 		case surfaceTenant:
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
 				failures, resolve, served)
@@ -432,6 +448,15 @@ const (
 		person may, through the same handlers, decided per room by membership.
 	*/
 	surfaceVisitor
+	/*
+		surfaceMedia is the media plane, telling Convia what happened.
+
+		It is authenticated by a signature made with the media plane's API
+		secret, which only the media plane and Convia hold, and it reaches one
+		route. What it says is evidence Convia checks against its own record,
+		never an instruction.
+	*/
+	surfaceMedia
 )
 
 /*
@@ -468,7 +493,8 @@ surface added later has to be classified deliberately.
 */
 func (entry route) authenticated() bool {
 	switch entry.surface {
-	case surfaceTenant, surfaceOperator, surfaceInvitation, surfaceSession, surfacePeer, surfaceVisitor:
+	case surfaceTenant, surfaceOperator, surfaceInvitation, surfaceSession, surfacePeer, surfaceVisitor,
+		surfaceMedia:
 		return true
 	default:
 		return false
@@ -891,6 +917,50 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				surface: surfaceSession, handler: http.HandlerFunc(dependencies.PersonalRooms.Unban)},
 			route{method: http.MethodGet, path: api.Prefix + "/me/people", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.PersonalRooms.People)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalCalls != nil {
+		/*
+			A person's calls, one per room at a time.
+
+			Joining starts a call when the room has none, and leaving ends it
+			when nobody is left, so there is no route to start or end one: a
+			person wants to talk, and nobody ends a call for everybody. The
+			room's owner is its moderator and may put somebody out. See
+			docs/adr/0014.
+		*/
+		call := api.Prefix + "/me/rooms/{room_id}/call"
+		calling := dependencies.PersonalCalls
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/me/calls", surface: surfaceSession,
+				handler: http.HandlerFunc(calling.Calls)},
+			route{method: http.MethodGet, path: call, surface: surfaceSession,
+				handler: http.HandlerFunc(calling.Call)},
+			route{method: http.MethodGet, path: call + "/participants", surface: surfaceSession,
+				handler: http.HandlerFunc(calling.Roster)},
+			route{method: http.MethodPost, path: call + "/join", surface: surfaceSession,
+				handler: http.HandlerFunc(calling.Join)},
+			route{method: http.MethodPost, path: call + "/leave", surface: surfaceSession,
+				handler: http.HandlerFunc(calling.Leave)},
+			route{method: http.MethodDelete, path: call + "/participants/{user_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(calling.Remove)},
+		)
+	}
+
+	if dependencies.MediaReporter != nil && dependencies.MediaReports != nil {
+		/*
+			The media plane, reporting what happened to the connections it
+			carries.
+
+			It sits outside the versioned API, beside the operational endpoints,
+			because nobody integrates with it: it is addressed by the media
+			server this deployment configured, and its shape is whatever that
+			server sends.
+		*/
+		table = append(table,
+			route{method: http.MethodPost, path: "/media/reports", surface: surfaceMedia,
+				handler: http.HandlerFunc(dependencies.MediaReports.Receive)},
 		)
 	}
 

@@ -34,15 +34,31 @@ services:
     image: livekit/livekit-server:v1.13.6
     container_name: convia-livekit
     profiles: ["media"]
-    command: --dev --bind 0.0.0.0
+    # --node-ip is the address the server tells a browser to send media to. The
+    # container's own address is not reachable from the host, so it is the host's
+    # loopback, where the ports below are published.
+    command: --dev --bind 0.0.0.0 --node-ip 127.0.0.1
     environment:
       # Development-only, and matched in .env.example. A real deployment gets
       # its keys from the deployment environment or a secret manager.
       LIVEKIT_KEYS: "devkey: a-development-secret-long-enough-to-be-accepted"
+      # Where the server reports who connected and who left: a Convia running on
+      # the host, which is how scripts/dev runs it. The reports are signed with
+      # the key above. See docs/media.md.
+      LIVEKIT_CONFIG: |
+        webhook:
+          api_key: devkey
+          urls:
+            - http://host.docker.internal:8080/media/reports
+    extra_hosts:
+      # Docker Desktop resolves this name on its own; Linux needs it mapped.
+      - "host.docker.internal:host-gateway"
     ports:
-      # Only the control API is published. Convia does not carry media yet, so
-      # the ports a participant would connect on arrive with M13.
+      # The API, and the two ports a browser carries media on in development
+      # mode: TCP as the fallback, and one UDP port every connection shares.
       - "127.0.0.1:7880:7880"
+      - "127.0.0.1:7881:7881"
+      - "127.0.0.1:7882:7882/udp"
     restart: unless-stopped
 
   # A single Convia instance needs none of this: its event broker is in

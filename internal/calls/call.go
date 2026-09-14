@@ -130,9 +130,6 @@ Actor is who caused a transition.
 
 It names the authority that made the request, not the person who was talking.
 Who was in the call is a participant, which is M10.
-
-A `system` actor arrives with the reconciliation described in
-docs/calls.md, and is deliberately absent until something produces it.
 */
 type Actor string
 
@@ -141,11 +138,29 @@ const (
 	ActorApplication Actor = "application"
 	// ActorOperator means an operator acted on a tenant's call.
 	ActorOperator Actor = "operator"
+	/*
+		ActorPerson means somebody signed in to Convia's own product acted:
+		started a call in a room they are in, or was the last to leave it.
+
+		Which person is not recorded here, for the reason the actor never names
+		an application's key either. Who was in the call is what participants
+		are for.
+	*/
+	ActorPerson Actor = "person"
+	/*
+		ActorSystem means Convia ended a call without being asked to.
+
+		It is the actor docs/calls.md reserved for Convia acting on evidence
+		rather than on a request: the media plane reported that the last
+		connection went away, or the room the call was held in was deleted.
+		Nothing starts a call on its own, so it only ever ends one.
+	*/
+	ActorSystem Actor = "system"
 )
 
 // Actors returns every actor Convia recognizes, for the contract test.
 func Actors() []Actor {
-	return []Actor{ActorApplication, ActorOperator}
+	return []Actor{ActorApplication, ActorOperator, ActorPerson, ActorSystem}
 }
 
 /*

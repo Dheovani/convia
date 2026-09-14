@@ -67,6 +67,8 @@ Closing stops the room accepting **new** calls. A conversation already in progre
 
 This is a product judgment rather than an implementation detail: ending a conversation people are having because an administrator tidied a listing would be the wrong default. M09 implements it — see [`calls.md`](calls.md) — and a test asserts that closing a room leaves the call in it running. An application that needs to eject participants will need an operation that says so, and that operation belongs to the call domain, not this one.
 
+**Deleting a room is different, and ends its call.** Nobody can find a call in a room that is gone. And in a room a person opened, **losing one's place — leaving, being removed, being banned — takes one out of its call**, because being in the room is what lets a person into it. An application's rooms are left alone there: an application admits people to its calls on its own authority. The room says so to the calls domain through an interface it declares, since the calls domain depends on this one; see [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md).
+
 ## Capacity
 
 `max_participants` is optional and bounded between 1 and 1000. Absent means the room states no limit of its own.

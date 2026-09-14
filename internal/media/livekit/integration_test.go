@@ -123,6 +123,96 @@ func TestReleasingASessionTwiceOnARealServerSucceeds(t *testing.T) {
 }
 
 /*
+TestARealServerAnswersAboutSomebodyWhoIsNotThere proves the two questions a
+report is checked with are asked in a shape a real server accepts, and that
+"not there" comes back as an answer rather than a failure.
+
+A real connection cannot be opened from here: that takes a WebRTC client, which
+ADR 0002 keeps out of this module. What can be proved is that the questions are
+understood and that their negative answers are read correctly.
+*/
+func TestARealServerAnswersAboutSomebodyWhoIsNotThere(t *testing.T) {
+	plane := newRealPlane(t, "")
+	ctx := context.Background()
+
+	session, err := plane.OpenSession(ctx, media.SessionRequest{CallID: newCallID()})
+	if err != nil {
+		t.Fatalf("open a session on a real server: %v", err)
+	}
+	t.Cleanup(func() { _ = plane.CloseSession(context.Background(), session) })
+
+	nobody := "part_" + rand.Text()
+
+	connected, err := plane.Connected(ctx, session, nobody)
+	if err != nil {
+		t.Fatalf("ask a real server whether somebody is connected: %v", err)
+	}
+	if connected {
+		t.Error("a real server reported somebody connected who never was")
+	}
+
+	if err := plane.Disconnect(ctx, session, nobody); err != nil {
+		t.Errorf("disconnecting somebody who is not connected failed on a real server: %v", err)
+	}
+}
+
+// TestARealServerAnswersAboutARoomItNoLongerHas covers the report that arrives
+// after the call's session was released.
+func TestARealServerAnswersAboutARoomItNoLongerHas(t *testing.T) {
+	plane := newRealPlane(t, "")
+	ctx := context.Background()
+
+	session, err := plane.OpenSession(ctx, media.SessionRequest{CallID: newCallID()})
+	if err != nil {
+		t.Fatalf("open a session on a real server: %v", err)
+	}
+	if err := plane.CloseSession(ctx, session); err != nil {
+		t.Fatalf("release the session: %v", err)
+	}
+
+	nobody := "part_" + rand.Text()
+
+	if connected, err := plane.Connected(ctx, session, nobody); err != nil || connected {
+		t.Errorf("Connected() on a released session = %t, %v, want false and no error", connected, err)
+	}
+	if err := plane.Disconnect(ctx, session, nobody); err != nil {
+		t.Errorf("Disconnect() on a released session error = %v", err)
+	}
+}
+
+/*
+TestARealServerKeepsAModerationTokenToItsOwnRoom proves the permission is as
+narrow as moderationOf claims, which only a real server can: a token minted to
+act inside one room is refused inside another.
+*/
+func TestARealServerKeepsAModerationTokenToItsOwnRoom(t *testing.T) {
+	plane := newRealPlane(t, "")
+	ctx := context.Background()
+
+	mine, err := plane.OpenSession(ctx, media.SessionRequest{CallID: newCallID()})
+	if err != nil {
+		t.Fatalf("open a session on a real server: %v", err)
+	}
+	t.Cleanup(func() { _ = plane.CloseSession(context.Background(), mine) })
+
+	theirs, err := plane.OpenSession(ctx, media.SessionRequest{CallID: newCallID()})
+	if err != nil {
+		t.Fatalf("open another session on a real server: %v", err)
+	}
+	t.Cleanup(func() { _ = plane.CloseSession(context.Background(), theirs) })
+
+	body := map[string]any{"room": theirs.Reference, "identity": "part_" + rand.Text()}
+
+	err = plane.call(ctx, "GetParticipant", moderationOf(mine.Reference), body, nil)
+	if err == nil {
+		t.Fatal("a real server let a token for one room act inside another")
+	}
+	if media.Retryable(err) {
+		t.Errorf("a refused token produced %v, which invites a retry that cannot work", err)
+	}
+}
+
+/*
 TestARealServerRefusingACredentialIsTerminal proves the distinction reaches the
 control plane correctly.
 

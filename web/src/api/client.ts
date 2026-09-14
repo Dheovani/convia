@@ -1,14 +1,17 @@
 import type {
   Account,
+  CallPresencePage,
   HistoryDirection,
   InvitationLook,
   JoinedRoom,
+  JoinSession,
   Message,
   MessagePage,
   OwnRoom,
   PersonPage,
   ReadState,
   RemoteRoomPage,
+  RoomCallList,
   RoomInvitation,
   RoomMember,
   Sidebar,
@@ -299,6 +302,40 @@ export const api = {
     return call<PersonPage>(
       `/me/rooms/${encodeURIComponent(roomId)}/bans` + query({ limit: pageLimit }),
       signal ? { signal } : {},
+    )
+  },
+
+  /*
+  Calls, one per room at a time.
+
+  Joining starts a call when the room holds none, and leaving ends it when
+  nobody is left, so there is nothing here that starts or ends one for
+  everybody.
+  */
+  calls(signal?: AbortSignal): Promise<RoomCallList> {
+    return call<RoomCallList>('/me/calls', signal ? { signal } : {})
+  },
+
+  callParticipants(roomId: string, signal?: AbortSignal): Promise<CallPresencePage> {
+    return call<CallPresencePage>(
+      `/me/rooms/${encodeURIComponent(roomId)}/call/participants` + query({ limit: pageLimit }),
+      signal ? { signal } : {},
+    )
+  },
+
+  joinCall(roomId: string): Promise<JoinSession> {
+    return call<JoinSession>(`/me/rooms/${encodeURIComponent(roomId)}/call/join`, { method: 'POST' })
+  },
+
+  leaveCall(roomId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/call/leave`, { method: 'POST' })
+  },
+
+  // removeFromCall is the moderator putting somebody out of the call.
+  removeFromCall(roomId: string, userId: string): Promise<void> {
+    return call<void>(
+      `/me/rooms/${encodeURIComponent(roomId)}/call/participants/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
     )
   },
 

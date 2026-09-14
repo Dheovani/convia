@@ -36,13 +36,29 @@ type tenants interface {
 /*
 callLookup is the behavior this package needs from the call domain.
 
-Only reading is needed: participants never change a call, which keeps the
-dependency one-directional and the call the authority on its own state.
+The dependency stays one-directional, and the call stays the authority on its own
+state: every change to a call is made by the call domain, under its own rules.
+What this package asks for are the changes that follow from a call's people —
+starting one for a person who wants to talk, ending one nobody is in, ending the
+one a deleted room held — and the two things only the call domain can do with
+its media session: close somebody's connection, and ask whether they still have
+one.
 */
 type callLookup interface {
 	Get(ctx context.Context, applicationID, id string) (calls.Call, error)
 	Admit(ctx context.Context, call calls.Call, participantID string,
 		lifetime time.Duration) (media.Credential, error)
+	Carries() bool
+	Current(ctx context.Context, applicationID, roomID string) (calls.Call, error)
+	ActiveIn(ctx context.Context, applicationID string, roomIDs []string) ([]calls.Call, error)
+	BySession(ctx context.Context, reference string) (calls.Call, error)
+	Start(ctx context.Context, applicationID, roomID string, definition calls.Definition,
+		by calls.Actor) (calls.Call, error)
+	EndIfEmpty(ctx context.Context, applicationID, id string, by calls.Actor,
+		reason string) (calls.Call, bool, error)
+	EndInRoom(ctx context.Context, applicationID, roomID string, by calls.Actor, reason string) error
+	Disconnect(ctx context.Context, call calls.Call, participantID string)
+	Connected(ctx context.Context, call calls.Call, participantID string) (bool, error)
 }
 
 /*
@@ -181,7 +197,7 @@ func (service *Service) Join(ctx context.Context, applicationID, callID string,
 		return participant, false, nil
 	}
 
-	service.audit(ctx, events.ParticipantJoined, participant)
+	service.audit(ctx, events.ParticipantJoined, participant, call.RoomID)
 	return participant, true, nil
 }
 
@@ -251,7 +267,7 @@ func (service *Service) AdmitGuest(ctx context.Context, applicationID, callID,
 		return participant, false, nil
 	}
 
-	service.audit(ctx, events.ParticipantJoined, participant)
+	service.audit(ctx, events.ParticipantJoined, participant, call.RoomID)
 	return participant, true, nil
 }
 
@@ -321,9 +337,17 @@ Leave records that someone left of their own accord.
 Leaving twice succeeds and changes nothing, so a client retrying after a
 timeout is never punished for it, and someone who was removed is not quietly
 converted into someone who left.
+
+Their connection to the media plane is closed as well, so that the person Convia
+records as gone is not still being heard.
 */
 func (service *Service) Leave(ctx context.Context, applicationID, id string) (Participant, error) {
 	participant, err := service.locate(ctx, applicationID, id)
+	if err != nil {
+		return Participant{}, err
+	}
+
+	call, err := service.requireCall(ctx, applicationID, participant.CallID)
 	if err != nil {
 		return Participant{}, err
 	}
@@ -336,7 +360,8 @@ func (service *Service) Leave(ctx context.Context, applicationID, id string) (Pa
 		return departed, nil
 	}
 
-	service.audit(ctx, events.ParticipantLeft, departed)
+	service.audit(ctx, events.ParticipantLeft, departed, call.RoomID)
+	service.calls.Disconnect(ctx, call, departed.ID)
 	return departed, nil
 }
 
@@ -349,6 +374,11 @@ acting, Convia checks that participant was entitled to: Convia does not decide
 whether the application may remove someone, because it already may. What
 Convia decides is whether the moderator it was told about is one, since Convia
 is what holds the roster.
+
+The removed person is disconnected from the media plane at once. Before M18-004
+they stayed connected until they chose to go, and only a new credential was
+refused, which made a removal something the person removed could ignore for as
+long as their connection lasted.
 */
 func (service *Service) Remove(ctx context.Context, applicationID, id string,
 	authority Remover, actingID, reason string) (Participant, error) {
@@ -358,6 +388,11 @@ func (service *Service) Remove(ctx context.Context, applicationID, id string,
 	}
 
 	participant, err := service.locate(ctx, applicationID, id)
+	if err != nil {
+		return Participant{}, err
+	}
+
+	call, err := service.requireCall(ctx, applicationID, participant.CallID)
 	if err != nil {
 		return Participant{}, err
 	}
@@ -378,7 +413,8 @@ func (service *Service) Remove(ctx context.Context, applicationID, id string,
 		return removed, nil
 	}
 
-	service.audit(ctx, events.ParticipantRemoved, removed)
+	service.audit(ctx, events.ParticipantRemoved, removed, call.RoomID)
+	service.calls.Disconnect(ctx, call, removed.ID)
 	return removed, nil
 }
 
@@ -419,12 +455,17 @@ func (service *Service) SetRole(ctx context.Context, applicationID, id, role, ac
 		}
 	}
 
+	call, err := service.requireCall(ctx, applicationID, participant.CallID)
+	if err != nil {
+		return Participant{}, err
+	}
+
 	changed, err := service.store.SetRole(ctx, applicationID, participant.ID, parsed, now())
 	if err != nil {
 		return Participant{}, err
 	}
 
-	service.audit(ctx, events.ParticipantRoleChanged, changed)
+	service.audit(ctx, events.ParticipantRoleChanged, changed, call.RoomID)
 	return changed, nil
 }
 
@@ -658,12 +699,17 @@ What is delivered live is the same set of Convia-assigned values the audit
 entry holds, for the same reason: the removal reason is composed by the
 application and may say something about the person removed, and a live stream
 is the last place to widen that.
+
+The room is named alongside the call because a person's stream admits an event by
+the room it happened in. Without it, the people in a room would never hear who
+joined its call.
 */
-func (service *Service) audit(ctx context.Context, kind events.Type, participant Participant) {
+func (service *Service) audit(ctx context.Context, kind events.Type, participant Participant, roomID string) {
 	service.record(ctx, string(kind), participant)
 
 	data := events.Data{
 		"call_id": participant.CallID,
+		"room_id": roomID,
 		"role":    string(participant.Role),
 		"status":  string(participant.Status),
 		"guest":   participant.Guest(),

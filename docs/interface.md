@@ -105,6 +105,20 @@ It reconnects after a second, doubling to half a minute, so that every tab of ev
 
 **A refused handshake says nothing about why.** A browser hides the status of a failed WebSocket upgrade from scripts, so an expired session and an unreachable server look the same, and the interface does not guess: it keeps retrying, falls back to its timers, and the next ordinary request is what notices a session that is gone. The one reason Convia can still give is `4001`, sent on a stream that was open when its session ended; the interface asks `/v1/me` to confirm, and returns to the sign-in form.
 
+## Calls
+
+A call is in its room. The conversation header offers **Start call** in a quiet room and **Join call** in one holding a call, and the stage opens above the messages: who is in the call, **Mute**, **Start camera**, and **Leave call**. A person joins speaking and unseen, and turns the camera on deliberately. A closed room offers **Start call** disabled, because it keeps a call it was holding and does not start a new one. See [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md).
+
+**The call goes on while its person reads something else.** It is held by the workspace rather than by the conversation, and so is its sound. Whenever the stage is not on screen, a bar names the room the call is in, with **Return** and **Leave call**.
+
+**Calls** in the rail lists the calls running in the person's rooms, and choosing one opens its room. It is read again when `call.started` or `call.ended` arrives.
+
+**Only the room's owner sees how to moderate the call**, as with the room itself: every other tile carries **Remove**, which disconnects that person at once. A tile is named from the list of who is in the call, matched by the identity the media server shows; somebody who connected before that list was read is *Joining…* until it is read again, which the page does once per stranger.
+
+**What went wrong is said, in the page's words.** A refused join is worded from its status: removed from this call, a room that is gone, a closed room, an installation that cannot hold calls. A connection that closed is told apart by why: taken out of the call, the call ending, and joining from another page are said and not undone, and only a lost connection is tried again, once. A microphone that cannot be had does not keep anybody out of the call; it says that nobody can hear them.
+
+The media client is loaded when somebody first joins a call, as its own chunk, so the page does not wait for it. Everything the interface knows about audio and video goes through `web/src/media/connection.ts`, which is the one file that imports the client.
+
 ## What is served, and how it is cached
 
 | | Cache-Control |
@@ -122,17 +136,17 @@ The page is served under:
 
 ```
 default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self';
-font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none';
-frame-ancestors 'none'
+font-src 'self'; connect-src 'self' wss://media.example https://media.example;
+base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 ```
 
 `'none'` and then back up, so anything added later has to be allowed deliberately.
 
 **There is no `unsafe-inline`**, which is the keyword that makes most policies decorative. The build emits no inline script and no inline style, which is what lets it stay out — and a test asserts the policy never grows it, because the day somebody adds a `<style>` to `index.html` the right outcome is a failing build rather than a quietly weakened policy.
 
-Alongside it: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, and a `Permissions-Policy` that turns off what this product has no use for.
+Alongside it: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, and a `Permissions-Policy` that allows the camera and microphone to this page alone and turns off what this product has no use for.
 
-`connect-src 'self'` already admits the event stream, which is a WebSocket to this same host. It will have to change when calls arrive, because joining one means a WebSocket to the media server and that is a different origin. It is left alone rather than widened in advance, so that somebody decides.
+`connect-src` admits this host, which carries the API and the event stream, and the media server: joining a call is a WebSocket to it, and its media client asks the same host over HTTP why a connection failed. The media server is named exactly, from the address Convia gives browsers, and an installation with no media server allows neither.
 
 ## The design
 
@@ -169,8 +183,8 @@ Named here rather than discovered later.
 - **No router.** There is one screen and a selected room, and the URL does not change. It works because the server answers every path with the page, so adding a router later is additive.
 - **The lists of people are one page.** Somebody who shares rooms with more than a hundred people sees the first hundred. Paging wants a screen where it matters.
 - **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.
-- **No calls.** `M18-004` through `M18-008`, and the policy change that comes with them.
+- **Calls are the first delivery.** No choosing a camera or microphone (`M18-006`), no preview before joining (`M18-007`), and a refused permission or a degraded network is said rather than guided through (`M18-011`, `M18-012`). Nobody on another installation can join a call here yet (`M33-002`).
 - **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
 - **The webfonts are not bundled.** See *The design*.
-- **The bundle is not split.** One chunk, roughly 76 kB compressed, nearly all of it React, plus about 5 kB of stylesheet. Splitting is worth doing when there is a second screen heavy enough to defer, which calls will be.
+- **The bundle is split once.** The page is one chunk of roughly 87 kB compressed, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
 - **Tailwind costs a little at this size.** Its reset and the utilities in use come to roughly three kilobytes more, compressed, than the hand-written CSS it replaced. That is the expected shape of the trade: a utility system pays for itself once the same spacing and colour decisions are being repeated across many screens, and this interface currently has two.

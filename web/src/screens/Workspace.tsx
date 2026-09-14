@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, sourceKey, type RoomSource } from '../api/client'
 import type { Account, SidebarRoom } from '../api/types'
+import { CallAudio, CallBar, CallsList } from '../components/Call'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
 import { Sidebar } from '../components/Sidebar'
+import { CallContext, useCallSession } from '../state/call'
 import { EventsContext, useEventStream } from '../state/events'
+import { useCalls } from '../state/useCalls'
 import { useRemoteRooms } from '../state/useRemoteRooms'
 import { useRooms } from '../state/useRooms'
 
@@ -66,6 +69,19 @@ export function Workspace({
   const { live, listen } = stream
   const { rooms, loading, failed, refresh, remember, forget } = useRooms(onSignedOut, live)
   const elsewhere = useRemoteRooms(onSignedOut)
+
+  /*
+  The call this page is in, and the calls it could join. The call is held here
+  rather than in a conversation, because it goes on while another room is read.
+  */
+  const call = useCallSession(onSignedOut, listen)
+  const running = useCalls(onSignedOut, live, listen)
+  const refreshCalls = running.refresh
+
+  // Joining a call may have started one, and leaving may have ended it.
+  useEffect(() => {
+    refreshCalls()
+  }, [call.phase, refreshCalls])
 
   const pending = useRef<number | undefined>(undefined)
   const refreshSoon = useCallback(() => {
@@ -231,8 +247,23 @@ export function Workspace({
     }
   }
 
+  /*
+  The bar shows the call whenever its stage is not on screen: another room is
+  open, or another destination is.
+  */
+  const callRoom = call.roomId === null ? undefined : rooms.find((candidate) => candidate.id === call.roomId)
+  const stageShown = mode === 'chat' && open?.source.kind === 'local' && open.source.id === call.roomId
+  const callRoomId = call.roomId
+
+  function openRoom(roomId: string) {
+    setMode('chat')
+    setSelected(sourceKey({ kind: 'local', id: roomId }))
+  }
+
   return (
     <EventsContext.Provider value={stream}>
+      <CallContext.Provider value={call}>
+      <CallAudio />
       <div
         className="grid h-full grid-cols-[var(--rail-width)_minmax(0,1fr)]
           grid-rows-[auto_minmax(0,1fr)] bg-surface
@@ -251,16 +282,20 @@ export function Workspace({
             bg-surface-deep md:max-h-none md:border-r md:border-b-0"
           aria-label="Conversations"
         >
-          <Sidebar
-            rooms={rooms}
-            remoteRooms={elsewhere.remoteRooms}
-            selected={selected}
-            loading={loading}
-            onSelect={setSelected}
-            onCreate={create}
-            onLook={(link) => api.look(link)}
-            onJoin={join}
-          />
+          {mode === 'calls' ? (
+            <CallsList calls={running.calls} rooms={rooms} onOpen={openRoom} />
+          ) : (
+            <Sidebar
+              rooms={rooms}
+              remoteRooms={elsewhere.remoteRooms}
+              selected={selected}
+              loading={loading}
+              onSelect={setSelected}
+              onCreate={create}
+              onLook={(link) => api.look(link)}
+              onJoin={join}
+            />
+          )}
           {failed && (
             <p className="m-0 border-t border-line px-4 py-2 text-[0.75rem] text-ink-faint" role="status">
               Convia could not be reached. Retrying.
@@ -268,7 +303,10 @@ export function Workspace({
           )}
         </aside>
 
-        <main className="col-start-2 row-start-2 flex min-h-0 min-w-0 md:col-start-3 md:row-start-1">
+        <main className="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col md:col-start-3 md:row-start-1">
+          {call.phase !== 'idle' && !stageShown && callRoomId !== null && (
+            <CallBar roomName={callRoom?.name ?? 'a room'} onReturn={() => openRoom(callRoomId)} />
+          )}
           {open === null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
               <p className="m-0">Nothing is open.</p>
@@ -290,10 +328,12 @@ export function Workspace({
               {...(open.source.kind === 'remote' ? { onForget: () => forgetElsewhere(open.source) } : {})}
               onRoomChanged={refresh}
               {...(open.source.kind === 'local' ? { onRoomDeleted: () => deleted(open.source) } : {})}
+              callRunning={running.calls.some((candidate) => candidate.room_id === open.room.id)}
             />
           )}
         </main>
       </div>
+      </CallContext.Provider>
     </EventsContext.Provider>
   )
 }

@@ -81,6 +81,10 @@ func TestTheRosterIsAnnouncedAsItChanges(t *testing.T) {
 	if joined.Subject.Type != events.SubjectParticipant || joined.Subject.ID != participant.ID {
 		t.Errorf("the announcement is about %+v", joined.Subject)
 	}
+	// The room is what a person's stream admits an event by.
+	if joined.Data["room_id"] != call.RoomID {
+		t.Errorf("the announcement places the call in room %v, want %s", joined.Data["room_id"], call.RoomID)
+	}
 	if joined.Data["call_id"] != call.ID {
 		t.Errorf("the announcement places the participant in %v", joined.Data["call_id"])
 	}

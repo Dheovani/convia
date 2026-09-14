@@ -122,6 +122,9 @@ func newFixtureWith(t *testing.T, plane calls.MediaPlane) fixture {
 		logs:         logs,
 	}
 
+	// As the composition root does, so a room changing under a call is seen.
+	roomService.InformCalls(setup.service)
+
 	logs.Reset()
 	return setup
 }
