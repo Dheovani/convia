@@ -78,7 +78,9 @@ A link somebody was sent is pasted into **Join with a link** in the sidebar, whi
 
 When somebody cannot be added, the panel says one sentence. Convia gives one answer for a stranger, an identifier that names nobody, and somebody suspended, and wording them differently here would be inventing the distinction the server refused to make.
 
-There is no way to remove anybody. Convia offers none to a person, and a button that could only ever fail is worse than no button. Leaving asks first, because getting back in needs somebody still inside.
+**Only the owner of a room sees how to moderate it**, because Convia refuses everybody else and a button that could only ever fail is worse than no button ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)). The owner is marked in the people panel. For the owner, every other member has **Remove** and **Ban**, and a folded **Banned** section lists who is banned with **Unban**. The conversation header gains **Room**, with **Rename**, **Close** or **Reopen**, and **Delete room**, which asks first. The owner can **Remove** anybody else's message, and its tombstone reads *Removed by the room's owner.*, where a message its author withdrew reads *This message was withdrawn.*
+
+Leaving asks first, because getting back in needs somebody still inside. An owner who leaves passes the room on.
 
 Speakers are named from the member list, which is read when a conversation opens rather than polled. A message from somebody the list does not know asks for it again, once per person: that is how somebody added a moment ago gets a name, and the once is what keeps an author who has since left from turning into a request loop.
 

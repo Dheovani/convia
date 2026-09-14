@@ -389,7 +389,35 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string,
 		return existing, nil
 	}
 
-	message, err := service.store.Delete(ctx, applicationID, id, service.now())
+	message, err := service.store.Delete(ctx, applicationID, id, service.now(), RemovedByAuthor)
+	if err != nil {
+		return Message{}, err
+	}
+
+	service.audit(ctx, events.MessageDeleted, message)
+	return message, nil
+}
+
+/*
+Remove takes down a message on the word of the owner of its room.
+
+Whether the caller owns the room is the caller's to decide, because it is the
+only one that knows who is asking: the tenant surface never reaches this, and the
+session surface checks ownership before it does. The tombstone records that the
+owner took it down. Removing something already withdrawn is not an error, and
+does not overwrite who withdrew it.
+*/
+func (service *Service) Remove(ctx context.Context, applicationID, id string) (Message, error) {
+	existing, err := service.Get(ctx, applicationID, id)
+	if err != nil {
+		return Message{}, err
+	}
+
+	if existing.Deleted() {
+		return existing, nil
+	}
+
+	message, err := service.store.Delete(ctx, applicationID, id, service.now(), RemovedByOwner)
 	if err != nil {
 		return Message{}, err
 	}

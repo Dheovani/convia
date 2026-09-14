@@ -132,7 +132,7 @@ export function Workspace({
 
   async function create(name: string) {
     const room = await api.createRoom(name)
-    remember({ id: room.id, name: room.name, status: room.status, unread: 0 })
+    remember({ id: room.id, name: room.name, status: room.status, unread: 0, owned: room.owned })
     setSelected(sourceKey({ kind: 'local', id: room.id }))
     refresh()
   }
@@ -151,7 +151,7 @@ export function Workspace({
       setSelected(sourceKey({ kind: 'remote', id: joined.remote_room.id }))
       return
     }
-    remember({ id: joined.room_id, name: joined.room_name, status: 'open', unread: 0 })
+    remember({ id: joined.room_id, name: joined.room_name, status: 'open', unread: 0, owned: false })
     setSelected(sourceKey({ kind: 'local', id: joined.room_id }))
     refresh()
   }
@@ -191,6 +191,13 @@ export function Workspace({
     }
   }
 
+  // A room its owner deleted leaves the list at once, and something else opens.
+  function deleted(source: RoomSource) {
+    forget(source.id)
+    refresh()
+    settleAfter(source)
+  }
+
   async function signOut() {
     try {
       await api.signOut()
@@ -217,7 +224,7 @@ export function Workspace({
     if (remote !== undefined) {
       open = {
         source,
-        room: { id: remote.id, name: remote.name, status: 'open', unread: 0 },
+        room: { id: remote.id, name: remote.name, status: 'open', unread: 0, owned: false },
         selfId: remote.user_id,
         home: remote.home,
       }
@@ -281,6 +288,8 @@ export function Workspace({
               onActivity={refreshSoon}
               onLeave={() => leave(open.source)}
               {...(open.source.kind === 'remote' ? { onForget: () => forgetElsewhere(open.source) } : {})}
+              onRoomChanged={refresh}
+              {...(open.source.kind === 'local' ? { onRoomDeleted: () => deleted(open.source) } : {})}
             />
           )}
         </main>

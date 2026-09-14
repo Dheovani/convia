@@ -255,6 +255,53 @@ export const api = {
     return call<PersonPage>('/me/people' + query({ limit: pageLimit }), signal ? { signal } : {})
   },
 
+  /*
+  What only a room's owner may do.
+
+  The interface offers these to the owner alone, and Convia refuses them to
+  anybody else: a member is told 403, and somebody outside the room 404.
+  */
+  renameRoom(roomId: string, name: string): Promise<OwnRoom> {
+    return call<OwnRoom>(`/me/rooms/${encodeURIComponent(roomId)}`, { method: 'PATCH', body: { name } })
+  },
+
+  closeRoom(roomId: string): Promise<OwnRoom> {
+    return call<OwnRoom>(`/me/rooms/${encodeURIComponent(roomId)}/close`, { method: 'POST' })
+  },
+
+  reopenRoom(roomId: string): Promise<OwnRoom> {
+    return call<OwnRoom>(`/me/rooms/${encodeURIComponent(roomId)}/reopen`, { method: 'POST' })
+  },
+
+  deleteRoom(roomId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}`, { method: 'DELETE' })
+  },
+
+  removeMember(roomId: string, userId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/members/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  ban(roomId: string, userId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/bans/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+    })
+  },
+
+  unban(roomId: string, userId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/bans/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  bans(roomId: string, signal?: AbortSignal): Promise<PersonPage> {
+    return call<PersonPage>(
+      `/me/rooms/${encodeURIComponent(roomId)}/bans` + query({ limit: pageLimit }),
+      signal ? { signal } : {},
+    )
+  },
+
   // invite makes an invitation into a room here for a handle, on any installation.
   invite(roomId: string, handle: string): Promise<RoomInvitation> {
     return call<RoomInvitation>(`/me/rooms/${encodeURIComponent(roomId)}/invitations`, {

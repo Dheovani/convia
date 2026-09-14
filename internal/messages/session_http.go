@@ -53,6 +53,8 @@ type sidebarRoom struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Unread int64  `json:"unread"`
+	// Owned is whether the person asking owns the room.
+	Owned bool `json:"owned"`
 }
 
 // sidebarResponse is one page of the rooms somebody is in.
@@ -61,13 +63,14 @@ type sidebarResponse struct {
 	NextCursor string        `json:"next_cursor,omitempty"`
 }
 
-func representSidebarRoom(room Room) sidebarRoom {
+func representSidebarRoom(room Room, userID string) sidebarRoom {
 	return sidebarRoom{
 		ID:     room.Room.ID,
 		Alias:  room.Room.Alias,
 		Name:   room.Room.Name,
 		Status: string(room.Room.Status),
 		Unread: room.Unread,
+		Owned:  room.Room.OwnerUserID != "" && room.Room.OwnerUserID == userID,
 	}
 }
 
@@ -131,7 +134,7 @@ func (handler *SessionHandler) Rooms(response http.ResponseWriter, request *http
 		NextCursor: page.NextCursor,
 	}
 	for _, room := range page.Rooms {
-		body.Data = append(body.Data, representSidebarRoom(room))
+		body.Data = append(body.Data, representSidebarRoom(room, personal.principal.UserID))
 	}
 	handler.write(response, request, http.StatusOK, body)
 }

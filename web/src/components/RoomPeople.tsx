@@ -80,6 +80,30 @@ function hostOf(home: string): string {
 const headingText = 'm-0 font-display text-[0.72rem] font-semibold tracking-[0.08em] text-ink-faint uppercase'
 const heading = `${headingText} mb-2`
 
+const moderation =
+  'cursor-pointer rounded-sm px-1 py-0.5 text-[0.72rem] text-ink-faint hover:bg-surface-hover hover:text-ink ' +
+  'disabled:cursor-default disabled:opacity-60'
+
+// Chevron marks a section that folds away, turned while it is open.
+function Chevron() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 12 12"
+      className="size-3 flex-none text-ink-faint transition-transform group-open:rotate-90"
+    >
+      <path
+        d="M4.5 2.5 8 6l-3.5 3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 /*
 Invite makes an invitation for a handle and shows the link to send.
 
@@ -222,8 +246,14 @@ export function RoomPeople({
   const [leaving, setLeaving] = useState(false)
   // stranded is a room elsewhere whose home did not confirm this person left.
   const [stranded, setStranded] = useState(false)
+  const [bans, setBans] = useState<Person[] | null>(null)
+  const [bansFailed, setBansFailed] = useState(false)
+  const [bansRead, setBansRead] = useState(0)
+  const [acting, setActing] = useState<string | null>(null)
 
   const remote = home !== undefined
+  // Only the owner of a room here moderates it from this page.
+  const moderating = room.owned && !remote
   const inRoom = new Set(members.map((person) => person.user_id))
   const addable = (candidates ?? []).filter((person) => !inRoom.has(person.user_id))
 
@@ -286,6 +316,51 @@ export function RoomPeople({
     }
   }
 
+  /*
+  Who is banned is read only for the owner, the one person Convia tells, and read
+  again after every ban and every lifted one.
+  */
+  useEffect(() => {
+    if (!moderating) {
+      return
+    }
+    const controller = new AbortController()
+    api.bans(room.id, controller.signal).then(
+      (page) => {
+        if (!controller.signal.aborted) {
+          setBans(page.data)
+          setBansFailed(false)
+        }
+      },
+      (error: unknown) => {
+        if (controller.signal.aborted) {
+          return
+        }
+        if (error instanceof ApiError && error.unauthenticated) {
+          expired.current()
+          return
+        }
+        setBansFailed(true)
+      },
+    )
+    return () => controller.abort()
+  }, [moderating, room.id, bansRead])
+
+  // moderate runs one of the owner's acts on somebody, then reads what changed.
+  async function moderate(person: Person, act: () => Promise<void>, fallback: string) {
+    setActing(person.user_id)
+    setFailure(null)
+    try {
+      await act()
+      onChanged()
+      setBansRead((count) => count + 1)
+    } catch (error) {
+      fail(error, fallback)
+    } finally {
+      setActing(null)
+    }
+  }
+
   async function leave() {
     setLeaving(true)
     setFailure(null)
@@ -344,9 +419,46 @@ export function RoomPeople({
         ) : (
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {members.map((person) => (
-              <li key={person.user_id} className="truncate text-[0.88rem]">
-                {label(person)}
-                {person.user_id === selfId && <span className="text-ink-faint"> (you)</span>}
+              <li key={person.user_id} className="flex items-center gap-2 text-[0.88rem]">
+                <span className="min-w-0 flex-1 truncate">
+                  {label(person)}
+                  {person.role === 'owner' && <span className="text-ink-faint"> · owner</span>}
+                  {person.user_id === selfId && <span className="text-ink-faint"> (you)</span>}
+                </span>
+                {moderating && person.user_id !== selfId && (
+                  <span className="flex flex-none gap-0.5">
+                    <button
+                      type="button"
+                      className={moderation}
+                      aria-label={`Remove ${label(person)}`}
+                      disabled={acting !== null}
+                      onClick={() =>
+                        void moderate(
+                          person,
+                          () => api.removeMember(room.id, person.user_id),
+                          `${label(person)} could not be removed.`,
+                        )
+                      }
+                    >
+                      Remove
+                    </button>
+                    <button
+                      type="button"
+                      className={moderation}
+                      aria-label={`Ban ${label(person)}`}
+                      disabled={acting !== null}
+                      onClick={() =>
+                        void moderate(
+                          person,
+                          () => api.ban(room.id, person.user_id),
+                          `${label(person)} could not be banned.`,
+                        )
+                      }
+                    >
+                      Ban
+                    </button>
+                  </span>
+                )}
               </li>
             ))}
           </ul>
@@ -360,20 +472,7 @@ export function RoomPeople({
             className="mb-2 flex cursor-pointer list-none items-center gap-1.5 rounded-sm
               [&::-webkit-details-marker]:hidden"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 12 12"
-              className="size-3 flex-none text-ink-faint transition-transform group-open:rotate-90"
-            >
-              <path
-                d="M4.5 2.5 8 6l-3.5 3.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <Chevron />
             <h3 className={headingText}>Add somebody</h3>
             {addable.length > 0 && <span className="text-[0.72rem] text-ink-faint">{addable.length}</span>}
           </summary>
@@ -406,6 +505,53 @@ export function RoomPeople({
           )}
           <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">
             You can add people you already share a room with.
+          </p>
+        </details>
+      )}
+
+      {moderating && (
+        <details className="group">
+          <summary
+            className="mb-2 flex cursor-pointer list-none items-center gap-1.5 rounded-sm
+              [&::-webkit-details-marker]:hidden"
+          >
+            <Chevron />
+            <h3 className={headingText}>Banned</h3>
+            {bans !== null && bans.length > 0 && (
+              <span className="text-[0.72rem] text-ink-faint">{bans.length}</span>
+            )}
+          </summary>
+          {bansFailed ? (
+            <p className="m-0 text-[0.8rem] text-ink-faint">Who is banned could not be read.</p>
+          ) : bans === null ? (
+            <p className="m-0 text-[0.8rem] text-ink-faint">Loading…</p>
+          ) : bans.length === 0 ? (
+            <p className="m-0 text-[0.8rem] text-ink-faint">Nobody is banned from this room.</p>
+          ) : (
+            <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+              {bans.map((person) => (
+                <li key={person.user_id} className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[0.88rem]">{label(person)}</span>
+                  <Button
+                    size="small"
+                    aria-label={`Unban ${label(person)}`}
+                    disabled={acting !== null}
+                    onClick={() =>
+                      void moderate(
+                        person,
+                        () => api.unban(room.id, person.user_id),
+                        `${label(person)} could not be unbanned.`,
+                      )
+                    }
+                  >
+                    Unban
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">
+            Nobody can add or invite somebody banned until you lift it. Somebody you only remove can be added back.
           </p>
         </details>
       )}

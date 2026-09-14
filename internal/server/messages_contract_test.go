@@ -256,6 +256,8 @@ func TestAHistoryNamesPeopleOnlyByIdentifier(t *testing.T) {
 	owned := []string{
 		"id", "application_id", "room_id", "sequence", "user_id", "invitation_id",
 		"body", "deleted", "created_at", "edited_at", "deleted_at",
+		// deleted_by names a role, author or owner, and never a person.
+		"deleted_by",
 	}
 
 	document := loadSpecification(t)

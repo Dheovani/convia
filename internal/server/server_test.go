@@ -905,6 +905,10 @@ func (stub stubMessages) Delete(context.Context, string, string, messages.Author
 	return stub.message, stub.err
 }
 
+func (stub stubMessages) Remove(context.Context, string, string) (messages.Message, error) {
+	return stub.message, stub.err
+}
+
 func (stub stubMessages) MarkRead(context.Context, string, string, string, int64) (messages.ReadState, error) {
 	return stub.readState, stub.err
 }
@@ -1226,6 +1230,29 @@ func (stub stubRooms) AddMember(context.Context, string, string, string) (rooms.
 
 func (stub stubRooms) RemoveMember(context.Context, string, string, string) (bool, error) {
 	return true, stub.err
+}
+
+func (stub stubRooms) AddUnlessBanned(ctx context.Context, applicationID, roomID, userID string) (rooms.Member, bool, error) {
+	return stub.AddMember(ctx, applicationID, roomID, userID)
+}
+
+func (stub stubRooms) Ban(context.Context, string, string, string) (bool, error) {
+	return true, stub.err
+}
+
+func (stub stubRooms) Unban(context.Context, string, string, string) (bool, error) {
+	return true, stub.err
+}
+
+func (stub stubRooms) IsBanned(context.Context, string, string, string) (bool, error) {
+	return false, stub.err
+}
+
+func (stub stubRooms) Bans(context.Context, string, string, rooms.MembershipOptions) (rooms.Bans, error) {
+	if stub.err != nil {
+		return rooms.Bans{}, stub.err
+	}
+	return rooms.Bans{Bans: []rooms.Ban{rooms.Ban(stub.member)}}, nil
 }
 
 func (stub stubRooms) Members(context.Context, string, string, rooms.MembershipOptions) (rooms.Membership, error) {

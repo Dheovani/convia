@@ -143,7 +143,24 @@ type Message struct {
 	CreatedAt     time.Time
 	EditedAt      *time.Time
 	DeletedAt     *time.Time
+	// DeletedBy is set on a message its author or its room's owner withdrew,
+	// and empty on one erasure cleared.
+	DeletedBy Remover
 }
+
+/*
+Remover is who took a message down: its author, or the owner of the room it was
+said in.
+
+Which person is never recorded, only which of the two, so that a room does not
+read an owner's removal as the author taking their words back.
+*/
+type Remover string
+
+const (
+	RemovedByAuthor Remover = "author"
+	RemovedByOwner  Remover = "owner"
+)
 
 /*
 Deleted reports a message that has been withdrawn.

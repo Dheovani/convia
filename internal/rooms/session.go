@@ -17,11 +17,20 @@ handler can be tested without a database and the tenant surface's larger
 interface is not dragged along with it.
 */
 type personalService interface {
+	Get(ctx context.Context, applicationID, id string) (Room, error)
 	CreateFor(ctx context.Context, applicationID, userID string, definition Definition) (Room, error)
+	Update(ctx context.Context, applicationID, id string, change Change, expectedVersion string) (Room, error)
+	Close(ctx context.Context, applicationID, id string) (Room, error)
+	Reopen(ctx context.Context, applicationID, id string) (Room, error)
+	Delete(ctx context.Context, applicationID, id string) error
 	IsMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
 	Members(ctx context.Context, applicationID, roomID string, options MembershipOptions) (Membership, error)
-	AddMember(ctx context.Context, applicationID, roomID, userID string) (Member, bool, error)
+	AddUnlessBanned(ctx context.Context, applicationID, roomID, userID string) (Member, bool, error)
 	RemoveMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	Ban(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	Unban(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	IsBanned(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	Bans(ctx context.Context, applicationID, roomID string, options MembershipOptions) (Bans, error)
 	SharesRoom(ctx context.Context, applicationID, userID, otherID string) (bool, error)
 	Acquaintances(ctx context.Context, applicationID, userID string, options MembershipOptions) (Acquaintances, error)
 }
@@ -40,18 +49,17 @@ type directory interface {
 /*
 Personal is the rooms service acting as one signed-in person.
 
-A person may do four things to rooms, and the list is the design. **They may
-open a room**, and they are in it from the moment it exists. **They may add
-somebody** — to a room they are in, and only somebody they already share a room
-with. **They may leave.** And **they may see** who is in a room with them, and
-who they could add.
+**Any person may open a room**, and they own the room they open. **Any member
+may** add somebody they already share a room with, see who is in the room and
+who they could add, and leave. **The owner may also** remove somebody, ban
+somebody so that nobody can bring them back until the ban is lifted, and rename,
+close, reopen or delete the room. docs/adr/0013 records why a room has an owner.
 
 What is not here is deliberate.
 
-**No removing anybody else.** Membership carries no role, so there is no owner
-whose authority such a power could rest on, and inventing one here would be
-deciding moderation by accident — which M32-004 names as the part of this area
-that is dangerous to guess at.
+**No authority over an application's rooms.** A room an application created has
+no owner, so removing people from it, and renaming or closing it, stay with the
+application, where scopes exist.
 
 **No lookup by address.** One person names another only through a room they
 already share. A lookup that confirmed whether an address has an account would
@@ -59,9 +67,9 @@ be an enumeration oracle, which the sign-in surface already refuses to be
 (M32-002). Sharing a room is the consent: somebody already decided those two
 people belong in one place.
 
-**No renaming, closing, or deleting.** Without a role there is no good answer to
-who may, and a room is named when it is opened. Those stay with the application,
-where scopes exist.
+**No moderating from outside.** Everything the owner may do is refused to a
+member as ErrNotOwner, and to somebody outside the room as a room that is not
+there.
 */
 type Personal struct {
 	service   personalService
@@ -79,10 +87,19 @@ func AsPerson(service personalService, directory directory, principal sessions.P
 	return &Personal{service: service, directory: directory, principal: principal}
 }
 
-// Person is somebody a signed-in person can see, by the name they go by.
+// Person is somebody a signed-in person can see, by the name they go by. Role
+// is set only when they are listed as a member of a room.
 type Person struct {
 	UserID      string
 	DisplayName string
+	Role        Role
+}
+
+// errOwnerActsOnSelf refuses an owner removing or banning themselves, which is
+// leaving by another name.
+var errOwnerActsOnSelf = ValidationError{
+	Field:   "user_id",
+	Message: "An owner leaves a room rather than removing or banning themselves.",
 }
 
 // People is one page of people.
@@ -105,9 +122,15 @@ func (personal *Personal) Create(ctx context.Context, name string) (Room, error)
 		Definition{Name: name})
 }
 
-// Members returns one page of who is in a room this person is in.
+// Members returns one page of who is in a room this person is in, each with
+// their role in it.
 func (personal *Personal) Members(ctx context.Context, roomID string, options MembershipOptions) (People, error) {
 	if err := personal.requireMembership(ctx, roomID); err != nil {
+		return People{}, err
+	}
+
+	room, err := personal.service.Get(ctx, personal.principal.ApplicationID, roomID)
+	if err != nil {
 		return People{}, err
 	}
 
@@ -120,7 +143,18 @@ func (personal *Personal) Members(ctx context.Context, roomID string, options Me
 	for _, member := range membership.Members {
 		identifiers = append(identifiers, member.UserID)
 	}
-	return personal.name(ctx, identifiers, membership.NextCursor)
+
+	page, err := personal.name(ctx, identifiers, membership.NextCursor)
+	if err != nil {
+		return People{}, err
+	}
+	for index := range page.People {
+		page.People[index].Role = RoleMember
+		if page.People[index].UserID == room.OwnerUserID {
+			page.People[index].Role = RoleOwner
+		}
+	}
+	return page, nil
 }
 
 /*
@@ -128,9 +162,10 @@ Add gives somebody a place in a room this person is in.
 
 **Somebody who cannot be added is not there**, and every reason is the same
 answer: an identifier that names nobody, a stranger this person shares no room
-with, and somebody who shares a room but is suspended. Distinguishing the first
-two would make this an oracle for which identifiers exist, and distinguishing
-the third would tell one person about another's suspension.
+with, somebody who shares a room but is suspended, and somebody the room's owner
+has banned. Distinguishing the first two would make this an oracle for which
+identifiers exist; distinguishing the others would tell one person about
+another's suspension, or about a decision that is the owner's.
 
 Adding yourself is not special. You are in the room or you would have been told
 it is not there, so it answers as any repeated addition does.
@@ -149,8 +184,8 @@ func (personal *Personal) Add(ctx context.Context, roomID, userID string) (Membe
 		return Member{}, false, ErrUserNotFound
 	}
 
-	member, added, err := personal.service.AddMember(ctx, personal.principal.ApplicationID, roomID, userID)
-	if errors.Is(err, ErrUserUnavailable) {
+	member, added, err := personal.service.AddUnlessBanned(ctx, personal.principal.ApplicationID, roomID, userID)
+	if errors.Is(err, ErrUserUnavailable) || errors.Is(err, ErrBanned) {
 		return Member{}, false, ErrUserNotFound
 	}
 	return member, added, err
@@ -170,6 +205,179 @@ func (personal *Personal) Leave(ctx context.Context, roomID string) error {
 	_, err := personal.service.RemoveMember(ctx, personal.principal.ApplicationID, roomID,
 		personal.principal.UserID)
 	return err
+}
+
+/*
+Remove takes somebody else's place in a room this person owns.
+
+It is not a ban: anybody in the room may add them back. What they said stays.
+*/
+func (personal *Personal) Remove(ctx context.Context, roomID, userID string) error {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if userID == personal.principal.UserID {
+		return errOwnerActsOnSelf
+	}
+
+	_, err = personal.service.RemoveMember(ctx, personal.principal.ApplicationID, room.ID, userID)
+	return err
+}
+
+/*
+Ban keeps somebody out of a room this person owns, taking their place if they
+have one. Nobody can add them back, and no invitation admits them, until the
+owner lifts it.
+
+Who can be banned is who could be named at all: somebody in the room, somebody
+already banned from it, or somebody the owner shares another room with. Anybody
+else is the one answer Add gives, for the reason it gives it.
+*/
+func (personal *Personal) Ban(ctx context.Context, roomID, userID string) error {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if userID == personal.principal.UserID {
+		return errOwnerActsOnSelf
+	}
+
+	nameable, err := personal.nameable(ctx, room.ID, userID)
+	if err != nil {
+		return err
+	}
+	if !nameable {
+		return ErrUserNotFound
+	}
+
+	_, err = personal.service.Ban(ctx, personal.principal.ApplicationID, room.ID, userID)
+	return err
+}
+
+// Unban lifts a ban on a room this person owns. It gives no place back.
+func (personal *Personal) Unban(ctx context.Context, roomID, userID string) error {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return err
+	}
+
+	_, err = personal.service.Unban(ctx, personal.principal.ApplicationID, room.ID, userID)
+	return err
+}
+
+// Bans returns one page of the people kept out of a room this person owns.
+func (personal *Personal) Bans(ctx context.Context, roomID string, options MembershipOptions) (People, error) {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return People{}, err
+	}
+
+	page, err := personal.service.Bans(ctx, personal.principal.ApplicationID, room.ID, options)
+	if err != nil {
+		return People{}, err
+	}
+
+	identifiers := make([]string, 0, len(page.Bans))
+	for _, ban := range page.Bans {
+		identifiers = append(identifiers, ban.UserID)
+	}
+	return personal.name(ctx, identifiers, page.NextCursor)
+}
+
+/*
+Rename gives a room this person owns a new name, and changes nothing else: an
+alias, metadata and a capacity stay the application's, as they are when a room
+is opened.
+*/
+func (personal *Personal) Rename(ctx context.Context, roomID, name string) (Room, error) {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	return personal.service.Update(ctx, personal.principal.ApplicationID, room.ID, Change{Name: &name}, "")
+}
+
+// Close stops a room this person owns taking anything new. What was said stays
+// readable, and Reopen undoes it.
+func (personal *Personal) Close(ctx context.Context, roomID string) (Room, error) {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	return personal.service.Close(ctx, personal.principal.ApplicationID, room.ID)
+}
+
+// Reopen returns a room this person owns to use.
+func (personal *Personal) Reopen(ctx context.Context, roomID string) (Room, error) {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	return personal.service.Reopen(ctx, personal.principal.ApplicationID, room.ID)
+}
+
+/*
+Delete removes a room this person owns, for everybody in it.
+
+It is the same deletion an application's is: the room leaves every sidebar, and
+the row is kept until erasure.
+*/
+func (personal *Personal) Delete(ctx context.Context, roomID string) error {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	return personal.service.Delete(ctx, personal.principal.ApplicationID, room.ID)
+}
+
+// nameable reports whether an owner could name somebody in a ban.
+func (personal *Personal) nameable(ctx context.Context, roomID, userID string) (bool, error) {
+	if !users.ValidID(userID) {
+		return false, nil
+	}
+	applicationID := personal.principal.ApplicationID
+
+	member, err := personal.service.IsMember(ctx, applicationID, roomID, userID)
+	if err != nil || member {
+		return member, err
+	}
+
+	banned, err := personal.service.IsBanned(ctx, applicationID, roomID, userID)
+	if err != nil || banned {
+		return banned, err
+	}
+
+	shares, err := personal.service.SharesRoom(ctx, applicationID, personal.principal.UserID, userID)
+	if err != nil {
+		return false, fmt.Errorf("check whether somebody can be named: %w", err)
+	}
+	return shares, nil
+}
+
+/*
+requireOwner refuses anybody but the owner of a room: somebody outside it is told
+it is not there, and a member that the act is the owner's.
+*/
+func (personal *Personal) requireOwner(ctx context.Context, roomID string) (Room, error) {
+	if err := personal.requireMembership(ctx, roomID); err != nil {
+		return Room{}, err
+	}
+
+	room, err := personal.service.Get(ctx, personal.principal.ApplicationID, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+
+	if room.Status == StatusDeleted {
+		return Room{}, ErrNotFound
+	}
+
+	if room.OwnerUserID != personal.principal.UserID {
+		return Room{}, ErrNotOwner
+	}
+
+	return room, nil
 }
 
 // People returns one page of the people this person could add to a room.

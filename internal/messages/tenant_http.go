@@ -76,6 +76,7 @@ type messageResponse struct {
 	CreatedAt     string `json:"created_at"`
 	EditedAt      string `json:"edited_at,omitempty"`
 	DeletedAt     string `json:"deleted_at,omitempty"`
+	DeletedBy     string `json:"deleted_by,omitempty"`
 }
 
 // historyResponse is the public representation of one window of a history.
@@ -103,6 +104,7 @@ func represent(message Message) messageResponse {
 
 	if message.DeletedAt != nil {
 		response.DeletedAt = api.FormatTimestamp(*message.DeletedAt)
+		response.DeletedBy = string(message.DeletedBy)
 	}
 
 	return response

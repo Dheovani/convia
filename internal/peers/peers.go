@@ -64,6 +64,9 @@ var ErrRoomNotFound = errors.New("room not found")
 // ErrAlreadyMember reports an invitation for somebody who is already in the room.
 var ErrAlreadyMember = errors.New("the person is already in the room")
 
+// ErrBanned reports an invitation for somebody the room's owner has banned.
+var ErrBanned = errors.New("the person is banned from the room")
+
 // ErrRemoteRoomNotFound reports a remote room this person holds no pointer to.
 var ErrRemoteRoomNotFound = errors.New("remote room not found")
 

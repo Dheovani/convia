@@ -66,6 +66,11 @@ func (stub *stubService) Delete(_ context.Context, _, id string, author Author) 
 	return stub.message, stub.err
 }
 
+func (stub *stubService) Remove(_ context.Context, _, id string) (Message, error) {
+	stub.seenID = id
+	return stub.message, stub.err
+}
+
 func (stub *stubService) MarkRead(_ context.Context, _, roomID, userID string, sequence int64) (ReadState, error) {
 	stub.seenRoomID, stub.seenReader, stub.seenSequence = roomID, userID, sequence
 	return stub.readState, stub.err

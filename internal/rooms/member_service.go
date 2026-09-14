@@ -21,8 +21,33 @@ knowing anything about Convia's identity model.
 messages; it does not evict the people who were there, and adding somebody to a
 finished room so that they can read its history is a reasonable thing to want.
 A deleted room is refused, because it is gone from the API.
+
+**Bans are not consulted.** A ban is a room owner's decision about who belongs in
+the room, and an application acting on its own rooms keeps the authority it has
+always had. People add somebody through AddUnlessBanned.
 */
 func (service *Service) AddMember(ctx context.Context, applicationID, roomID, userID string) (Member, bool, error) {
+	return service.addMember(ctx, applicationID, roomID, userID, false)
+}
+
+/*
+AddUnlessBanned gives somebody a place unless the room's owner has banned them,
+which is ErrBanned.
+
+It is how a person adds somebody, and how somebody accepting an invitation is
+admitted: every way into a room that does not go through the application.
+*/
+func (service *Service) AddUnlessBanned(ctx context.Context, applicationID, roomID, userID string) (Member, bool, error) {
+	return service.addMember(ctx, applicationID, roomID, userID, true)
+}
+
+func (service *Service) addMember(
+	ctx context.Context,
+	applicationID,
+	roomID,
+	userID string,
+	honorBans bool,
+) (Member, bool, error) {
 	room, err := service.requireRoomForMembership(ctx, applicationID, roomID)
 	if err != nil {
 		return Member{}, false, err
@@ -37,7 +62,7 @@ func (service *Service) AddMember(ctx context.Context, applicationID, roomID, us
 		RoomID:        room.ID,
 		UserID:        userID,
 		CreatedAt:     service.now(),
-	})
+	}, honorBans)
 	if err != nil {
 		return Member{}, false, err
 	}
@@ -106,6 +131,108 @@ func (service *Service) IsMember(ctx context.Context, applicationID, roomID, use
 	}
 
 	return true, nil
+}
+
+/*
+Ban keeps somebody out of a room and takes their place if they had one,
+reporting whether they did.
+
+Banning is repeatable and so is lifting it, and only a change is recorded. A ban
+removes the person exactly as leaving does — what they said stays — and is
+announced as the same room.member_removed, because membership records no actor.
+*/
+func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	room, err := service.requireRoomForMembership(ctx, applicationID, roomID)
+	if err != nil {
+		return false, err
+	}
+
+	if _, err := service.people.Get(ctx, applicationID, userID); errors.Is(err, users.ErrNotFound) {
+		return false, ErrUserNotFound
+	} else if err != nil {
+		return false, fmt.Errorf("read the person: %w", err)
+	}
+
+	banned, removed, err := service.store.Ban(ctx, Ban{
+		ApplicationID: applicationID,
+		RoomID:        room.ID,
+		UserID:        userID,
+		CreatedAt:     service.now(),
+	})
+	if err != nil {
+		return false, err
+	}
+
+	if banned {
+		service.logger.InfoContext(ctx, "room.member_banned",
+			"application_id", applicationID,
+			"room_id", room.ID,
+			"user_id", userID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+	}
+	if removed {
+		service.announceMembership(ctx, events.MemberRemoved, Member{
+			ApplicationID: applicationID, RoomID: room.ID, UserID: userID})
+	}
+	return removed, nil
+}
+
+// Unban lifts a ban, reporting whether there was one. It gives no place back:
+// somebody still has to add the person.
+func (service *Service) Unban(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	room, err := service.requireRoomForMembership(ctx, applicationID, roomID)
+	if err != nil {
+		return false, err
+	}
+
+	lifted, err := service.store.Unban(ctx, applicationID, room.ID, userID)
+	if err != nil {
+		return false, err
+	}
+
+	if lifted {
+		service.logger.InfoContext(ctx, "room.member_unbanned",
+			"application_id", applicationID,
+			"room_id", room.ID,
+			"user_id", userID,
+			"request_id", api.RequestIDFromContext(ctx),
+		)
+	}
+	return lifted, nil
+}
+
+// IsBanned reports whether somebody is kept out of a room. An identifier that
+// could not name either is simply not banned.
+func (service *Service) IsBanned(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	if !ValidID(roomID) || !users.ValidID(userID) {
+		return false, nil
+	}
+	return service.store.Banned(ctx, applicationID, roomID, userID)
+}
+
+// Bans returns one page of the people kept out of a room.
+func (service *Service) Bans(ctx context.Context, applicationID, roomID string, options MembershipOptions) (Bans, error) {
+	room, err := service.requireRoomForMembership(ctx, applicationID, roomID)
+	if err != nil {
+		return Bans{}, err
+	}
+
+	limit, err := pageSize(options.Limit)
+	if err != nil {
+		return Bans{}, err
+	}
+
+	page, more, err := service.store.Bans(ctx, applicationID, room.ID, options.Cursor, limit)
+	if err != nil {
+		return Bans{}, err
+	}
+
+	result := Bans{Bans: page}
+	if more && len(page) > 0 {
+		result.NextCursor = page[len(page)-1].UserID
+	}
+	return result, nil
 }
 
 // MembershipOptions selects one page of a membership listing.

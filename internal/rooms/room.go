@@ -144,6 +144,13 @@ type Room struct {
 	Status          Status
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+
+	// Personal is whether a person opened the room. Only such a room has an
+	// owner; an application's rooms are the application's to manage.
+	Personal bool
+	// OwnerUserID is who owns a room a person opened, and is empty while
+	// nobody who could hold it is in the room. See docs/rooms.md.
+	OwnerUserID string
 }
 
 /*

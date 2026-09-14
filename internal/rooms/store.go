@@ -21,7 +21,7 @@ import (
 const uniqueViolation = "23505"
 
 // columns is the projection every read shares.
-const columns = "id, application_id, alias, name, metadata, max_participants, status, created_at, updated_at"
+const columns = "id, application_id, alias, name, metadata, max_participants, status, created_at, updated_at, personal, owner_user_id"
 
 // aliasUniqueConstraint is the index that keeps one alias pointing at one room.
 const aliasUniqueConstraint = "rooms_application_alias_key"
@@ -55,6 +55,8 @@ type row struct {
 	Status          Status
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	Personal        bool
+	OwnerUserID     *string
 }
 
 func (record row) room() Room {
@@ -67,14 +69,21 @@ func (record row) room() Room {
 		Status:          record.Status,
 		CreatedAt:       record.CreatedAt.UTC(),
 		UpdatedAt:       record.UpdatedAt.UTC(),
+		Personal:        record.Personal,
 	}
 
 	if record.Alias != nil {
 		room.Alias = *record.Alias
 	}
+
+	if record.OwnerUserID != nil {
+		room.OwnerUserID = *record.OwnerUserID
+	}
+
 	if room.Metadata == nil {
 		room.Metadata = map[string]string{}
 	}
+
 	return room
 }
 
@@ -137,8 +146,9 @@ type executor interface {
 
 func insertRoom(ctx context.Context, target executor, room Room) error {
 	const statement = `INSERT INTO rooms
-	                   (id, application_id, alias, name, metadata, max_participants, status, created_at, updated_at)
-	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
+	                   (id, application_id, alias, name, metadata, max_participants, status, created_at, updated_at,
+	                    personal, owner_user_id)
+	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 	_, err := target.Exec(ctx, statement,
 		room.ID,
@@ -150,6 +160,10 @@ func insertRoom(ctx context.Context, target executor, room Room) error {
 		room.Status,
 		room.CreatedAt,
 		room.UpdatedAt,
+		room.Personal,
+		// An owner is written as NULL when there is none, which the foreign key
+		// into room_members does not check.
+		optionalAlias(room.OwnerUserID),
 	)
 	if err != nil {
 		if violatesAlias(err) {
@@ -439,14 +453,40 @@ It is idempotent by the person. Adding somebody already in the room returns the
 place they already had rather than a conflict: an application retrying after a
 timeout, or reconciling its own list against Convia's, is doing something
 ordinary and should not have to tell the two cases apart.
+
+With honorBans, somebody banned from the room is refused with ErrBanned, checked
+under the room's lock so that a ban and an addition racing each other cannot
+both succeed. A newcomer to a room left without an owner may become its owner:
+see settleOwner.
 */
-func (store *Store) AddMember(ctx context.Context, member Member) (Member, bool, error) {
+func (store *Store) AddMember(ctx context.Context, member Member, honorBans bool) (Member, bool, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return Member{}, false, fmt.Errorf("begin adding a member: %w", err)
+	}
+	// A commit makes this a no-op; anything else undoes the whole addition.
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if err := lockRoom(ctx, transaction, member.ApplicationID, member.RoomID); err != nil {
+		return Member{}, false, err
+	}
+
+	if honorBans {
+		banned, err := isBanned(ctx, transaction, member.ApplicationID, member.RoomID, member.UserID)
+		if err != nil {
+			return Member{}, false, err
+		}
+		if banned {
+			return Member{}, false, ErrBanned
+		}
+	}
+
 	const statement = `INSERT INTO room_members (` + memberColumns + `)
 	                   VALUES ($1, $2, $3, $4)
 	                   ON CONFLICT (room_id, user_id) DO NOTHING
 	                   RETURNING ` + memberColumns
 
-	rows, err := store.pool.Query(ctx, statement,
+	rows, err := transaction.Query(ctx, statement,
 		member.ApplicationID, member.RoomID, member.UserID, member.CreatedAt)
 	if err != nil {
 		return Member{}, false, fmt.Errorf("add a member: %w", err)
@@ -466,6 +506,14 @@ func (store *Store) AddMember(ctx context.Context, member Member) (Member, bool,
 
 	if err != nil {
 		return Member{}, false, fmt.Errorf("read the added member: %w", err)
+	}
+
+	if err := settleOwner(ctx, transaction, []string{member.RoomID}); err != nil {
+		return Member{}, false, err
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return Member{}, false, fmt.Errorf("commit the member: %w", err)
 	}
 
 	return added.member(), true, nil
@@ -500,12 +548,40 @@ RemoveMember takes somebody's place away, reporting whether they had one.
 are the room's record of a conversation that did happen, and taking them away
 would rewrite it for everybody still there. Erasure is the separate act that
 removes a person from the record, and it is the person's to ask for.
+
+An owner who goes leaves the room to its next owner, in the same transaction:
+see settleOwner.
 */
 func (store *Store) RemoveMember(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin removing a member: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if err := lockRoom(ctx, transaction, applicationID, roomID); err != nil {
+		return false, err
+	}
+
+	removed, err := removeMember(ctx, transaction, applicationID, roomID, userID)
+	if err != nil || !removed {
+		return false, err
+	}
+
+	if err := settleOwner(ctx, transaction, []string{roomID}); err != nil {
+		return false, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit the removal: %w", err)
+	}
+	return true, nil
+}
+
+func removeMember(ctx context.Context, target executor, applicationID, roomID, userID string) (bool, error) {
 	const statement = `DELETE FROM room_members
 	                   WHERE application_id = $1 AND room_id = $2 AND user_id = $3`
 
-	tag, err := store.pool.Exec(ctx, statement, applicationID, roomID, userID)
+	tag, err := target.Exec(ctx, statement, applicationID, roomID, userID)
 	if err != nil {
 		return false, fmt.Errorf("remove a member: %w", err)
 	}
@@ -597,16 +673,208 @@ ForgetMemberships removes every place one person held.
 
 It exists for erasure, which is why it takes no room: a person being erased is
 leaving every room at once, and doing it one at a time would leave a window in
-which they were half gone.
+which they were half gone. The bans naming them go too, because a ban is a
+record about a person, and every room they owned passes to its next owner.
+
+The rooms are locked in identifier order before anything is removed, which is
+the order every other writer that holds more than one room's lock would take.
 */
 func (store *Store) ForgetMemberships(ctx context.Context, applicationID, userID string) (int64, error) {
-	const statement = `DELETE FROM room_members WHERE application_id = $1 AND user_id = $2`
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin forgetting memberships: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
 
-	tag, err := store.pool.Exec(ctx, statement, applicationID, userID)
+	const lock = `SELECT id FROM rooms
+	              WHERE id IN (SELECT room_id FROM room_members WHERE application_id = $1 AND user_id = $2)
+	              ORDER BY id
+	              FOR UPDATE`
+	rows, err := transaction.Query(ctx, lock, applicationID, userID)
+	if err != nil {
+		return 0, fmt.Errorf("lock a person's rooms: %w", err)
+	}
+	locked, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return 0, fmt.Errorf("read a person's rooms: %w", err)
+	}
+
+	tag, err := transaction.Exec(ctx, `DELETE FROM room_members WHERE application_id = $1 AND user_id = $2`,
+		applicationID, userID)
 	if err != nil {
 		return 0, fmt.Errorf("forget memberships: %w", err)
 	}
+	if _, err := transaction.Exec(ctx, `DELETE FROM room_bans WHERE application_id = $1 AND user_id = $2`,
+		applicationID, userID); err != nil {
+		return 0, fmt.Errorf("forget bans: %w", err)
+	}
+
+	if err := settleOwner(ctx, transaction, locked); err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit forgetting memberships: %w", err)
+	}
 	return tag.RowsAffected(), nil
+}
+
+/*
+Ban keeps somebody out of a room and takes away any place they had.
+
+It reports whether the ban is new and whether they had a place, each separately,
+so that only a change is recorded. Both writes happen under the room's lock, so
+an addition racing the ban either lands before it and is removed by it, or
+lands after it and is refused.
+*/
+func (store *Store) Ban(ctx context.Context, ban Ban) (banned bool, removed bool, err error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return false, false, fmt.Errorf("begin banning: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if err := lockRoom(ctx, transaction, ban.ApplicationID, ban.RoomID); err != nil {
+		return false, false, err
+	}
+
+	const statement = `INSERT INTO room_bans (` + memberColumns + `)
+	                   VALUES ($1, $2, $3, $4)
+	                   ON CONFLICT (room_id, user_id) DO NOTHING`
+	tag, err := transaction.Exec(ctx, statement, ban.ApplicationID, ban.RoomID, ban.UserID, ban.CreatedAt)
+	if err != nil {
+		return false, false, fmt.Errorf("ban: %w", err)
+	}
+
+	removed, err = removeMember(ctx, transaction, ban.ApplicationID, ban.RoomID, ban.UserID)
+	if err != nil {
+		return false, false, err
+	}
+	if removed {
+		if err := settleOwner(ctx, transaction, []string{ban.RoomID}); err != nil {
+			return false, false, err
+		}
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return false, false, fmt.Errorf("commit the ban: %w", err)
+	}
+	return tag.RowsAffected() > 0, removed, nil
+}
+
+// Unban lifts a ban, reporting whether there was one.
+func (store *Store) Unban(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	const statement = `DELETE FROM room_bans WHERE application_id = $1 AND room_id = $2 AND user_id = $3`
+
+	tag, err := store.pool.Exec(ctx, statement, applicationID, roomID, userID)
+	if err != nil {
+		return false, fmt.Errorf("lift a ban: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// Banned reports whether somebody is kept out of a room.
+func (store *Store) Banned(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	return isBanned(ctx, store.pool, applicationID, roomID, userID)
+}
+
+func isBanned(ctx context.Context, target querier, applicationID, roomID, userID string) (bool, error) {
+	const statement = `SELECT EXISTS (
+	                       SELECT 1 FROM room_bans
+	                       WHERE application_id = $1 AND room_id = $2 AND user_id = $3)`
+
+	var banned bool
+	if err := target.QueryRow(ctx, statement, applicationID, roomID, userID).Scan(&banned); err != nil {
+		return false, fmt.Errorf("check for a ban: %w", err)
+	}
+	return banned, nil
+}
+
+// Bans returns one page of the people kept out of a room, ordered by the person.
+func (store *Store) Bans(ctx context.Context, applicationID, roomID string, after string, limit int) ([]Ban, bool, error) {
+	statement := `SELECT ` + memberColumns + ` FROM room_bans
+	              WHERE application_id = $1 AND room_id = $2`
+	arguments := []any{applicationID, roomID}
+
+	if after != "" {
+		arguments = append(arguments, after)
+		statement += ` AND user_id > $` + strconv.Itoa(len(arguments))
+	}
+	statement += ` ORDER BY user_id ASC LIMIT ` + strconv.Itoa(limit+1)
+
+	// A ban has the shape of a membership, so it is read as one.
+	page, more, err := store.pageMembers(ctx, statement, arguments, limit)
+	if err != nil {
+		return nil, false, err
+	}
+
+	bans := make([]Ban, 0, len(page))
+	for _, member := range page {
+		bans = append(bans, Ban(member))
+	}
+	return bans, more, nil
+}
+
+// querier is what reading one row needs, which a pool and a transaction both
+// provide.
+type querier interface {
+	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
+}
+
+/*
+lockRoom takes a room's row lock for the rest of a transaction.
+
+Every change to who is in a room, or kept out of it, takes it first. That is what
+lets the owner be settled from what the room holds after the change: two changes
+to one room at once would otherwise each pick a successor from a membership the
+other was still changing.
+*/
+func lockRoom(ctx context.Context, target executor, applicationID, roomID string) error {
+	const statement = `SELECT 1 FROM rooms WHERE application_id = $1 AND id = $2 FOR UPDATE`
+
+	if _, err := target.Exec(ctx, statement, applicationID, roomID); err != nil {
+		return fmt.Errorf("lock the room: %w", err)
+	}
+	return nil
+}
+
+/*
+settleOwner gives each ownerless room a person opened to the longest-standing
+member who can hold it, and leaves the rest alone.
+
+A room loses its owner when the owner's membership goes, because the foreign key
+from the room into room_members clears it. This then runs in the same
+transaction, so nobody ever reads a room between the two.
+
+**Who can hold a room is an active person who signs in here**, meaning somebody
+with an account on this installation. A visitor from another installation never
+does: moderation stays with the people whose installation the room lives on. A
+suspended person could not use it. A room left with nobody who can hold it
+stays without an owner, and this runs again whenever somebody is added.
+
+It reads the accounts table, which belongs to another package. This is the one
+place it does, because whether somebody signs in here is a fact about their
+account, and asking the accounts package about every member of a room inside
+this lock would be a query per member.
+*/
+func settleOwner(ctx context.Context, target executor, roomIDs []string) error {
+	if len(roomIDs) == 0 {
+		return nil
+	}
+
+	const statement = `UPDATE rooms SET owner_user_id = (
+	                       SELECT member.user_id
+	                       FROM room_members AS member
+	                       JOIN users ON users.id = member.user_id AND users.status = $2
+	                       JOIN accounts ON accounts.user_id = member.user_id
+	                       WHERE member.room_id = rooms.id
+	                       ORDER BY member.created_at, member.user_id
+	                       LIMIT 1)
+	                   WHERE id = ANY($1) AND personal AND owner_user_id IS NULL`
+
+	if _, err := target.Exec(ctx, statement, roomIDs, users.StatusActive); err != nil {
+		return fmt.Errorf("settle the room's owner: %w", err)
+	}
+	return nil
 }
 
 // memberRow mirrors the membership projection.
