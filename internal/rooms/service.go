@@ -166,6 +166,9 @@ func (service *Service) CreateFor(ctx context.Context, applicationID, userID str
 	if err != nil {
 		return Room{}, err
 	}
+	// Whoever opens a room owns it. See docs/adr/0013.
+	room.Personal = true
+	room.OwnerUserID = userID
 
 	member := Member{
 		ApplicationID: applicationID,

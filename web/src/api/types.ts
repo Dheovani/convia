@@ -32,6 +32,8 @@ export interface SidebarRoom {
   name: string
   status: RoomStatus
   unread: number
+  // owned is whether this person owns the room, and so may moderate it.
+  owned: boolean
 }
 
 export interface Sidebar {
@@ -58,6 +60,8 @@ export interface Message {
   created_at: string
   edited_at?: string
   deleted_at?: string
+  // deleted_by says whether the author or the room's owner took it down.
+  deleted_by?: 'author' | 'owner'
 }
 
 export interface MessagePage {
@@ -75,11 +79,12 @@ export interface ReadState {
 
 export type HistoryDirection = 'older' | 'newer'
 
-// OwnRoom is a room as the person who opened it sees it.
+// OwnRoom is a room as a person in it sees it.
 export interface OwnRoom {
   id: string
   name: string
   status: RoomStatus
+  owned: boolean
   created_at: string
 }
 
@@ -93,6 +98,8 @@ person has no other way to learn what to call somebody.
 export interface Person {
   user_id: string
   display_name: string
+  // role is present only when the person is listed as a member of a room.
+  role?: 'owner' | 'member'
 }
 
 export interface PersonPage {

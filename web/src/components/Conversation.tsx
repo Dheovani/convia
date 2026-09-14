@@ -7,6 +7,7 @@ import { useMembers } from '../state/useMembers'
 import { Composer } from './Composer'
 import { Button, input } from './controls'
 import { label, RoomPeople } from './RoomPeople'
+import { RoomSettings } from './RoomSettings'
 
 interface ConversationProps {
   source: RoomSource
@@ -25,6 +26,10 @@ interface ConversationProps {
   onLeave: () => Promise<void>
   // onForget is set for a room on another installation.
   onForget?: () => Promise<void>
+  // onRoomChanged asks for the room to be read again after its owner changed it.
+  onRoomChanged: () => void
+  // onRoomDeleted is set for a room here, which its owner can delete.
+  onRoomDeleted?: () => void
 }
 
 function when(timestamp: string): string {
@@ -57,12 +62,16 @@ remember reading.
 The author's name is shown when it changes, and read out every time. Repeating
 it on each line of a run is noise to somebody looking; omitting it from a line is
 a line with no speaker to somebody listening.
+
+A message the room's owner took down says so, so that nobody reads it as its
+author taking the words back.
 */
 function Entry({
   message,
   name,
   showName,
   mine,
+  removable,
   onEdit,
   onWithdraw,
 }: {
@@ -70,6 +79,8 @@ function Entry({
   name: string
   showName: boolean
   mine: boolean
+  // removable is somebody else's message in a room this person owns.
+  removable: boolean
   onEdit: (body: string) => Promise<void>
   onWithdraw: () => Promise<void>
 }) {
@@ -81,7 +92,9 @@ function Entry({
     return (
       <li className={row}>
         <span className={stamp}>{when(message.created_at)}</span>
-        <span className="text-ink-faint italic">This message was withdrawn.</span>
+        <span className="text-ink-faint italic">
+          {message.deleted_by === 'owner' ? "Removed by the room's owner." : 'This message was withdrawn.'}
+        </span>
       </li>
     )
   }
@@ -180,6 +193,21 @@ function Entry({
               </button>
             </span>
           )}
+          {removable && (
+            <span
+              className="flex flex-none gap-1 opacity-0 transition-opacity group-hover:opacity-100
+                focus-within:opacity-100"
+            >
+              <button
+                type="button"
+                className="cursor-pointer rounded-sm px-1 py-0.5 text-[0.72rem] text-ink-faint
+                  hover:bg-surface-hover hover:text-ink"
+                onClick={() => void onWithdraw()}
+              >
+                Remove
+              </button>
+            </span>
+          )}
         </>
       )}
     </li>
@@ -195,6 +223,8 @@ export function Conversation({
   onActivity,
   onLeave,
   onForget,
+  onRoomChanged,
+  onRoomDeleted,
 }: ConversationProps) {
   const { messages, loading, failed, send, edit, withdraw } = useConversation(source, onExpired, onActivity)
   const {
@@ -265,6 +295,9 @@ export function Conversation({
     foot.current?.scrollIntoView({ block: 'end' })
   }, [messages.length])
 
+  // Only a room here has an owner who can act from this page.
+  const owner = room.owned && onRoomDeleted !== undefined
+
   let previousDay = ''
   let previousAuthor: string | undefined
 
@@ -298,6 +331,9 @@ export function Conversation({
         >
           People
         </Button>
+        {owner && onRoomDeleted !== undefined && (
+          <RoomSettings room={room} onChanged={onRoomChanged} onDeleted={onRoomDeleted} onExpired={onExpired} />
+        )}
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
@@ -343,6 +379,7 @@ export function Conversation({
                       name={nameOf(message)}
                       showName={opensADay || changesAuthor}
                       mine={message.user_id === selfId}
+                      removable={owner && message.user_id !== selfId}
                       onEdit={(body) => edit(message.id, body)}
                       onWithdraw={() => withdraw(message.id)}
                     />

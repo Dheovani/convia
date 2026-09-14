@@ -81,6 +81,7 @@ export function room(overrides: Partial<SidebarRoom> = {}): SidebarRoom {
     name: 'Standup',
     status: 'open',
     unread: 0,
+    owned: false,
     ...overrides,
   }
 }

@@ -38,6 +38,7 @@ type fixture struct {
 	applications *applications.Service
 	users        *users.Service
 	pool         *pgxpool.Pool
+	databaseURL  string
 	first        string
 	second       string
 	logs         *bytes.Buffer
@@ -98,6 +99,7 @@ func newFixture(t *testing.T) fixture {
 		applications: applicationService,
 		users:        userService,
 		pool:         pool,
+		databaseURL:  databaseURL,
 		first:        first,
 		second:       second,
 		logs:         logs,

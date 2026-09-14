@@ -154,13 +154,15 @@ Deriving membership from participation was considered and rejected. A chat-first
 room is one somebody joins and reads before any call happens in it, so a rule
 built on `participants` would leave every silent room with no members at all.
 
-### No role, no lifecycle
+### One owner, no lifecycle
 
-A participant has a role because a call has something to moderate: removing
-somebody mid-conversation is an act with a victim and a witness. A room member
-has no such power to hold — the application manages membership through its own
-surface — and a column nothing reads is one that will acquire a meaning by
-accident.
+`00018` gave membership no role, reasoning that a room member held no power a
+role could name. **That was reversed by the product owner** in `M18-025`: a room
+a person opens has an **owner**, who moderates it. Ownership is recorded on the
+room rather than on each membership, so a room has at most one owner and the
+database refuses an owner who is not a member. A room an application created has
+no owner. [ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md) records the
+decision and *Acting as yourself* below describes what the owner may do.
 
 A participation records `joined`, `left` and `removed` because a call's roster
 is the record of one occasion. Membership is **current state**: somebody is in
@@ -222,8 +224,22 @@ The session surface arrived in two steps. `M31-009` let a person read and write 
 | `PUT /v1/me/rooms/{room_id}/members/{user_id}` | add somebody |
 | `POST /v1/me/rooms/{room_id}/leave` | leave |
 | `GET /v1/me/people` | who I could add |
+| `PATCH /v1/me/rooms/{room_id}` | rename a room I own |
+| `POST /v1/me/rooms/{room_id}/close`, `…/reopen` | close or reopen a room I own |
+| `DELETE /v1/me/rooms/{room_id}` | delete a room I own |
+| `DELETE /v1/me/rooms/{room_id}/members/{user_id}` | remove somebody from a room I own |
+| `GET /v1/me/rooms/{room_id}/bans` | who is banned from a room I own |
+| `PUT`, `DELETE /v1/me/rooms/{room_id}/bans/{user_id}` | ban somebody, or lift the ban |
 
-**Four acts, and the list is the design.** A person may open a room, add somebody, leave, and see who is here and who could be. Everything else a room can undergo stays with the application, where scopes exist.
+**Any member** may open a room, add somebody, leave, and see who is here and who could be. **The owner** of a room may also remove and ban people, rename, close, reopen and delete it, and take down anybody's message in it. A member asking for an owner's act is refused with `403 forbidden`, because they already know the room exists; somebody outside the room is told `404`.
+
+#### Whoever opens a room owns it, and passes it on
+
+The owner is set when the room is opened. When the owner goes — leaving, removed by the application, banned by nobody but still gone, or erased — the room passes to its **longest-standing active member who has an account on this installation**, in the same transaction and under the room's lock. A visitor from another installation never inherits, so moderation stays with the room's home; a room left with only visitors has no owner until somebody who signs in here is added. Members cannot remove or ban the owner; only the application can remove them.
+
+#### A removal is not a ban
+
+Anybody in the room may add back somebody who was removed. Somebody **banned** cannot be added by anybody, cannot be invited, and cannot use a link they were already sent, until the owner lifts the ban — and lifting it gives no place back. A ban and an addition racing each other cannot both win, because both take the room's lock. Adding somebody banned is refused with the same `404` as every other reason, so a member does not learn the owner's decision. **The application is not bound by bans**: it keeps full authority over its own rooms.
 
 #### A person names only somebody they already share a room with
 
@@ -247,9 +263,7 @@ A person opens a room with **a name and nothing else**. An alias is the applicat
 
 #### What a person cannot do
 
-**Remove somebody else.** Membership carries no role, so there is no owner for that power to rest on. Inventing one here would be deciding moderation by accident, and `M32-004` names moderation as the part of this area that is dangerous to guess at.
-
-**Rename, close, or delete a room.** Without a role there is no good answer to who may, and a room is named when it is opened.
+**Moderate a room they do not own.** Removing, banning, renaming, closing and deleting are the owner's. There is one owner, and ownership cannot be handed over deliberately yet.
 
 **Leave on somebody else's behalf.** Leaving is `POST …/leave` rather than `DELETE …/members/{user_id}`, because on this surface that address could only ever name the caller, and a path carrying an identifier with exactly one legal value is a path inviting somebody to try another.
 
@@ -269,4 +283,5 @@ Every change of membership is announced, whichever surface made it: `room.member
 ## Not Yet Implemented
 
 - **Erasure**, as above.
-- **Moderation.** Membership is enforced on the session surface, but it carries no role: only the application can remove somebody else, or rename, close, or delete a room. Who else may is `M32-004`'s question, and it is deliberately not guessed at here. The reason `00009` and M10 gave for not modelling membership at all — that Convia held no credentials for an application's people — stopped being true when people began signing in, and is recorded above under *Membership*.
+- **More than one moderator, and handing a room over.** A room has one owner, chosen by who opened it and then by succession. The reason `00009` and M10 gave for not modelling membership at all — that Convia held no credentials for an application's people — stopped being true when people began signing in, and is recorded above under *Membership*.
+- **Announcing a room's own changes.** Renaming, closing and deleting are not events yet, so other members see them on their next read.

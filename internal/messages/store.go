@@ -13,7 +13,7 @@ import (
 
 // columns is the projection every read shares.
 const columns = `id, application_id, room_id, sequence, author_user_id,
-                 author_invitation_id, body, created_at, edited_at, deleted_at`
+                 author_invitation_id, body, created_at, edited_at, deleted_at, deleted_by`
 
 /*
 openRoom is the room state that accepts new messages.
@@ -58,6 +58,7 @@ type row struct {
 	CreatedAt          time.Time
 	EditedAt           *time.Time
 	DeletedAt          *time.Time
+	DeletedBy          *string
 }
 
 func (record row) message() Message {
@@ -89,6 +90,10 @@ func (record row) message() Message {
 	if record.DeletedAt != nil {
 		at := record.DeletedAt.UTC()
 		message.DeletedAt = &at
+	}
+
+	if record.DeletedBy != nil {
+		message.DeletedBy = Remover(*record.DeletedBy)
 	}
 
 	return message
@@ -308,13 +313,18 @@ Deleting twice is the same outcome as deleting once: the statement matches
 nothing the second time, and the existing tombstone is returned rather than an
 error, because the caller asked for a state the message is already in.
 */
-func (store *Store) Delete(ctx context.Context, applicationID, id string,
-	at time.Time) (Message, error) {
-	const statement = `UPDATE messages SET body = NULL, deleted_at = $1
-	                   WHERE application_id = $2 AND id = $3 AND deleted_at IS NULL
+func (store *Store) Delete(
+	ctx context.Context,
+	applicationID,
+	id string,
+	at time.Time,
+	by Remover,
+) (Message, error) {
+	const statement = `UPDATE messages SET body = NULL, deleted_at = $1, deleted_by = $2
+	                   WHERE application_id = $3 AND id = $4 AND deleted_at IS NULL
 	                   RETURNING ` + columns
 
-	message, err := store.write(ctx, statement, []any{at, applicationID, id}, applicationID, id)
+	message, err := store.write(ctx, statement, []any{at, by, applicationID, id}, applicationID, id)
 	if errors.Is(err, ErrDeleted) {
 		return store.Get(ctx, applicationID, id)
 	}

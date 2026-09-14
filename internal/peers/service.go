@@ -26,7 +26,8 @@ const pruneInterval = time.Minute
 type roomDirectory interface {
 	Get(ctx context.Context, applicationID, id string) (rooms.Room, error)
 	IsMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
-	AddMember(ctx context.Context, applicationID, roomID, userID string) (rooms.Member, bool, error)
+	IsBanned(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	AddUnlessBanned(ctx context.Context, applicationID, roomID, userID string) (rooms.Member, bool, error)
 }
 
 // people is what this package needs from users.
@@ -121,7 +122,7 @@ Invite makes an invitation into a room the inviting person is in.
 The handle is checked here, check character included, so a mistyped one is
 refused before a link exists to be sent. Somebody already in the room is not
 invited again: the link would do nothing, and saying so is kinder than letting
-it.
+it. Nor is somebody the room's owner banned, whose link could never be used.
 */
 func (service *Service) Invite(ctx context.Context, principal sessions.Principal, roomID, handle string) (Invitation, error) {
 	member, err := service.rooms.IsMember(ctx, principal.ApplicationID, roomID, principal.UserID)
@@ -148,8 +149,18 @@ func (service *Service) Invite(ctx context.Context, principal sessions.Principal
 		if err != nil {
 			return Invitation{}, fmt.Errorf("check membership: %w", err)
 		}
+	
 		if inRoom {
 			return Invitation{}, ErrAlreadyMember
+		}
+
+		banned, err := service.rooms.IsBanned(ctx, principal.ApplicationID, roomID, invitee.ID)
+		if err != nil {
+			return Invitation{}, fmt.Errorf("check for a ban: %w", err)
+		}
+	
+		if banned {
+			return Invitation{}, ErrBanned
 		}
 	case !errors.Is(err, users.ErrNotFound):
 		return Invitation{}, fmt.Errorf("look for the invitee: %w", err)
@@ -299,13 +310,19 @@ func (service *Service) Accept(ctx context.Context, signer Signer, username, id 
 		return Accepted{}, ErrNotFound
 	}
 
-	if _, _, err := service.rooms.AddMember(ctx, invitation.ApplicationID, room.ID, person.ID); err != nil {
+	/*
+		A ban is checked here, under the room's lock, rather than before the
+		claim: a person banned between the two would otherwise be admitted. The
+		claim is released like any refused membership, so the link works again
+		if the ban is lifted before it expires.
+	*/
+	if _, _, err := service.rooms.AddUnlessBanned(ctx, invitation.ApplicationID, room.ID, person.ID); err != nil {
 		if releaseErr := service.store.ReleaseInvitation(ctx, invitation.ID); releaseErr != nil {
 			service.logger.Error("an accepted invitation could not be released after its membership failed",
 				"error", releaseErr, "invitation_id", invitation.ID)
 		}
 		if errors.Is(err, rooms.ErrNotFound) || errors.Is(err, rooms.ErrUserUnavailable) ||
-			errors.Is(err, rooms.ErrUserNotFound) {
+			errors.Is(err, rooms.ErrUserNotFound) || errors.Is(err, rooms.ErrBanned) {
 			return Accepted{}, ErrNotFound
 		}
 		return Accepted{}, fmt.Errorf("add the invitee: %w", err)

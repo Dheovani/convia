@@ -626,6 +626,9 @@ func writeError(logger *slog.Logger, response http.ResponseWriter, request *http
 	case errors.Is(err, ErrAlreadyMember):
 		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusConflict, api.CodeConflict, "That person is already in the room."))
+	case errors.Is(err, ErrBanned):
+		writeFailure(logger, response, request,
+			api.NewFailure(http.StatusForbidden, api.CodeForbidden, "That person cannot be invited to this room."))
 	case errors.Is(err, ErrUnreachable):
 		logger.Warn("another installation could not be reached", "error", err,
 			"request_id", api.RequestIDFromContext(request.Context()))

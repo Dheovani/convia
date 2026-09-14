@@ -5196,7 +5196,7 @@ paths:
 
         Idempotent by the person, as on the application surface: `201` the first time and `200` afterwards.
 
-        There is no way to remove somebody else. Membership carries no role for that power to rest on.
+        Somebody the room's owner has banned cannot be added, and is refused with the same `404`, because the ban is the owner's decision and not something to tell every member. Only the owner removes somebody, with `DELETE` on this address.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -5237,6 +5237,322 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+    delete:
+      operationId: removeMyRoomMember
+      tags: [Me]
+      summary: Remove somebody from a room I own
+      description: |
+        Takes somebody else's place in a room the signed-in person owns. What they said stays.
+
+        **A removal is not a ban.** Anybody in the room may add the person back. To keep them out, ban them instead.
+
+        Only the room's owner may remove somebody, and an owner does not remove themselves: they leave, which passes the room on, and asking to is `400 invalid_request`. Removing somebody who is not in the room succeeds and changes nothing.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The person is no longer in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}:
+    patch:
+      operationId: renameMyRoom
+      tags: [Me]
+      summary: Rename a room I own
+      description: |
+        Gives a room the signed-in person owns a new name, and changes nothing else. An alias, metadata and a capacity stay the application's, as they are when a room is opened.
+
+        Only the room's owner may rename it.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnRoomRequest"
+            example:
+              name: Weekend plans
+      responses:
+        "200":
+          description: The room, renamed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnRoom"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    delete:
+      operationId: deleteMyRoom
+      tags: [Me]
+      summary: Delete a room I own
+      description: |
+        Removes a room the signed-in person owns, for everybody in it.
+
+        It is the same deletion an application's is: the room leaves every sidebar, and it is kept until erasure rather than destroyed. Only the room's owner may delete it.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The room is gone.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/close:
+    post:
+      operationId: closeMyRoom
+      tags: [Me]
+      summary: Close a room I own
+      description: |
+        Stops a room the signed-in person owns taking new messages and calls. What was said stays readable, and reopening undoes it. Closing a closed room succeeds. Only the room's owner may close it.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room, closed.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnRoom"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/reopen:
+    post:
+      operationId: reopenMyRoom
+      tags: [Me]
+      summary: Reopen a room I own
+      description: |
+        Returns a closed room the signed-in person owns to use. Reopening an open room succeeds. Only the room's owner may reopen it.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The room, open.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnRoom"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/bans:
+    get:
+      operationId: listMyRoomBans
+      tags: [Me]
+      summary: Who is banned from a room I own
+      description: |
+        Returns one page of the people kept out of a room the signed-in person owns, by the names they go by. Only the room's owner may read it: who is banned is the owner's decision, not something every member is told.
+
+        Ordered by the person's identifier; the cursor is the last `user_id` on the page.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of the people banned from the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/bans/{user_id}:
+    put:
+      operationId: banMyRoomMember
+      tags: [Me]
+      summary: Ban somebody from a room I own
+      description: |
+        Keeps somebody out of a room the signed-in person owns, and takes their place if they have one. What they said stays.
+
+        **Nobody can bring them back until the ban is lifted**: adding them is refused, an invitation for them cannot be made, and a link already sent to them no longer admits them.
+
+        Who can be banned is who could be named at all — somebody in the room, somebody already banned from it, or somebody the owner shares another room with — and anybody else is the `404 not found` adding somebody gives. An owner does not ban themselves, and asking to is `400 invalid_request`. Banning twice succeeds.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The person is banned.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    delete:
+      operationId: unbanMyRoomMember
+      tags: [Me]
+      summary: Lift a ban on a room I own
+      description: |
+        Lets somebody be brought back into a room the signed-in person owns. It gives them no place: somebody still has to add them. Lifting a ban that is not there succeeds.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The person is no longer banned.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me/rooms/{room_id}/leave:
     post:
       operationId: leaveMyRoom
@@ -5248,6 +5564,8 @@ paths:
         A `POST` to an action rather than a `DELETE` on a member's address: the address would have to name a person, and the only person it could ever name on this surface is the caller.
 
         What they said stays, as it does when an application removes somebody. A room this person is not in answers `404 not found`, and so does a second attempt to leave.
+
+        An owner who leaves passes the room to its longest-standing active member who signs in to this installation. A room left with only visitors from other installations has no owner until such a member is added.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -5639,13 +5957,13 @@ paths:
       tags: [Me]
       summary: Withdraw something I said
       description: |
-        Withdraws a message the signed-in person wrote, leaving a tombstone where it was.
+        Withdraws a message the signed-in person wrote, or takes down anybody's message in a room they own, leaving a tombstone where it was. The tombstone's `deleted_by` says which of the two it was.
 
         The row stays, keeps its position in the history, and loses its body — a history that closed over the hole would move every later message and slide some past a reader's cursor unseen.
 
         A `POST` to a sub-resource rather than a `DELETE`, matching the application surface. There the reason was that the request has to name who is withdrawing; here it does not, but spelling one operation two ways across two surfaces would be a difference a reader has to explain rather than one that means something.
 
-        Withdrawing something already withdrawn is not an error. A message somebody else wrote answers `409 conflict`.
+        Withdrawing something already withdrawn is not an error. A message somebody else wrote, in a room this person does not own, answers `409 conflict`.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -8901,7 +9219,7 @@ components:
         One room in somebody's sidebar, with what they have not read in it.
 
         The unread count travels with the room rather than being fetched separately, because a sidebar is redrawn constantly and a request per row on the screen is the shape that makes an interface feel slow.
-      required: [id, name, status, unread]
+      required: [id, name, status, unread, owned]
       additionalProperties: false
       properties:
         id:
@@ -8923,6 +9241,10 @@ components:
           description: |
             How many messages this person has not read. Excludes their own messages and withdrawn ones.
           example: 3
+        owned:
+          type: boolean
+          description: Whether this person owns the room, and so may moderate it.
+          example: false
 
     Sidebar:
       type: object
@@ -8995,8 +9317,8 @@ components:
 
     OwnRoom:
       type: object
-      description: A room as the person who opened it sees it.
-      required: [id, name, status, created_at]
+      description: A room as a person in it sees it.
+      required: [id, name, status, owned, created_at]
       additionalProperties: false
       properties:
         id:
@@ -9006,6 +9328,10 @@ components:
           example: Weekend plans
         status:
           $ref: "#/components/schemas/RoomStatus"
+        owned:
+          type: boolean
+          description: Whether this person owns the room. Whoever opens a room owns it.
+          example: true
         created_at:
           type: string
           format: date-time
@@ -9026,6 +9352,12 @@ components:
           type: string
           description: The name the application gave this person. It may be empty.
           example: Ana Ribeiro
+        role:
+          type: string
+          enum: [owner, member]
+          description: |
+            What the person is in the room, present only when they are listed as a member of one. A room has at most one owner, and a room an application created has none.
+          example: member
 
     PersonPage:
       type: object
@@ -9180,6 +9512,12 @@ components:
           format: date-time
           description: When the message was withdrawn, absent if it was not.
           example: "2026-09-11T14:09:44.201118Z"
+        deleted_by:
+          type: string
+          enum: [author, owner]
+          description: |
+            Who withdrew the message: its `author`, or the `owner` of the room it was said in. Which person is never said. Absent on a message that was not withdrawn, and on one cleared because its author was erased.
+          example: author
 
     ReadStateRequest:
       type: object
@@ -10234,6 +10572,24 @@ components:
             error:
               code: unauthenticated
               message: The username and password do not match an account.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    OwnerRequired:
+      description: |
+        Only the room's owner may do this, and the person asking is a member of the room who is not its owner. Somebody who is not in the room at all is told `404 not found` instead, so that a refusal never confirms a room exists.
+
+        On a state-changing request the same status also answers one that did not come from Convia's own page, as `WrongOrigin` describes.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: forbidden
+              message: Only the room's owner can do that.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     WrongOrigin:

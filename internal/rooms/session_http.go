@@ -1,6 +1,7 @@
 package rooms
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -33,18 +34,31 @@ type ownRoomRequest struct {
 	Name string `json:"name"`
 }
 
-// ownRoomResponse is a room as the person who opened it sees it.
+// ownRoomResponse is a room as a person in it sees it.
 type ownRoomResponse struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Status    string `json:"status"`
+	Owned     bool   `json:"owned"`
 	CreatedAt string `json:"created_at"`
 }
 
-// personResponse is somebody a person can see, by the name they go by.
+func representOwnRoom(room Room, userID string) ownRoomResponse {
+	return ownRoomResponse{
+		ID:        room.ID,
+		Name:      room.Name,
+		Status:    string(room.Status),
+		Owned:     room.OwnerUserID != "" && room.OwnerUserID == userID,
+		CreatedAt: api.FormatTimestamp(room.CreatedAt),
+	}
+}
+
+// personResponse is somebody a person can see, by the name they go by, and
+// their role when they are listed as a member.
 type personResponse struct {
 	UserID      string `json:"user_id"`
 	DisplayName string `json:"display_name"`
+	Role        Role   `json:"role,omitempty"`
 }
 
 type peopleResponse struct {
@@ -99,12 +113,7 @@ func (handler *SessionHandler) Create(response http.ResponseWriter, request *htt
 		return
 	}
 
-	handler.write(response, request, http.StatusCreated, ownRoomResponse{
-		ID:        room.ID,
-		Name:      room.Name,
-		Status:    string(room.Status),
-		CreatedAt: api.FormatTimestamp(room.CreatedAt),
-	})
+	handler.write(response, request, http.StatusCreated, representOwnRoom(room, personal.principal.UserID))
 }
 
 // Members returns one page of who is in a room the signed-in person is in.
@@ -198,6 +207,122 @@ func (handler *SessionHandler) People(response http.ResponseWriter, request *htt
 	handler.writePeople(response, request, page)
 }
 
+/*
+RemoveMember takes somebody else's place in a room the signed-in person owns.
+
+A `DELETE` on the member's address, which here names somebody else. Leaving is a
+separate action for the reason Leave gives.
+*/
+func (handler *SessionHandler) RemoveMember(response http.ResponseWriter, request *http.Request) {
+	handler.act(response, request, func(personal *Personal) error {
+		return personal.Remove(request.Context(), request.PathValue("room_id"), request.PathValue("user_id"))
+	})
+}
+
+// Ban keeps somebody out of a room the signed-in person owns.
+func (handler *SessionHandler) Ban(response http.ResponseWriter, request *http.Request) {
+	handler.act(response, request, func(personal *Personal) error {
+		return personal.Ban(request.Context(), request.PathValue("room_id"), request.PathValue("user_id"))
+	})
+}
+
+// Unban lifts a ban on a room the signed-in person owns.
+func (handler *SessionHandler) Unban(response http.ResponseWriter, request *http.Request) {
+	handler.act(response, request, func(personal *Personal) error {
+		return personal.Unban(request.Context(), request.PathValue("room_id"), request.PathValue("user_id"))
+	})
+}
+
+// Bans returns one page of the people kept out of a room the signed-in person owns.
+func (handler *SessionHandler) Bans(response http.ResponseWriter, request *http.Request) {
+	personal, ok := handler.personal(response, request)
+	if !ok {
+		return
+	}
+
+	options, failure := membershipOptions(request)
+	if failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	page, err := personal.Bans(request.Context(), request.PathValue("room_id"), options)
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+	handler.writePeople(response, request, page)
+}
+
+// Rename gives a room the signed-in person owns a new name, and nothing else.
+func (handler *SessionHandler) Rename(response http.ResponseWriter, request *http.Request) {
+	personal, ok := handler.personal(response, request)
+	if !ok {
+		return
+	}
+
+	var body ownRoomRequest
+	if failure := api.DecodeJSON(response, request, &body); failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	room, err := personal.Rename(request.Context(), request.PathValue("room_id"), body.Name)
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+	handler.write(response, request, http.StatusOK, representOwnRoom(room, personal.principal.UserID))
+}
+
+// Close stops a room the signed-in person owns taking anything new.
+func (handler *SessionHandler) Close(response http.ResponseWriter, request *http.Request) {
+	handler.transition(response, request, (*Personal).Close)
+}
+
+// Reopen returns a room the signed-in person owns to use.
+func (handler *SessionHandler) Reopen(response http.ResponseWriter, request *http.Request) {
+	handler.transition(response, request, (*Personal).Reopen)
+}
+
+// DeleteRoom removes a room the signed-in person owns, for everybody in it.
+func (handler *SessionHandler) DeleteRoom(response http.ResponseWriter, request *http.Request) {
+	handler.act(response, request, func(personal *Personal) error {
+		return personal.Delete(request.Context(), request.PathValue("room_id"))
+	})
+}
+
+// act runs one act whose answer is only that it happened.
+func (handler *SessionHandler) act(response http.ResponseWriter, request *http.Request, do func(*Personal) error) {
+	personal, ok := handler.personal(response, request)
+	if !ok {
+		return
+	}
+
+	if err := do(personal); err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+	private(response)
+	response.WriteHeader(http.StatusNoContent)
+}
+
+// transition moves a room the signed-in person owns and answers with the room.
+func (handler *SessionHandler) transition(response http.ResponseWriter, request *http.Request,
+	move func(*Personal, context.Context, string) (Room, error)) {
+	personal, ok := handler.personal(response, request)
+	if !ok {
+		return
+	}
+
+	room, err := move(personal, request.Context(), request.PathValue("room_id"))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+	handler.write(response, request, http.StatusOK, representOwnRoom(room, personal.principal.UserID))
+}
+
 func (handler *SessionHandler) writePeople(response http.ResponseWriter, request *http.Request, page People) {
 	body := peopleResponse{
 		Data:       make([]personResponse, 0, len(page.People)),
@@ -221,7 +346,12 @@ mapping is here so that no future route on this surface can unfold them by
 falling through to the application's wording.
 */
 func (handler *SessionHandler) writeError(response http.ResponseWriter, request *http.Request, err error) {
-	if errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrUserUnavailable) {
+	if errors.Is(err, ErrNotOwner) {
+		handler.writeFailure(response, request, api.NewFailure(http.StatusForbidden, api.CodeForbidden,
+			"Only the room's owner can do that."))
+		return
+	}
+	if errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrUserUnavailable) || errors.Is(err, ErrBanned) {
 		handler.writeFailure(response, request, api.NewFailure(http.StatusNotFound, api.CodeNotFound,
 			"That person is not somebody you can add to this room."))
 		return

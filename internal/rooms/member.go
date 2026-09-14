@@ -14,9 +14,9 @@ addressed a room, and the application already knew who its people were;
 `00009` recorded that and declined to model membership on exactly that ground.
 A person presenting a session is the case that reasoning does not cover.
 
-It carries no role and no lifecycle, and `00018` says why at length: a room
-member has no power to hold that a role could name, and membership is current
-state rather than the record of an occasion.
+It carries no lifecycle, because membership is current state rather than the
+record of an occasion. Whether a member owns the room is recorded on the room,
+which has at most one owner; see `00021`.
 */
 type Member struct {
 	ApplicationID string
@@ -24,6 +24,47 @@ type Member struct {
 	UserID        string
 	CreatedAt     time.Time
 }
+
+// Role is what a member is in a room a person opened.
+type Role string
+
+const (
+	// RoleOwner moderates the room: see Personal.
+	RoleOwner Role = "owner"
+	// RoleMember takes part without moderating.
+	RoleMember Role = "member"
+)
+
+/*
+Ban is one person kept out of one room.
+
+It outlives the membership it ended. Anybody may bring back somebody who was
+removed; nobody may bring back somebody who is banned until the owner lifts it.
+*/
+type Ban struct {
+	ApplicationID string
+	RoomID        string
+	UserID        string
+	CreatedAt     time.Time
+}
+
+// Bans is one page of the people kept out of a room.
+type Bans struct {
+	Bans       []Ban
+	NextCursor string
+}
+
+/*
+ErrNotOwner reports somebody in a room trying to do what only its owner may.
+
+Only a member is ever told this. Somebody outside the room is told the room is
+not there, as on every route a person reaches, because a refusal naming the
+owner would confirm that the room exists.
+*/
+var ErrNotOwner = errors.New("only the room's owner may do that")
+
+// ErrBanned reports somebody the room's owner has kept out of it.
+var ErrBanned = errors.New("the person is banned from the room")
 
 /*
 ErrNotAMember reports that somebody is not in the room they addressed.

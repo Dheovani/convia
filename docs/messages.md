@@ -127,7 +127,7 @@ Everything above is the **application** surface: a key says which application is
 | `GET /v1/me/rooms/{room_id}/read_state` | how far I have read |
 | `PUT /v1/me/rooms/{room_id}/read_state` | mark a room read |
 | `PATCH /v1/me/messages/{message_id}` | change what I said |
-| `POST /v1/me/messages/{message_id}/delete` | withdraw it |
+| `POST /v1/me/messages/{message_id}/delete` | withdraw it, or take down anybody's message in a room I own |
 
 ### There is no author field, and that is the whole point
 
@@ -142,6 +142,8 @@ This is the first place a session principal decides anything, and what it decide
 **A room this person is not in answers `404 not found`, never `403 forbidden`.** A refusal that separates "not yours" from "does not exist" confirms to somebody outside a conversation that the conversation is happening, which is most of what they were asking. The application surface is entitled to that distinction and gets it; a person is not.
 
 Editing and withdrawing are the exception, and the asymmetry is deliberate: they check **authorship**, not membership. Somebody who wrote a message was in the room when they wrote it, and having been removed since does not hand their own words to anybody else.
+
+**The owner of a room can take down anybody's message in it** ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)). The tombstone's `deleted_by` is `owner` rather than `author`, and never names the person, so the room does not read the removal as its author taking the words back. A member who is not the owner is refused with the `409` they have always received. Taking down a message already withdrawn changes nothing, including who withdrew it. A room an application created has no owner, so nobody takes down anybody else's message there.
 
 ### The sidebar
 

@@ -2,6 +2,7 @@ package messages
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"convia/internal/rooms"
@@ -20,6 +21,7 @@ Only reading is needed, which keeps the dependency one-directional: the rooms
 domain still knows nothing about messages.
 */
 type membership interface {
+	Get(ctx context.Context, applicationID, id string) (rooms.Room, error)
 	IsMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
 	RoomsOf(ctx context.Context, applicationID, userID string, options rooms.MembershipOptions) (rooms.Membership, error)
 	Many(ctx context.Context, applicationID string, ids []string) (map[string]rooms.Room, error)
@@ -154,9 +156,39 @@ func (personal *Personal) Edit(ctx context.Context, id, body string) (Message, e
 	return personal.service.Edit(ctx, personal.principal.ApplicationID, id, personal.author(), body)
 }
 
-// Delete withdraws something this person said.
+/*
+Delete takes down a message: something this person said, or anything said in a
+room this person owns.
+
+Their own is withdrawn without checking membership, for the reason Edit gives.
+Anybody else's is taken down only by the owner of the room it was said in, and
+refused with ErrNotAuthor otherwise, the answer it has always had.
+*/
 func (personal *Personal) Delete(ctx context.Context, id string) (Message, error) {
-	return personal.service.Delete(ctx, personal.principal.ApplicationID, id, personal.author())
+	message, err := personal.service.Get(ctx, personal.principal.ApplicationID, id)
+	if err != nil {
+		return Message{}, err
+	}
+
+	if message.Author == personal.author() {
+		return personal.service.Delete(ctx, personal.principal.ApplicationID, id, personal.author())
+	}
+
+	room, err := personal.rooms.Get(ctx, personal.principal.ApplicationID, message.RoomID)
+	if errors.Is(err, rooms.ErrNotFound) {
+		return Message{}, ErrNotAuthor
+	}
+
+	if err != nil {
+		return Message{}, fmt.Errorf("read the message's room: %w", err)
+	}
+
+	if room.Status == rooms.StatusDeleted || room.OwnerUserID == "" ||
+		room.OwnerUserID != personal.principal.UserID {
+		return Message{}, ErrNotAuthor
+	}
+
+	return personal.service.Remove(ctx, personal.principal.ApplicationID, id)
 }
 
 // MarkRead records how far this person has read in a room they are in.
