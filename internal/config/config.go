@@ -53,6 +53,8 @@ const (
 
 	trustedProxiesEnvironment = "CONVIA_TRUSTED_PROXIES"
 
+	peersAllowPrivateAddressesEnvironment = "CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES"
+
 	databaseURLEnvironment            = "CONVIA_DATABASE_URL"
 	databaseMaxConnectionsEnvironment = "CONVIA_DATABASE_MAX_CONNECTIONS"
 	databaseConnectTimeoutEnvironment = "CONVIA_DATABASE_CONNECT_TIMEOUT"
@@ -123,6 +125,15 @@ type Config struct {
 		address. See ClientAddress in internal/server.
 	*/
 	TrustedProxies []netip.Prefix
+
+	/*
+		PeersAllowPrivateAddresses is whether links between installations may
+		reach loopback and private-network addresses.
+
+		It is false unless an operator says otherwise, in every environment:
+		following a link is something anybody who registers can cause.
+	*/
+	PeersAllowPrivateAddresses bool
 }
 
 // Database contains the connection and pool settings of the PostgreSQL client.
@@ -199,6 +210,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	peersAllowPrivate, err := loadBool(peersAllowPrivateAddressesEnvironment)
+	if err != nil {
+		return Config{}, err
+	}
+
 	host := environmentOrDefault(httpHostEnvironment, defaultHTTPHost)
 	if host == "" {
 		return Config{}, fmt.Errorf("%s must not be empty", httpHostEnvironment)
@@ -233,6 +249,8 @@ func Load() (Config, error) {
 		Media:          mediaPlane,
 		Redis:          shared,
 		TrustedProxies: trustedProxies,
+
+		PeersAllowPrivateAddresses: peersAllowPrivate,
 	}, nil
 }
 
@@ -333,6 +351,26 @@ func validateMediaURL(mediaURL string, environment Environment) error {
 	}
 
 	return nil
+}
+
+/*
+loadBool reads a setting that is true or false, and false when unset.
+
+Anything else stops startup rather than reading as false: a setting somebody
+wrote as "yes" or "on" is one they meant, and quietly ignoring it would leave
+them believing it took effect.
+*/
+func loadBool(name string) (bool, error) {
+	raw := strings.TrimSpace(environmentOrDefault(name, ""))
+	if raw == "" {
+		return false, nil
+	}
+
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", name)
+	}
+	return value, nil
 }
 
 /*

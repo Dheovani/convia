@@ -43,20 +43,39 @@ Two things follow from that, and both are implemented here:
     assumed to still be the same. That closes the window between a check and a
     connection, which is otherwise a race an attacker chooses the timing of.
 
-A development instance is allowed to reach private addresses, because a local
-receiver is how anybody tests this. Production never is, and it is not a
-setting: there is no environment variable that turns this off, because the only
-reason to want one is the reason not to have one.
+For webhook delivery, a development instance is allowed to reach private
+addresses, because a local receiver is how anybody tests this. Production never
+is, and it is not a setting: there is no environment variable that turns this
+off, because the only reason to want one is the reason not to have one. Links
+between installations are the exception, and it runs the other way: see
+[Destinations.WithPrivateAddresses].
 */
 type Destinations struct {
 	// private is whether this instance may reach addresses that are not on the
-	// public internet. True only in development.
+	// public internet.
 	private bool
+	// plainHTTP is whether this instance may reach a destination over plain http.
+	plainHTTP bool
 }
 
-// NewDestinations returns the guard for an instance.
-func NewDestinations(allowPrivate bool) Destinations {
-	return Destinations{private: allowPrivate}
+// NewDestinations returns the guard for an instance. Development may reach
+// private addresses and plain http; production may do neither.
+func NewDestinations(development bool) Destinations {
+	return Destinations{private: development, plainHTTP: development}
+}
+
+/*
+WithPrivateAddresses returns the same guard with private addresses allowed or
+refused, leaving the rule about plain http to the environment.
+
+Webhook delivery never calls it. It exists for links between installations,
+where following a link is something anybody who registers can cause, so reaching
+the private network is a choice an operator makes rather than a side effect of
+running in development, which is the default. See docs/peers.md.
+*/
+func (guard Destinations) WithPrivateAddresses(allow bool) Destinations {
+	guard.private = allow
+	return guard
 }
 
 // AllowsPrivate reports whether this instance may reach private addresses.
@@ -76,7 +95,7 @@ func (guard Destinations) Permits(raw string) error {
 		return ValidationError{Field: "url", Message: "The destination is not a valid URL."}
 	}
 
-	if parsed.Scheme == "http" && !guard.private {
+	if parsed.Scheme == "http" && !guard.plainHTTP {
 		return ValidationError{
 			Field:   "url",
 			Message: "The destination must be an https URL.",

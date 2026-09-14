@@ -96,6 +96,30 @@ func TestDevelopmentMayReachALocalReceiver(t *testing.T) {
 }
 
 /*
+TestPrivateAddressesAreAChoiceApartFromPlainHTTP covers the guard links between
+installations use. In development, refusing the private network leaves plain
+http allowed; in production, allowing the private network does not bring plain
+http back.
+*/
+func TestPrivateAddressesAreAChoiceApartFromPlainHTTP(t *testing.T) {
+	closed := NewDestinations(true).WithPrivateAddresses(false)
+	if err := closed.Control("tcp", "127.0.0.1:8080", nil); !errors.Is(err, ErrUnsafeDestination) {
+		t.Errorf("a guard refusing private addresses reached loopback: %v", err)
+	}
+	if err := closed.Permits("http://convia.example"); err != nil {
+		t.Errorf("development refused plain http once private addresses were refused: %v", err)
+	}
+
+	opened := NewDestinations(false).WithPrivateAddresses(true)
+	if err := opened.Control("tcp", "192.168.1.10:443", nil); err != nil {
+		t.Errorf("a guard allowing private addresses refused one: %v", err)
+	}
+	if err := opened.Permits("http://convia.example"); err == nil {
+		t.Error("allowing private addresses in production also allowed plain http")
+	}
+}
+
+/*
 TestProductionRequiresHTTPS is the half of the check that does not depend on
 what a name resolves to.
 
