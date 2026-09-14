@@ -126,12 +126,17 @@ Migration `00020` ended every existing session once, because none of them held a
 A link is an address somebody else chose, and following it makes an installation connect somewhere from inside its own network. The client uses the same guard as [webhook delivery](webhooks.md):
 
 - the address is checked **at the socket**, on every attempt;
-- outside development, loopback, private, link-local and reserved addresses are refused, and so is plain `http`;
+- loopback, private, link-local and reserved addresses are refused in every environment, unless the operator set `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES`;
+- outside development, plain `http` is refused;
 - every request is checked once more where it leaves: the home must be exactly a scheme, a lowercase host and an optional port, and the path must be on the peer surface, so no caller can send one anywhere else;
 - no proxy is consulted and **no redirect is followed**;
 - anything but a JSON object under 1 MiB is treated as no answer.
 
-**Installations on a private network can invite each other only in development**, which is the default `CONVIA_ENVIRONMENT`. A production installation will not follow a link to a private address, and there is no setting that makes it.
+**Installations on a private network can invite each other only when their operator allows it**, with `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES=true`. It is off by default in every environment, development included.
+
+It used to follow development mode, as webhook delivery does, and that was a hole: development is the default `CONVIA_ENVIRONMENT`, and following a link is something anybody who registers can cause. On an installation somebody forgot to switch to production, a stranger could create an account, paste links naming addresses inside the server's network, and tell from "not found" against "unreachable" which machines and ports exist there. Webhook delivery keeps its rule, because registering a destination needs an application's key.
+
+Turning it on in production still refuses plain `http`, so installations on a private network reach each other over `https`. Convia warns at startup while it is on.
 
 ## Known gaps
 

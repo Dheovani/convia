@@ -21,6 +21,7 @@ func useDefaults(t *testing.T) {
 	for _, name := range []string{
 		environmentEnvironment,
 		trustedProxiesEnvironment,
+		peersAllowPrivateAddressesEnvironment,
 		httpHostEnvironment,
 		httpPortEnvironment,
 		databaseMaxConnectionsEnvironment,
@@ -287,6 +288,40 @@ func unsetEnvironment(t *testing.T, name string) {
 			t.Errorf("restore %s: %v", name, err)
 		}
 	})
+}
+
+/*
+TestPrivateAddressesAreClosedToLinksUnlessAllowed proves the default, in the
+environment that is itself the default.
+*/
+func TestPrivateAddressesAreClosedToLinksUnlessAllowed(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Environment != Development || config.PeersAllowPrivateAddresses {
+		t.Errorf("Load() = %s with private addresses %v, want development with them closed",
+			config.Environment, config.PeersAllowPrivateAddresses)
+	}
+
+	t.Setenv(peersAllowPrivateAddressesEnvironment, "true")
+	if config, err = Load(); err != nil || !config.PeersAllowPrivateAddresses {
+		t.Errorf("Load() with the setting = %v, %v, want private addresses allowed",
+			config.PeersAllowPrivateAddresses, err)
+	}
+}
+
+// TestASettingThatIsNotTrueOrFalseStopsStartup: "yes" is somebody meaning
+// something, and reading it as false would hide that it did nothing.
+func TestASettingThatIsNotTrueOrFalseStopsStartup(t *testing.T) {
+	useDefaults(t)
+	t.Setenv(peersAllowPrivateAddressesEnvironment, "yes")
+
+	if _, err := Load(); err == nil {
+		t.Error("Load() accepted a setting that is neither true nor false")
+	}
 }
 
 /*

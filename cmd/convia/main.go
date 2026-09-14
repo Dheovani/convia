@@ -243,10 +243,18 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	/*
 		Rooms shared with other installations. The client that reaches them is
 		built on the same destination guard as webhook delivery, because an
-		invitation link is an address somebody else chose.
+		invitation link is an address somebody else chose, with one difference:
+		whether it may reach the private network is a setting of its own rather
+		than the environment's, because anybody who registers can make it follow
+		a link. See docs/peers.md.
 	*/
+	peerDestinations := destinations.WithPrivateAddresses(cfg.PeersAllowPrivateAddresses)
+	if cfg.PeersAllowPrivateAddresses {
+		logger.Warn("links between installations may reach this server's private network, and anybody who registers can follow one",
+			"remedy", "unset CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES unless the installations you share rooms with are on that network")
+	}
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peers.NewClient(destinations), applications.FirstPartyID, logger)
+		accountService, peers.NewClient(peerDestinations), applications.FirstPartyID, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant

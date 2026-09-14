@@ -591,7 +591,7 @@ Complete these in order before starting feature development:
   - **The link** is not a secret. Accepting it needs the invitee's signature and the username the inviter typed. Every reason it cannot be used is one `404`, and two acceptances at once cannot both succeed.
   - **Visitors.** A visitor becomes a user of the home's own product and a member of the room. They are then served by **the same handlers** a signed-in person is: a visitor surface verifies the signature and puts the person where a session would.
   - **The browser never meets the other installation**, so cookies, the origin check and the content policy are untouched. What is relayed is re-encoded, and a home's `401` becomes a `403`, so a room elsewhere cannot sign somebody out of their own Convia.
-  - **Following a link.** It uses webhook delivery's destination guard, so outside development a link cannot point an installation at a private address, and no redirect is followed.
+  - **Following a link.** It uses webhook delivery's destination guard, so a link cannot point an installation at a private address unless its operator allowed it (`M18-024`), and no redirect is followed.
 
   The interface invites by handle from the People panel and warns when a link names `localhost`. Links are joined from **Join with a link** after a preview, and rooms elsewhere are listed under **Elsewhere**.
 
@@ -602,6 +602,7 @@ Complete these in order before starting feature development:
   - calls between installations wait for `M18-004`.
 
   See [ADR 0012](docs/adr/0012-a-room-lives-on-one-installation-and-visitors-sign.md) and [`docs/peers.md`](docs/peers.md).
+- [x] **M18-024:** Stop development mode from opening the private network to links. Following a link is something anybody who registers can cause, and development is the default `CONVIA_ENVIRONMENT`, so an installation left in it let strangers use links to learn which machines and ports answer behind it. Reaching loopback and private addresses is now `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES`, off in every environment and warned about at startup while it is on; plain `http` still follows the environment. Webhook delivery keeps its rule, because registering a destination needs an application's key.
 
 **Exit criteria:** A user can complete the supported room and call journey accessibly through Convia's standalone product.
 
