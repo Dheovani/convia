@@ -96,6 +96,7 @@ Configuration is available through these environment variables:
 - `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
 - `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
 - `CONVIA_TRUSTED_PROXIES` names the networks whose `X-Forwarded-For` header Convia believes, as comma-separated CIDR blocks or bare addresses. The default is empty, which trusts nothing. Set it before deploying behind a reverse proxy.
+- `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` lets invitation links between installations reach loopback and private-network addresses when set to `true`. The default is `false` in every environment. Turn it on only when the installations you share rooms with are on your own network: while it is on, anybody who can create an account here can make this server connect to machines on that network. See [`docs/peers.md`](docs/peers.md).
 - `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
 - `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
 - `CONVIA_DATABASE_CONNECT_TIMEOUT` bounds establishing a connection. The default is `5s`.

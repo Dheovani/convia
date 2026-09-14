@@ -105,6 +105,7 @@ type personalService interface {
 	RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error)
 	Relay(ctx context.Context, identity accounts.Identity, remote RemoteRoom, method, target string, body []byte) (Response, error)
 	Leave(ctx context.Context, identity accounts.Identity, remote RemoteRoom) error
+	Forget(ctx context.Context, remote RemoteRoom) error
 }
 
 /*
@@ -400,6 +401,33 @@ func (handler *SessionHandler) Leave(response http.ResponseWriter, request *http
 	}
 
 	if err := handler.service.Leave(request.Context(), identity, remote); err != nil {
+		writeError(handler.logger, response, request, err)
+		return
+	}
+	private(response)
+	response.WriteHeader(http.StatusNoContent)
+}
+
+/*
+Forget drops a remote room from this installation without asking its home.
+
+It needs no key, because nothing is signed: it is for a home that will not
+answer. The person stays a member there, which the interface says before it
+sends this, and which is why leaving never does it on its own.
+*/
+func (handler *SessionHandler) Forget(response http.ResponseWriter, request *http.Request) {
+	principal, ok := handler.principal(response, request)
+	if !ok {
+		return
+	}
+
+	remote, err := handler.service.RemoteRoom(request.Context(), principal.AccountID, request.PathValue("remote_room_id"))
+	if err != nil {
+		writeError(handler.logger, response, request, err)
+		return
+	}
+
+	if err := handler.service.Forget(request.Context(), remote); err != nil {
 		writeError(handler.logger, response, request, err)
 		return
 	}

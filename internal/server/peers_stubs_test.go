@@ -79,6 +79,8 @@ func (stubPeerService) Relay(context.Context, accounts.Identity, peers.RemoteRoo
 
 func (stubPeerService) Leave(context.Context, accounts.Identity, peers.RemoteRoom) error { return nil }
 
+func (stubPeerService) Forget(context.Context, peers.RemoteRoom) error { return nil }
+
 var sampleRemoteRoom = peers.RemoteRoom{
 	ID:     "rrm_7KQZP4XN2VJH6TBWMDR3YAFC5E",
 	Home:   "https://convia.example",

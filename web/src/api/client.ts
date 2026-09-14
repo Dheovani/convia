@@ -282,4 +282,9 @@ export const api = {
       method: 'POST',
     })
   },
+
+  // forgetRemote drops a room elsewhere from this installation without leaving it there.
+  forgetRemote(remoteRoomId: string): Promise<void> {
+    return call<void>(`/me/remote-rooms/${encodeURIComponent(remoteRoomId)}`, { method: 'DELETE' })
+  },
 }

@@ -932,6 +932,8 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(invitations.Members)},
 			route{method: http.MethodPost, path: remote + "/leave", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Leave)},
+			route{method: http.MethodDelete, path: remote, surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Forget)},
 		)
 	}
 

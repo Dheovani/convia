@@ -6197,13 +6197,44 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/me/remote-rooms/{remote_room_id}:
+    delete:
+      operationId: forgetRemoteRoom
+      tags: [Peers]
+      summary: Forget a room elsewhere without leaving it
+      description: |
+        Removes the pointer to a room elsewhere from this installation without asking its home. It is for a home that does not answer — gone, moved, or refusing the person — which leaving cannot get past. **The person stays a member at the home**, and nothing on this installation can take them out afterwards, so the interface offers it only once leaving has failed, and says so first.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      responses:
+        "204":
+          description: The room is no longer listed here.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/me/remote-rooms/{remote_room_id}/leave:
     post:
       operationId: leaveRemoteRoom
       tags: [Peers]
       summary: Leave a room I am in elsewhere
       description: |
-        Leaves the room at its home, then forgets the pointer here. A home that says the person is no longer in the room has done the first half already, so the pointer goes. A home that cannot be reached keeps it and answers `503 unavailable`, because forgetting it would leave a membership nothing here remembers.
+        Leaves the room at its home, then forgets the pointer here. A home that says the person is no longer in the room has done the first half already, so the pointer goes. Any other answer, or none, keeps it and answers `503 unavailable`, because dropping it silently would leave a membership nothing here remembers. The person may then forget the room here with `DELETE /v1/me/remote-rooms/{remote_room_id}`.
       x-lifecycle: experimental
       security:
         - SessionCookie: []

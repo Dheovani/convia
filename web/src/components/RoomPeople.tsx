@@ -15,6 +15,8 @@ interface RoomPeopleProps {
   membersFailed: boolean
   onChanged: () => void
   onLeave: () => Promise<void>
+  // onForget is set for a room on another installation, for when leaving it fails.
+  onForget?: () => Promise<void>
   onExpired: () => void
 }
 
@@ -209,6 +211,7 @@ export function RoomPeople({
   membersFailed,
   onChanged,
   onLeave,
+  onForget,
   onExpired,
 }: RoomPeopleProps) {
   const [candidates, setCandidates] = useState<Person[] | null>(null)
@@ -217,6 +220,8 @@ export function RoomPeople({
   const [failure, setFailure] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [leaving, setLeaving] = useState(false)
+  // stranded is a room elsewhere whose home did not confirm this person left.
+  const [stranded, setStranded] = useState(false)
 
   const remote = home !== undefined
   const inRoom = new Set(members.map((person) => person.user_id))
@@ -288,12 +293,34 @@ export function RoomPeople({
       await onLeave()
     } catch (error) {
       if (remote && error instanceof ApiError && error.status === 503) {
-        setFailure('The Convia this room lives on could not be reached, so you are still in it. Try again later.')
+        setFailure('The Convia this room lives on did not confirm that you left, so you are still in it. Try again later.')
+        setStranded(true)
       } else {
         fail(error, 'You are no longer in this room.')
       }
       setLeaving(false)
       setConfirming(false)
+    }
+  }
+
+  /*
+  forget drops a room elsewhere from this Convia without its home.
+
+  It is offered only once leaving has failed, and only after saying what it
+  leaves behind: the person is still a member there, and nothing here can take
+  them out of it later.
+  */
+  async function forget() {
+    if (onForget === undefined) {
+      return
+    }
+    setLeaving(true)
+    setFailure(null)
+    try {
+      await onForget()
+    } catch (error) {
+      fail(error, 'This room could not be forgotten. Try again.')
+      setLeaving(false)
     }
   }
 
@@ -392,6 +419,17 @@ export function RoomPeople({
       )}
 
       <section className="mt-auto">
+        {stranded && onForget !== undefined && (
+          <div className="mb-3 flex flex-col gap-2">
+            <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">
+              You can forget it here instead. It leaves your list, but {hostOf(home ?? '')} still counts you as a
+              member, and nothing here can take you out of it later.
+            </p>
+            <Button size="small" className="self-start" disabled={leaving} onClick={() => void forget()}>
+              {leaving ? 'Forgetting…' : 'Forget it here'}
+            </Button>
+          </div>
+        )}
         {confirming ? (
           <div className="flex flex-col gap-2">
             <p className="m-0 text-[0.85rem]">Leave {room.name}? What you said stays.</p>

@@ -141,6 +141,26 @@ func TestARefusalIsReportedWithItsCode(t *testing.T) {
 }
 
 /*
+TestInDevelopmentThePrivateNetworkIsStillAChoice: development is the default
+environment, so an installation left in it must not follow a link into the
+network around it unless its operator allowed that.
+*/
+func TestInDevelopmentThePrivateNetworkIsStillAChoice(t *testing.T) {
+	identity, _ := accounts.NewIdentity()
+	reached := false
+	home := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	defer home.Close()
+
+	client := NewClient(webhooks.NewDestinations(true).WithPrivateAddresses(false))
+	if _, err := client.Do(t.Context(), identity, http.MethodGet, home.URL, "/v1/peer/x", nil); !errors.Is(err, ErrUnreachable) {
+		t.Errorf("reaching loopback without the setting error = %v, want %v", err, ErrUnreachable)
+	}
+	if reached {
+		t.Error("a development installation followed a link to loopback without being allowed to")
+	}
+}
+
+/*
 TestOutsideDevelopmentAnInstallationStaysOnThePublicInternet is the SSRF guard
 applied to links: a production installation will not follow one to loopback,
 nor over plain http.

@@ -26,6 +26,7 @@ type recordingService struct {
 	relayed bool
 	target  string
 	body    []byte
+	forgot  bool
 }
 
 func (service *recordingService) Invite(context.Context, sessions.Principal, string, string) (Invitation, error) {
@@ -60,6 +61,11 @@ func (service *recordingService) Relay(_ context.Context, _ accounts.Identity, _
 }
 
 func (service *recordingService) Leave(context.Context, accounts.Identity, RemoteRoom) error {
+	return service.err
+}
+
+func (service *recordingService) Forget(context.Context, RemoteRoom) error {
+	service.forgot = true
 	return service.err
 }
 
@@ -117,6 +123,24 @@ func TestAnUnreachableHomeIsUnavailable(t *testing.T) {
 
 	if response.Code != http.StatusServiceUnavailable {
 		t.Errorf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+}
+
+// TestForgettingARoomAsksNothingOfItsHome: forgetting is for a home that does
+// not answer, so it needs neither the home nor the key that talks to it.
+func TestForgettingARoomAsksNothingOfItsHome(t *testing.T) {
+	service := &recordingService{}
+	handler := NewSessionHandler(quiet(), service, nil)
+
+	response := httptest.NewRecorder()
+	handler.Forget(response, asPerson(http.MethodDelete, "/v1/me/remote-rooms/"+sampleRemoteID, ""))
+
+	if response.Code != http.StatusNoContent || !service.forgot {
+		t.Errorf("Forget() = %d, forgot %v, want %d and the pointer dropped",
+			response.Code, service.forgot, http.StatusNoContent)
+	}
+	if service.relayed {
+		t.Error("forgetting a room sent a request to its home")
 	}
 }
 
