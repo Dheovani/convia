@@ -149,7 +149,7 @@ func (service *Service) Invite(ctx context.Context, principal sessions.Principal
 		if err != nil {
 			return Invitation{}, fmt.Errorf("check membership: %w", err)
 		}
-	
+
 		if inRoom {
 			return Invitation{}, ErrAlreadyMember
 		}
@@ -158,7 +158,7 @@ func (service *Service) Invite(ctx context.Context, principal sessions.Principal
 		if err != nil {
 			return Invitation{}, fmt.Errorf("check for a ban: %w", err)
 		}
-	
+
 		if banned {
 			return Invitation{}, ErrBanned
 		}
