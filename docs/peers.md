@@ -127,6 +127,7 @@ A link is an address somebody else chose, and following it makes an installation
 
 - the address is checked **at the socket**, on every attempt;
 - outside development, loopback, private, link-local and reserved addresses are refused, and so is plain `http`;
+- every request is checked once more where it leaves: the home must be exactly a scheme, a lowercase host and an optional port, and the path must be on the peer surface, so no caller can send one anywhere else;
 - no proxy is consulted and **no redirect is followed**;
 - anything but a JSON object under 1 MiB is treated as no answer.
 

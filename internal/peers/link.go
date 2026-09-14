@@ -2,11 +2,20 @@ package peers
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
 // invitationPath is where an invitation's link points, below its home.
 const invitationPath = "/invitations/"
+
+/*
+homePattern is the whole of what a home may be: http or https, a lowercase host
+name or a bracketed IPv6 address, and an optional port. Nothing a URL parser
+would forgive — credentials, a path, a zone, an underscore — gets through.
+*/
+var homePattern = regexp.MustCompile(
+	`^https?://(\[[0-9a-f:.]+\]|[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*)(:[0-9]{1,5})?$`)
 
 /*
 Link is what somebody sends to the person they invited: the home the room lives
@@ -71,8 +80,9 @@ func HomeFromOrigin(origin string) (string, error) {
 }
 
 func homeOf(parsed *url.URL) (string, error) {
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+	home := parsed.Scheme + "://" + strings.ToLower(parsed.Host)
+	if !homePattern.MatchString(home) {
 		return "", ValidationError{Field: "home", Message: "The address must be an http or https URL."}
 	}
-	return parsed.Scheme + "://" + strings.ToLower(parsed.Host), nil
+	return home, nil
 }

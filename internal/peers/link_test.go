@@ -35,6 +35,10 @@ func TestOnlyALinkIsALink(t *testing.T) {
 		"not a URL at all":     "bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH",
 		"an opaque URL":        "mailto:ana@example.com",
 		"a scheme-relative ID": "//convia.example/invitations/" + sampleInvitationID,
+		"an underscore":        "https://convia_example/invitations/" + sampleInvitationID,
+		"an address zone":      "http://[fe80::1%25eth0]:8080/invitations/" + sampleInvitationID,
+		"a port that is text":  "https://convia.example:https/invitations/" + sampleInvitationID,
+		"a trailing dot":       "https://convia.example./invitations/" + sampleInvitationID,
 	}
 
 	for name, raw := range refused {
@@ -49,6 +53,7 @@ func TestAHomeIsTheOriginItWasReachedAt(t *testing.T) {
 		"http://LocalHost:5173":     "http://localhost:5173",
 		"https://convia.example":    "https://convia.example",
 		"http://192.168.1.10:8080/": "http://192.168.1.10:8080",
+		"http://[::1]:8080":         "http://[::1]:8080",
 	} {
 		home, err := HomeFromOrigin(origin)
 		if err != nil || home != want {

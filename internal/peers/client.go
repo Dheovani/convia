@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"regexp"
 	"time"
 
 	"convia/internal/accounts"
@@ -24,6 +25,9 @@ const (
 	// the same bound Convia applies to what it accepts.
 	maxResponseBytes = api.MaxJSONRequestBytes
 )
+
+// targetPattern is a path on the peer surface, with an already encoded query.
+var targetPattern = regexp.MustCompile(`^/v1/peer/[A-Za-z0-9_/]+(\?[A-Za-z0-9_.~%=&+-]*)?$`)
 
 // Response is what another installation answered.
 type Response struct {
@@ -87,6 +91,18 @@ func (client *Client) Do(
 	target string,
 	body []byte,
 ) (Response, error) {
+	/*
+		Checked again here whatever the caller checked, because every request to
+		another installation passes through this one place: the home is a bare scheme
+		and host, and the target a path below /v1/peer/ with nothing in it that could
+		name another host, another surface, or another header.
+	*/
+	if !homePattern.MatchString(home) {
+		return Response{}, fmt.Errorf("%w: %q is not the address of an installation", ErrUnreachable, home)
+	}
+	if !targetPattern.MatchString(target) {
+		return Response{}, fmt.Errorf("%w: %q is not a path on the peer surface", ErrUnreachable, target)
+	}
 	if err := client.guard.Permits(home); err != nil {
 		return Response{}, fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}

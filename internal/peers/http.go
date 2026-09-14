@@ -92,12 +92,7 @@ func (handler *PeerHandler) Accept(response http.ResponseWriter, request *http.R
 		return
 	}
 
-	write(handler.logger, response, request, http.StatusOK, acceptedBody{
-		RoomID:   accepted.RoomID,
-		RoomName: accepted.RoomName,
-		UserID:   accepted.UserID,
-		Local:    accepted.Local,
-	})
+	write(handler.logger, response, request, http.StatusOK, acceptedBody(accepted))
 }
 
 // personalService is what the routes a signed-in person uses need.

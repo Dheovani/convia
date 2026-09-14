@@ -89,6 +89,37 @@ func TestAnythingButConviasAnswerIsUnreachable(t *testing.T) {
 	}
 }
 
+/*
+TestTheClientRequestsOnlyAPeerPathOnAHome covers the check every request passes,
+whatever its caller already did: each of these would have reached somewhere, or
+reached the test server at a path that is not the peer surface.
+*/
+func TestTheClientRequestsOnlyAPeerPathOnAHome(t *testing.T) {
+	identity, _ := accounts.NewIdentity()
+	reached := false
+	home := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	defer home.Close()
+
+	for name, request := range map[string]struct{ home, target string }{
+		"a home with a path":                {home.URL + "/elsewhere", "/v1/peer/x"},
+		"a home with credentials":           {strings.Replace(home.URL, "://", "://ana:secret@", 1), "/v1/peer/x"},
+		"a home with a trailing slash":      {home.URL + "/", "/v1/peer/x"},
+		"a target outside the peer surface": {home.URL, "/v1/users"},
+		"a target that names another host":  {home.URL, "@elsewhere.example/v1/peer/x"},
+		"a target with a traversal":         {home.URL, "/v1/peer/../users"},
+		"a target with a new line":          {home.URL, "/v1/peer/x\r\nHost: elsewhere.example"},
+		"a target with a fragment":          {home.URL, "/v1/peer/x#y"},
+	} {
+		_, err := developmentClient().Do(t.Context(), identity, http.MethodGet, request.home, request.target, nil)
+		if !errors.Is(err, ErrUnreachable) {
+			t.Errorf("%s: Do() error = %v, want %v", name, err, ErrUnreachable)
+		}
+	}
+	if reached {
+		t.Error("the client sent a request it should have refused")
+	}
+}
+
 // TestARefusalIsReportedWithItsCode, so that the caller can tell a missing
 // invitation from a home that is down.
 func TestARefusalIsReportedWithItsCode(t *testing.T) {
