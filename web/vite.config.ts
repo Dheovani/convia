@@ -44,7 +44,12 @@ export default defineConfig({
     would make every CSRF and cookie decision untestable until deployment.
     */
     proxy: {
-      '/v1': { target: 'http://127.0.0.1:8080', changeOrigin: false },
+      /*
+      `ws` carries the person's event stream through the same proxy.
+      `changeOrigin` stays false for the reason above: the handshake's Origin is
+      the page's, and Convia refuses one that does not match the Host it sees.
+      */
+      '/v1': { target: 'http://127.0.0.1:8080', changeOrigin: false, ws: true },
     },
   },
   test: {

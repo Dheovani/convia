@@ -44,14 +44,15 @@ mayReach names the Convia packages this one is allowed to import.
 
 It is a short list and should stay short. Events flow **into** this package
 from the domains and never the other way round, which is what lets every domain
-import it without a cycle. The two exceptions are both about the caller rather
-than about what happened: one supplies the correlation identifier and the
-error shape, and the other supplies the scopes that decide what a subscriber
-receives.
+import it without a cycle. The exceptions are all about the caller rather than
+about what happened: one supplies the correlation identifier and the error
+shape, one the scopes that decide what an application's stream receives, and
+one the person a person's stream is for.
 */
 var mayReach = map[string]string{
 	"convia/internal/api":         "the request identifier and the one public error shape",
 	"convia/internal/credentials": "the scopes that decide what a subscriber is entitled to",
+	"convia/internal/sessions":    "the signed-in person a person's stream is for, and whether they still are",
 }
 
 /*

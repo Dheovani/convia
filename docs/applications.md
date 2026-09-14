@@ -14,6 +14,8 @@ Applications are deliberately thin. Convia stores what it needs to isolate tenan
 
 The standalone Convia product is represented by an ordinary first-party application record rather than by a privileged special case in the code.
 
+Its identifier is the one exception to the rule below that identifiers are random: it is `app_CONVIAAAAAAAAAAAAAAAAAAAAA` on every installation, and Convia creates the row itself the first time it starts. Nobody has to administer a tenant before a person can sign in. A row that already exists is never touched, so an operator who suspends Convia's own product stops every session and a restart does not undo it. A constant is safe here because an application identifier is not a secret and never leaves the installation: nothing a person is given, and nothing an invitation carries, names it.
+
 This costs one row and buys a guarantee: the standalone user interface exercises the same tenancy, authorization, and rate-limiting paths that external consumers do. A bug in tenant isolation therefore fails Convia's own product first, rather than hiding until an external integration finds it. It also keeps M18's requirement — that the standalone interface uses only public Convia APIs — achievable.
 
 ## Identifiers

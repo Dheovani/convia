@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 
+import type { RoomSource } from '../api/client'
 import type { Account, Message, Person, SidebarRoom } from '../api/types'
 import { useConversation } from '../state/useConversation'
 import { useMembers } from '../state/useMembers'
@@ -8,11 +9,20 @@ import { Button, input } from './controls'
 import { label, RoomPeople } from './RoomPeople'
 
 interface ConversationProps {
+  source: RoomSource
   room: SidebarRoom
   account: Account
+  /*
+  selfId is who this person is in the room. In a room here it is their user;
+  in a room on another installation it is the user they became there, which is
+  the only way their own messages can be recognized.
+  */
+  selfId: string
+  // home is set for a room on another installation.
+  home?: string
   onExpired: () => void
   onActivity: () => void
-  onLeave: (roomId: string) => Promise<void>
+  onLeave: () => Promise<void>
 }
 
 function when(timestamp: string): string {
@@ -174,14 +184,22 @@ function Entry({
   )
 }
 
-export function Conversation({ room, account, onExpired, onActivity, onLeave }: ConversationProps) {
-  const { messages, loading, failed, send, edit, withdraw } = useConversation(room.id, onExpired)
+export function Conversation({
+  source,
+  room,
+  selfId,
+  home,
+  onExpired,
+  onActivity,
+  onLeave,
+}: ConversationProps) {
+  const { messages, loading, failed, send, edit, withdraw } = useConversation(source, onExpired, onActivity)
   const {
     members,
     loaded: membersLoaded,
     failed: membersFailed,
     reload: reloadMembers,
-  } = useMembers(room.id, onExpired)
+  } = useMembers(source, onExpired)
 
   const [showPeople, setShowPeople] = useState(false)
   const panel = useId()
@@ -208,7 +226,7 @@ export function Conversation({ room, account, onExpired, onActivity, onLeave }: 
       .filter(
         (userId): userId is string =>
           userId !== undefined &&
-          userId !== account.user_id &&
+          userId !== selfId &&
           !byId.has(userId) &&
           !asked.current.has(userId),
       )
@@ -219,13 +237,13 @@ export function Conversation({ room, account, onExpired, onActivity, onLeave }: 
       asked.current.add(userId)
     }
     reloadMembers()
-  }, [messages, membersLoaded, byId, account.user_id, reloadMembers])
+  }, [messages, membersLoaded, byId, selfId, reloadMembers])
 
   function nameOf(message: Message): string {
     if (message.user_id === undefined) {
       return 'A guest'
     }
-    if (message.user_id === account.user_id) {
+    if (message.user_id === selfId) {
       return 'You'
     }
     const person: Person | undefined = byId.get(message.user_id)
@@ -321,7 +339,7 @@ export function Conversation({ room, account, onExpired, onActivity, onLeave }: 
                       message={message}
                       name={nameOf(message)}
                       showName={opensADay || changesAuthor}
-                      mine={message.user_id === account.user_id}
+                      mine={message.user_id === selfId}
                       onEdit={(body) => edit(message.id, body)}
                       onWithdraw={() => withdraw(message.id)}
                     />
@@ -346,11 +364,12 @@ export function Conversation({ room, account, onExpired, onActivity, onLeave }: 
           <RoomPeople
             id={panel}
             room={room}
-            account={account}
+            selfId={selfId}
+            {...(home === undefined ? {} : { home })}
             members={members}
             membersFailed={membersFailed}
             onChanged={reloadMembers}
-            onLeave={() => onLeave(room.id)}
+            onLeave={onLeave}
             onExpired={onExpired}
           />
         )}

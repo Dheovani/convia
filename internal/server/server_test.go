@@ -24,6 +24,7 @@ import (
 	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/peers"
 	"convia/internal/presence"
 	"convia/internal/rooms"
 	"convia/internal/secret"
@@ -283,6 +284,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		PersonalMessages: messages.NewSessionHandler(logger, stubMessages{message: sampleMessage()},
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
+		PersonalEvents: events.NewPersonHandler(logger, events.NewBroker(),
+			stubSessionAuthenticator{principal: samplePerson()}, stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -306,6 +309,10 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
+
+		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
+		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
+		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
 	}
 }
 
@@ -341,13 +348,12 @@ func sampleAccount() accounts.Account {
 	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
 
 	return accounts.Account{
-		ID:          "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
-		Email:       "ana@example.com",
-		DisplayName: "Ana Ribeiro",
-		UserID:      sampleUser().ID,
-		Status:      accounts.StatusActive,
-		CreatedAt:   created,
-		UpdatedAt:   created,
+		ID:        "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Username:  "ana",
+		UserID:    sampleUser().ID,
+		Status:    accounts.StatusActive,
+		CreatedAt: created,
+		UpdatedAt: created,
 	}
 }
 
@@ -376,6 +382,11 @@ func (stub stubSessions) Begin(context.Context, string, accounts.Password) (sess
 	}
 	return sessions.Session{ID: samplePerson().SessionID, AccountID: stub.account.ID},
 		"cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5", nil
+}
+
+func (stub stubSessions) Register(ctx context.Context, username string,
+	password accounts.Password) (sessions.Session, string, error) {
+	return stub.Begin(ctx, username, password)
 }
 
 func (stub stubSessions) End(context.Context, string) error { return stub.err }
@@ -1254,6 +1265,13 @@ func (stub stubRooms) Acquaintances(context.Context, string, string, rooms.Membe
 		return rooms.Acquaintances{}, stub.err
 	}
 	return rooms.Acquaintances{UserIDs: []string{stub.member.UserID}}, nil
+}
+
+func (stub stubRooms) RoomIDsOf(context.Context, string, string) ([]string, error) {
+	if stub.err != nil {
+		return nil, stub.err
+	}
+	return []string{stub.room.ID}, nil
 }
 
 func (stub stubRooms) Many(_ context.Context, _ string, ids []string) (map[string]rooms.Room, error) {

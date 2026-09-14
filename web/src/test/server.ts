@@ -71,8 +71,8 @@ function answer(status: number, body: unknown): Response {
 export const ana: Account = {
   account_id: 'acc_7QK4XMZP2VJH6TBWNDR3YAFC5E',
   user_id: 'usr_7KQZP4XN2VJH6TBWMDR3YAFC5E',
-  email: 'ana@example.com',
-  display_name: 'Ana Ribeiro',
+  username: 'ana',
+  handle: 'ana#7QK4XMZP2VJH6TBWNDR3YAFC5EH',
 }
 
 export function room(overrides: Partial<SidebarRoom> = {}): SidebarRoom {

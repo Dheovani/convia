@@ -94,6 +94,57 @@ func execute(t *testing.T, databaseURL, statement string) {
 	}
 }
 
+// TestTheFirstPartyIdentifierIsAnIdentifier, because a constant nobody
+// generated is the one kind the database constraint could refuse at startup.
+func TestTheFirstPartyIdentifierIsAnIdentifier(t *testing.T) {
+	if !ValidID(FirstPartyID) {
+		t.Errorf("FirstPartyID %q does not have Convia's application identifier shape", FirstPartyID)
+	}
+}
+
+/*
+TestEnsuringTheFirstPartyApplicationRespectsWhatIsThere is what makes it safe to
+run on every start: the first run makes the row, and no later run undoes what an
+operator did to it.
+*/
+func TestEnsuringTheFirstPartyApplicationRespectsWhatIsThere(t *testing.T) {
+	service, logs := newTestService(t)
+	ctx := context.Background()
+
+	if err := service.EnsureFirstParty(ctx); err != nil {
+		t.Fatalf("EnsureFirstParty() error = %v", err)
+	}
+	created, err := service.Get(ctx, FirstPartyID)
+	if err != nil {
+		t.Fatalf("the first-party application was not made: %v", err)
+	}
+	if created.Status != StatusActive {
+		t.Errorf("the first-party application starts %q, want active", created.Status)
+	}
+	if !strings.Contains(logs.String(), "application.created") {
+		t.Error("making the first-party application was not audited")
+	}
+
+	if _, err := service.Suspend(ctx, FirstPartyID); err != nil {
+		t.Fatalf("Suspend() error = %v", err)
+	}
+	logs.Reset()
+
+	if err := service.EnsureFirstParty(ctx); err != nil {
+		t.Fatalf("EnsureFirstParty() a second time error = %v", err)
+	}
+	again, err := service.Get(ctx, FirstPartyID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if again.Status != StatusSuspended {
+		t.Errorf("starting again left the first-party application %q, want it still suspended", again.Status)
+	}
+	if strings.Contains(logs.String(), "application.created") {
+		t.Error("a second start claimed to create an application that already existed")
+	}
+}
+
 func TestServiceCreateStoresAnApplication(t *testing.T) {
 	service, _ := newTestService(t)
 	ctx := context.Background()

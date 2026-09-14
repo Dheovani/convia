@@ -36,6 +36,25 @@ const (
 	versionLength = 16
 )
 
+/*
+FirstPartyID identifies the application that is Convia's own product, and it is
+the same on every installation.
+
+It used to be configured: somebody created an application with the operator API
+and put its identifier in the environment, and until they did, nobody could sign
+in and the page gave no sign of why. A person who installs Convia to talk to
+people should not have to administer a tenant first, so the application is now
+a fixed row Convia makes for itself at startup — see [Service.EnsureFirstParty].
+
+A constant is safe to share between installations because an application
+identifier is not a secret and never leaves the installation that holds it:
+nothing a person is given, and nothing an invitation carries, names it.
+*/
+const FirstPartyID = "app_CONVIAAAAAAAAAAAAAAAAAAAAA"
+
+// firstPartyName is what an operator listing tenants sees Convia's own product called.
+const firstPartyName = "Convia"
+
 // ErrNotFound reports that no application matches the requested identifier.
 var ErrNotFound = errors.New("application not found")
 

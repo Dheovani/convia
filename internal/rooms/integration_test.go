@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/config"
 	"convia/internal/database"
+	"convia/internal/events"
 	"convia/internal/users"
 )
 
@@ -39,6 +41,7 @@ type fixture struct {
 	first        string
 	second       string
 	logs         *bytes.Buffer
+	published    *recorder
 }
 
 func newFixture(t *testing.T) fixture {
@@ -85,16 +88,39 @@ func newFixture(t *testing.T) fixture {
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
+	// The service announces into a recorder so that a test can assert what was
+	// announced without holding a stream open.
+	published := &recorder{}
+
 	logs.Reset()
 	return fixture{
-		service:      NewService(NewStore(pool), applicationService, userService, logger),
+		service:      NewService(NewStore(pool), applicationService, userService, published, logger),
 		applications: applicationService,
 		users:        userService,
 		pool:         pool,
 		first:        first,
 		second:       second,
 		logs:         logs,
+		published:    published,
 	}
+}
+
+// recorder keeps every event the domain announced.
+type recorder struct {
+	mutex  sync.Mutex
+	events []events.Event
+}
+
+func (record *recorder) Publish(_ context.Context, event events.Event) {
+	record.mutex.Lock()
+	defer record.mutex.Unlock()
+	record.events = append(record.events, event)
+}
+
+func (record *recorder) all() []events.Event {
+	record.mutex.Lock()
+	defer record.mutex.Unlock()
+	return append([]events.Event(nil), record.events...)
 }
 
 func newApplication(t *testing.T, service *applications.Service, name string) string {

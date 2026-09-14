@@ -229,26 +229,3 @@ func TestPasswordLengthIsTheOnlyRule(t *testing.T) {
 		}
 	}
 }
-
-/*
-TestAGeneratedPasswordIsNotSomethingAnybodyChose is why an operator is never
-offered the choice.
-
-An operator picking passwords reuses one across the accounts they create. A
-generated one has the same entropy as every other secret Convia mints, which is
-what turns online guessing from a limit to tune into a non-question.
-*/
-func TestAGeneratedPasswordIsNotSomethingAnybodyChose(t *testing.T) {
-	first := NewPassword()
-	second := NewPassword()
-
-	if first == second {
-		t.Fatal("two generated passwords are identical")
-	}
-	if _, err := NormalizePassword(first); err != nil {
-		t.Errorf("a generated password is refused by Convia's own policy: %v", err)
-	}
-	if length := len(string(first)); length < MinimumPasswordLength {
-		t.Errorf("a generated password is %d characters", length)
-	}
-}

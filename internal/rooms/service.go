@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/events"
 	"convia/internal/users"
 )
 
@@ -42,20 +43,32 @@ type people interface {
 	Get(ctx context.Context, applicationID, id string) (users.User, error)
 }
 
+/*
+announcer is the behavior this package needs to publish what happened.
+
+It returns no error: telling somebody a membership changed must not be able to
+undo the change, which has already committed. events.Announcer satisfies it.
+*/
+type announcer interface {
+	Publish(ctx context.Context, event events.Event)
+}
+
 // Service applies Convia's rules for rooms.
 type Service struct {
 	store   *Store
 	tenants tenants
 	people  people
+	stream  announcer
 	logger  *slog.Logger
 	now     func() time.Time
 }
 
-func NewService(store *Store, owner tenants, directory people, logger *slog.Logger) *Service {
+func NewService(store *Store, owner tenants, directory people, stream announcer, logger *slog.Logger) *Service {
 	return &Service{
 		store:   store,
 		tenants: owner,
 		people:  directory,
+		stream:  stream,
 		logger:  logger,
 		now:     func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
 	}
@@ -165,7 +178,7 @@ func (service *Service) CreateFor(ctx context.Context, applicationID, userID str
 	}
 
 	service.audit(ctx, "room.created", room)
-	service.recordMembership(ctx, "room.member_added", member)
+	service.announceMembership(ctx, events.MemberAdded, member)
 	return room, nil
 }
 

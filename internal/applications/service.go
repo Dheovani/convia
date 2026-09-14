@@ -76,6 +76,36 @@ func (service *Service) Create(ctx context.Context, name string) (Application, e
 	return application, nil
 }
 
+/*
+EnsureFirstParty makes the application that is Convia's own product, unless it
+already exists.
+
+It runs when Convia starts, so a fresh installation can be signed in to without
+anybody administering it first. A row that already exists is never touched: an
+operator who suspended Convia's own product meant it, and starting again must
+not quietly undo that. Suspension still does what it always did — every session
+stops authenticating — which is why nothing here checks the state.
+*/
+func (service *Service) EnsureFirstParty(ctx context.Context) error {
+	created := now()
+	application := Application{
+		ID:        FirstPartyID,
+		Name:      firstPartyName,
+		Status:    StatusActive,
+		CreatedAt: created,
+		UpdatedAt: created,
+	}
+
+	made, err := service.store.CreateIfAbsent(ctx, application)
+	if err != nil {
+		return fmt.Errorf("ensure the first-party application: %w", err)
+	}
+	if made {
+		service.audit(ctx, "application.created", application)
+	}
+	return nil
+}
+
 // Get returns one application, or ErrNotFound.
 func (service *Service) Get(ctx context.Context, id string) (Application, error) {
 	if !ValidID(id) {

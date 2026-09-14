@@ -2,6 +2,8 @@ package sessions
 
 import (
 	"context"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,6 +11,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/api"
+	"convia/internal/secret"
 	"convia/internal/users"
 )
 
@@ -20,9 +23,10 @@ concurrency bound is applied. None of that belongs here: this package owns what
 happens *after* somebody proves who they are.
 */
 type directory interface {
-	Authenticate(ctx context.Context, email string, password accounts.Password) (accounts.Account, error)
+	Register(ctx context.Context, username string, password accounts.Password) (accounts.Account, accounts.Identity, error)
+	Authenticate(ctx context.Context, username string, password accounts.Password) (accounts.Account, accounts.Identity, error)
 	Get(ctx context.Context, id string) (accounts.Account, error)
-	ChangePassword(ctx context.Context, id string, current, next accounts.Password) error
+	ChangePassword(ctx context.Context, id string, current, next accounts.Password) (accounts.Identity, error)
 }
 
 /*
@@ -79,32 +83,138 @@ which answers with one indistinguishable refusal. What happens here is what
 follows: enforcing the ceiling on concurrent sessions, minting a secret, and
 recording the row.
 */
-func (service *Service) Begin(ctx context.Context, email string, password accounts.Password) (Session, string, error) {
-	account, err := service.accounts.Authenticate(ctx, email, password)
+func (service *Service) Begin(ctx context.Context, username string, password accounts.Password) (Session, string, error) {
+	account, identity, err := service.accounts.Authenticate(ctx, username, password)
+	if err != nil {
+		return Session{}, "", err
+	}
+	return service.open(ctx, account.ID, identity)
+}
+
+/*
+Register creates an account and signs its owner in, in one request.
+
+Somebody who has just chosen a password should not be asked to type it again to
+prove they know it. The account domain decides whether the account can exist;
+what happens here is only what would have happened on signing in.
+*/
+func (service *Service) Register(ctx context.Context, username string, password accounts.Password) (Session, string, error) {
+	account, identity, err := service.accounts.Register(ctx, username, password)
+	if err != nil {
+		return Session{}, "", err
+	}
+	return service.open(ctx, account.ID, identity)
+}
+
+// open mints a session for an account that has just proved who it is.
+func (service *Service) open(ctx context.Context, accountID string, identity accounts.Identity) (Session, string, error) {
+	at := now()
+	if err := service.makeRoom(ctx, accountID, at); err != nil {
+		return Session{}, "", err
+	}
+
+	session, token, err := service.mint(ctx, accountID, identity, at)
 	if err != nil {
 		return Session{}, "", err
 	}
 
-	at := now()
-	if err := service.makeRoom(ctx, account.ID, at); err != nil {
-		return Session{}, "", err
-	}
+	service.audit(ctx, "session.began", session)
+	return session, token, nil
+}
 
+/*
+mint stores a new session holding the account's opened key.
+
+The key is wrapped under a key derived from the session's own secret, which
+Convia never stores — only its SHA-256 digest, from which the wrapping key
+cannot be derived. So the database holds a key nobody can use, the browser holds
+a secret that is useless without the database, and only the two together, on a
+request from that browser, let Convia sign as this person. Signing out, expiry,
+and revocation end that the moment the session stops authenticating.
+*/
+func (service *Service) mint(
+	ctx context.Context,
+	accountID string,
+	identity accounts.Identity,
+	at time.Time,
+) (Session, string, error) {
 	value := NewSecret()
 	session := Session{
 		ID:                NewID(),
-		AccountID:         account.ID,
+		AccountID:         accountID,
 		CreatedAt:         at,
 		LastSeenAt:        at,
 		AbsoluteExpiresAt: at.Add(AbsoluteLifetime),
 	}
 
-	if err := service.store.Create(ctx, session, Digest(value)); err != nil {
+	key, err := wrappingKey(value)
+	if err != nil {
 		return Session{}, "", err
 	}
+	wrapped, err := accounts.Wrap(identity, key, []byte(session.ID))
+	if err != nil {
+		return Session{}, "", fmt.Errorf("wrap the session's key: %w", err)
+	}
 
-	service.audit(ctx, "session.began", session)
+	if err := service.store.Create(ctx, session, Digest(value), wrapped); err != nil {
+		return Session{}, "", err
+	}
 	return session, Token(session.ID, value), nil
+}
+
+/*
+Identity opens the key a session holds, for the request presenting it.
+
+The token is verified again rather than trusted from the middleware, because
+this is the step that turns a cookie into the ability to sign as somebody, and
+it must not be reachable by any path that skipped verification. Every failure
+is [ErrUnauthenticated] or an infrastructure error; a key that does not unwrap
+for a token that did verify is a damaged row, and is reported as an error.
+*/
+func (service *Service) Identity(ctx context.Context, token string) (accounts.Identity, error) {
+	id, value, err := ParseToken(token)
+	if err != nil {
+		return accounts.Identity{}, err
+	}
+
+	session, digest, err := service.store.Credentials(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return accounts.Identity{}, ErrUnauthenticated
+	}
+	if err != nil {
+		return accounts.Identity{}, err
+	}
+	if !Matches(digest, value) || !session.Live(now()) {
+		return accounts.Identity{}, ErrUnauthenticated
+	}
+
+	account, err := service.accounts.Get(ctx, session.AccountID)
+	if errors.Is(err, accounts.ErrNotFound) {
+		return accounts.Identity{}, ErrUnauthenticated
+	}
+	if err != nil {
+		return accounts.Identity{}, err
+	}
+
+	wrapped, err := service.store.WrappedIdentity(ctx, id)
+	if err != nil {
+		return accounts.Identity{}, err
+	}
+
+	key, err := wrappingKey(value)
+	if err != nil {
+		return accounts.Identity{}, err
+	}
+	return accounts.Unwrap(wrapped, key, []byte(id), account.PublicKey)
+}
+
+// wrappingKey derives the key a session's opened key is wrapped under.
+func wrappingKey(value secret.Value) ([]byte, error) {
+	key, err := hkdf.Key(sha256.New, []byte(value), nil, "convia session identity v1", 32)
+	if err != nil {
+		return nil, fmt.Errorf("derive the session's wrapping key: %w", err)
+	}
+	return key, nil
 }
 
 /*
@@ -262,7 +372,8 @@ they are and nowhere else.
 */
 func (service *Service) ChangePassword(ctx context.Context, principal Principal,
 	current, next accounts.Password) (Session, string, error) {
-	if err := service.accounts.ChangePassword(ctx, principal.AccountID, current, next); err != nil {
+	identity, err := service.accounts.ChangePassword(ctx, principal.AccountID, current, next)
+	if err != nil {
 		return Session{}, "", err
 	}
 
@@ -271,21 +382,13 @@ func (service *Service) ChangePassword(ctx context.Context, principal Principal,
 		return Session{}, "", err
 	}
 
-	value := NewSecret()
-	rotated := Session{
-		ID:                NewID(),
-		AccountID:         principal.AccountID,
-		CreatedAt:         at,
-		LastSeenAt:        at,
-		AbsoluteExpiresAt: at.Add(AbsoluteLifetime),
-	}
-
-	if err := service.store.Create(ctx, rotated, Digest(value)); err != nil {
+	rotated, token, err := service.mint(ctx, principal.AccountID, identity, at)
+	if err != nil {
 		return Session{}, "", err
 	}
 
 	service.audit(ctx, "session.rotated", rotated)
-	return rotated, Token(rotated.ID, value), nil
+	return rotated, token, nil
 }
 
 /*
@@ -337,8 +440,8 @@ func (service *Service) Prune(ctx context.Context, grace time.Duration) (int, er
 audit records a change to who is signed in.
 
 The account and session identifiers are recorded; the token never is, and
-neither is the email. Convia assigned both identifiers, so they say what an
-operator needs without putting a credential or a contactable address into a log
+neither is the username. Convia derived both identifiers, so they say what an
+operator needs without putting a credential or a person's chosen name into a log
 that is shipped and retained.
 */
 func (service *Service) audit(ctx context.Context, event string, session Session) {

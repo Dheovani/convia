@@ -29,6 +29,10 @@ func (stub *stubService) Begin(context.Context, string, accounts.Password) (Sess
 	return Session{ID: "ses_4XZQP7KN2VJH6TBWMDR3YAFC5E", AccountID: stub.account.ID}, "cvs_token", nil
 }
 
+func (stub *stubService) Register(context.Context, string, accounts.Password) (Session, string, error) {
+	return stub.Begin(context.Background(), "", "")
+}
+
 func (stub *stubService) End(context.Context, string) error { return stub.err }
 
 func (stub *stubService) EndAll(context.Context, string) (int, error) {
@@ -51,11 +55,10 @@ func (stub *stubService) ChangePassword(context.Context, Principal,
 // somebody is an account in the state most responses show it in.
 func somebody() accounts.Account {
 	return accounts.Account{
-		ID:          "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
-		Email:       "ana@example.com",
-		DisplayName: "Ana Ribeiro",
-		UserID:      "usr_7KQZP4XN2VJH6TBWMDR3YAFC5E",
-		Status:      accounts.StatusActive,
+		ID:       "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Username: "ana",
+		UserID:   "usr_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Status:   accounts.StatusActive,
 	}
 }
 
@@ -114,7 +117,7 @@ func TestSigningInRefusesEveryFailureIdentically(t *testing.T) {
 	handler := NewHandler(quiet(), &stubService{err: accounts.ErrUnauthenticated})
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/sessions",
-		strings.NewReader(`{"email":"nobody@example.com","password":"whatever"}`))
+		strings.NewReader(`{"username":"nobody","password":"whatever"}`))
 	request.Header.Set("Content-Type", "application/json")
 
 	response := httptest.NewRecorder()
@@ -146,7 +149,7 @@ func TestBusyIsNotARefusal(t *testing.T) {
 	handler := NewHandler(quiet(), &stubService{err: accounts.ErrBusy})
 
 	request := httptest.NewRequest(http.MethodPost, "/v1/sessions",
-		strings.NewReader(`{"email":"ana@example.com","password":"whatever"}`))
+		strings.NewReader(`{"username":"ana","password":"whatever"}`))
 	request.Header.Set("Content-Type", "application/json")
 
 	response := httptest.NewRecorder()
@@ -157,6 +160,52 @@ func TestBusyIsNotARefusal(t *testing.T) {
 	}
 	if response.Header().Get("Retry-After") == "" {
 		t.Error("the refusal does not say when to try again")
+	}
+}
+
+/*
+TestRegisteringSignsTheNewAccountIn keeps somebody who has just chosen a
+password from being asked to type it again, and says who they now are — handle
+included, because that is what they will give other people.
+*/
+func TestRegisteringSignsTheNewAccountIn(t *testing.T) {
+	handler := NewHandler(quiet(), &stubService{account: somebody()})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/accounts",
+		strings.NewReader(`{"username":"ana","password":"correct horse battery staple"}`))
+	request.Header.Set("Content-Type", "application/json")
+
+	response := httptest.NewRecorder()
+	handler.Register(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+	if !strings.Contains(response.Header().Get("Set-Cookie"), "cvs_token") {
+		t.Error("registering did not sign the new account in")
+	}
+	if handle := somebody().Handle(); !strings.Contains(response.Body.String(), `"handle":"`+handle+`"`) {
+		t.Errorf("the response does not carry the handle %q: %s", handle, response.Body)
+	}
+}
+
+// TestATakenUsernameIsAConflict rather than a refusal of credentials, and sets
+// no cookie.
+func TestATakenUsernameIsAConflict(t *testing.T) {
+	handler := NewHandler(quiet(), &stubService{err: accounts.ErrUsernameTaken})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/accounts",
+		strings.NewReader(`{"username":"ana","password":"correct horse battery staple"}`))
+	request.Header.Set("Content-Type", "application/json")
+
+	response := httptest.NewRecorder()
+	handler.Register(response, request)
+
+	if response.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d: %s", response.Code, http.StatusConflict, response.Body)
+	}
+	if response.Header().Get("Set-Cookie") != "" {
+		t.Error("a refused registration set a cookie")
 	}
 }
 

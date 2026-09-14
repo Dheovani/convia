@@ -38,6 +38,7 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 
 | | |
 | --- | --- |
+| `POST /v1/accounts` | create an account and sign in; the cookie comes back on the response |
 | `POST /v1/sessions` | sign in; the cookie comes back on the response |
 | `GET /v1/me` | who is signed in — asked **before the first paint** |
 | `GET /v1/me/rooms` | the sidebar: rooms and unread counts in one request |
@@ -49,21 +50,31 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 | `GET /v1/me/people` | who could be added |
 | `PUT /v1/me/rooms/{id}/members/{user_id}` | add somebody |
 | `POST /v1/me/rooms/{id}/leave` | leave |
+| `POST /v1/me/rooms/{id}/invitations` | invite a handle, on any installation |
+| `POST /v1/me/invitation-previews` | what an invitation link is for |
+| `GET/POST /v1/me/remote-rooms` | rooms elsewhere; join one by link |
+| `…/me/remote-rooms/{id}/…` | a room elsewhere, with the same operations as a room here |
 | `DELETE /v1/sessions/current` | sign out |
 
 There is **no token in the page**. The session is a cookie the script cannot read, which is what makes it survive an XSS in this very bundle — and also what means the page cannot answer "who am I" by itself. It asks. That is why `GET /v1/me` happens before anything is drawn: guessing would flash the sign-in form at somebody already signed in, on every reload.
 
 ## Three things the interface must not undo
 
-**A failed sign-in says one thing.** Convia answers identically whether the address is unknown or the password is wrong, so that the form is not a way to find out who has an account. Wording the two differently in the client would give away exactly what the server refused to. A test asserts the message, and asserts that it never contains the words that would leak it.
+**A failed sign-in says one thing.** Convia answers identically whether the username is unknown or the password is wrong. Wording the two differently in the client would give away exactly what the server refused to. A test asserts the message, and asserts that it never contains the words that would leak it. The form never repeats the server's own prose either: the status decides the words.
+
+**Creating an account warns before, not after.** The password seals the account's key, so a forgotten one cannot be reset by anybody. The registration form says so above the button, checks the username's rule, the password's length and the confirmation before sending anything, and a taken username keeps what was typed.
 
 **An unreachable server is not a wrong password.** A network failure and a refusal are different types in the client for this reason: telling somebody their password is wrong when the connection dropped is a lie that costs them their next ten minutes.
 
 **What was typed survives a failure.** The composer clears only once Convia has taken the message. Clearing on submit is the common shortcut and it loses the words on every failure — and the words are the one thing on the screen that cannot be fetched again.
 
-## Who a person can add
+## Who a person can add, and who they can invite
 
-The people panel offers everybody Convia lists under `GET /v1/me/people` who is not already in the room, and **nothing else — there is no field to type an address or an identifier into**. That is the client half of a rule the server makes: a person names only somebody they already share a room with, because a lookup by address would confirm who has an account. A text box would be an invitation to guess at exactly that. See [`rooms.md`](rooms.md#acting-as-yourself).
+The people panel lists everybody Convia lists under `GET /v1/me/people` who is not already in the room, as soon as it opens and in a section that folds away, and offers **no field to add anybody else by typing**. That is the client half of a rule the server makes: a person *adds* only somebody they already share a room with, because a lookup by address would confirm who has an account. See [`rooms.md`](rooms.md#acting-as-yourself).
+
+Anybody else is **invited by handle**, and that field is safe to have because a handle is not a lookup. Typing one makes an invitation and a link, and says nothing about whether the handle names an account anywhere. The link works only for the key the handle's identifier is the fingerprint of. The panel shows the link to send and warns when it names `localhost`, which nobody on another machine can follow. See [`peers.md`](peers.md).
+
+A link somebody was sent is pasted into **Join with a link** in the sidebar, which shows the room, the inviter and the installation it lives on before anything is accepted. Rooms on other installations are listed apart, under **Elsewhere**, with where they live. They are read through this installation on a timer, have no unread count, and offer no way to add or invite anybody, because that belongs to the room's home.
 
 When somebody cannot be added, the panel says one sentence. Convia gives one answer for a stranger, an identifier that names nobody, and somebody suspended, and wording them differently here would be inventing the distinction the server refused to make.
 
@@ -71,11 +82,26 @@ There is no way to remove anybody. Convia offers none to a person, and a button 
 
 Speakers are named from the member list, which is read when a conversation opens rather than polled. A message from somebody the list does not know asks for it again, once per person: that is how somebody added a moment ago gets a name, and the once is what keeps an author who has since left from turning into a request loop.
 
-## It polls, and that is a gap rather than a design
+## It is told, and asks only when it cannot be
 
-The sidebar is asked again every fifteen seconds and an open room every five.
+The workspace holds one connection to `GET /v1/me/events` for the whole page, and the sidebar, the open room, and its member list all listen to it. One rather than one each, because every connection is a place against a ceiling Convia keeps per person.
 
-Convia has a real-time event stream. It is on the surface an **application** reaches with its key, and a person holding a session has no way to subscribe to their own rooms. So there is nothing to subscribe to yet, and polling is the honest cost of that. It is recorded as `M18-018` rather than hidden behind a wrapper that looks like a subscription.
+While the stream is open **nothing asks on a timer.** Each event is a read of exactly what it names:
+
+| Event | What is read |
+| --- | --- |
+| `message.posted` in the open room | what is newer than the newest message held |
+| `message.edited`, `message.deleted` in the open room | that one message, by its sequence |
+| `room.member_*` for the open room | its member list |
+| anything about any room | the sidebar, gathered over a quarter of a second so a burst is one read |
+
+Losing one's own place is acted on before the read: the room leaves the sidebar at once, and if it was open, nothing stays open that the person can no longer read. Marking a room read also reads the sidebar again, because that is when the room's badge changed and no event says so.
+
+**While the stream is not open, the interface asks as it did before there was one** — the sidebar every fifteen seconds, an open room every five. Being told is an improvement on asking, never a replacement for being able to ask. When the stream opens again, what happened meanwhile was announced to nobody, so the sidebar is read, the open room reads forward for what is new, and then its newest window again for what was edited or withdrawn.
+
+It reconnects after a second, doubling to half a minute, so that every tab of every person does not reconnect at once into a Convia that is still down.
+
+**A refused handshake says nothing about why.** A browser hides the status of a failed WebSocket upgrade from scripts, so an expired session and an unreachable server look the same, and the interface does not guess: it keeps retrying, falls back to its timers, and the next ordinary request is what notices a session that is gone. The one reason Convia can still give is `4001`, sent on a stream that was open when its session ended; the interface asks `/v1/me` to confirm, and returns to the sign-in form.
 
 ## What is served, and how it is cached
 
@@ -104,7 +130,7 @@ frame-ancestors 'none'
 
 Alongside it: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cross-Origin-Opener-Policy: same-origin`, and a `Permissions-Policy` that turns off what this product has no use for.
 
-`connect-src 'self'` will have to change when calls arrive, because joining one means a WebSocket to the media server and that is a different origin. It is left alone rather than widened in advance, so that somebody decides.
+`connect-src 'self'` already admits the event stream, which is a WebSocket to this same host. It will have to change when calls arrive, because joining one means a WebSocket to the media server and that is a different origin. It is left alone rather than widened in advance, so that somebody decides.
 
 ## The design
 
@@ -136,7 +162,8 @@ Not a later pass. `M18-010` is an exit criterion, and these are the parts alread
 
 Named here rather than discovered later.
 
-- **No real-time.** See above: there is nothing for a person to subscribe to. `M18-018`.
+- **Being told lags by up to a minute at the edges.** Convia rechecks a person's stream every minute, so a room just left elsewhere, or a session just ended, can still produce events within that minute. What arrives is identifiers, and every read they cause asks for membership again. See [`events.md`](events.md#a-persons-stream).
+- **Unread counts for rooms that are not open arrive with the sidebar's read**, which an event triggers. There is no event for a read state, because marking read is the person's own act, so a second tab of the same person learns it only when something else changes the sidebar.
 - **No router.** There is one screen and a selected room, and the URL does not change. It works because the server answers every path with the page, so adding a router later is additive.
 - **The lists of people are one page.** Somebody who shares rooms with more than a hundred people sees the first hundred. Paging wants a screen where it matters.
 - **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.

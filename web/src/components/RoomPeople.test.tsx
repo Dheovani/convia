@@ -8,7 +8,7 @@ import { FakeConvia, ana, message, room } from '../test/server'
 
 afterEach(() => vi.unstubAllGlobals())
 
-const herself: Person = { user_id: ana.user_id, display_name: ana.display_name }
+const herself: Person = { user_id: ana.user_id, display_name: ana.username }
 const bruno: Person = { user_id: 'usr_BRUNOALVES7QK4XMZP2VJH6TBW', display_name: 'Bruno Alves' }
 const carla: Person = { user_id: 'usr_CARLASOUZA7QK4XMZP2VJH6TBW', display_name: 'Carla Souza' }
 
@@ -61,11 +61,12 @@ describe('opening a room', () => {
 describe('adding somebody', () => {
   /*
   Who can be added comes from Convia and from nowhere else. The panel offers the
-  people this person already shares a room with and are not here yet, and it has
-  no field to type somebody into — which is the client half of the rule that
-  discovery is a shared room rather than a lookup.
+  people this person already shares a room with and are not here yet, and has no
+  field to add somebody by typing — which is the client half of the rule that
+  discovery is a shared room rather than a lookup. The one field there is takes
+  a handle and makes an invitation, which adds nobody and confirms nothing.
   */
-  it('offers only people Convia says can be added, and nowhere to type anybody', async () => {
+  it('offers only people Convia says can be added, and nowhere to add anybody by typing', async () => {
     const server = standup()
       .on('GET', `${roomPath}/members`, { body: { data: [herself, carla] } })
       .on('GET', '/v1/me/people', { body: { data: [bruno, carla] } })
@@ -84,11 +85,16 @@ describe('adding somebody', () => {
     await person.click(await screen.findByRole('button', { name: 'People' }))
     const panel = await screen.findByRole('complementary', { name: 'People in Standup' })
 
-    await person.click(within(panel).getByRole('button', { name: 'Show people you can add' }))
-
+    // Nothing has to be pressed to see them.
     expect(await within(panel).findByRole('button', { name: 'Add Bruno Alves' })).toBeInTheDocument()
     expect(within(panel).queryByRole('button', { name: 'Add Carla Souza' })).toBeNull()
-    expect(within(panel).queryByRole('textbox')).toBeNull()
+    expect(within(panel).getAllByRole('textbox')).toEqual([within(panel).getByLabelText('Handle')])
+
+    // The section folds away and comes back.
+    await person.click(within(panel).getByText('Add somebody'))
+    expect(within(panel).getByRole('button', { name: 'Add Bruno Alves' })).not.toBeVisible()
+    await person.click(within(panel).getByText('Add somebody'))
+    expect(within(panel).getByRole('button', { name: 'Add Bruno Alves' })).toBeVisible()
 
     server.on('GET', `${roomPath}/members`, { body: { data: [herself, carla, bruno] } })
     await person.click(within(panel).getByRole('button', { name: 'Add Bruno Alves' }))
@@ -115,7 +121,6 @@ describe('adding somebody', () => {
 
     await person.click(await screen.findByRole('button', { name: 'People' }))
     const panel = await screen.findByRole('complementary', { name: 'People in Standup' })
-    await person.click(within(panel).getByRole('button', { name: 'Show people you can add' }))
     await person.click(await within(panel).findByRole('button', { name: 'Add Bruno Alves' }))
 
     const complaint = await within(panel).findByRole('alert')

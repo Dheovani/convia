@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"convia/internal/credentials"
+	"convia/internal/sessions"
 )
 
 /*
@@ -41,6 +42,10 @@ func readingScopeFor(kind Type) credentials.Scope {
 			read a history must not learn its shape from the stream either.
 		*/
 		return credentials.ScopeMessagesRead
+	case MemberAdded, MemberRemoved:
+		// The scope that already lists who is in a room, on either side of the
+		// change.
+		return credentials.ScopeMembersRead
 	case PresenceChanged:
 		return credentials.ScopePresenceRead
 	default:
@@ -103,4 +108,52 @@ func (authorized *Authorized) Subscribe() (*Stream, error) {
 	}
 
 	return authorized.broker.Subscribe(authorized.principal.ApplicationID, permitted)
+}
+
+/*
+personTypes are the events a person's stream carries.
+
+The rule is the tenant's, applied to a person: **a stream carries only what its
+subscriber could already read.** A person reads the messages and the members of
+the rooms they are in, so those are the types, and each is delivered only when
+it names such a room.
+
+What is absent is absent for that reason and no other. Calls and their rosters
+have no route on the session surface yet, so a person cannot read them, and a
+participant event names a call rather than a room besides. Presence is about a
+person rather than a room. Each arrives when the interface can read what it is
+about — calls with M18-004 — and not before.
+*/
+func personTypes() []Type {
+	return []Type{MessagePosted, MessageEdited, MessageDeleted, MemberAdded, MemberRemoved}
+}
+
+/*
+Personal is the event broker acting for one signed-in person.
+
+The application and the person both come from the verified session, so there is
+nothing in a request that could name another person's rooms — the same
+property the tenant's stream has, one level narrower.
+*/
+type Personal struct {
+	broker    *Broker
+	principal sessions.Principal
+}
+
+// AsPerson binds the broker to the authority of a verified session. It
+// produces no credentials.Principal; see docs/adr/0007.
+func AsPerson(broker *Broker, principal sessions.Principal) *Personal {
+	return &Personal{broker: broker, principal: principal}
+}
+
+/*
+Subscribe opens the person's stream.
+
+It covers no rooms yet. Which rooms is a read, and reading is the caller's to do
+with [Stream.Reconcile] before handing the stream to anybody, because this
+package holds no store to read from.
+*/
+func (personal *Personal) Subscribe() (*Stream, error) {
+	return personal.broker.subscribePerson(personal.principal.ApplicationID, personal.principal.UserID,
+		personTypes())
 }
