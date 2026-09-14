@@ -59,7 +59,7 @@ What is relayed is re-encoded from what this installation decoded, and only the 
 
 - **Every session ended once.** Migration `00020` deletes them, because none held a key and only the password can provide one. Signing in now costs a second argon2id derivation to open the key.
 - **Nothing is announced for a room elsewhere.** The page's event stream is about rooms here, so a room elsewhere is read on a five-second timer while it is open, and its row carries no unread count.
-- **A home that is down is a room that cannot be read**, and it cannot be left either. Forgetting the pointer would leave a membership nothing remembers, so the pointer stays until the home answers.
+- **A home that does not answer is a room that cannot be read**, and it cannot be left either: any answer but a confirmation keeps the pointer, so a home that is gone, has moved, or refuses the person would hold it there for good. The person may therefore forget it here, after being told they stay a member at the home. That leaves a membership nothing here remembers, which is the lesser harm next to a room nobody can get rid of.
 - **Installations on a private network can only invite each other in development mode.** That is the default for `CONVIA_ENVIRONMENT`. A production installation refuses private addresses, for the reason webhooks do. There is no setting that changes it.
 - **The home is named by the Host a request arrived with.** A reverse proxy that rewrites Host breaks signatures until it preserves the original.
 - **Calls between installations are not built.** The interface for calls does not exist yet (`M18-004`). When it does, a visitor will reach the home's media plane directly with a token the home issues, because media is never relayed through the control plane.

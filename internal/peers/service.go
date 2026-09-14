@@ -511,9 +511,9 @@ func (service *Service) Relay(
 Leave takes a person out of a remote room, at its home and then here.
 
 A home that says the person is not in the room any more has already done the
-first half, so the pointer goes. A home that cannot be reached keeps the
-pointer, because forgetting it would leave a membership nobody here remembers
-and nothing can undo.
+first half, so the pointer goes. Any other answer keeps the pointer, because
+dropping it silently would leave a membership nobody here remembers; [Forget]
+is the person choosing to do that anyway.
 */
 func (service *Service) Leave(ctx context.Context, identity accounts.Identity, remote RemoteRoom) error {
 	response, err := service.client.Do(ctx, identity, http.MethodPost, remote.Home,
@@ -524,6 +524,17 @@ func (service *Service) Leave(ctx context.Context, identity accounts.Identity, r
 	if response.Status != http.StatusNoContent && response.Status != http.StatusNotFound {
 		return refusal(response)
 	}
+	return service.store.DeleteRemoteRoom(ctx, remote.AccountID, remote.ID)
+}
+
+/*
+Forget drops the pointer to a remote room without asking its home.
+
+It is how somebody gets rid of a room whose home is gone, has moved, or refuses
+them, which Leave cannot get past. They stay a member at the home, and nothing
+here can take them out later; the interface says so before it asks.
+*/
+func (service *Service) Forget(ctx context.Context, remote RemoteRoom) error {
 	return service.store.DeleteRemoteRoom(ctx, remote.AccountID, remote.ID)
 }
 

@@ -136,7 +136,7 @@ A link is an address somebody else chose, and following it makes an installation
 ## Known gaps
 
 - **A room elsewhere is not announced.** The page reads it on a five-second timer while it is open, and its row in the sidebar has no unread count.
-- **A home that is down cannot be left.** The pointer stays until the home confirms, because forgetting it would leave a membership nothing here remembers.
+- **A home that does not answer cannot be left, only forgotten.** Leaving keeps the pointer until the home confirms, because dropping it silently would leave a membership nothing here remembers. Once leaving has failed, the interface offers to forget the room here anyway (`DELETE /v1/me/remote-rooms/{id}`), after saying that the person stays a member at the home and that nothing here can take them out later. It is how somebody gets rid of a room whose home is gone, has moved, or refuses them.
 - **No calls between installations yet.** The call interface itself is still to come (`M18-004`); when it arrives, a visitor will reach the home's media plane directly, with a token the home issues.
 - **No verification code on first contact.** Looking at a link shows the room, the inviter's handle and the home's address, and that is the check.
 - **Nonces are pruned by whichever instance verifies**, at most once a minute each, rather than by a scheduled job.
