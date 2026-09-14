@@ -142,6 +142,12 @@ func TestTheSessionSurfaceOffersNoAuthenticationScheme(t *testing.T) {
 	}
 }
 
+// reachedByABrowser reports the surfaces a page calls, which are the ones the
+// origin check and the no-state-on-GET rule apply to.
+func reachedByABrowser(on surface) bool {
+	return on == surfaceSession || on == surfaceSignIn || on == surfaceRegistration
+}
+
 /*
 TestNoSessionRouteChangesStateOnAGet is what lets SameSite=Lax count as a CSRF
 layer at all.
@@ -160,7 +166,7 @@ func TestNoSessionRouteChangesStateOnAGet(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	for _, entry := range routeTable(logger, testDependencies()) {
-		if entry.surface != surfaceSession && entry.surface != surfaceSignIn {
+		if !reachedByABrowser(entry.surface) {
 			continue
 		}
 
@@ -193,7 +199,7 @@ func TestEveryStateChangingSessionRouteChecksItsOrigin(t *testing.T) {
 
 	checked := 0
 	for _, entry := range routeTable(logger, testDependencies()) {
-		if entry.surface != surfaceSession && entry.surface != surfaceSignIn {
+		if !reachedByABrowser(entry.surface) {
 			continue
 		}
 		if entry.method == http.MethodGet || entry.method == http.MethodHead {

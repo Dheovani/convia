@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { api, ApiError } from '../api/client'
+import { ApiError, roomApi, sourceKey, type RoomSource } from '../api/client'
 import type { Person } from '../api/types'
 import { useEvents } from './events'
 
@@ -18,13 +18,14 @@ It does not poll. Who is in a room changes far less often than what is said in
 it, so it is read when the conversation opens, when somebody looks at the list,
 after somebody is added, when the event stream says somebody joined or left, and
 when a message arrives from somebody it does not know — which is how a newcomer
-is still noticed while the stream is down.
+is still noticed while the stream is down, and in a room on another
+installation, which the stream never mentions.
 
 A failure here is not the conversation's failure. Names make a conversation
 easier to read; their absence does not make it unreadable, so this reports
 `failed` and leaves the rest of the screen alone.
 */
-export function useMembers(roomId: string, onExpired: () => void): Members {
+export function useMembers(source: RoomSource, onExpired: () => void): Members {
   const { listen } = useEvents()
 
   const [members, setMembers] = useState<Person[]>([])
@@ -37,12 +38,15 @@ export function useMembers(roomId: string, onExpired: () => void): Members {
 
   const reload = useCallback(() => setReloads((count) => count + 1), [])
 
+  const key = sourceKey(source)
+  const { kind, id } = source
+
   useEffect(() => {
     const controller = new AbortController()
     let active = true
 
-    api
-      .members(roomId, controller.signal)
+    roomApi({ kind, id } as RoomSource)
+      .members(controller.signal)
       .then((page) => {
         if (!active) {
           return
@@ -66,18 +70,19 @@ export function useMembers(roomId: string, onExpired: () => void): Members {
       active = false
       controller.abort()
     }
-  }, [roomId, reloads])
+  }, [kind, id, reloads])
 
-  useEffect(
-    () =>
-      listen((event) => {
-        const membership = event.type === 'room.member_added' || event.type === 'room.member_removed'
-        if (membership && event.subject.id === roomId) {
-          reload()
-        }
-      }),
-    [roomId, listen, reload],
-  )
+  useEffect(() => {
+    if (kind !== 'local') {
+      return
+    }
+    return listen((event) => {
+      const membership = event.type === 'room.member_added' || event.type === 'room.member_removed'
+      if (membership && event.subject.id === id) {
+        reload()
+      }
+    })
+  }, [key, kind, id, listen, reload])
 
   return { members, loaded, failed, reload }
 }

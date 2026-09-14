@@ -9,12 +9,18 @@ of keeping thirty lines in step with the contract is lower than the cost of the
 tooling.
 */
 
-// Account is the person the session belongs to.
+/*
+Account is the person the session belongs to.
+
+`handle` is how they are named to somebody else — the username, a #, and the
+account identifier with a check character — and it is rendered by Convia so the
+page never has to compute the check character itself.
+*/
 export interface Account {
   account_id: string
   user_id: string
-  email: string
-  display_name: string
+  username: string
+  handle: string
 }
 
 export type RoomStatus = 'open' | 'closed' | 'deleted'
@@ -110,6 +116,48 @@ export interface ConviaEvent {
   application_id: string
   subject: { type: string; id: string }
   data?: Record<string, unknown>
+}
+
+// RoomInvitation is an invitation into a room here, and the link to send.
+export interface RoomInvitation {
+  id: string
+  link: string
+  invitee: string
+  expires_at: string
+}
+
+// InvitationLook is what the home of a link says the invitation is for.
+export interface InvitationLook {
+  home: string
+  room_name: string
+  inviter: string
+  invitee: string
+  expires_at: string
+}
+
+/*
+RemoteRoom is a room this person is in on another installation.
+
+`user_id` is who they are there, which is not their `user_id` here: it is what
+tells their own messages apart in that room.
+*/
+export interface RemoteRoom {
+  id: string
+  home: string
+  room_id: string
+  user_id: string
+  name: string
+}
+
+export interface RemoteRoomPage {
+  data: RemoteRoom[]
+}
+
+// JoinedRoom carries remote_room only when the room lives elsewhere.
+export interface JoinedRoom {
+  room_id: string
+  room_name: string
+  remote_room?: RemoteRoom
 }
 
 export interface RoomMember {

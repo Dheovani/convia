@@ -38,6 +38,7 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 
 | | |
 | --- | --- |
+| `POST /v1/accounts` | create an account and sign in; the cookie comes back on the response |
 | `POST /v1/sessions` | sign in; the cookie comes back on the response |
 | `GET /v1/me` | who is signed in — asked **before the first paint** |
 | `GET /v1/me/rooms` | the sidebar: rooms and unread counts in one request |
@@ -49,21 +50,31 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 | `GET /v1/me/people` | who could be added |
 | `PUT /v1/me/rooms/{id}/members/{user_id}` | add somebody |
 | `POST /v1/me/rooms/{id}/leave` | leave |
+| `POST /v1/me/rooms/{id}/invitations` | invite a handle, on any installation |
+| `POST /v1/me/invitation-previews` | what an invitation link is for |
+| `GET/POST /v1/me/remote-rooms` | rooms elsewhere; join one by link |
+| `…/me/remote-rooms/{id}/…` | a room elsewhere, with the same operations as a room here |
 | `DELETE /v1/sessions/current` | sign out |
 
 There is **no token in the page**. The session is a cookie the script cannot read, which is what makes it survive an XSS in this very bundle — and also what means the page cannot answer "who am I" by itself. It asks. That is why `GET /v1/me` happens before anything is drawn: guessing would flash the sign-in form at somebody already signed in, on every reload.
 
 ## Three things the interface must not undo
 
-**A failed sign-in says one thing.** Convia answers identically whether the address is unknown or the password is wrong, so that the form is not a way to find out who has an account. Wording the two differently in the client would give away exactly what the server refused to. A test asserts the message, and asserts that it never contains the words that would leak it.
+**A failed sign-in says one thing.** Convia answers identically whether the username is unknown or the password is wrong. Wording the two differently in the client would give away exactly what the server refused to. A test asserts the message, and asserts that it never contains the words that would leak it. The form never repeats the server's own prose either: the status decides the words.
+
+**Creating an account warns before, not after.** The password seals the account's key, so a forgotten one cannot be reset by anybody. The registration form says so above the button, checks the username's rule, the password's length and the confirmation before sending anything, and a taken username keeps what was typed.
 
 **An unreachable server is not a wrong password.** A network failure and a refusal are different types in the client for this reason: telling somebody their password is wrong when the connection dropped is a lie that costs them their next ten minutes.
 
 **What was typed survives a failure.** The composer clears only once Convia has taken the message. Clearing on submit is the common shortcut and it loses the words on every failure — and the words are the one thing on the screen that cannot be fetched again.
 
-## Who a person can add
+## Who a person can add, and who they can invite
 
-The people panel offers everybody Convia lists under `GET /v1/me/people` who is not already in the room, and **nothing else — there is no field to type an address or an identifier into**. That is the client half of a rule the server makes: a person names only somebody they already share a room with, because a lookup by address would confirm who has an account. A text box would be an invitation to guess at exactly that. See [`rooms.md`](rooms.md#acting-as-yourself).
+The people panel lists everybody Convia lists under `GET /v1/me/people` who is not already in the room, as soon as it opens and in a section that folds away, and offers **no field to add anybody else by typing**. That is the client half of a rule the server makes: a person *adds* only somebody they already share a room with, because a lookup by address would confirm who has an account. See [`rooms.md`](rooms.md#acting-as-yourself).
+
+Anybody else is **invited by handle**, and that field is safe to have because a handle is not a lookup. Typing one makes an invitation and a link, and says nothing about whether the handle names an account anywhere. The link works only for the key the handle's identifier is the fingerprint of. The panel shows the link to send and warns when it names `localhost`, which nobody on another machine can follow. See [`peers.md`](peers.md).
+
+A link somebody was sent is pasted into **Join with a link** in the sidebar, which shows the room, the inviter and the installation it lives on before anything is accepted. Rooms on other installations are listed apart, under **Elsewhere**, with where they live. They are read through this installation on a timer, have no unread count, and offer no way to add or invite anybody, because that belongs to the room's home.
 
 When somebody cannot be added, the panel says one sentence. Convia gives one answer for a stranger, an identifier that names nobody, and somebody suspended, and wording them differently here would be inventing the distinction the server refused to make.
 

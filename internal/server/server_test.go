@@ -24,6 +24,7 @@ import (
 	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/peers"
 	"convia/internal/presence"
 	"convia/internal/rooms"
 	"convia/internal/secret"
@@ -308,6 +309,10 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
+
+		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
+		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
+		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
 	}
 }
 
@@ -343,13 +348,12 @@ func sampleAccount() accounts.Account {
 	created := time.Date(2026, time.September, 5, 14, 4, 56, 154_000_000, time.UTC)
 
 	return accounts.Account{
-		ID:          "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
-		Email:       "ana@example.com",
-		DisplayName: "Ana Ribeiro",
-		UserID:      sampleUser().ID,
-		Status:      accounts.StatusActive,
-		CreatedAt:   created,
-		UpdatedAt:   created,
+		ID:        "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Username:  "ana",
+		UserID:    sampleUser().ID,
+		Status:    accounts.StatusActive,
+		CreatedAt: created,
+		UpdatedAt: created,
 	}
 }
 
@@ -378,6 +382,11 @@ func (stub stubSessions) Begin(context.Context, string, accounts.Password) (sess
 	}
 	return sessions.Session{ID: samplePerson().SessionID, AccountID: stub.account.ID},
 		"cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5", nil
+}
+
+func (stub stubSessions) Register(ctx context.Context, username string,
+	password accounts.Password) (sessions.Session, string, error) {
+	return stub.Begin(ctx, username, password)
 }
 
 func (stub stubSessions) End(context.Context, string) error { return stub.err }

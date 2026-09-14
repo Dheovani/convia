@@ -17,27 +17,18 @@ import (
 )
 
 /*
-accountCommand administers the people who can sign in to Convia's own product.
+accountCommand lets whoever runs Convia stop somebody signing in, and let them
+back.
 
-It exists because there is no self-service sign-up, and there is no
-self-service sign-up because open registration needs email verification, which
-needs a mailer Convia does not have. Somebody with database access creates the
-account and hands over the password Convia generated.
-
-That is the same bootstrap `convia operator issue` answers, for the same
-reason and with the same property: the digest, the identifier format, and the
-validation are the code the service uses rather than a second implementation
-somebody has to keep in step.
+It no longer creates accounts. A person registers their own from the sign-in
+page, with a password nobody else ever sees — which is what lets that password
+seal the account's key. An operator creating the account would have to know the
+password, and the key would be theirs to open.
 */
 func accountCommand(ctx context.Context, logger *slog.Logger, cfg config.Config, arguments []string) error {
 	if len(arguments) == 0 {
 		fmt.Print(usage)
-		return errors.New("account requires one of create, list, suspend, or activate")
-	}
-
-	if cfg.FirstPartyApplication == "" {
-		return fmt.Errorf("set %s before administering accounts: an account belongs to the "+
-			"application that owns Convia's own product", "CONVIA_FIRST_PARTY_APPLICATION")
+		return errors.New("account requires one of suspend or activate")
 	}
 
 	pool, err := database.Open(ctx, cfg.Database, logger)
@@ -48,11 +39,9 @@ func accountCommand(ctx context.Context, logger *slog.Logger, cfg config.Config,
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	service := accounts.NewService(accounts.NewStore(pool), userService, cfg.FirstPartyApplication, logger)
+	service := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
 
 	switch arguments[0] {
-	case "create":
-		return createAccount(ctx, service, arguments[1:])
 	case "suspend":
 		return changeAccount(ctx, service, arguments[1:], accounts.StatusSuspended)
 	case "activate":
@@ -61,61 +50,6 @@ func accountCommand(ctx context.Context, logger *slog.Logger, cfg config.Config,
 		fmt.Print(usage)
 		return fmt.Errorf("unknown account command %q", arguments[0])
 	}
-}
-
-/*
-createAccount makes an account and prints its password once.
-
-The password goes to standard output rather than the structured log, for the
-reason the operator command already gives: the log is shipped, retained, and
-read by people who should not receive credentials, while standard output is
-what the person running the command is already looking at.
-
-It is **generated rather than chosen**, and the operator is never offered the
-choice. An operator picking passwords reuses one across the accounts they
-create, and a generated twenty-six-character secret makes online guessing a
-non-question rather than a limit to tune.
-*/
-func createAccount(ctx context.Context, service *accounts.Service, arguments []string) error {
-	if len(arguments) < 2 {
-		return errors.New(`account create requires an email and a display name, ` +
-			`for example: convia account create ana@example.com "Ana Ribeiro"`)
-	}
-
-	account, password, err := service.Create(ctx, accounts.Registration{
-		Email:       arguments[0],
-		DisplayName: arguments[1],
-	})
-	if err != nil {
-		return fmt.Errorf("create account: %w", err)
-	}
-
-	fmt.Printf("Created account %s for %s (%s)\n", account.ID, account.DisplayName, account.Email)
-	fmt.Printf("Convia user: %s\n\n", account.UserID)
-	/*
-		The one place in Convia that undoes [accounts.Password]'s redaction, and
-		it is deliberate.
-
-		A static analyser reads this as a credential written to output, which is
-		exactly what it is. Removing it does not make Convia safer: it makes
-		`account create` produce accounts whose password nobody has ever seen
-		and nothing can recover, because the digest is one-way and the flow such
-		a change assumes — an out-of-band reset — does not exist, and cannot
-		until Convia has a mailer. Every account created that way is unusable
-		forever.
-
-		This has now been removed twice by accepted autofixes. The second kept
-		the value bound and discarded it with `_ = password`, which satisfied
-		the letter of the test guarding it. TestCreatingAnAccountHandsOverThePassword
-		now asserts what actually matters — that the password reaches standard
-		output — rather than that the identifier is merely used.
-
-		The finding should be dismissed rather than fixed.
-	*/
-	fmt.Printf("%s\n\n", string(password))
-	fmt.Print("This password is shown once and is not stored. Convia cannot show it again.\n")
-	fmt.Print("Hand it over out of band, and have the person change it after signing in.\n")
-	return nil
 }
 
 // changeAccount suspends or restores somebody's ability to sign in.
@@ -138,8 +72,8 @@ func changeAccount(ctx context.Context, service *accounts.Service, arguments []s
 	}
 
 	writer := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintf(writer, "ACCOUNT\tEMAIL\tSTATUS\tUPDATED\n")
-	fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", account.ID, account.Email, account.Status,
+	fmt.Fprintf(writer, "ACCOUNT\tUSERNAME\tSTATUS\tUPDATED\n")
+	fmt.Fprintf(writer, "%s\t%s\t%s\t%s\n", account.ID, account.Username, account.Status,
 		account.UpdatedAt.Format(time.RFC3339))
 	if err := writer.Flush(); err != nil {
 		return fmt.Errorf("write the account: %w", err)

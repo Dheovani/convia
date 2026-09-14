@@ -132,7 +132,7 @@ Audit records deliberately omit the external subject and display name. They iden
 
 ## The Standalone Product
 
-Convia's own product is an application like any other ([`applications.md`](applications.md)), so its accounts map through exactly this model: the standalone product holds the account, and its user identifiers become external subjects of the first-party application.
+Convia's own product is an application like any other ([`applications.md`](applications.md)), so its accounts map through exactly this model: the standalone product holds the account, and the account identifier — the fingerprint of the account's key — becomes the external subject of a user in the first-party application, with the username as its display name. See [`sessions.md`](sessions.md).
 
 This keeps one code path for participation. When the standalone interface is built in M18, it authenticates its own users, resolves them here, and joins calls through the same endpoints an external integration uses.
 

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { api, ApiError } from '../api/client'
+import { ApiError, roomApi, sourceKey, type RoomSource } from '../api/client'
 import type { Message } from '../api/types'
 import { useEvents } from './events'
 
-// historyInterval is how often an open room is asked for what is new while the
-// event stream is not open. See useRooms.
+// historyInterval is how often an open room is asked for what is new while
+// nothing will say what changed. See useRooms.
 const historyInterval = 5_000
 
 // window is how much history is read at once. Fifty is roughly two screens on a
@@ -77,11 +77,15 @@ The room's history is requested newest-first, because that is the end a person
 is looking at, and reversed here: Convia paginates backwards from the present,
 and the screen reads forwards.
 
+**A room on another installation is always read on a timer.** This page's event
+stream is about rooms here: nothing announces what is said in a room elsewhere,
+so there is nothing to wait for, and asking is the only way to find out.
+
 `onRead` is called when Convia has accepted how far the person has read, which is
 when the sidebar's count for this room changed.
 */
 export function useConversation(
-  roomId: string | null,
+  source: RoomSource | null,
   onExpired: () => void,
   onRead: () => void = () => {},
 ): Conversation {
@@ -95,6 +99,22 @@ export function useConversation(
   expired.current = onExpired
   const read = useRef(onRead)
   read.current = onRead
+
+  const key = source === null ? null : sourceKey(source)
+  const remote = source?.kind === 'remote'
+  const told = live && !remote
+
+  /*
+  The API is rebuilt from the key rather than taken from the source object, so
+  that a parent drawing a fresh object for the same room does not restart every
+  effect below.
+  */
+  const room = useRef(source === null ? null : roomApi(source))
+  const current = useRef(key)
+  if (current.current !== key) {
+    current.current = key
+    room.current = source === null ? null : roomApi(source)
+  }
 
   /*
   The newest sequence seen, kept in a ref rather than in state.
@@ -118,11 +138,11 @@ export function useConversation(
     setMessages([])
     newest.current = 0
 
-    if (roomId === null) {
+    const conversation = room.current
+    if (key === null || conversation === null) {
       return
     }
 
-    const room = roomId
     const controller = new AbortController()
     let mounted = true
     /*
@@ -152,7 +172,7 @@ export function useConversation(
 
     async function recent() {
       try {
-        const page = await api.history(room, { limit: historyWindow, direction: 'older' }, controller.signal)
+        const page = await conversation!.history({ limit: historyWindow, direction: 'older' }, controller.signal)
         if (!mounted) {
           return
         }
@@ -174,8 +194,7 @@ export function useConversation(
       }
       try {
         for (let window = 0; window < catchUpWindows; window++) {
-          const page = await api.history(
-            room,
+          const page = await conversation!.history(
             { limit: historyWindow, direction: 'newer', cursor: String(newest.current) },
             controller.signal,
           )
@@ -183,6 +202,7 @@ export function useConversation(
             return
           }
           absorb(page.data)
+          setFailed(false)
           if (page.data.length < historyWindow) {
             return
           }
@@ -196,8 +216,7 @@ export function useConversation(
       try {
         // The cursor is exclusive, so the message itself is the first after
         // the one before it.
-        const page = await api.history(
-          room,
+        const page = await conversation!.history(
           { limit: 1, direction: 'newer', cursor: String(sequence - 1) },
           controller.signal,
         )
@@ -217,16 +236,16 @@ export function useConversation(
       controller.abort()
       reader.current = null
     }
-  }, [roomId, fail])
+  }, [key, fail])
 
-  // Asking on a timer, only while nothing will say what changed.
+  // Asking on a timer, whenever nothing will say what changed.
   useEffect(() => {
-    if (roomId === null || live) {
+    if (key === null || told) {
       return
     }
     const timer = window.setInterval(() => void reader.current?.since(), historyInterval)
     return () => window.clearInterval(timer)
-  }, [roomId, live])
+  }, [key, told])
 
   /*
   Catching up when the stream opens again.
@@ -235,25 +254,26 @@ export function useConversation(
   forwards for what is new, then the newest window again for what was edited or
   withdrawn in the meantime.
   */
-  const wasLive = useRef(live)
+  const wasTold = useRef(told)
   useEffect(() => {
-    if (live && !wasLive.current) {
+    if (told && !wasTold.current) {
       void reader.current?.since().then(() => reader.current?.recent())
     }
-    wasLive.current = live
-  }, [live])
+    wasTold.current = told
+  }, [told])
 
   /*
   Being told.
 
   An event names a message and its place and carries nothing that was said, so
   each one is a read of exactly what it names: what is new after a post, and the
-  one message after an edit or a withdrawal.
+  one message after an edit or a withdrawal. Only rooms here are announced.
   */
   useEffect(() => {
-    if (roomId === null) {
+    if (source === null || source.kind !== 'local') {
       return
     }
+    const roomId = source.id
     return listen((event) => {
       if (event.data?.['room_id'] !== roomId) {
         return
@@ -269,7 +289,9 @@ export function useConversation(
         }
       }
     })
-  }, [roomId, listen])
+    // The source object itself is not a dependency: its key is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, listen])
 
   /*
   Reading is reported once the newest message has been rendered, and only ever
@@ -277,7 +299,8 @@ export function useConversation(
   late request carrying an older position cannot un-read a room.
   */
   useEffect(() => {
-    if (roomId === null || messages.length === 0) {
+    const conversation = room.current
+    if (conversation === null || messages.length === 0) {
       return
     }
     const last = messages[messages.length - 1]
@@ -286,8 +309,8 @@ export function useConversation(
     }
 
     let active = true
-    void api
-      .markRead(roomId, last.sequence)
+    void conversation
+      .markRead(last.sequence)
       .then(() => {
         if (active) {
           read.current()
@@ -301,27 +324,36 @@ export function useConversation(
     return () => {
       active = false
     }
-  }, [roomId, messages, fail])
+  }, [key, messages, fail])
 
   const send = useCallback(
     async (body: string) => {
-      if (roomId === null) {
+      const conversation = room.current
+      if (conversation === null) {
         return
       }
-      const message = await api.post(roomId, body)
+      const message = await conversation.post(body)
       newest.current = Math.max(newest.current, message.sequence)
       setMessages((current) => merge(current, [message]))
     },
-    [roomId],
+    [],
   )
 
   const edit = useCallback(async (messageId: string, body: string) => {
-    const message = await api.edit(messageId, body)
+    const conversation = room.current
+    if (conversation === null) {
+      return
+    }
+    const message = await conversation.edit(messageId, body)
     setMessages((current) => merge(current, [message]))
   }, [])
 
   const withdraw = useCallback(async (messageId: string) => {
-    const message = await api.withdraw(messageId)
+    const conversation = room.current
+    if (conversation === null) {
+      return
+    }
+    const message = await conversation.withdraw(messageId)
     setMessages((current) => merge(current, [message]))
   }, [])
 

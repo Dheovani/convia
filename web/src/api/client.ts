@@ -1,11 +1,15 @@
 import type {
   Account,
   HistoryDirection,
+  InvitationLook,
+  JoinedRoom,
   Message,
   MessagePage,
   OwnRoom,
   PersonPage,
   ReadState,
+  RemoteRoomPage,
+  RoomInvitation,
   RoomMember,
   Sidebar,
 } from './types'
@@ -144,9 +148,76 @@ function query(parameters: Record<string, string | number | undefined>): string 
   return rendered === '' ? '' : `?${rendered}`
 }
 
+/*
+RoomSource says where a room's conversation is read from.
+
+A room here is read under `/me/rooms`; a room on another installation under
+`/me/remote-rooms`, which this installation relays to the room's home. The two
+answer with the same shapes, so everything that reads a conversation takes a
+source and never needs to know which it has.
+*/
+export type RoomSource = { kind: 'local'; id: string } | { kind: 'remote'; id: string }
+
+// sourceKey is a source as one string, for React keys and effect dependencies.
+export function sourceKey(source: RoomSource): string {
+  return `${source.kind}:${source.id}`
+}
+
+export interface RoomApi {
+  history: (
+    options: { limit?: number; cursor?: string; direction?: HistoryDirection },
+    signal?: AbortSignal,
+  ) => Promise<MessagePage>
+  post: (body: string) => Promise<Message>
+  edit: (messageId: string, body: string) => Promise<Message>
+  withdraw: (messageId: string) => Promise<Message>
+  markRead: (sequence: number) => Promise<ReadState>
+  members: (signal?: AbortSignal) => Promise<PersonPage>
+}
+
+// roomApi is how one room is read and written, wherever it lives.
+export function roomApi(source: RoomSource): RoomApi {
+  const id = encodeURIComponent(source.id)
+  const room = source.kind === 'local' ? `/me/rooms/${id}` : `/me/remote-rooms/${id}`
+  const message = (messageId: string) =>
+    source.kind === 'local'
+      ? `/me/messages/${encodeURIComponent(messageId)}`
+      : `${room}/messages/${encodeURIComponent(messageId)}`
+
+  return {
+    history(options, signal) {
+      const path =
+        `${room}/messages` +
+        query({ limit: options.limit, cursor: options.cursor, direction: options.direction })
+      return call<MessagePage>(path, signal ? { signal } : {})
+    },
+    post(body) {
+      return call<Message>(`${room}/messages`, { method: 'POST', body: { body } })
+    },
+    edit(messageId, body) {
+      return call<Message>(message(messageId), { method: 'PATCH', body: { body } })
+    },
+    withdraw(messageId) {
+      return call<Message>(`${message(messageId)}/delete`, { method: 'POST' })
+    },
+    markRead(sequence) {
+      return call<ReadState>(`${room}/read_state`, { method: 'PUT', body: { sequence } })
+    },
+    members(signal) {
+      const path = `${room}/members` + query({ limit: pageLimit })
+      return call<PersonPage>(path, signal ? { signal } : {})
+    },
+  }
+}
+
 export const api = {
-  signIn(email: string, password: string): Promise<Account> {
-    return call<Account>('/sessions', { method: 'POST', body: { email, password } })
+  signIn(username: string, password: string): Promise<Account> {
+    return call<Account>('/sessions', { method: 'POST', body: { username, password } })
+  },
+
+  // register creates an account and signs its owner in, in one request.
+  register(username: string, password: string): Promise<Account> {
+    return call<Account>('/accounts', { method: 'POST', body: { username, password } })
   },
 
   signOut(): Promise<void> {
@@ -161,53 +232,10 @@ export const api = {
     return call<Sidebar>('/me/rooms', signal ? { signal } : {})
   },
 
-  history(
-    roomId: string,
-    options: { limit?: number; cursor?: string; direction?: HistoryDirection } = {},
-    signal?: AbortSignal,
-  ): Promise<MessagePage> {
-    const path =
-      `/me/rooms/${encodeURIComponent(roomId)}/messages` +
-      query({ limit: options.limit, cursor: options.cursor, direction: options.direction })
-    return call<MessagePage>(path, signal ? { signal } : {})
-  },
-
-  post(roomId: string, body: string): Promise<Message> {
-    return call<Message>(`/me/rooms/${encodeURIComponent(roomId)}/messages`, {
-      method: 'POST',
-      body: { body },
-    })
-  },
-
-  edit(messageId: string, body: string): Promise<Message> {
-    return call<Message>(`/me/messages/${encodeURIComponent(messageId)}`, {
-      method: 'PATCH',
-      body: { body },
-    })
-  },
-
-  withdraw(messageId: string): Promise<Message> {
-    return call<Message>(`/me/messages/${encodeURIComponent(messageId)}/delete`, {
-      method: 'POST',
-    })
-  },
-
-  markRead(roomId: string, sequence: number): Promise<ReadState> {
-    return call<ReadState>(`/me/rooms/${encodeURIComponent(roomId)}/read_state`, {
-      method: 'PUT',
-      body: { sequence },
-    })
-  },
-
   // createRoom opens a room with this person in it. It sends a name and nothing
   // else, because nothing else is a person's to decide.
   createRoom(name: string): Promise<OwnRoom> {
     return call<OwnRoom>('/me/rooms', { method: 'POST', body: { name } })
-  },
-
-  members(roomId: string, signal?: AbortSignal): Promise<PersonPage> {
-    const path = `/me/rooms/${encodeURIComponent(roomId)}/members` + query({ limit: pageLimit })
-    return call<PersonPage>(path, signal ? { signal } : {})
   },
 
   addMember(roomId: string, userId: string): Promise<RoomMember> {
@@ -225,5 +253,33 @@ export const api = {
   // already share one with, and nobody else.
   people(signal?: AbortSignal): Promise<PersonPage> {
     return call<PersonPage>('/me/people' + query({ limit: pageLimit }), signal ? { signal } : {})
+  },
+
+  // invite makes an invitation into a room here for a handle, on any installation.
+  invite(roomId: string, handle: string): Promise<RoomInvitation> {
+    return call<RoomInvitation>(`/me/rooms/${encodeURIComponent(roomId)}/invitations`, {
+      method: 'POST',
+      body: { handle },
+    })
+  },
+
+  // look asks the home of an invitation link what it is for.
+  look(link: string): Promise<InvitationLook> {
+    return call<InvitationLook>('/me/invitation-previews', { method: 'POST', body: { link } })
+  },
+
+  // join accepts an invitation link.
+  join(link: string): Promise<JoinedRoom> {
+    return call<JoinedRoom>('/me/remote-rooms', { method: 'POST', body: { link } })
+  },
+
+  remoteRooms(signal?: AbortSignal): Promise<RemoteRoomPage> {
+    return call<RemoteRoomPage>('/me/remote-rooms', signal ? { signal } : {})
+  },
+
+  leaveRemote(remoteRoomId: string): Promise<void> {
+    return call<void>(`/me/remote-rooms/${encodeURIComponent(remoteRoomId)}/leave`, {
+      method: 'POST',
+    })
   },
 }

@@ -59,18 +59,37 @@ func inUTC(moment *time.Time) *time.Time {
 	return &normalized
 }
 
-// Create stores a new session.
-func (store *Store) Create(ctx context.Context, session Session, digest []byte) error {
+// Create stores a new session, with the account's key wrapped for it.
+func (store *Store) Create(ctx context.Context, session Session, digest, wrappedIdentity []byte) error {
 	const statement = `
-		INSERT INTO sessions (id, account_id, secret_hash, created_at, last_seen_at, absolute_expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6)`
+		INSERT INTO sessions (id, account_id, secret_hash, wrapped_identity, created_at, last_seen_at,
+		                      absolute_expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
-	_, err := store.pool.Exec(ctx, statement, session.ID, session.AccountID, digest,
+	_, err := store.pool.Exec(ctx, statement, session.ID, session.AccountID, digest, wrappedIdentity,
 		session.CreatedAt, session.LastSeenAt, session.AbsoluteExpiresAt)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)
 	}
 	return nil
+}
+
+/*
+WrappedIdentity reads the key a session holds, still wrapped.
+
+It is a statement of its own, like the digest's, so that nothing that lists or
+touches sessions ever carries one.
+*/
+func (store *Store) WrappedIdentity(ctx context.Context, id string) ([]byte, error) {
+	var wrapped []byte
+	err := store.pool.QueryRow(ctx, `SELECT wrapped_identity FROM sessions WHERE id = $1`, id).Scan(&wrapped)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, ErrNotFound
+	case err != nil:
+		return nil, fmt.Errorf("read session key: %w", err)
+	}
+	return wrapped, nil
 }
 
 /*

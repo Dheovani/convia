@@ -43,6 +43,30 @@ func (store *Store) Create(ctx context.Context, application Application) error {
 }
 
 /*
+CreateIfAbsent stores an application unless one with its identifier exists, and
+reports whether it did.
+
+An existing row is left exactly as it is, whatever its state. Two instances
+starting at once both ask, and the database decides which of them wrote it.
+*/
+func (store *Store) CreateIfAbsent(ctx context.Context, application Application) (bool, error) {
+	const statement = `INSERT INTO applications (` + columns + `) VALUES ($1, $2, $3, $4, $5)
+	                   ON CONFLICT (id) DO NOTHING`
+
+	tag, err := store.pool.Exec(ctx, statement,
+		application.ID,
+		application.Name,
+		application.Status,
+		application.CreatedAt,
+		application.UpdatedAt,
+	)
+	if err != nil {
+		return false, fmt.Errorf("insert application: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+/*
 Get returns one application by identifier.
 
 A deleted application is reported as ErrNotFound: deletion removes a tenant

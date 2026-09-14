@@ -314,6 +314,17 @@ func (service *Service) Get(ctx context.Context, applicationID, id string) (User
 	return service.store.Get(ctx, applicationID, id)
 }
 
+/*
+BySubject returns the user an external subject already maps to, and creates
+nothing. A deleted user, or a subject nobody has, is [ErrNotFound].
+*/
+func (service *Service) BySubject(ctx context.Context, applicationID, subject string) (User, error) {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return User{}, err
+	}
+	return service.store.BySubject(ctx, applicationID, subject)
+}
+
 // Many returns several of an application's users, keyed by identifier. A user
 // that does not exist, is deleted, or belongs elsewhere is absent.
 func (service *Service) Many(ctx context.Context, applicationID string, ids []string) (map[string]User, error) {

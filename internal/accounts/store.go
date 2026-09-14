@@ -15,18 +15,18 @@ import (
 // index. See https://www.postgresql.org/docs/current/errcodes-appendix.html.
 const uniqueViolation = "23505"
 
-// emailUniqueIndex is the index that keeps one address identifying one account.
-const emailUniqueIndex = "accounts_email_idx"
+// usernameUniqueIndex is the index that keeps one username naming one account.
+const usernameUniqueIndex = "accounts_username_idx"
 
 /*
 columns is the projection every read shares.
 
-The password digest is deliberately absent. One statement reads it, by email,
-for the single purpose of verifying a sign-in, and it never travels inside an
-[Account] — so a digest cannot reach a response by somebody forgetting to
-exclude a field.
+The password digest and the sealed key are deliberately absent. One statement
+reads them, by username, for the single purpose of verifying a password or
+opening a key, and they never travel inside an [Account] — so neither can reach
+a response by somebody forgetting to exclude a field.
 */
-const columns = "id, email, display_name, user_id, status, created_at, updated_at"
+const columns = "id, username, public_key, user_id, status, created_at, updated_at"
 
 // Store persists accounts in PostgreSQL.
 type Store struct {
@@ -39,45 +39,46 @@ func NewStore(pool *pgxpool.Pool) *Store {
 
 // row mirrors the projection above.
 type row struct {
-	ID          string
-	Email       string
-	DisplayName string
-	UserID      string
-	Status      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID        string
+	Username  string
+	PublicKey []byte
+	UserID    string
+	Status    string
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func (record row) account() Account {
 	return Account{
-		ID:          record.ID,
-		Email:       record.Email,
-		DisplayName: record.DisplayName,
-		UserID:      record.UserID,
-		Status:      Status(record.Status),
-		CreatedAt:   record.CreatedAt.UTC(),
-		UpdatedAt:   record.UpdatedAt.UTC(),
+		ID:        record.ID,
+		Username:  record.Username,
+		PublicKey: record.PublicKey,
+		UserID:    record.UserID,
+		Status:    Status(record.Status),
+		CreatedAt: record.CreatedAt.UTC(),
+		UpdatedAt: record.UpdatedAt.UTC(),
 	}
 }
 
 /*
 Create stores a new account.
 
-A duplicate email is reported as [ErrEmailTaken] rather than as a driver error,
-because it is an ordinary outcome of a request rather than a fault: the address
-is the identity, and the caller needs to tell it apart from a failure.
+A duplicate username is reported as [ErrUsernameTaken] rather than as a driver
+error, because it is an ordinary outcome of somebody registering rather than a
+fault.
 */
-func (store *Store) Create(ctx context.Context, account Account, digest Digest) error {
+func (store *Store) Create(ctx context.Context, account Account, digest Digest, sealed SealedKey) error {
 	const statement = `
-		INSERT INTO accounts (id, email, password_digest, display_name, user_id, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+		INSERT INTO accounts (id, username, password_digest, public_key, sealed_private_key,
+		                      user_id, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
 	_, err := store.pool.Exec(ctx, statement,
-		account.ID, account.Email, string(digest), account.DisplayName,
+		account.ID, account.Username, string(digest), []byte(account.PublicKey), string(sealed),
 		account.UserID, string(account.Status), account.CreatedAt, account.UpdatedAt)
 	switch {
-	case isEmailTaken(err):
-		return ErrEmailTaken
+	case isUsernameTaken(err):
+		return ErrUsernameTaken
 	case err != nil:
 		return fmt.Errorf("insert account: %w", err)
 	}
@@ -85,42 +86,52 @@ func (store *Store) Create(ctx context.Context, account Account, digest Digest) 
 }
 
 /*
-Credentials reads what signing in needs: the account, and the digest to compare
-against.
+UsernameTaken reports whether a username already names an account.
 
-It is the one statement that reads a digest, and it is separate from [Get] so
-that every other read in Convia is structurally incapable of returning one. It
-answers for an account in any lifecycle state — deciding what a suspended one
+Registering asks this before doing any of its expensive work, so that a name
+somebody already holds costs a lookup rather than two argon2id derivations and
+a user row nobody will use. The unique index is still what decides a race.
+*/
+func (store *Store) UsernameTaken(ctx context.Context, username string) (bool, error) {
+	const statement = `SELECT EXISTS (SELECT 1 FROM accounts WHERE username = $1)`
+
+	var taken bool
+	if err := store.pool.QueryRow(ctx, statement, username).Scan(&taken); err != nil {
+		return false, fmt.Errorf("check username: %w", err)
+	}
+	return taken, nil
+}
+
+/*
+Credentials reads what signing in and changing a password need: the account, the
+digest to compare against, and the sealed key.
+
+It is the one statement that reads either secret, and it is separate from [Get]
+so that every other read in Convia is structurally incapable of returning one.
+It answers for an account in any lifecycle state — deciding what a suspended one
 means is the service's job, and doing it here would let the store leak the
 difference through which rows it returns.
 */
-func (store *Store) Credentials(ctx context.Context, email string) (Account, Digest, error) {
-	const statement = `SELECT ` + columns + `, password_digest FROM accounts WHERE email = $1`
+func (store *Store) Credentials(ctx context.Context, username string) (Account, Digest, SealedKey, error) {
+	const statement = `SELECT ` + columns + `, password_digest, sealed_private_key
+	                   FROM accounts WHERE username = $1`
 
-	rows, err := store.pool.Query(ctx, statement, email)
-	if err != nil {
-		return Account{}, "", fmt.Errorf("query account: %w", err)
-	}
-
-	found, err := pgx.CollectExactlyOneRow(rows, func(scanned pgx.CollectableRow) (struct {
-		row
-		Digest string
-	}, error) {
-		var record struct {
-			row
-			Digest string
-		}
-		return record, scanned.Scan(&record.ID, &record.Email, &record.DisplayName, &record.UserID,
-			&record.Status, &record.CreatedAt, &record.UpdatedAt, &record.Digest)
-	})
+	var (
+		record row
+		digest string
+		sealed string
+	)
+	err := store.pool.QueryRow(ctx, statement, username).Scan(&record.ID, &record.Username,
+		&record.PublicKey, &record.UserID, &record.Status, &record.CreatedAt, &record.UpdatedAt,
+		&digest, &sealed)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
-		return Account{}, "", ErrNotFound
+		return Account{}, "", "", ErrNotFound
 	case err != nil:
-		return Account{}, "", fmt.Errorf("read account: %w", err)
+		return Account{}, "", "", fmt.Errorf("read account: %w", err)
 	}
 
-	return found.row.account(), Digest(found.Digest), nil
+	return record.account(), Digest(digest), SealedKey(sealed), nil
 }
 
 // Get returns one account by identifier, whatever its lifecycle state.
@@ -143,20 +154,22 @@ func (store *Store) Get(ctx context.Context, id string) (Account, error) {
 }
 
 /*
-SetPassword replaces the stored digest.
+SetSecrets replaces the stored digest and the sealed key together.
 
-It takes the moment as an argument rather than reading a clock, so that the
-change and everything that happens because of it — revoking the other sessions,
-rotating this one — share one timestamp and cannot be interleaved into an order
-that did not happen.
+Together, because they are derived from one password: a digest from the new one
+beside a key sealed by the old would sign somebody in and then fail to open
+their own key. It takes the moment as an argument rather than reading a clock,
+so that the change and what happens because of it — revoking the other sessions,
+rotating this one — share one timestamp.
 */
-func (store *Store) SetPassword(ctx context.Context, id string, digest Digest, at time.Time) error {
-	const statement = `UPDATE accounts SET password_digest = $2, updated_at = $3 WHERE id = $1`
+func (store *Store) SetSecrets(ctx context.Context, id string, digest Digest, sealed SealedKey, at time.Time) error {
+	const statement = `UPDATE accounts SET password_digest = $2, sealed_private_key = $3, updated_at = $4
+	                   WHERE id = $1`
 
-	tag, err := store.pool.Exec(ctx, statement, id, string(digest), at)
+	tag, err := store.pool.Exec(ctx, statement, id, string(digest), string(sealed), at)
 	switch {
 	case err != nil:
-		return fmt.Errorf("update password: %w", err)
+		return fmt.Errorf("update secrets: %w", err)
 	case tag.RowsAffected() == 0:
 		return ErrNotFound
 	}
@@ -182,28 +195,17 @@ func (store *Store) SetStatus(ctx context.Context, id string, status Status, at 
 	return record.account(), nil
 }
 
-// CountActive reports how many accounts can sign in, for the startup advisory.
-func (store *Store) CountActive(ctx context.Context) (int, error) {
-	const statement = `SELECT count(*) FROM accounts WHERE status = $1`
-
-	var total int
-	if err := store.pool.QueryRow(ctx, statement, string(StatusActive)).Scan(&total); err != nil {
-		return 0, fmt.Errorf("count accounts: %w", err)
-	}
-	return total, nil
-}
-
 /*
-isEmailTaken reports the one unique index this table has.
+isUsernameTaken reports the unique index on usernames.
 
 Both the SQLSTATE and the index name are checked, the way internal/rooms
-already does it, so that a different unique violation added later is not
-silently reported as a taken address. The SQLSTATE is matched rather than the
-message, which PostgreSQL localizes.
+already does it, so that a different unique violation — the primary key, which
+two keys with one fingerprint would hit — is not reported as a taken name. The
+SQLSTATE is matched rather than the message, which PostgreSQL localizes.
 */
-func isEmailTaken(err error) bool {
+func isUsernameTaken(err error) bool {
 	var pgError *pgconn.PgError
 	return errors.As(err, &pgError) &&
 		pgError.Code == uniqueViolation &&
-		pgError.ConstraintName == emailUniqueIndex
+		pgError.ConstraintName == usernameUniqueIndex
 }

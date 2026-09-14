@@ -6,6 +6,30 @@ standalone product of its own. Everything built until now served the first. An
 account is the first thing that serves the second — a person, with a password
 they chose, who opens a browser.
 
+# An account belongs to its installation and to the person who made it
+
+Somebody who installs Convia creates their own account from the sign-in page,
+with a username and a password, and nothing else: no email, no operator, no
+mailer. An installation holds as many accounts as people create on it, the way a
+password manager's file holds as many entries as somebody adds.
+
+The password does two jobs. It signs somebody in, verified against an argon2id
+digest, and it **seals the account's private key**, which is stored only in a
+form the password opens. Nobody who can read the database, including whoever
+runs the machine, can use that key without the password. The consequence is the
+same one a password manager has, and it is stated rather than softened: there
+is no password reset, because nothing can reopen the key without the password.
+
+# The identifier is a key's fingerprint
+
+An account's identifier is not drawn at random. It is the fingerprint of the
+account's Ed25519 public key, so it names exactly one key, and whoever claims it
+can be asked to prove they hold the matching private key. That matters once
+people on different installations invite each other: an installation controls
+its own database and could write any identifier and username it liked into it,
+so an identifier that proved nothing would be copied rather than guessed. See
+[IDFor] and [Handle].
+
 # An account is not a user
 
 `internal/users` models one application's view of one of its people, and holds
@@ -18,54 +42,43 @@ application, which is Convia's own product. Each account names the user row that
 represents it there, so rooms, calls, participants, and presence keep working
 through the domains that already exist rather than growing a second path for
 people who signed in rather than being asserted.
-
-# Accounts are created by an operator
-
-There is no self-service sign-up, and its absence is a decision rather than an
-omission. Open registration needs email verification, email verification needs
-a mailer, and Convia has no mailer — `AGENTS.md` says not to add infrastructure
-before a feature requires it. Signing in works without one; registering safely
-does not.
-
-The consequence is stated plainly in docs/sessions.md: somebody with operator
-authority creates the account and hands over a password Convia generated once.
 */
 package accounts
 
 import (
-	"crypto/rand"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
-	"net/mail"
 	"slices"
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 )
 
 const (
 	// idPrefix marks a public identifier as an account identifier.
 	idPrefix = "acc_"
 
-	// idRandomLength is the number of random characters crypto/rand.Text emits.
-	idRandomLength = 26
+	// idFingerprintLength is the number of base32 characters after the prefix.
+	idFingerprintLength = 26
 
-	maxEmailLength       = 320
-	maxDisplayNameLength = 120
+	minUsernameLength = 3
+	maxUsernameLength = 32
 )
 
 // ErrNotFound reports that no account matches the request.
 var ErrNotFound = errors.New("account not found")
 
 /*
-ErrEmailTaken reports an address that already identifies an account.
+ErrUsernameTaken reports a username that already names an account on this
+installation.
 
 It stays taken whatever the account's lifecycle state, including deleted, so
-that erasing somebody does not hand their address to the next person who asks
-for it — and so that a message sent to an old address cannot reach a new owner.
+that erasing somebody does not hand their name to the next person who asks for
+it — and so that an invitation addressed to an old name cannot reach a new
+owner.
 */
-var ErrEmailTaken = errors.New("the email already identifies an account")
+var ErrUsernameTaken = errors.New("the username already names an account")
 
 /*
 ErrNotActive reports an account Convia is not serving.
@@ -105,19 +118,21 @@ func (status Status) Known() bool { return slices.Contains(Statuses(), status) }
 /*
 Account is a person who can sign in to Convia's own product.
 
-The password digest is not here. It never leaves the store except to be
-compared, and keeping it off the struct that handlers and services pass around
-is what makes it impossible to render one into a response by forgetting a field.
+The password digest and the sealed private key are not here. They never leave
+the store except to be compared or opened, and keeping them off the struct that
+handlers and services pass around is what makes it impossible to render one
+into a response by forgetting a field.
 */
 type Account struct {
-	ID    string
-	Email string
+	// ID is the fingerprint of PublicKey. See [IDFor].
+	ID string
 
-	/*
-		DisplayName is what an interface shows. It is the person's own, unlike
-		a user's display name, which the application asserts on their behalf.
-	*/
-	DisplayName string
+	// Username is what the person chose to be called, unique on this
+	// installation and fixed once chosen.
+	Username string
+
+	// PublicKey is the half of the account's identity anybody may hold.
+	PublicKey ed25519.PublicKey
 
 	/*
 		UserID is the row in the first-party application that represents this
@@ -134,6 +149,9 @@ type Account struct {
 // Active reports whether Convia will sign this person in.
 func (account Account) Active() bool { return account.Status == StatusActive }
 
+// Handle returns how this person is named to somebody else. See [Handle].
+func (account Account) Handle() string { return Handle(account.Username, account.ID) }
+
 /*
 ValidationError reports a value that violates a domain rule.
 
@@ -149,21 +167,20 @@ func (err ValidationError) Error() string {
 	return fmt.Sprintf("%s: %s", err.Field, err.Message)
 }
 
-// NewID generates an opaque public identifier for an account.
-func NewID() string {
-	return idPrefix + rand.Text()
-}
-
 // ValidID reports whether an identifier has Convia's account identifier shape.
 func ValidID(id string) bool {
-	random, found := strings.CutPrefix(id, idPrefix)
-	if !found || len(random) != idRandomLength {
+	fingerprint, found := strings.CutPrefix(id, idPrefix)
+	return found && validFingerprint(fingerprint)
+}
+
+// validFingerprint reports whether a value is an identifier without its prefix.
+func validFingerprint(fingerprint string) bool {
+	if len(fingerprint) != idFingerprintLength {
 		return false
 	}
 
-	for _, character := range random {
-		isBase32 := (character >= 'A' && character <= 'Z') || (character >= '2' && character <= '7')
-		if !isBase32 {
+	for _, character := range fingerprint {
+		if !strings.ContainsRune(base32Alphabet, character) {
 			return false
 		}
 	}
@@ -171,66 +188,51 @@ func ValidID(id string) bool {
 }
 
 /*
-NormalizeEmail checks an address and reduces it to the one form Convia stores.
+NormalizeUsername checks a username and reduces it to the one form Convia stores.
 
-Lowercased, because a person who signed up as Ana@example.com and types
-ana@example.com later is the same person, and treating them as two accounts
-would be a support ticket rather than a security property.
+Lowercased, because somebody who registered as Ana and types ana later is the
+same person, and a handle read aloud does not carry case.
 
-Nothing more clever than that. The local part of an address is, by the standard,
-case-sensitive and the provider's business — stripping dots or plus-tags because
-one popular provider ignores them would silently merge addresses that somebody
-else considers distinct.
+**ASCII letters, digits, dots, dashes and underscores, and nothing else.** A
+wider alphabet is friendlier and would undo the point of a handle: Cyrillic "а"
+and Latin "a" render identically, so two people could hold names nobody can tell
+apart by looking, and an invitation meant for one would be sent to the other by
+somebody who checked carefully. The first character is a letter or a digit, so a
+name cannot begin with punctuation that disappears at the edge of a sentence.
 */
-func NormalizeEmail(email string) (string, error) {
-	trimmed := strings.TrimSpace(email)
-
-	switch {
-	case trimmed == "":
-		return "", ValidationError{Field: "email", Message: "The email must be stated."}
-	case utf8.RuneCountInString(trimmed) > maxEmailLength:
-		return "", ValidationError{
-			Field:   "email",
-			Message: fmt.Sprintf("The email must not exceed %d characters.", maxEmailLength),
-		}
-	}
-
-	address, err := mail.ParseAddress(trimmed)
-	if err != nil || address.Name != "" || !strings.Contains(address.Address, "@") {
-		return "", ValidationError{
-			Field:   "email",
-			Message: "The email must be a single address, without a display name.",
-		}
-	}
-
-	return strings.ToLower(address.Address), nil
-}
-
-/*
-NormalizeDisplayName checks the name an interface will show.
-
-It is required, unlike a user's, because there is no application standing behind
-an account to supply one later: this person is going to appear in somebody's
-roster, and an empty name there is a blank space nobody can act on.
-*/
-func NormalizeDisplayName(name string) (string, error) {
-	normalized := strings.TrimSpace(name)
+func NormalizeUsername(username string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(username))
 
 	switch {
 	case normalized == "":
-		return "", ValidationError{Field: "display_name", Message: "The display name must be stated."}
-	case utf8.RuneCountInString(normalized) > maxDisplayNameLength:
+		return "", ValidationError{Field: "username", Message: "The username must be stated."}
+	case len(normalized) < minUsernameLength || len(normalized) > maxUsernameLength:
 		return "", ValidationError{
-			Field:   "display_name",
-			Message: fmt.Sprintf("The display name must not exceed %d characters.", maxDisplayNameLength),
+			Field: "username",
+			Message: fmt.Sprintf("The username must be between %d and %d characters.",
+				minUsernameLength, maxUsernameLength),
 		}
-	case containsControl(normalized):
+	case !usernameStart(rune(normalized[0])):
 		return "", ValidationError{
-			Field:   "display_name",
-			Message: "The display name must not contain control characters.",
+			Field:   "username",
+			Message: "The username must begin with a letter or a digit.",
+		}
+	}
+
+	for _, character := range normalized {
+		if !usernameStart(character) && !strings.ContainsRune("._-", character) {
+			return "", ValidationError{
+				Field:   "username",
+				Message: "The username may contain only letters, digits, dots, dashes and underscores.",
+			}
 		}
 	}
 	return normalized, nil
+}
+
+// usernameStart reports whether a character may begin a username.
+func usernameStart(character rune) bool {
+	return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9')
 }
 
 /*

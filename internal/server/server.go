@@ -18,6 +18,7 @@ import (
 	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/peers"
 	"convia/internal/presence"
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
@@ -77,6 +78,18 @@ const (
 	*/
 	signInFailureBurst  = 10
 	signInFailurePeriod = time.Minute
+
+	/*
+		registrationBurst and registrationPeriod ration registering, per
+		address, successes included.
+
+		Twenty an hour. Enough for a household or an office behind one address
+		to create their accounts in one sitting, trying a few names that turn
+		out to be taken; far too few to fill an installation with accounts, or
+		to walk a list of names to learn which exist.
+	*/
+	registrationBurst  = 20
+	registrationPeriod = time.Hour
 )
 
 /*
@@ -190,6 +203,20 @@ type Dependencies struct {
 	Sessions             *sessions.Handler
 
 	/*
+		Rooms shared between installations.
+
+		PeerAuthenticator verifies requests signed by a person's key on another
+		installation; Peers serves the invitation routes those installations
+		call; RoomInvitations serves what a signed-in person here does with
+		rooms that cross installations. The routes a visitor uses inside a room
+		are the session surface's own handlers, reached with a signature instead
+		of a cookie. Leaving the authenticator out removes all of it.
+	*/
+	PeerAuthenticator peerAuthenticator
+	Peers             *peers.PeerHandler
+	RoomInvitations   *peers.SessionHandler
+
+	/*
 		IdempotencyKeys lets a caller retry a creation without risking a second
 		resource. Leaving it out does not remove the routes it guards, because
 		the header is optional and every request that omits it is served
@@ -257,6 +284,7 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		every other caller behind the same address.
 	*/
 	signingIn := ratelimit.New(signInFailureBurst, signInFailurePeriod, authFailureKeys)
+	registering := ratelimit.New(registrationBurst, registrationPeriod, authFailureKeys)
 
 	resolve := newResolver(dependencies.TrustedProxies)
 
@@ -295,6 +323,14 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			// Served as it is. Operational endpoints only.
 		case surfaceSignIn:
 			served = budgeted(logger, signingIn, resolve, sameOrigin(logger, served))
+		case surfaceRegistration:
+			// The origin is checked first, so another page cannot spend the
+			// allowance of the person whose browser it is running in.
+			served = sameOrigin(logger, rationed(logger, registering, resolve, served))
+		case surfacePeer:
+			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
+		case surfaceVisitor:
+			served = signed(logger, dependencies.PeerAuthenticator, true, failures, resolve, served)
 		case surfaceTenant:
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
 				failures, resolve, served)
@@ -366,6 +402,36 @@ const (
 		handler.
 	*/
 	surfaceSignIn
+	/*
+		surfaceRegistration is how somebody creates their account, and it too
+		authenticates nobody.
+
+		It is not surfaceSignIn, because the two are limited in opposite ways.
+		Signing in is budgeted by its failures, since success is what a person
+		is there for. Registering is rationed by every use, since success is the
+		thing to limit: an installation that accepts unlimited accounts from one
+		address is one anybody can fill.
+	*/
+	surfaceRegistration
+	/*
+		surfacePeer is another installation, acting for one person, before that
+		person is anybody here.
+
+		It is authenticated by a signature with the person's key rather than by
+		anything this installation issued, and it reaches only the invitation
+		routes: previewing one and accepting it.
+	*/
+	surfacePeer
+	/*
+		surfaceVisitor is another installation acting for somebody who is already
+		a member of a room here.
+
+		The signature is verified as on surfacePeer, and then the signer must
+		already be a user here — made when they accepted an invitation, never by
+		a request that merely arrives. What they may do is what a signed-in
+		person may, through the same handlers, decided per room by membership.
+	*/
+	surfaceVisitor
 )
 
 /*
@@ -402,7 +468,7 @@ surface added later has to be classified deliberately.
 */
 func (entry route) authenticated() bool {
 	switch entry.surface {
-	case surfaceTenant, surfaceOperator, surfaceInvitation, surfaceSession:
+	case surfaceTenant, surfaceOperator, surfaceInvitation, surfaceSession, surfacePeer, surfaceVisitor:
 		return true
 	default:
 		return false
@@ -737,6 +803,8 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			top-level GET navigation, and a test asserts it.
 		*/
 		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/accounts", surface: surfaceRegistration,
+				handler: http.HandlerFunc(dependencies.Sessions.Register)},
 			route{method: http.MethodPost, path: api.Prefix + "/sessions", surface: surfaceSignIn,
 				handler: http.HandlerFunc(dependencies.Sessions.SignIn)},
 			route{method: http.MethodDelete, path: api.Prefix + "/sessions/current", surface: surfaceSession,
@@ -822,6 +890,89 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodGet, path: api.Prefix + "/me/events", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.PersonalEvents.Stream)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.RoomInvitations != nil {
+		/*
+			A person here, with rooms that cross installations.
+
+			Inviting somebody into a room here and revoking it; looking at and
+			accepting a link to a room elsewhere; and using a room elsewhere,
+			relayed to its home signed with this person's key. The remote routes
+			mirror the local ones under /me/remote-rooms, so the page uses one
+			vocabulary for both.
+		*/
+		remote := api.Prefix + "/me/remote-rooms/{remote_room_id}"
+		invitations := dependencies.RoomInvitations
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/me/rooms/{room_id}/invitations", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Invite)},
+			route{method: http.MethodDelete, path: api.Prefix + "/me/room-invitations/{invitation_id}",
+				surface: surfaceSession, handler: http.HandlerFunc(invitations.Revoke)},
+			route{method: http.MethodPost, path: api.Prefix + "/me/invitation-previews", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Look)},
+			route{method: http.MethodPost, path: api.Prefix + "/me/remote-rooms", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Join)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/remote-rooms", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.RemoteRooms)},
+			route{method: http.MethodGet, path: remote + "/messages", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.History)},
+			route{method: http.MethodPost, path: remote + "/messages", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Post)},
+			route{method: http.MethodPatch, path: remote + "/messages/{message_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Edit)},
+			route{method: http.MethodPost, path: remote + "/messages/{message_id}/delete", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Withdraw)},
+			route{method: http.MethodGet, path: remote + "/read_state", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.ReadState)},
+			route{method: http.MethodPut, path: remote + "/read_state", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.MarkRead)},
+			route{method: http.MethodGet, path: remote + "/members", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Members)},
+			route{method: http.MethodPost, path: remote + "/leave", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Leave)},
+		)
+	}
+
+	if dependencies.PeerAuthenticator != nil && dependencies.Peers != nil {
+		// Another installation, previewing and accepting an invitation for one person.
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/peer/invitations/{invitation_id}", surface: surfacePeer,
+				handler: http.HandlerFunc(dependencies.Peers.Invitation)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/invitations/{invitation_id}/accept",
+				surface: surfacePeer, handler: http.HandlerFunc(dependencies.Peers.Accept)},
+		)
+	}
+
+	if dependencies.PeerAuthenticator != nil && dependencies.PersonalMessages != nil && dependencies.PersonalRooms != nil {
+		/*
+			A member of a room here who signs in somewhere else.
+
+			The handlers are the session surface's own. They read the person from
+			the context and never from the request, and the visitor surface puts
+			exactly that person there — so reaching a room somebody is not in
+			answers 404 here as it does for anybody.
+		*/
+		messagesHandler := dependencies.PersonalMessages
+		roomsHandler := dependencies.PersonalRooms
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/messages", surface: surfaceVisitor,
+				handler: http.HandlerFunc(messagesHandler.History)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/messages", surface: surfaceVisitor,
+				handler: http.HandlerFunc(messagesHandler.Post)},
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/read_state", surface: surfaceVisitor,
+				handler: http.HandlerFunc(messagesHandler.ReadState)},
+			route{method: http.MethodPut, path: api.Prefix + "/peer/rooms/{room_id}/read_state", surface: surfaceVisitor,
+				handler: http.HandlerFunc(messagesHandler.MarkRead)},
+			route{method: http.MethodPatch, path: api.Prefix + "/peer/messages/{message_id}", surface: surfaceVisitor,
+				handler: http.HandlerFunc(messagesHandler.Edit)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/messages/{message_id}/delete", surface: surfaceVisitor,
+				handler: http.HandlerFunc(messagesHandler.Delete)},
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/members", surface: surfaceVisitor,
+				handler: http.HandlerFunc(roomsHandler.Members)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/leave", surface: surfaceVisitor,
+				handler: http.HandlerFunc(roomsHandler.Leave)},
 		)
 	}
 

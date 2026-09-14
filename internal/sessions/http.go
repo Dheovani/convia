@@ -23,7 +23,13 @@ func NewHandler(logger *slog.Logger, service service) *Handler {
 
 // signInRequest is what a person sends to sign in.
 type signInRequest struct {
-	Email    string `json:"email"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// registrationRequest is what a person sends to create their account.
+type registrationRequest struct {
+	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
@@ -38,17 +44,19 @@ meResponse is what Convia says about the person who is signed in.
 
 It names the user identifier as well as the account, because that is the
 identifier every other part of Convia addresses a person by — so a client
-reading a roster can recognize itself in it without a second request.
+reading a roster can recognize itself in it without a second request. The
+handle is how this person is named to somebody else, and it is rendered here so
+that no client has to reimplement the check character to show it.
 
 There is no session identifier, no expiry, and no list of other sessions. A
 page does not need to know when its own credential lapses: it finds out by
 being refused, which is the only answer that cannot be stale.
 */
 type meResponse struct {
-	AccountID   string `json:"account_id"`
-	UserID      string `json:"user_id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
+	AccountID string `json:"account_id"`
+	UserID    string `json:"user_id"`
+	Username  string `json:"username"`
+	Handle    string `json:"handle"`
 }
 
 /*
@@ -59,7 +67,8 @@ without a database, and so the handler cannot reach past what the surface is
 meant to do.
 */
 type service interface {
-	Begin(ctx context.Context, email string, password accounts.Password) (Session, string, error)
+	Begin(ctx context.Context, username string, password accounts.Password) (Session, string, error)
+	Register(ctx context.Context, username string, password accounts.Password) (Session, string, error)
 	End(ctx context.Context, sessionID string) error
 	EndAll(ctx context.Context, accountID string) (int, error)
 	Account(ctx context.Context, accountID string) (accounts.Account, error)
@@ -67,10 +76,10 @@ type service interface {
 }
 
 /*
-SignIn exchanges an email and a password for a session.
+SignIn exchanges a username and a password for a session.
 
-It is the one route on this surface that is not authenticated, which makes it
-the one that needs every other protection: the origin is checked, the failure
+It is one of two routes on this surface that are not authenticated, which makes
+it one that needs every other protection: the origin is checked, the failure
 budget is charged by the middleware in front of it, and the account domain
 answers every failure identically.
 */
@@ -83,12 +92,45 @@ func (handler *Handler) SignIn(response http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	session, token, err := handler.service.Begin(request.Context(), body.Email, accounts.Password(body.Password))
+	session, token, err := handler.service.Begin(request.Context(), body.Username, accounts.Password(body.Password))
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
 	}
 
+	handler.signedIn(response, request, session, token)
+}
+
+/*
+Register creates an account for the person asking and signs them in.
+
+It is the other unauthenticated route, and it is guarded differently from
+signing in: every attempt is charged to the caller's address, not only the ones
+that fail, because what it protects against is somebody succeeding too often.
+That is the middleware's job; this answers a taken username with `409`, which
+necessarily tells the caller the name exists. A registration form cannot avoid
+saying so, and the username is half of a handle that is meant to be shared.
+*/
+func (handler *Handler) Register(response http.ResponseWriter, request *http.Request) {
+	handler.private(response)
+
+	var body registrationRequest
+	if failure := api.DecodeJSON(response, request, &body); failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	session, token, err := handler.service.Register(request.Context(), body.Username, accounts.Password(body.Password))
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+
+	handler.signedIn(response, request, session, token)
+}
+
+// signedIn sets the cookie for a new session and says who it belongs to.
+func (handler *Handler) signedIn(response http.ResponseWriter, request *http.Request, session Session, token string) {
 	Set(response, token)
 
 	account, err := handler.service.Account(request.Context(), session.AccountID)
@@ -244,10 +286,10 @@ func (handler *Handler) private(response http.ResponseWriter) {
 
 func represent(account accounts.Account) meResponse {
 	return meResponse{
-		AccountID:   account.ID,
-		UserID:      account.UserID,
-		Email:       account.Email,
-		DisplayName: account.DisplayName,
+		AccountID: account.ID,
+		UserID:    account.UserID,
+		Username:  account.Username,
+		Handle:    account.Handle(),
 	}
 }
 
@@ -275,7 +317,8 @@ writeError translates a domain failure into the answer a caller gets.
 Signing in and changing a password share the same refusal, and it says nothing
 about which half was wrong. An account that does not exist, a wrong password, a
 suspended account, and a digest Convia cannot read are one answer, because any
-difference between them is a way to find out who has an account here.
+difference between them is a way to find out more about an account than its
+name.
 */
 func (handler *Handler) writeError(response http.ResponseWriter, request *http.Request, err error) {
 	var validation accounts.ValidationError
@@ -288,7 +331,11 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 	case errors.Is(err, accounts.ErrUnauthenticated):
 		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
-				"The email and password do not match an account."))
+				"The username and password do not match an account."))
+
+	case errors.Is(err, accounts.ErrUsernameTaken):
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusConflict, api.CodeConflict, "That username is already taken."))
 
 	case errors.Is(err, ErrUnauthenticated):
 		handler.writeFailure(response, request,

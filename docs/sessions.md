@@ -2,7 +2,7 @@
 
 **A session proves who a person is. It carries no authority over anything.**
 
-This is the fourth credential family in Convia and the first that a person, rather than a program, presents. The domain lives in [`internal/sessions`](../internal/sessions) and [`internal/accounts`](../internal/accounts), the endpoints are in [`api/openapi.yaml`](../api/openapi.yaml), and the reasoning is in [ADR 0007](adr/0007-a-session-is-a-person-not-a-tenants-authority.md).
+This is the fourth credential family in Convia and the first that a person, rather than a program, presents. The domain lives in [`internal/sessions`](../internal/sessions) and [`internal/accounts`](../internal/accounts), the endpoints are in [`api/openapi.yaml`](../api/openapi.yaml), and the reasoning is in [ADR 0007](adr/0007-a-session-is-a-person-not-a-tenants-authority.md) and [ADR 0011](adr/0011-an-account-is-local-and-its-identifier-is-its-key.md).
 
 ## The four families
 
@@ -23,13 +23,11 @@ A session is not that with a different prefix. It carries **no scopes at all**.
 
 The reason is worth being blunt about. If signing in produced an application's authority, then every person who signed in could mint a permanent `cvk_` key — one that keeps working after they sign out, after they change their password, after their account is deleted. Every guarantee on this page would be decorative.
 
-So what a person may do is decided **per operation, against the person**, by the domain that owns it. Those routes are being added deliberately, one at a time. Today the session surface is exactly what is on this page: sign in, sign out, say who you are, change your password.
+So what a person may do is decided **per operation, against the person**, by the domain that owns it.
 
-## Why accounts at all, if I host this myself?
+## Accounts belong to the installation
 
-Because a deployment is an **installation**, not a person — and a conversation needs people. A call takes at least two, and there is no way to hold one where the only identity is the server.
-
-**And an instance is not an identity either.** Since M16, several instances can be one deployment behind a load balancer, sharing a database and a Redis. Accounts live in PostgreSQL, so every instance sees the same people. Adding a machine adds capacity and nothing else.
+An installation holds as many accounts as people create on it, the way a password manager's file holds as many entries as somebody adds. There is no email, no operator, and nothing to configure: Convia makes its own application the first time it starts, and a person registers from the sign-in page.
 
 So Convia holds four kinds of identity, and they answer four different questions:
 
@@ -40,47 +38,48 @@ So Convia holds four kinds of identity, and they answer four different questions
 | **User** | which of an application's people is this? — asserted by that application, which already knows |
 | **Account** | which person is looking at Convia's own interface right now? |
 
-The first three served Convia as a **platform**. An account is the first that serves it as a **product**, and it is what the interface has no substitute for: a sidebar shows *somebody's* avatar, presence is about *somebody*, a message has an author, a call roster lists people.
+**An instance is not an identity.** Several instances can be one deployment behind a load balancer, sharing a database and a Redis. Accounts live in PostgreSQL, so every instance sees the same people.
 
-### What they are not: a defence against a compromised machine
+## Creating an account
 
-Worth saying plainly, because it is the natural assumption and it is wrong.
+```
+POST /v1/accounts
+Content-Type: application/json
+Origin: https://convia.example
 
-**Whoever has the machine has the database**, and with the database they can insert a row into `accounts` and sign in as whoever they like. argon2id makes *reading existing passwords* expensive — which matters, because people reuse passwords on services that are not yours — but it stops nothing for somebody already inside.
-
-What accounts actually contain is narrower and more ordinary: one colleague reading another's conversations, a stolen laptop holding a session that can be scoped and revoked, and an audit log that says who did what.
-
-### The cost, and where this is going
-
-For a small installation, `convia account create` per person is operator work, and there is no password reset — [*Getting an account*](#getting-an-account) says why, and says that the out-of-band channel it leaves behind is the likeliest route to a real takeover here.
-
-The direction that removes both problems for self-hosted deployments is **for Convia to stop holding passwords at all**: point it at the identity provider the host already runs — Keycloak, Authentik, a corporate directory — and Convia receives an identity rather than verifying one. No password to leak, no reset to perform by hand, and people are administered where they are already administered.
-
-That is not built and is not on the roadmap yet. The shape of this package is what makes it affordable later: an account is already a row that points at a Convia user, so an externally-authenticated person needs a different way of *proving* who they are and nothing different about *being* somebody.
-
-## Getting an account
-
-There is **no self-service sign-up**, and no password reset. Both need email verification, which needs a mailer Convia does not have.
-
-```bash
-convia account create ana@example.com "Ana Ribeiro"
+{ "username": "ana", "password": "..." }
 ```
 
 ```
-Created account acc_7KQZP4XN2VJH6TBWMDR3YAFC5E for Ana Ribeiro (ana@example.com)
-Convia user: usr_7KQZP4XN2VJH6TBWMDR3YAFC5E
+HTTP/1.1 201 Created
+Set-Cookie: __Host-convia_session=cvs_...; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax
+Cache-Control: no-store
 
-R4NDOMLYGENERATEDPASSWORD7
-
-This password is shown once and is not stored. Convia cannot show it again.
+{ "account_id": "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E", "user_id": "usr_...", "username": "ana", "handle": "ana#7KQZP4XN2VJH6TBWMDR3YAFC5EC" }
 ```
 
-**The password is generated, never chosen by the operator.** An operator who picks passwords reuses one across the accounts they create; a generated one has the same entropy as every other secret Convia mints.
+The account is created and its owner is signed in, in one request.
 
-Two consequences, and the second is the uncomfortable one:
+- **The username** is 3 to 32 characters of lowercase ASCII letters, digits, dots, dashes and underscores, beginning with a letter or digit. It is matched case-insensitively, unique on the installation, and fixed once chosen. The alphabet is narrow on purpose: Cyrillic `а` and Latin `a` look identical, and two names nobody can tell apart are how an invitation reaches the wrong person.
+- **The password** is at least 12 characters, and that is the only rule.
+- **A taken username** answers `409`. That says the name exists, which a registration form cannot avoid.
+- **Every attempt is charged to the caller's address**, successes included: twenty an hour, then `429`. What this guards against is somebody succeeding too often — filling the installation with accounts, or walking a list of names — which a budget of failures would never see. The origin is checked before the attempt is charged, so another page cannot spend a household's allowance.
 
-- The most common enumeration oracle in web applications — a password-reset form — is simply absent here.
-- **A forgotten password needs an operator, out of band, with no way to verify who they are talking to.** That social-engineering channel is the likeliest real account takeover in this design. An operator resetting a password should generate a new one, hand it over through a channel that proves identity, and expect every session to end.
+### The identifier is a key's fingerprint
+
+Registering generates an Ed25519 key pair. The account identifier is `acc_` followed by the first sixteen bytes of the SHA-256 digest of the public key, in base32. It is not assigned and cannot be copied onto a different key: whoever claims it can be asked to sign with the private half. That is what invitations between installations will rest on — an installation controls its own database and could write any identifier into it, so only an identifier that proves something is worth anything.
+
+### The password seals the key, so it cannot be reset
+
+The private key is stored only encrypted, with AES-256-GCM under a key derived from the password by argon2id, with a salt of its own and the public key bound in as associated data. **Nobody with the database can use it** — including whoever runs the machine.
+
+The consequence is the password manager's, and the registration form says it before the account exists: **there is no password reset.** Nothing but the password opens the key, and the key is who the account is. A forgotten password loses the account.
+
+### A handle is how a person is named to somebody else
+
+`ana#7KQZP4XN2VJH6TBWMDR3YAFC5EC`: the username, a `#`, the identifier without its prefix, and one check character.
+
+The username is what a person recognizes; the identifier is what cannot be forged. The check character is computed with the Luhn mod 32 algorithm over the identifier alphabet, and catches every single mistyped character and every swap of two neighbours except `A` and `7` — before anything is sent. A mistyped username is caught differently: the account the identifier names has another one. Parsing forgives what copying does — surrounding spaces, lowercase, dashes or spaces inserted to group the identifier.
 
 ## Signing in
 
@@ -89,27 +88,23 @@ POST /v1/sessions
 Content-Type: application/json
 Origin: https://convia.example
 
-{ "email": "ana@example.com", "password": "..." }
+{ "username": "ana", "password": "..." }
 ```
 
-```
-HTTP/1.1 201 Created
-Set-Cookie: __Host-convia_session=cvs_...; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax
-Cache-Control: no-store
+The answer is the same `201` body and cookie as creating an account.
 
-{ "account_id": "acc_...", "user_id": "usr_...", "email": "ana@example.com", "display_name": "Ana Ribeiro" }
-```
+**Signing in also opens the account's key, and the session holds it** — wrapped with AES-256-GCM under a key derived by HKDF from the session's own secret, which Convia stores only as a SHA-256 digest. That is what lets this installation sign for the person toward another installation while they are signed in, and at no other time: the database alone opens nothing, and signing out ends it. See [`peers.md`](peers.md).
 
-`user_id` is the identifier **every other part of Convia** addresses this person by. An account is not a second notion of who somebody is: it points at a row in the first-party application's users, so rooms, calls, participants, and presence keep working through the domains that already exist.
+`user_id` is the identifier **every other part of Convia** addresses this person by. An account is not a second notion of who somebody is: it points at a row in the first-party application's users, whose external subject is the account identifier and whose display name is the username, so rooms, calls, participants, and presence keep working through the domains that already exist.
 
 ### Every failure is the same failure
 
-An address nobody has, a wrong password, a suspended account, a suspended person, a stored digest Convia cannot read — one `401`, one message.
+A username nobody has, a wrong password, a suspended account, a suspended person, a stored digest Convia cannot read — one `401`, one message.
 
-Two things make that real beyond the wording:
+- **The password is checked first, the lifecycle second.** Checking status first would reveal that a name belongs to a suspended account without needing its password. Reporting suspension differently *after* a correct password would confirm the password was right.
+- **An unknown username is hashed anyway**, against a decoy with the same cost parameters, so it takes as long to refuse as a real one. A test pins the decoy's parameters to the ones in force.
 
-- **The password is checked first, the lifecycle second.** Checking status first would reveal that an address belongs to a suspended account without needing its password. Reporting suspension differently *after* a correct password would confirm the password was right. Both are oracles; doing the expensive, uninformative work first and answering identically afterwards is what avoids them.
-- **An unknown address is hashed anyway**, against a decoy with the same cost parameters, so it takes as long to refuse as a real one. A test asserts the decoy's parameters match the ones in force — because the day somebody raises the cost and leaves the decoy behind, the timing gap reopens with nothing failing.
+Registering already says whether a name is taken, so this is not what keeps usernames private — a username is half of a handle meant to be shared. What it keeps is the form's own promise: whatever went wrong, signing in answers alike.
 
 ## The cookie
 
@@ -126,11 +121,9 @@ Two things make that real beyond the wording:
 | Idle | 14 days | yes |
 | Absolute | 90 days | **no** |
 
-The idle window is measured from last use, and last use is written **at most once an hour** rather than on every request. `docs/authentication.md` lists `last_used_at` on an application credential as not implemented for exactly that cost; the difference here is the caller — one browser, not a fleet.
+The idle window is measured from last use, and last use is written **at most once an hour** rather than on every request. The consequence is stated rather than hidden: the effective idle window is fourteen days to **fourteen days and an hour**. Staleness only ever shortens it, never lengthens it.
 
-The consequence is stated rather than hidden: the effective idle window is fourteen days to **fourteen days and an hour**. Staleness only ever shortens it, never lengthens it.
-
-And an honest note on what an idle timeout is worth for a product like this: a tab left open that reconnects a WebSocket keeps a session alive indefinitely, and no server-side timer can tell that from somebody at the keyboard. What this actually bounds is **how long a stolen cookie stays useful after its owner stops working**, which is still worth having, and is not the same claim.
+And an honest note on what an idle timeout is worth for a product like this: a tab left open that reconnects a WebSocket keeps a session alive indefinitely. What this actually bounds is **how long a stolen cookie stays useful after its owner stops working**, which is still worth having, and is not the same claim.
 
 ## Signing out
 
@@ -141,9 +134,7 @@ DELETE /v1/sessions            # every session, including this one
 
 **Revoking the row is the sign-out.** A session token is a bearer credential, so Convia does not trust a client to forget it; clearing the cookie is a courtesy to a browser that would otherwise keep sending something dead.
 
-Signing out answers the same way whether or not the session was still live, so it cannot be used to ask whether one is.
-
-Signing out **everywhere** deliberately does not spare the browser asking. Somebody reaching for it believes a device was lost.
+Signing out answers the same way whether or not the session was still live, so it cannot be used to ask whether one is. Signing out **everywhere** deliberately does not spare the browser asking.
 
 ## Changing a password
 
@@ -152,29 +143,26 @@ PATCH /v1/me/password
 { "current_password": "...", "new_password": "..." }
 ```
 
-Three things happen together:
+Four things happen together:
 
 1. the password changes;
-2. **every other session ends**, because the ordinary reason to change a password is believing somebody else has it;
-3. **this session is rotated** — new session, new secret, new cookie — because the token in this browser may have leaked too.
+2. **the account's key is sealed again** under the new password — the same key, so the identifier and the handle do not change;
+3. **every other session ends**, because the ordinary reason to change a password is believing somebody else has it;
+4. **this session is rotated** — new session, new secret, new cookie — because the token in this browser may have leaked too.
 
-The current password is required. A stolen session must not be enough to lock the owner out of their own account.
-
-**The only rule for a new password is length: at least 12 characters.** No composition requirements, ever. A capital, a digit and a symbol make passwords more predictable rather than less, because people satisfy those rules in the same few ways.
+The current password is required. A stolen session must not be enough to lock the owner out of their own account, and since the key is sealed by the password, out of their own identity with it. The new digest and the newly sealed key are written in one statement, so they never describe different passwords.
 
 ## Why a password is hashed differently from every other secret
 
-`M07-004` stores application keys as a plain SHA-256 digest, and gives the reason: 130 bits of randomness cannot be searched, so a slow hash buys nothing and costs latency on every request.
+`M07-004` stores application keys as a plain SHA-256 digest: 130 bits of randomness cannot be searched, so a slow hash buys nothing and costs latency on every request.
 
-A password is the opposite kind of secret — short, chosen, reused, **searchable** — so the same reasoning reaches the opposite answer: **argon2id**, 64 MiB, three passes.
+A password is the opposite kind of secret — short, chosen, reused, **searchable** — so the same reasoning reaches the opposite answer: **argon2id**, 64 MiB, three passes. A **session token**, which Convia generates, goes back to SHA-256 for the original reason.
 
-The two live side by side on purpose. The rule is chosen by where the entropy came from, not by habit. A **session token**, which Convia generates, goes back to SHA-256 for the original reason.
-
-The stored digest carries its own parameters (`$argon2id$v=19$m=65536,t=3,p=1$...`) rather than taking them from a constant, which is what makes raising the cost later possible: an old digest stays verifiable by its own parameters and is replaced at the one moment Convia holds the password in the clear — a successful sign-in.
+The stored digest and the sealed key each carry their own parameters (`$argon2id$v=19$m=65536,t=3,p=1$...`, `$argon2id-aes256gcm$...`), which is what makes raising the cost later possible: old values stay usable by their own parameters and are replaced together at the one moment Convia holds the password in the clear — a successful sign-in.
 
 ### Hashing is bounded, and that can be a `503`
 
-argon2id's memory cost is paid per concurrent hash, on an **unauthenticated** route. Four at a time, a short wait for a place, then:
+argon2id's memory cost is paid per concurrent derivation, on two **unauthenticated** routes. Four at a time, a short wait for a place, then:
 
 ```
 HTTP/1.1 503 Service Unavailable
@@ -182,11 +170,11 @@ Retry-After: 1
 {"error":{"code":"unavailable","message":"Convia is verifying too many passwords at once. Try again in a moment."}}
 ```
 
-**This is not a refusal of the credentials** and must never be read as one. Without the bound, anybody who can reach the API decides how much memory Convia allocates.
+**This is not a refusal of the credentials** and must never be read as one. Registering derives twice — the digest and the key's seal — and both take a place in the bound.
 
 ## Cross-site request forgery
 
-Three mechanisms are in play and **only one of them carries the weight**. It is worth being precise, because counting them as three independent layers would be wrong.
+Three mechanisms are in play and **only one of them carries the weight**.
 
 | | Stops | Does not stop |
 | --- | --- | --- |
@@ -194,47 +182,41 @@ Three mechanisms are in play and **only one of them carries the weight**. It is 
 | JSON content type | the `enctype="text/plain"` form trick | a route with **no body** |
 | **`Origin`, exact match** | both of the above | a proxy that strips the header |
 
-So `Origin` is **required** on every unsafe method here, matched **exactly** against the address Convia was reached at, and an absent or `null` value is refused. Exactly rather than by suffix — a suffix match is precisely what lets `evil-convia.example` or a sibling back in.
+So `Origin` is **required** on every unsafe method on the browser surfaces — signing in and registering included — matched **exactly** against the address Convia was reached at, and an absent or `null` value is refused. A page elsewhere that could post here could sign somebody in, or register them, as an account the attacker controls.
 
-`Sec-Fetch-Site` is consulted where present, but it is **not** a fourth layer: it shipped in the same browser generation as `SameSite`, so any client old enough to ignore one lacks the other.
+`Sec-Fetch-Site` is consulted where present, but it is **not** a fourth layer: it shipped in the same browser generation as `SameSite`.
 
-One invariant holds the first row up: **no route on this surface changes state on a GET**, because `SameSite=Lax` sends the cookie on a top-level GET navigation. A test walks the route table and enforces it.
+One invariant holds the first row up: **no route on these surfaces changes state on a GET**, because `SameSite=Lax` sends the cookie on a top-level GET navigation. A test walks the route table and enforces it, and a second test refuses to let a state-changing browser route exist without the origin check. The check is middleware on the surface rather than a call inside each handler, because a check every new route has to remember is one a new route eventually forgets — four once did.
 
-**The check is middleware, applied to the surface, not a call inside each handler.** It started as the latter and that was a mistake with a cost: when M31 added seven person-facing routes for messages, four of them changed state and none of them called it. Nothing failed, because nothing was watching — the check was a habit each new handler had to remember. It is now wrapped around every route declared on a browser surface, inside authentication so that a request with no session is still answered as unauthenticated, and a second test walks the table and refuses to let a state-changing route exist without it.
-
-There is **no CORS configuration**, because there is no cross-origin to permit. [ADR 0009](adr/0009-convia-serves-its-own-interface-from-its-own-origin.md) records why the interface is served from this same origin, which is what keeps that true.
+There is **no CORS configuration**, because there is no cross-origin to permit. [ADR 0009](adr/0009-convia-serves-its-own-interface-from-its-own-origin.md) records why.
 
 ## What is written down, and what is not
 
-Convia records sign-in, sign-out, sign-out-everywhere, password change, session eviction, and **refused** sign-ins. Each line carries the account identifier and, on a refusal, whether the password or the status was the reason.
+Convia records registration, sign-in, sign-out, sign-out-everywhere, password change, session eviction, and **refused** sign-ins. Each line carries the account identifier and, on a refusal, whether the password or the status was the reason. **That reason is never returned to the caller.**
 
-**That reason is never returned to the caller.** The asymmetry is the point: an operator investigating a locked-out colleague needs to know which it was, and the person at the form must not be able to tell.
-
-Never logged: the password, the digest, the session token, or the submitted email. Identifiers Convia assigned say what an operator needs without putting a credential or a contactable address into a file that is shipped and retained.
+Never logged: the password, the digest, the key in any form, the session token, or the username. Identifiers Convia derived say what an operator needs without putting a credential or a person's chosen name into a file that is shipped and retained.
 
 ## Running it
 
+Nothing to configure. The first time Convia starts it makes its own application, `app_CONVIAAAAAAAAAAAAAAAAAAAAA`, and leaves it alone on every later start — so an operator who suspends it stops every session, and a restart does not undo that. See [`applications.md`](applications.md#standalone-convia-is-an-application).
+
+Whoever runs Convia can stop somebody signing in, and let them back:
+
 ```bash
-CONVIA_FIRST_PARTY_APPLICATION=app_MXHJAY4MJNX2FO22XWJ3XNCKHT
+convia account suspend acc_7KQZP4XN2VJH6TBWMDR3YAFC5E
+convia account activate acc_7KQZP4XN2VJH6TBWMDR3YAFC5E
 ```
 
-The identifier of the application that owns Convia's own product — an identifier rather than a name, because names are not unique and there is no lookup by one. Create it once with the operator API, then configure it.
+### What accounts are not: a defence against a compromised machine
 
-**Unset means nobody signs in to Convia itself**, and the session routes are not registered at all. That is a supported deployment: Convia is a platform first, and an instance serving only integrations has no use for them.
-
-An instance that *is* configured and has no accounts says so at startup, the same way one with no operator credential does:
-
-```
-a first-party application is configured but no account can sign in
-  remedy=create one with: convia account create <email> <display-name>
-```
+**Whoever has the machine has the database**, and can insert a row into `accounts` and sign in as it, or suspend anybody. What they cannot do is **use somebody's key**, because it is sealed by a password they do not have — which is what invitations between installations will depend on. argon2id makes guessing that password expensive, and a weak one is still a weak one.
 
 ## Known gaps
 
-Named here rather than discovered later.
-
-- **No per-account rate limiting.** Failed sign-ins are budgeted per caller address, separately from and far more tightly than the rest of the API. An attacker spread across many addresses is bounded only by the password's entropy. A naive per-account lockout is a denial of service against a named person; doing it properly needs state shared between instances, which the Redis from M16 now makes possible.
-- **Revocation reaches a person's live stream within a minute, not at once.** `GET /v1/me/events` authenticates its session again every minute and closes with `4001` when it no longer authenticates, so signing out everywhere ends every open tab's stream within that minute. Ending them immediately would mean this domain reaching into the broker. See [ADR 0010](adr/0010-a-persons-stream-is-authorized-per-room.md).
-- **Revocation does not reach an application's live stream.** `GET /v1/events` verifies its key once at the handshake and then streams for hours, so a revoked key leaves an open stream running until it closes. It predates the session surface.
-- ~~**No security headers.**~~ They arrived with the interface, as this said they would. The page is served under `default-src 'none'` with no `unsafe-inline`, alongside `nosniff`, `no-referrer`, and `same-origin` opener isolation. See [`interface.md`](interface.md#the-policy). The API's own responses still carry none of their own, which matters less than it sounds — they are JSON, served with a correct content type behind `nosniff` — but it is a real remaining difference and is named here rather than counted as done.
-- **No password reset, and no email verification.** Both wait for a mailer. See *Getting an account* for what an operator does meanwhile, and why that channel deserves care.
+- **Signing in costs two argon2id derivations**: one to verify the password, one to open the key the session holds.
+- **No verification code on first contact.** Two people comparing a short code out of band would stop somebody in the middle substituting an invitation. Named, not adopted.
+- **No per-account rate limiting.** Failed sign-ins are budgeted per caller address. An attacker spread across many addresses is bounded only by the password's strength. A naive per-account lockout is a denial of service against a named person; doing it properly needs state shared between instances.
+- **Registration is rationed per address, per instance.** Several instances each allow twenty an hour, as every limiter in Convia does until it moves to Redis.
+- **Revocation reaches a person's live stream within a minute, not at once.** See [ADR 0010](adr/0010-a-persons-stream-is-authorized-per-room.md).
+- **Revocation does not reach an application's live stream.** `GET /v1/events` verifies its key once at the handshake. It predates the session surface.
+- **The API's own responses carry no security headers.** The page is served under a strict policy (see [`interface.md`](interface.md#the-policy)); the JSON responses rely on a correct content type behind `nosniff`.

@@ -6,108 +6,76 @@ import (
 )
 
 /*
-TestOneAddressIsOnePerson is why the stored form is lowercased.
+TestOneUsernameIsOnePerson is why the stored form is lowercased.
 
-Somebody who was created as Ana@example.com and types ana@example.com later is
-the same person, and treating them as two accounts would be a support ticket
-rather than a security property.
+Somebody who registered as Ana and types ana later is the same person, and a
+handle read aloud carries no case.
 */
-func TestOneAddressIsOnePerson(t *testing.T) {
-	variants := []string{
-		"Ana@Example.com",
-		"  ana@example.com  ",
-		"ANA@EXAMPLE.COM",
-		"ana@example.com",
-	}
-
-	for _, variant := range variants {
-		normalized, err := NormalizeEmail(variant)
+func TestOneUsernameIsOnePerson(t *testing.T) {
+	for _, variant := range []string{"Ana", "  ana  ", "ANA", "ana"} {
+		normalized, err := NormalizeUsername(variant)
 		if err != nil {
-			t.Fatalf("NormalizeEmail(%q) error = %v", variant, err)
+			t.Fatalf("NormalizeUsername(%q) error = %v", variant, err)
 		}
-		if normalized != "ana@example.com" {
-			t.Errorf("NormalizeEmail(%q) = %q", variant, normalized)
+		if normalized != "ana" {
+			t.Errorf("NormalizeUsername(%q) = %q", variant, normalized)
 		}
 	}
 }
 
-/*
-TestNothingClevererThanLowercasing states the limit of the normalization
-deliberately.
-
-The local part of an address is case-sensitive by the standard and the
-provider's business. Stripping dots or plus-tags because one popular provider
-ignores them would silently merge addresses that somebody else considers
-distinct — which is a way to deliver one person's account to another.
-*/
-func TestNothingClevererThanLowercasing(t *testing.T) {
-	distinct := []string{"a.na@example.com", "ana+work@example.com", "ana@example.com"}
-
-	seen := make(map[string]string, len(distinct))
-	for _, address := range distinct {
-		normalized, err := NormalizeEmail(address)
-		if err != nil {
-			t.Fatalf("NormalizeEmail(%q) error = %v", address, err)
+func TestAUsernameIsPlainASCII(t *testing.T) {
+	accepted := []string{"ana", "ana.ribeiro", "ana_r", "ana-r", "a2b", "007", strings.Repeat("a", maxUsernameLength)}
+	for _, username := range accepted {
+		if _, err := NormalizeUsername(username); err != nil {
+			t.Errorf("NormalizeUsername(%q) error = %v", username, err)
 		}
-		if previous, collided := seen[normalized]; collided {
-			t.Errorf("%q and %q both normalize to %q, merging two addresses into one account",
-				previous, address, normalized)
-		}
-		seen[normalized] = address
 	}
-}
 
-func TestAnAddressMustBeAnAddress(t *testing.T) {
 	refused := map[string]string{
-		"empty":          "",
-		"blank":          "   ",
-		"no at sign":     "ana.example.com",
-		"a display name": `Ana Ribeiro <ana@example.com>`,
-		"two addresses":  "ana@example.com, bruno@example.com",
-		"absurdly long":  strings.Repeat("a", maxEmailLength) + "@example.com",
+		"empty":                  "",
+		"too short":              "an",
+		"too long":               strings.Repeat("a", maxUsernameLength+1),
+		"a space":                "ana ribeiro",
+		"the handle separator":   "ana#x",
+		"leading punctuation":    ".ana",
+		"an at sign":             "ana@example",
+		"a control character":    "ana\x00",
+		"an accented letter":     "anã",
+		"a Cyrillic lookalike a": "аna",
 	}
-
-	for name, address := range refused {
-		if _, err := NormalizeEmail(address); err == nil {
-			t.Errorf("NormalizeEmail accepted %s: %q", name, address)
+	for name, username := range refused {
+		if _, err := NormalizeUsername(username); err == nil {
+			t.Errorf("NormalizeUsername accepted %s: %q", name, username)
 		}
 	}
 }
 
 /*
-TestADisplayNameIsRequired, unlike a user's.
-
-There is no application standing behind an account to supply one later: this
-person appears in somebody's roster, and a blank space there is something
-nobody can act on.
+TestAnIdentifierIsTheFingerprintOfItsKey is the property invitations will rest
+on: an identifier cannot be assigned to a key it does not belong to.
 */
-func TestADisplayNameIsRequired(t *testing.T) {
-	if _, err := NormalizeDisplayName("   "); err == nil {
-		t.Error("NormalizeDisplayName accepted a blank name")
+func TestAnIdentifierIsTheFingerprintOfItsKey(t *testing.T) {
+	first, err := NewIdentity()
+	if err != nil {
+		t.Fatalf("NewIdentity() error = %v", err)
 	}
-	if _, err := NormalizeDisplayName("Ana\nRibeiro"); err == nil {
-		t.Error("NormalizeDisplayName accepted a control character")
-	}
-	if _, err := NormalizeDisplayName(strings.Repeat("a", maxDisplayNameLength+1)); err == nil {
-		t.Error("NormalizeDisplayName accepted an absurdly long name")
+	second, err := NewIdentity()
+	if err != nil {
+		t.Fatalf("NewIdentity() error = %v", err)
 	}
 
-	name, err := NormalizeDisplayName("  Ana Ribeiro  ")
-	if err != nil || name != "Ana Ribeiro" {
-		t.Errorf("NormalizeDisplayName() = %q, %v", name, err)
+	if !ValidID(first.ID()) {
+		t.Errorf("a derived identifier %q does not have Convia's shape", first.ID())
+	}
+	if first.ID() != IDFor(first.Public) {
+		t.Error("an identity's identifier is not the fingerprint of its public key")
+	}
+	if first.ID() == second.ID() {
+		t.Error("two keys produced one identifier")
 	}
 }
 
 func TestIdentifiersHaveConviasShape(t *testing.T) {
-	id := NewID()
-
-	if !ValidID(id) {
-		t.Errorf("a freshly generated identifier %q is not valid", id)
-	}
-	if !strings.HasPrefix(id, idPrefix) {
-		t.Errorf("%q does not carry the account prefix", id)
-	}
-
 	invalid := []string{
 		"",
 		"acc_",
