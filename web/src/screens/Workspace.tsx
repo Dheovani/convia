@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { api } from '../api/client'
-import type { Account } from '../api/types'
+import { api, sourceKey, type RoomSource } from '../api/client'
+import type { Account, SidebarRoom } from '../api/types'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
 import { Sidebar } from '../components/Sidebar'
 import { EventsContext, useEventStream } from '../state/events'
+import { useRemoteRooms } from '../state/useRemoteRooms'
 import { useRooms } from '../state/useRooms'
 
 /*
@@ -16,6 +17,18 @@ that something changed since it last looked. A quarter of a second is below
 what anybody notices and above the gap between events in a burst.
 */
 const refreshDelay = 250
+
+// parseKey turns a selection back into where the room lives.
+function parseKey(key: string | null): RoomSource | null {
+  if (key === null) {
+    return null
+  }
+  const [kind, id] = key.split(':', 2)
+  if ((kind !== 'local' && kind !== 'remote') || id === undefined) {
+    return null
+  }
+  return { kind, id }
+}
 
 /*
 Workspace is the three zones: where in Convia, which conversation, and the
@@ -35,6 +48,9 @@ has not decided on one. What it must not do is overflow sideways.
 It also holds the event stream, one for the page, and hands it down through
 context: the sidebar, the open room, and its member list all listen to the same
 connection rather than each opening one.
+
+What is open is a source — a room here, or a room on another installation — kept
+as one string, so the two kinds cannot be confused by sharing an identifier.
 */
 export function Workspace({
   account,
@@ -49,6 +65,7 @@ export function Workspace({
   const stream = useEventStream(onSignedOut)
   const { live, listen } = stream
   const { rooms, loading, failed, refresh, remember, forget } = useRooms(onSignedOut, live)
+  const elsewhere = useRemoteRooms(onSignedOut)
 
   const pending = useRef<number | undefined>(undefined)
   const refreshSoon = useCallback(() => {
@@ -82,7 +99,7 @@ export function Workspace({
         if (event.type === 'room.member_removed' && event.data?.['user_id'] === account.user_id) {
           const roomId = event.subject.id
           forget(roomId)
-          setSelected((current) => (current === roomId ? null : current))
+          setSelected((current) => (current === sourceKey({ kind: 'local', id: roomId }) ? null : current))
         }
         refreshSoon()
       }),
@@ -99,24 +116,65 @@ export function Workspace({
   reappears when the list catches up rather than jumping somewhere else first.
   */
   useEffect(() => {
-    if (selected === null && rooms.length > 0) {
-      setSelected(rooms[0]?.id ?? null)
+    if (selected !== null) {
+      return
     }
-  }, [rooms, selected])
+    const first = rooms[0]
+    if (first !== undefined) {
+      setSelected(sourceKey({ kind: 'local', id: first.id }))
+      return
+    }
+    const firstElsewhere = elsewhere.remoteRooms[0]
+    if (firstElsewhere !== undefined) {
+      setSelected(sourceKey({ kind: 'remote', id: firstElsewhere.id }))
+    }
+  }, [rooms, elsewhere.remoteRooms, selected])
 
   async function create(name: string) {
     const room = await api.createRoom(name)
     remember({ id: room.id, name: room.name, status: room.status, unread: 0 })
-    setSelected(room.id)
+    setSelected(sourceKey({ kind: 'local', id: room.id }))
     refresh()
   }
 
-  async function leave(roomId: string) {
-    await api.leave(roomId)
-    const next = rooms.find((room) => room.id !== roomId)?.id ?? null
-    forget(roomId)
-    setSelected(next)
+  /*
+  Joining by link opens what was joined.
+
+  A room elsewhere becomes a pointer in the list below; a room that turned out
+  to live here is simply one of this person's rooms now, and the sidebar is read
+  again to show it.
+  */
+  async function join(link: string) {
+    const joined = await api.join(link)
+    if (joined.remote_room !== undefined) {
+      elsewhere.remember(joined.remote_room)
+      setSelected(sourceKey({ kind: 'remote', id: joined.remote_room.id }))
+      return
+    }
+    remember({ id: joined.room_id, name: joined.room_name, status: 'open', unread: 0 })
+    setSelected(sourceKey({ kind: 'local', id: joined.room_id }))
     refresh()
+  }
+
+  async function leave(source: RoomSource) {
+    if (source.kind === 'local') {
+      await api.leave(source.id)
+      forget(source.id)
+      refresh()
+    } else {
+      await api.leaveRemote(source.id)
+      elsewhere.forget(source.id)
+    }
+
+    const next = rooms.find((room) => source.kind !== 'local' || room.id !== source.id)
+    const nextElsewhere = elsewhere.remoteRooms.find((room) => source.kind !== 'remote' || room.id !== source.id)
+    if (next !== undefined) {
+      setSelected(sourceKey({ kind: 'local', id: next.id }))
+    } else if (nextElsewhere !== undefined) {
+      setSelected(sourceKey({ kind: 'remote', id: nextElsewhere.id }))
+    } else {
+      setSelected(null)
+    }
   }
 
   async function signOut() {
@@ -133,7 +191,24 @@ export function Workspace({
     }
   }
 
-  const room = rooms.find((candidate) => candidate.id === selected) ?? null
+  const source = parseKey(selected)
+  let open: { source: RoomSource; room: SidebarRoom; selfId: string; home?: string } | null = null
+  if (source?.kind === 'local') {
+    const room = rooms.find((candidate) => candidate.id === source.id)
+    if (room !== undefined) {
+      open = { source, room, selfId: account.user_id }
+    }
+  } else if (source?.kind === 'remote') {
+    const remote = elsewhere.remoteRooms.find((candidate) => candidate.id === source.id)
+    if (remote !== undefined) {
+      open = {
+        source,
+        room: { id: remote.id, name: remote.name, status: 'open', unread: 0 },
+        selfId: remote.user_id,
+        home: remote.home,
+      }
+    }
+  }
 
   return (
     <EventsContext.Provider value={stream}>
@@ -157,10 +232,13 @@ export function Workspace({
         >
           <Sidebar
             rooms={rooms}
+            remoteRooms={elsewhere.remoteRooms}
             selected={selected}
             loading={loading}
             onSelect={setSelected}
             onCreate={create}
+            onLook={(link) => api.look(link)}
+            onJoin={join}
           />
           {failed && (
             <p className="m-0 border-t border-line px-4 py-2 text-[0.75rem] text-ink-faint" role="status">
@@ -170,7 +248,7 @@ export function Workspace({
         </aside>
 
         <main className="col-start-2 row-start-2 flex min-h-0 min-w-0 md:col-start-3 md:row-start-1">
-          {room === null ? (
+          {open === null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
               <p className="m-0">Nothing is open.</p>
               <p className="m-0 text-[0.85rem] text-ink-faint">
@@ -179,12 +257,15 @@ export function Workspace({
             </div>
           ) : (
             <Conversation
-              key={room.id}
-              room={room}
+              key={sourceKey(open.source)}
+              source={open.source}
+              room={open.room}
               account={account}
+              selfId={open.selfId}
+              {...(open.home === undefined ? {} : { home: open.home })}
               onExpired={onSignedOut}
               onActivity={refreshSoon}
-              onLeave={leave}
+              onLeave={() => leave(open.source)}
             />
           )}
         </main>

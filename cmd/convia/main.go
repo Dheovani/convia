@@ -27,6 +27,7 @@ import (
 	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/peers"
 	"convia/internal/presence"
 	presenceredis "convia/internal/presence/redis"
 	"convia/internal/rooms"
@@ -240,6 +241,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		applicationService, userService, applications.FirstPartyID, logger)
 
 	/*
+		Rooms shared with other installations. The client that reaches them is
+		built on the same destination guard as webhook delivery, because an
+		invitation link is an address somebody else chose.
+	*/
+	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
+		accountService, peers.NewClient(destinations), applications.FirstPartyID, logger)
+
+	/*
 		Both surfaces are authenticated, so both are always served. The tenant
 		surface takes its tenant from an application's key; the operator
 		surface names the tenant in the path and proves the authority to reach
@@ -280,6 +289,10 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		PersonalEvents:       events.NewPersonHandler(logger, broker, sessionService, roomService),
+
+		PeerAuthenticator: peerService,
+		Peers:             peers.NewPeerHandler(logger, peerService),
+		RoomInvitations:   peers.NewSessionHandler(logger, peerService, sessionService),
 	}
 
 	/*

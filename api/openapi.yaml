@@ -198,6 +198,18 @@ tags:
 
       Responses carry `Cache-Control: no-store` and `Vary: Cookie`. These bodies are one person's conversations, and a cache that served one to somebody else would be the worst failure this surface could have.
 
+  - name: Peers
+    description: |
+      Rooms shared between installations.
+
+      A room lives on the installation where it was created — its **home**. Somebody from another installation takes part through their own: their browser talks only to the Convia they signed in to, and that Convia talks to the home on their behalf. The routes under `/v1/me` are that browser's half; the routes under `/v1/peer` are what one installation calls on another.
+
+      **Who is asking is proved by a signature, not asserted.** Every request between installations is signed with the Ed25519 key whose fingerprint is the person's account identifier, and the home checks the signature against that key. An installation that does not hold somebody's key cannot act as them. The key is sealed by the person's password, so their installation can only sign while they are signed in.
+
+      Joining is by invitation. Somebody in a room invites a handle, `username#IDENTIFIER`, and receives a link naming the home and the invitation. The link is not a secret: accepting it needs the invitee's signature, and the username must be the one the invitation named. An invitation lasts a day and is used once.
+
+      See `docs/peers.md`.
+
   - name: Members
     description: |
       Who belongs to a room.
@@ -5668,6 +5680,951 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/me/rooms/{room_id}/invitations:
+    post:
+      operationId: inviteToMyRoom
+      tags: [Peers]
+      summary: Invite somebody into a room I am in
+      description: |
+        Makes an invitation into a room the signed-in person is in, for the person a handle names — on this installation or any other — and returns the link to send them.
+
+        The handle's check character is verified here, so a mistyped one is refused before a link exists. Somebody already in the room answers `409 conflict`. The link lasts a day and is used once.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoomInvitationRequest"
+      responses:
+        "201":
+          description: The invitation, and the link to send.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomInvitation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/room-invitations/{invitation_id}:
+    delete:
+      operationId: revokeMyRoomInvitation
+      tags: [Peers]
+      summary: Withdraw an invitation I made
+      description: |
+        Withdraws an invitation the signed-in person made that nobody has accepted. Withdrawing one already withdrawn succeeds; one that was accepted, or that somebody else made, answers `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomInvitationID"
+      responses:
+        "204":
+          description: The invitation no longer works.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/me/invitation-previews:
+    post:
+      operationId: previewInvitationLink
+      tags: [Peers]
+      summary: See what an invitation link is for
+      description: |
+        Asks the home named in a link what the invitation is for, signed as the signed-in person. A `POST` because it makes a request to another installation.
+
+        An invitation that cannot be used by this person — unknown, expired, used, withdrawn, or for somebody else — answers `404 not found`, as one answer. A home that cannot be reached answers `503 unavailable`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationLinkRequest"
+      responses:
+        "200":
+          description: What the invitation is for.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InvitationLook"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms:
+    get:
+      operationId: listMyRemoteRooms
+      tags: [Peers]
+      summary: Rooms I am in on other installations
+      description: |
+        Lists the signed-in person's pointers to rooms on other installations, oldest first. Nothing is fetched from the homes: these are the names recorded when the rooms were joined.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      responses:
+        "200":
+          description: The rooms elsewhere this person belongs to.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteRoomPage"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+    post:
+      operationId: joinRoomByLink
+      tags: [Peers]
+      summary: Accept an invitation link
+      description: |
+        Accepts an invitation on behalf of the signed-in person: their installation signs the acceptance with their key and sends their username, and the home admits them if both match the invitation.
+
+        A room on another installation is remembered here and returned as `remote_room`. A room on this installation needs no pointer, and the person is simply now a member of it.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InvitationLinkRequest"
+      responses:
+        "201":
+          description: The person joined the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinedRoom"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/messages:
+    get:
+      operationId: readRemoteHistory
+      tags: [Peers]
+      summary: Read a room I am in elsewhere
+      description: |
+        Reads one window of a room on another installation, relayed to its home signed as the signed-in person. Parameters and answer are those of `GET /v1/me/rooms/{room_id}/messages`.
+
+        A home that no longer lets this person in answers `403 forbidden` here — never `401`, which would mean this installation's own session ended. A home that cannot be reached answers `503 unavailable`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MessageCursor"
+        - $ref: "#/components/parameters/HistoryDirection"
+      responses:
+        "200":
+          description: One window of the room's history.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    post:
+      operationId: sayInRemoteRoom
+      tags: [Peers]
+      summary: Say something in a room I am in elsewhere
+      description: |
+        Relayed to the home as `POST /v1/me/rooms/{room_id}/messages` would be served there. The body is decoded here and re-encoded, so nothing reaches the other installation that this one did not understand.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnMessageRequest"
+      responses:
+        "201":
+          description: The message was recorded at the home.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/messages/{message_id}:
+    patch:
+      operationId: editRemoteMessage
+      tags: [Peers]
+      summary: Change what I said in a room elsewhere
+      description: Relayed to the home as `PATCH /v1/me/messages/{message_id}` would be served there.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnMessageRequest"
+      responses:
+        "200":
+          description: The message as it now reads.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/messages/{message_id}/delete:
+    post:
+      operationId: withdrawRemoteMessage
+      tags: [Peers]
+      summary: Withdraw something I said in a room elsewhere
+      description: Relayed to the home as `POST /v1/me/messages/{message_id}/delete` would be served there.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: The message as a tombstone.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/read_state:
+    get:
+      operationId: readRemoteReadState
+      tags: [Peers]
+      summary: How far I have read in a room elsewhere
+      description: Relayed to the home as `GET /v1/me/rooms/{room_id}/read_state` would be served there.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      responses:
+        "200":
+          description: How far they have read.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    put:
+      operationId: markRemoteRoomRead
+      tags: [Peers]
+      summary: Mark a room elsewhere read
+      description: Relayed to the home as `PUT /v1/me/rooms/{room_id}/read_state` would be served there.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnReadStateRequest"
+      responses:
+        "200":
+          description: The position that now holds.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/members:
+    get:
+      operationId: listRemoteRoomMembers
+      tags: [Peers]
+      summary: Who is in a room I am in elsewhere
+      description: Relayed to the home as `GET /v1/me/rooms/{room_id}/members` would be served there. People from other installations are named by their username and the first characters of their identifier.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of who is in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/leave:
+    post:
+      operationId: leaveRemoteRoom
+      tags: [Peers]
+      summary: Leave a room I am in elsewhere
+      description: |
+        Leaves the room at its home, then forgets the pointer here. A home that says the person is no longer in the room has done the first half already, so the pointer goes. A home that cannot be reached keeps it and answers `503 unavailable`, because forgetting it would leave a membership nothing here remembers.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      responses:
+        "204":
+          description: The person is no longer in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/invitations/{invitation_id}:
+    get:
+      operationId: describePeerInvitation
+      tags: [Peers]
+      summary: Describe an invitation to the person it names
+      description: |
+        Called by the installation of the person an invitation names. The signer must be that person: anybody else, and an invitation that is expired, used, or withdrawn, answers `404 not found` as one answer.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomInvitationID"
+      responses:
+        "200":
+          description: What the invitation is for.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeerInvitation"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/peer/invitations/{invitation_id}/accept:
+    post:
+      operationId: acceptPeerInvitation
+      tags: [Peers]
+      summary: Accept an invitation for the person it names
+      description: |
+        Admits the signer to the room, if they are the person the invitation names and the username given is the one it named. The person becomes a user here — the same one they already are if they also sign in here — and a member of the room. Two acceptances at once cannot both succeed.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomInvitationID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeerAcceptRequest"
+      responses:
+        "200":
+          description: The person is a member of the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PeerAccepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/peer/rooms/{room_id}/messages:
+    get:
+      operationId: readPeerHistory
+      tags: [Peers]
+      summary: Read a room, for a member from another installation
+      description: Served exactly as `GET /v1/me/rooms/{room_id}/messages` is, for the signer as the person they are here.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MessageCursor"
+        - $ref: "#/components/parameters/HistoryDirection"
+      responses:
+        "200":
+          description: One window of the room's history.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    post:
+      operationId: sayInPeerRoom
+      tags: [Peers]
+      summary: Say something, for a member from another installation
+      description: Served exactly as `POST /v1/me/rooms/{room_id}/messages` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnMessageRequest"
+      responses:
+        "201":
+          description: The message was recorded.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/read_state:
+    get:
+      operationId: readPeerReadState
+      tags: [Peers]
+      summary: How far a member from another installation has read
+      description: Served exactly as `GET /v1/me/rooms/{room_id}/read_state` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: How far they have read.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    put:
+      operationId: markPeerRoomRead
+      tags: [Peers]
+      summary: Mark a room read, for a member from another installation
+      description: Served exactly as `PUT /v1/me/rooms/{room_id}/read_state` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnReadStateRequest"
+      responses:
+        "200":
+          description: The position that now holds.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReadState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/messages/{message_id}:
+    patch:
+      operationId: editPeerMessage
+      tags: [Peers]
+      summary: Change a message, for its author from another installation
+      description: Served exactly as `PATCH /v1/me/messages/{message_id}` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OwnMessageRequest"
+      responses:
+        "200":
+          description: The message as it now reads.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/messages/{message_id}/delete:
+    post:
+      operationId: withdrawPeerMessage
+      tags: [Peers]
+      summary: Withdraw a message, for its author from another installation
+      description: Served exactly as `POST /v1/me/messages/{message_id}/delete` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/MessageID"
+      responses:
+        "200":
+          description: The message as a tombstone.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/members:
+    get:
+      operationId: listPeerRoomMembers
+      tags: [Peers]
+      summary: Who is in a room, for a member from another installation
+      description: Served exactly as `GET /v1/me/rooms/{room_id}/members` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/MembershipCursor"
+      responses:
+        "200":
+          description: One page of who is in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/leave:
+    post:
+      operationId: leavePeerRoom
+      tags: [Peers]
+      summary: Leave a room, for a member from another installation
+      description: Served exactly as `POST /v1/me/rooms/{room_id}/leave` is.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The person is no longer in the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me:
     get:
       operationId: getMe
@@ -6272,6 +7229,19 @@ components:
         Convia stores only a digest, so a copy of the database yields no
         working sessions, and revocation takes effect on the next request
         because Convia is the only party that verifies it.
+
+    PeerSignature:
+      type: apiKey
+      in: header
+      name: Convia-Signature
+      description: |
+        Another installation acting for one person, proved by a signature with that person's key.
+
+        Five headers travel together: `Convia-Account` (the account identifier), `Convia-Public-Key` (the Ed25519 public key, base64), `Convia-Timestamp` (Unix seconds), `Convia-Nonce` (26 base32 characters), and `Convia-Signature` (base64). The signature covers, one per line: `convia-peer-v1`, the method, the authority the request was addressed to, the path and query, the lowercase hex SHA-256 of the body, the account identifier, the timestamp, and the nonce.
+
+        The home accepts it only when the key's fingerprint is the account identifier, the signature verifies, the timestamp is within five minutes of its own clock, and the nonce has not been seen. The authority is signed so that a home cannot replay a request it received to another installation.
+
+        Nothing is issued and nothing is stored but the nonce. On the invitation routes the signer may be anybody; on the room routes they must already be a member, made by accepting an invitation.
 
     InvitationKey:
       type: http
@@ -7723,6 +8693,177 @@ components:
           description: The furthest message read, by its `sequence`.
           example: 42
 
+    RoomInvitationId:
+      type: string
+      description: Opaque identifier of an invitation into a room.
+      pattern: "^rin_[A-Z2-7]{26}$"
+      example: rin_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    RemoteRoomId:
+      type: string
+      description: Opaque identifier of a person's pointer to a room on another installation.
+      pattern: "^rrm_[A-Z2-7]{26}$"
+      example: rrm_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    Handle:
+      type: string
+      description: |
+        How a person is named to somebody else: the username, a `#`, the account identifier without its prefix, and one Luhn mod 32 check character. Input is forgiving about case, surrounding spaces, and dashes or spaces inside the identifier; a check character that does not match is refused.
+      example: bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH
+
+    RoomInvitationRequest:
+      type: object
+      description: Who to invite, by handle.
+      required: [handle]
+      additionalProperties: false
+      properties:
+        handle:
+          $ref: "#/components/schemas/Handle"
+
+    RoomInvitation:
+      type: object
+      description: |
+        An invitation, and the link to send.
+
+        The link names this installation by the address the request came from. It carries nothing that grants access, so it can be sent through any channel.
+      required: [id, link, invitee, expires_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/RoomInvitationId"
+        link:
+          type: string
+          format: uri
+          example: https://convia.example/invitations/rin_7KQZP4XN2VJH6TBWMDR3YAFC5E
+        invitee:
+          $ref: "#/components/schemas/Handle"
+        expires_at:
+          type: string
+          format: date-time
+
+    InvitationLinkRequest:
+      type: object
+      description: An invitation link somebody was sent.
+      required: [link]
+      additionalProperties: false
+      properties:
+        link:
+          type: string
+          maxLength: 400
+          example: https://convia.example/invitations/rin_7KQZP4XN2VJH6TBWMDR3YAFC5E
+
+    InvitationLook:
+      type: object
+      description: What an invitation link is for, as its home describes it to the person it names.
+      required: [home, room_name, inviter, invitee, expires_at]
+      additionalProperties: false
+      properties:
+        home:
+          type: string
+          description: The scheme and authority of the installation the room lives on.
+          example: https://convia.example
+        room_name:
+          type: string
+          example: Standup
+        inviter:
+          type: string
+          description: Who sent the invitation, by handle where they have one.
+          example: ana#7KQZP4XN2VJH6TBWMDR3YAFC5EC
+        invitee:
+          $ref: "#/components/schemas/Handle"
+        expires_at:
+          type: string
+          format: date-time
+
+    RemoteRoom:
+      type: object
+      description: |
+        A room this person belongs to on another installation. A pointer and a label: nothing said in it is kept here.
+      required: [id, home, room_id, user_id, name]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/RemoteRoomId"
+        home:
+          type: string
+          example: https://convia.example
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        user_id:
+          allOf:
+            - $ref: "#/components/schemas/UserId"
+          description: Who this person is at the home, so their own messages can be told apart.
+        name:
+          type: string
+          example: Standup
+
+    RemoteRoomPage:
+      type: object
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteRoom"
+
+    JoinedRoom:
+      type: object
+      description: |
+        The room an accepted link joined. `remote_room` is present when the room lives on another installation; when it lives here, the person is simply a member of it and it appears among their own rooms.
+      required: [room_id, room_name]
+      additionalProperties: false
+      properties:
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        room_name:
+          type: string
+        remote_room:
+          $ref: "#/components/schemas/RemoteRoom"
+
+    PeerInvitation:
+      type: object
+      description: An invitation, described by its home to the installation of the person it names.
+      required: [room_name, inviter, invitee, expires_at]
+      additionalProperties: false
+      properties:
+        room_name:
+          type: string
+        inviter:
+          type: string
+        invitee:
+          $ref: "#/components/schemas/Handle"
+        expires_at:
+          type: string
+          format: date-time
+
+    PeerAcceptRequest:
+      type: object
+      description: The username of the person accepting. It must be the one the invitation named.
+      required: [username]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          maxLength: 32
+          example: bia
+
+    PeerAccepted:
+      type: object
+      description: The room the person joined at its home, and who they are there.
+      required: [room_id, room_name, user_id, local]
+      additionalProperties: false
+      properties:
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        room_name:
+          type: string
+        user_id:
+          $ref: "#/components/schemas/UserId"
+        local:
+          type: boolean
+          description: True when the person signs in at the home itself, so no pointer is needed.
+
     SidebarRoom:
       type: object
       description: |
@@ -8797,6 +9938,22 @@ components:
         enum: [older, newer]
         default: older
 
+    RoomInvitationID:
+      name: invitation_id
+      in: path
+      required: true
+      description: The room invitation's opaque identifier.
+      schema:
+        $ref: "#/components/schemas/RoomInvitationId"
+
+    RemoteRoomID:
+      name: remote_room_id
+      in: path
+      required: true
+      description: The identifier of this person's pointer to a room on another installation.
+      schema:
+        $ref: "#/components/schemas/RemoteRoomId"
+
     RoomID:
       name: room_id
       in: path
@@ -8987,6 +10144,24 @@ components:
             error:
               code: invalid_request
               message: The request body must not be empty.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    SignatureRequired:
+      description: |
+        The request between installations is not signed by anybody this installation can verify.
+
+        Every reason is this one answer: no signature, a key whose fingerprint is not the claimed identifier, a signature that does not verify, a timestamp outside the window, a nonce already seen, or — on a room route — a signer who is not somebody here.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unauthenticated
+              message: The request did not carry a usable credential.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     SessionRequired:

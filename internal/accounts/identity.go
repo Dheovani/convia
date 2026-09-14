@@ -195,6 +195,78 @@ func Open(sealed SealedKey, public ed25519.PublicKey, password Password) (Identi
 	return Identity{Public: derived, private: private}, nil
 }
 
+// Sign signs a message with the account's private key.
+func (identity Identity) Sign(message []byte) []byte {
+	return ed25519.Sign(identity.private, message)
+}
+
+// wrappedLength is the size of a wrapped key: a nonce, the seed, and the tag.
+const wrappedLength = nonceLength + ed25519.SeedSize + 16
+
+/*
+Wrap encrypts a private key under a key that is not a password.
+
+It is for holding a key that was already opened with the password, for as long
+as something else — a session, whose secret only its browser holds — is proof
+the person is still there. The key must be 32 random bytes; nothing slow is
+derived from it, because it was never guessable. bound is authenticated with the
+ciphertext, so a wrapped key moved to another row does not unwrap there.
+*/
+func Wrap(identity Identity, key, bound []byte) ([]byte, error) {
+	aead, err := wrapCipher(key)
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := make([]byte, nonceLength, wrappedLength)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("read nonce: %w", err)
+	}
+	return aead.Seal(nonce, nonce, identity.private.Seed(), bound), nil
+}
+
+/*
+Unwrap reverses [Wrap], and checks that what comes out is the account's key.
+
+Every failure is [ErrKeyUnreadable]: a caller holding the right key and binding
+always succeeds, so anything else is a damaged row or the wrong one.
+*/
+func Unwrap(wrapped, key, bound []byte, public ed25519.PublicKey) (Identity, error) {
+	if len(wrapped) != wrappedLength {
+		return Identity{}, fmt.Errorf("%w: wrapped length", ErrKeyUnreadable)
+	}
+
+	aead, err := wrapCipher(key)
+	if err != nil {
+		return Identity{}, err
+	}
+
+	seed, err := aead.Open(nil, wrapped[:nonceLength], wrapped[nonceLength:], bound)
+	if err != nil {
+		return Identity{}, fmt.Errorf("%w: the wrapped key does not open", ErrKeyUnreadable)
+	}
+
+	private := ed25519.NewKeyFromSeed(seed)
+	derived, _ := private.Public().(ed25519.PublicKey)
+	if !bytes.Equal(derived, public) {
+		return Identity{}, fmt.Errorf("%w: the key does not match the account", ErrKeyUnreadable)
+	}
+	return Identity{Public: derived, private: private}, nil
+}
+
+func wrapCipher(key []byte) (cipher.AEAD, error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("build the wrapping cipher: %w", err)
+	}
+
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("build the wrapping cipher: %w", err)
+	}
+	return aead, nil
+}
+
 // SealStale reports whether a sealed key was derived with weaker parameters
 // than Convia now uses. An unreadable one is as good a reason to replace it.
 func SealStale(sealed SealedKey) bool {

@@ -24,6 +24,7 @@ import (
 	"convia/internal/messages"
 	"convia/internal/operator"
 	"convia/internal/participants"
+	"convia/internal/peers"
 	"convia/internal/presence"
 	"convia/internal/rooms"
 	"convia/internal/secret"
@@ -308,6 +309,10 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
+
+		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
+		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
+		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
 	}
 }
 

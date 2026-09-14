@@ -52,5 +52,5 @@ Signing in is budgeted by its failures. Registering is limited by every attempt,
 - **Every account created under ADR 0007 is gone.** Migration `00019` replaces the `accounts` and `sessions` tables: an old account's identifier cannot become a key's fingerprint, and its key cannot be sealed by a password Convia never held. The user rows those accounts pointed at, and the rooms and messages that name them, are left alone.
 - **A forgotten password loses the account.** Deliberate, and the one consequence a person will actually meet.
 - **Whoever runs the machine still decides who signs in**, through suspension, and can still insert rows. What they cannot do is use somebody's key.
-- **Nothing uses the key yet.** Invitations between installations are the next piece of work; the identifier had to be a key's fingerprint from the first account, because it cannot be changed afterwards.
+- **The key signs requests between installations**, which [ADR 0012](0012-a-room-lives-on-one-installation-and-visitors-sign.md) decides. The identifier had to be a key's fingerprint from the first account, because it cannot be changed afterwards.
 - **Not adopted, and left for the product owner:** a short verification code two people compare out of band on first contact, which would stop somebody in the middle substituting an invitation.

@@ -93,6 +93,8 @@ Origin: https://convia.example
 
 The answer is the same `201` body and cookie as creating an account.
 
+**Signing in also opens the account's key, and the session holds it** — wrapped with AES-256-GCM under a key derived by HKDF from the session's own secret, which Convia stores only as a SHA-256 digest. That is what lets this installation sign for the person toward another installation while they are signed in, and at no other time: the database alone opens nothing, and signing out ends it. See [`peers.md`](peers.md).
+
 `user_id` is the identifier **every other part of Convia** addresses this person by. An account is not a second notion of who somebody is: it points at a row in the first-party application's users, whose external subject is the account identifier and whose display name is the username, so rooms, calls, participants, and presence keep working through the domains that already exist.
 
 ### Every failure is the same failure
@@ -211,7 +213,7 @@ convia account activate acc_7KQZP4XN2VJH6TBWMDR3YAFC5E
 
 ## Known gaps
 
-- **Nothing uses the key yet.** Invitations between installations are the next piece of work; the identifier had to be a key's fingerprint from the first account, because it cannot be changed after.
+- **Signing in costs two argon2id derivations**: one to verify the password, one to open the key the session holds.
 - **No verification code on first contact.** Two people comparing a short code out of band would stop somebody in the middle substituting an invitation. Named, not adopted.
 - **No per-account rate limiting.** Failed sign-ins are budgeted per caller address. An attacker spread across many addresses is bounded only by the password's strength. A naive per-account lockout is a denial of service against a named person; doing it properly needs state shared between instances.
 - **Registration is rationed per address, per instance.** Several instances each allow twenty an hour, as every limiter in Convia does until it moves to Redis.

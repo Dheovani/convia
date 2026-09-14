@@ -141,38 +141,38 @@ application is its identifier rather than its username. A subject stays
 reserved after a user is deleted, and a username is a thing a person chose and
 may one day want back.
 */
-func (service *Service) Register(ctx context.Context, username string, password Password) (Account, error) {
+func (service *Service) Register(ctx context.Context, username string, password Password) (Account, Identity, error) {
 	name, err := NormalizeUsername(username)
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	password, err = NormalizePassword(password)
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	taken, err := service.store.UsernameTaken(ctx, name)
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 	if taken {
-		return Account{}, ErrUsernameTaken
+		return Account{}, Identity{}, ErrUsernameTaken
 	}
 
 	identity, err := NewIdentity()
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	digest, err := service.hash(ctx, password)
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	sealed, err := service.seal(ctx, identity, password)
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	person, _, err := service.people.Resolve(ctx, service.application, users.Identity{
@@ -180,7 +180,7 @@ func (service *Service) Register(ctx context.Context, username string, password 
 		DisplayName:     name,
 	})
 	if err != nil {
-		return Account{}, fmt.Errorf("resolve the account's user: %w", err)
+		return Account{}, Identity{}, fmt.Errorf("resolve the account's user: %w", err)
 	}
 
 	created := now()
@@ -195,15 +195,15 @@ func (service *Service) Register(ctx context.Context, username string, password 
 	}
 
 	if err := service.store.Create(ctx, account, digest, sealed); err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	service.audit(ctx, "account.registered", account)
-	return account, nil
+	return account, identity, nil
 }
 
 /*
-Authenticate verifies a username and a password.
+Authenticate verifies a username and a password, and opens the account's key.
 
 The order of the checks is the whole security of this function, and it is the
 order internal/credentials already established: **the password is verified
@@ -215,8 +215,13 @@ uninformative work first and answering identically afterwards.
 
 A username nobody has is compared against a decoy so that it costs the same as
 one somebody does.
+
+The key is opened only once everything else succeeded, because signing in is
+the one moment the password is in hand: a session keeps the opened key so that
+Convia can act as this person toward another installation while they are signed
+in, and at no other time.
 */
-func (service *Service) Authenticate(ctx context.Context, username string, password Password) (Account, error) {
+func (service *Service) Authenticate(ctx context.Context, username string, password Password) (Account, Identity, error) {
 	normalized, err := NormalizeUsername(username)
 	if err != nil {
 		/*
@@ -226,7 +231,7 @@ func (service *Service) Authenticate(ctx context.Context, username string, passw
 			not a username" from "this is not your password", which is a
 			distinction an attacker can use to skip work.
 		*/
-		return Account{}, ErrUnauthenticated
+		return Account{}, Identity{}, ErrUnauthenticated
 	}
 
 	account, digest, sealed, err := service.store.Credentials(ctx, normalized)
@@ -237,26 +242,31 @@ func (service *Service) Authenticate(ctx context.Context, username string, passw
 			somehow did, the answer is still a refusal.
 		*/
 		if _, hashErr := service.verify(ctx, decoy, password); hashErr != nil {
-			return Account{}, hashErr
+			return Account{}, Identity{}, hashErr
 		}
-		return Account{}, ErrUnauthenticated
+		return Account{}, Identity{}, ErrUnauthenticated
 	}
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 
 	matches, err := service.verify(ctx, digest, password)
 	if err != nil {
-		return Account{}, err
+		return Account{}, Identity{}, err
 	}
 	if !matches {
 		service.refused(ctx, account.ID, "password")
-		return Account{}, ErrUnauthenticated
+		return Account{}, Identity{}, ErrUnauthenticated
 	}
 
 	if !account.Active() {
 		service.refused(ctx, account.ID, "status")
-		return Account{}, ErrUnauthenticated
+		return Account{}, Identity{}, ErrUnauthenticated
+	}
+
+	identity, err := service.open(ctx, sealed, account.PublicKey, password)
+	if err != nil {
+		return Account{}, Identity{}, err
 	}
 
 	/*
@@ -266,11 +276,11 @@ func (service *Service) Authenticate(ctx context.Context, username string, passw
 		because an optional upgrade did not land would be the worse outcome.
 	*/
 	if Stale(digest) || SealStale(sealed) {
-		service.upgrade(ctx, account, sealed, password)
+		service.upgrade(ctx, account, identity, password)
 	}
 
 	service.audit(ctx, "account.authenticated", account)
-	return account, nil
+	return account, identity, nil
 }
 
 /*
@@ -283,52 +293,52 @@ check: a session that was stolen would otherwise be enough to lock the owner out
 of their own account permanently — and, since the key is sealed by the password,
 out of their own identity with it.
 */
-func (service *Service) ChangePassword(ctx context.Context, id string, current, next Password) error {
+func (service *Service) ChangePassword(ctx context.Context, id string, current, next Password) (Identity, error) {
 	account, err := service.store.Get(ctx, id)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	_, digest, sealed, err := service.store.Credentials(ctx, account.Username)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	matches, err := service.verify(ctx, digest, current)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 	if !matches {
 		service.refused(ctx, id, "password")
-		return ErrUnauthenticated
+		return Identity{}, ErrUnauthenticated
 	}
 
 	normalized, err := NormalizePassword(next)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	identity, err := service.open(ctx, sealed, account.PublicKey, current)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	replacement, err := service.hash(ctx, normalized)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	resealed, err := service.seal(ctx, identity, normalized)
 	if err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	if err := service.store.SetSecrets(ctx, id, replacement, resealed, now()); err != nil {
-		return err
+		return Identity{}, err
 	}
 
 	service.audit(ctx, "account.password_changed", account)
-	return nil
+	return identity, nil
 }
 
 // Get returns one account.
@@ -468,12 +478,7 @@ Best effort by design: it runs after a successful sign-in, and its failure
 costs an upgrade rather than an authentication. Both are replaced together, as
 every change to them is, so the two never describe different passwords.
 */
-func (service *Service) upgrade(ctx context.Context, account Account, sealed SealedKey, password Password) {
-	identity, err := service.open(ctx, sealed, account.PublicKey, password)
-	if err != nil {
-		return
-	}
-
+func (service *Service) upgrade(ctx context.Context, account Account, identity Identity, password Password) {
 	digest, err := service.hash(ctx, password)
 	if err != nil {
 		return

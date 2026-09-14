@@ -165,6 +165,34 @@ func (store *Store) resolve(ctx context.Context, candidate User) (User, bool, er
 	return result.user(), result.Created, nil
 }
 
+/*
+BySubject returns the user an external subject maps to, without creating one.
+
+It is for a caller who may only act as somebody who already exists — a person
+from another installation, whose place was made when an invitation was accepted
+and must not be made again by any signed request that happens to arrive.
+*/
+func (store *Store) BySubject(ctx context.Context, applicationID, subject string) (User, error) {
+	const statement = `SELECT ` + columns + ` FROM users
+	                   WHERE application_id = $1 AND external_subject = $2 AND status <> $3`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, subject, StatusDeleted)
+	if err != nil {
+		return User{}, fmt.Errorf("query user: %w", err)
+	}
+
+	record, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[row])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+
+	if err != nil {
+		return User{}, fmt.Errorf("read user: %w", err)
+	}
+
+	return record.user(), nil
+}
+
 // Get returns one user within its application.
 func (store *Store) Get(ctx context.Context, applicationID, id string) (User, error) {
 	const statement = `SELECT ` + columns + ` FROM users

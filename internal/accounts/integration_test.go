@@ -133,7 +133,7 @@ func TestRegisteringMakesTheUserItPointsAt(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	account, err := setup.service.Register(ctx, "Ana", samplePassword)
+	account, _, err := setup.service.Register(ctx, "Ana", samplePassword)
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -182,10 +182,10 @@ func TestAUsernameNamesOneAccount(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	if _, err := setup.service.Register(ctx, "ana", samplePassword); err != nil {
+	if _, _, err := setup.service.Register(ctx, "ana", samplePassword); err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	if _, err := setup.service.Register(ctx, "ANA", "a different password"); !errors.Is(err, ErrUsernameTaken) {
+	if _, _, err := setup.service.Register(ctx, "ANA", "a different password"); !errors.Is(err, ErrUsernameTaken) {
 		t.Errorf("Register() with a taken name error = %v, want %v", err, ErrUsernameTaken)
 	}
 
@@ -197,7 +197,7 @@ func TestAUsernameNamesOneAccount(t *testing.T) {
 	)
 	for range racers {
 		wait.Go(func() {
-			_, err := setup.service.Register(ctx, "bruno", samplePassword)
+			_, _, err := setup.service.Register(ctx, "bruno", samplePassword)
 			mutex.Lock()
 			defer mutex.Unlock()
 			switch {
@@ -220,11 +220,11 @@ func TestRegisteringChecksWhatItIsGiven(t *testing.T) {
 	ctx := context.Background()
 
 	var validation ValidationError
-	if _, err := setup.service.Register(ctx, "a b", samplePassword); !errors.As(err, &validation) ||
+	if _, _, err := setup.service.Register(ctx, "a b", samplePassword); !errors.As(err, &validation) ||
 		validation.Field != "username" {
 		t.Errorf("an unusable username error = %v, want a validation error about the username", err)
 	}
-	if _, err := setup.service.Register(ctx, "ana", "short"); !errors.As(err, &validation) ||
+	if _, _, err := setup.service.Register(ctx, "ana", "short"); !errors.As(err, &validation) ||
 		validation.Field != "password" {
 		t.Errorf("a short password error = %v, want a validation error about the password", err)
 	}
@@ -239,7 +239,7 @@ func TestTheKeyOpensOnlyWithThePassword(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	account, err := setup.service.Register(ctx, "ana", samplePassword)
+	account, _, err := setup.service.Register(ctx, "ana", samplePassword)
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
@@ -271,36 +271,36 @@ func TestEveryRefusalIsTheSameRefusal(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	account, err := setup.service.Register(ctx, "ana", samplePassword)
+	account, _, err := setup.service.Register(ctx, "ana", samplePassword)
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	if _, err := setup.service.Authenticate(ctx, "nobody", samplePassword); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := setup.service.Authenticate(ctx, "nobody", samplePassword); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("an unknown username error = %v, want %v", err, ErrUnauthenticated)
 	}
-	if _, err := setup.service.Authenticate(ctx, "not a username", samplePassword); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := setup.service.Authenticate(ctx, "not a username", samplePassword); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("a malformed username error = %v, want %v", err, ErrUnauthenticated)
 	}
-	if _, err := setup.service.Authenticate(ctx, "ana", "the wrong one"); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := setup.service.Authenticate(ctx, "ana", "the wrong one"); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("a wrong password error = %v, want %v", err, ErrUnauthenticated)
 	}
 
-	if _, err := setup.service.Authenticate(ctx, "Ana", samplePassword); err != nil {
+	if _, _, err := setup.service.Authenticate(ctx, "Ana", samplePassword); err != nil {
 		t.Fatalf("the right password does not work: %v", err)
 	}
 
 	if _, err := setup.service.Suspend(ctx, account.ID); err != nil {
 		t.Fatalf("Suspend() error = %v", err)
 	}
-	if _, err := setup.service.Authenticate(ctx, "ana", samplePassword); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := setup.service.Authenticate(ctx, "ana", samplePassword); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("a suspended account error = %v, want %v", err, ErrUnauthenticated)
 	}
 
 	if _, err := setup.service.Activate(ctx, account.ID); err != nil {
 		t.Fatalf("Activate() error = %v", err)
 	}
-	if _, err := setup.service.Authenticate(ctx, "ana", samplePassword); err != nil {
+	if _, _, err := setup.service.Authenticate(ctx, "ana", samplePassword); err != nil {
 		t.Errorf("activating did not restore signing in: %v", err)
 	}
 }
@@ -315,27 +315,27 @@ func TestChangingAPasswordNeedsTheCurrentOneAndKeepsTheKey(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	account, err := setup.service.Register(ctx, "ana", samplePassword)
+	account, _, err := setup.service.Register(ctx, "ana", samplePassword)
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	if err := setup.service.ChangePassword(ctx, account.ID, "not the current one",
+	if _, err := setup.service.ChangePassword(ctx, account.ID, "not the current one",
 		"a replacement password"); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("ChangePassword() without the current one error = %v, want %v", err, ErrUnauthenticated)
 	}
-	if err := setup.service.ChangePassword(ctx, account.ID, samplePassword, "short"); err == nil {
+	if _, err := setup.service.ChangePassword(ctx, account.ID, samplePassword, "short"); err == nil {
 		t.Error("ChangePassword() accepted a password below the floor")
 	}
 
-	if err := setup.service.ChangePassword(ctx, account.ID, samplePassword, "a replacement password"); err != nil {
+	if _, err := setup.service.ChangePassword(ctx, account.ID, samplePassword, "a replacement password"); err != nil {
 		t.Fatalf("ChangePassword() error = %v", err)
 	}
 
-	if _, err := setup.service.Authenticate(ctx, "ana", samplePassword); !errors.Is(err, ErrUnauthenticated) {
+	if _, _, err := setup.service.Authenticate(ctx, "ana", samplePassword); !errors.Is(err, ErrUnauthenticated) {
 		t.Error("the old password still signs in")
 	}
-	if _, err := setup.service.Authenticate(ctx, "ana", "a replacement password"); err != nil {
+	if _, _, err := setup.service.Authenticate(ctx, "ana", "a replacement password"); err != nil {
 		t.Errorf("the new password does not sign in: %v", err)
 	}
 
@@ -363,14 +363,14 @@ func TestNothingSecretReachesTheAuditLog(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	account, err := setup.service.Register(ctx, "anaribeiro", samplePassword)
+	account, _, err := setup.service.Register(ctx, "anaribeiro", samplePassword)
 	if err != nil {
 		t.Fatalf("Register() error = %v", err)
 	}
-	if _, err := setup.service.Authenticate(ctx, "anaribeiro", samplePassword); err != nil {
+	if _, _, err := setup.service.Authenticate(ctx, "anaribeiro", samplePassword); err != nil {
 		t.Fatalf("Authenticate() error = %v", err)
 	}
-	if _, err := setup.service.Authenticate(ctx, "anaribeiro", "wrong"); err == nil {
+	if _, _, err := setup.service.Authenticate(ctx, "anaribeiro", "wrong"); err == nil {
 		t.Fatal("a wrong password was accepted")
 	}
 

@@ -87,7 +87,7 @@ func newFixture(t *testing.T) fixture {
 	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
 
 	const password accounts.Password = "correct horse battery staple"
-	account, err := accountService.Register(context.Background(), "ana", password)
+	account, _, err := accountService.Register(context.Background(), "ana", password)
 	if err != nil {
 		t.Fatalf("register the account: %v", err)
 	}
@@ -162,6 +162,53 @@ func TestRegisteringOpensASession(t *testing.T) {
 
 	if _, _, err := setup.service.Register(ctx, "bruno", "another good password"); !errors.Is(err, accounts.ErrUsernameTaken) {
 		t.Errorf("registering a taken username error = %v, want %v", err, accounts.ErrUsernameTaken)
+	}
+}
+
+/*
+TestASessionHoldsTheKeyOnlyForItsToken is what lets Convia sign as somebody while
+they are signed in and at no other time: the key opens for the token that holds
+it, and for nothing that is not that token, still live.
+*/
+func TestASessionHoldsTheKeyOnlyForItsToken(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+
+	session, token := setup.signIn(t)
+
+	identity, err := setup.service.Identity(ctx, token)
+	if err != nil {
+		t.Fatalf("Identity() error = %v", err)
+	}
+	if identity.ID() != setup.account.ID {
+		t.Errorf("the session opened key %q, want the account's %q", identity.ID(), setup.account.ID)
+	}
+
+	forged := Token(session.ID, NewSecret())
+	if _, err := setup.service.Identity(ctx, forged); !errors.Is(err, ErrUnauthenticated) {
+		t.Errorf("a token with the right session and the wrong secret error = %v, want %v", err, ErrUnauthenticated)
+	}
+
+	if err := setup.service.End(ctx, session.ID); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+	if _, err := setup.service.Identity(ctx, token); !errors.Is(err, ErrUnauthenticated) {
+		t.Errorf("a signed-out session still opens the key: %v", err)
+	}
+
+	/*
+		What the table holds cannot be opened without the token's secret, and
+		the table holds only the secret's digest.
+	*/
+	_, rotated := setup.signIn(t)
+	rotatedID, _, _ := ParseToken(rotated)
+	var wrapped, digest []byte
+	if err := setup.pool.QueryRow(ctx, `SELECT wrapped_identity, secret_hash FROM sessions WHERE id = $1`,
+		rotatedID).Scan(&wrapped, &digest); err != nil {
+		t.Fatalf("read the stored session: %v", err)
+	}
+	if _, err := accounts.Unwrap(wrapped, digest, []byte(rotatedID), setup.account.PublicKey); err == nil {
+		t.Error("the stored digest unwraps the key, so the database alone can sign as this person")
 	}
 }
 

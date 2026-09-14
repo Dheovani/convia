@@ -2,9 +2,11 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -18,6 +20,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/invitations"
 	"convia/internal/operator"
+	"convia/internal/peers"
 	"convia/internal/ratelimit"
 	"convia/internal/sessions"
 )
@@ -374,6 +377,88 @@ func (verify sessionVerifier) Verify(ctx context.Context, token string) (context
 		return nil, err
 	}
 	return sessions.ContextWithPrincipal(ctx, principal), nil
+}
+
+/*
+peerAuthenticator verifies requests another installation signed for one person.
+
+It is not a [verifier], because a signature covers the method, the address and
+the body, and a verifier sees only a token. peers.Service satisfies it.
+*/
+type peerAuthenticator interface {
+	Verify(ctx context.Context, request *http.Request, body []byte) (peers.Signer, error)
+	Visit(ctx context.Context, signer peers.Signer) (sessions.Principal, error)
+}
+
+/*
+signed refuses a request between installations that is not signed by anybody
+this one can verify.
+
+It is [authenticate]'s twin for a credential that is not a token: the same
+budget, charged the same way, and the same indistinguishable refusal. The body
+is read here, bounded as every JSON body is, because the signature covers it —
+and put back, so the handler reads exactly what was verified.
+
+With visiting set, the signer must also already be somebody here, and the
+request carries them as the session surface's principal, which is what lets the
+session handlers serve a visitor without knowing one is there.
+*/
+func signed(
+	logger *slog.Logger,
+	verify peerAuthenticator,
+	visiting bool,
+	failures *ratelimit.Limiter,
+	resolve resolver,
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		source := resolve.clientAddress(request)
+		if !failures.Allows(source) {
+			slowDown(logger, response, request, "", failures.RetryAfter(source), failedAttempts)
+			return
+		}
+
+		if !peers.Presented(request) {
+			failures.Record(source)
+			refuse(logger, response, request, "")
+			return
+		}
+
+		body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, api.MaxJSONRequestBytes))
+		if err != nil {
+			failure := api.NewFailure(http.StatusRequestEntityTooLarge, api.CodePayloadTooLarge,
+				fmt.Sprintf("The request body must not exceed %d bytes.", api.MaxJSONRequestBytes))
+			if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
+				logger.Error("write payload too large response", "error", writeErr)
+			}
+			return
+		}
+		request.Body = io.NopCloser(bytes.NewReader(body))
+
+		ctx := request.Context()
+		signer, err := verify.Verify(ctx, request, body)
+		if err == nil {
+			ctx = peers.ContextWithSigner(ctx, signer)
+			if visiting {
+				var principal sessions.Principal
+				if principal, err = verify.Visit(ctx, signer); err == nil {
+					ctx = sessions.ContextWithPrincipal(ctx, principal)
+				}
+			}
+		}
+
+		if err != nil {
+			failures.Record(source)
+			if !errors.Is(err, peers.ErrUnauthenticated) {
+				logger.Error("verify signed request", "error", err,
+					"request_id", api.RequestIDFromContext(request.Context()))
+			}
+			refuse(logger, response, request, "")
+			return
+		}
+
+		next.ServeHTTP(response, request.WithContext(ctx))
+	})
 }
 
 /*
