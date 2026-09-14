@@ -23,6 +23,8 @@ interface ConversationProps {
   onExpired: () => void
   onActivity: () => void
   onLeave: () => Promise<void>
+  // onForget is set for a room on another installation.
+  onForget?: () => Promise<void>
 }
 
 function when(timestamp: string): string {
@@ -192,6 +194,7 @@ export function Conversation({
   onExpired,
   onActivity,
   onLeave,
+  onForget,
 }: ConversationProps) {
   const { messages, loading, failed, send, edit, withdraw } = useConversation(source, onExpired, onActivity)
   const {
@@ -370,6 +373,7 @@ export function Conversation({
             membersFailed={membersFailed}
             onChanged={reloadMembers}
             onLeave={onLeave}
+            {...(onForget === undefined ? {} : { onForget })}
             onExpired={onExpired}
           />
         )}

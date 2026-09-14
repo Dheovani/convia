@@ -220,6 +220,40 @@ describe('a room on another Convia', () => {
     expect(signedOut).not.toHaveBeenCalled()
   })
 
+  /*
+  A home that does not confirm is a room that cannot be left. Forgetting it here
+  is offered then and only then, and only after saying that the person stays a
+  member there.
+  */
+  it('offers to forget a room it could not leave, and says what that leaves behind', async () => {
+    const server = readingElsewhere(
+      new FakeConvia()
+        .on('GET', '/v1/me/rooms', { body: { data: [] } })
+        .on('GET', '/v1/me/remote-rooms', { body: { data: [remoteRoom] } })
+        .on('POST', `/v1/me/remote-rooms/${remoteId}/leave`, {
+          status: 503,
+          failure: { code: 'unavailable', message: 'The other Convia could not be reached.' },
+        })
+        .on('DELETE', `/v1/me/remote-rooms/${remoteId}`, { status: 204 }),
+    )
+    open(server)
+    const person = await openPeople()
+
+    expect(screen.queryByRole('button', { name: 'Forget it here' })).toBeNull()
+
+    await person.click(screen.getByRole('button', { name: 'Leave this room' }))
+    await person.click(screen.getByRole('button', { name: 'Leave' }))
+
+    expect(await screen.findByText(/elsewhere\.example still counts you as a member/)).toBeInTheDocument()
+    expect(server.asked('DELETE', `/v1/me/remote-rooms/${remoteId}`)).toBeUndefined()
+
+    server.on('GET', '/v1/me/remote-rooms', { body: { data: [] } })
+    await person.click(screen.getByRole('button', { name: 'Forget it here' }))
+
+    expect(await screen.findByText('Nothing is open.')).toBeInTheDocument()
+    expect(server.asked('DELETE', `/v1/me/remote-rooms/${remoteId}`)).toBeDefined()
+  })
+
   it('offers no way to add or invite people in a room that lives elsewhere', async () => {
     const server = readingElsewhere(
       new FakeConvia()

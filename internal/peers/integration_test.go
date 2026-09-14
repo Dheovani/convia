@@ -428,8 +428,9 @@ func TestASignedRequestIsAcceptedOnce(t *testing.T) {
 
 /*
 TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt drives the other side, with a
-stand-in for the home: one pointer however often the room is joined, and a
-pointer kept while the home cannot be reached to leave.
+stand-in for the home: one pointer however often the room is joined, a pointer
+kept while the home cannot be reached to leave, and dropped on the person's word
+without the home.
 */
 func TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt(t *testing.T) {
 	setup := newFixture(t)
@@ -465,9 +466,25 @@ func TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt(t *testing.T) {
 		t.Error("the pointer was forgotten although the home never heard the person leave")
 	}
 
+	// Still unreachable: forgetting must not need the home.
+	if err := setup.service.Forget(ctx, remembered[0]); err != nil {
+		t.Fatalf("Forget() error = %v", err)
+	}
+	if forgotten, _ := setup.service.RemoteRooms(ctx, setup.ana.ID); len(forgotten) != 0 {
+		t.Errorf("the pointer is still here after forgetting it: %+v", forgotten)
+	}
+
 	setup.relay.err = nil
+	if _, err := setup.service.Join(ctx, setup.ana, identity, link); err != nil {
+		t.Fatalf("joining again error = %v", err)
+	}
+	rejoined, _ := setup.service.RemoteRooms(ctx, setup.ana.ID)
+	if len(rejoined) != 1 {
+		t.Fatalf("RemoteRooms() after joining again = %+v, want exactly one", rejoined)
+	}
+
 	setup.relay.answers["POST /v1/peer/rooms/room_7KQZP4XN2VJH6TBWMDR3YAFC5E/leave"] = Response{Status: http.StatusNoContent}
-	if err := setup.service.Leave(ctx, identity, remembered[0]); err != nil {
+	if err := setup.service.Leave(ctx, identity, rejoined[0]); err != nil {
 		t.Fatalf("Leave() error = %v", err)
 	}
 	if left, _ := setup.service.RemoteRooms(ctx, setup.ana.ID); len(left) != 0 {

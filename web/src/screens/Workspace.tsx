@@ -165,7 +165,21 @@ export function Workspace({
       await api.leaveRemote(source.id)
       elsewhere.forget(source.id)
     }
+    settleAfter(source)
+  }
 
+  /*
+  Forgetting drops a room elsewhere from this Convia without its home. The
+  interface offers it only once leaving that room has failed.
+  */
+  async function forgetElsewhere(source: RoomSource) {
+    await api.forgetRemote(source.id)
+    elsewhere.forget(source.id)
+    settleAfter(source)
+  }
+
+  // settleAfter opens something else once a room has gone from the lists.
+  function settleAfter(source: RoomSource) {
     const next = rooms.find((room) => source.kind !== 'local' || room.id !== source.id)
     const nextElsewhere = elsewhere.remoteRooms.find((room) => source.kind !== 'remote' || room.id !== source.id)
     if (next !== undefined) {
@@ -266,6 +280,7 @@ export function Workspace({
               onExpired={onSignedOut}
               onActivity={refreshSoon}
               onLeave={() => leave(open.source)}
+              {...(open.source.kind === 'remote' ? { onForget: () => forgetElsewhere(open.source) } : {})}
             />
           )}
         </main>
