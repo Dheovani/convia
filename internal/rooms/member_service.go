@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"convia/internal/api"
 	"convia/internal/events"
@@ -422,11 +423,13 @@ func (service *Service) TransferOwner(ctx context.Context, applicationID, roomID
 		return err
 	}
 
+	fromForLog := strings.ReplaceAll(strings.ReplaceAll(from, "\n", ""), "\r", "")
+	toForLog := strings.ReplaceAll(strings.ReplaceAll(to, "\n", ""), "\r", "")
 	service.logger.InfoContext(ctx, "room.owner_transferred",
 		"application_id", applicationID,
 		"room_id", roomID,
-		"from_user_id", from,
-		"to_user_id", to,
+		"from_user_id", fromForLog,
+		"to_user_id", toForLog,
 		"request_id", api.RequestIDFromContext(ctx),
 	)
 	service.announceRole(ctx, applicationID, roomID, to, RoleOwner)
