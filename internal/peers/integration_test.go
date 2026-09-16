@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -510,5 +511,75 @@ func TestAHomeThatAnswersNonsenseIsNotBelieved(t *testing.T) {
 	}
 	if stored, _ := setup.service.RemoteRooms(ctx, setup.ana.ID); len(stored) != 0 {
 		t.Errorf("a malformed answer was stored: %+v", stored)
+	}
+}
+
+/*
+TestPendingListsOnlyWhatStillWorks is M18-028: the invitations a person made into
+a room that nobody accepted, withdrew or outlived, newest first, and nobody
+else's.
+*/
+func TestPendingListsOnlyWhatStillWorks(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+
+	bia, biaSigner := visitor(t)
+	cai, _ := visitor(t)
+	dan, _ := visitor(t)
+
+	accepted, err := setup.service.Invite(ctx, setup.inviter, setup.room.ID, accounts.Handle("bia", bia.ID()))
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	if _, err := setup.service.Accept(ctx, biaSigner, "bia", accepted.ID); err != nil {
+		t.Fatalf("Accept() error = %v", err)
+	}
+	withdrawn, err := setup.service.Invite(ctx, setup.inviter, setup.room.ID, accounts.Handle("cai", cai.ID()))
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	if err := setup.service.Revoke(ctx, setup.inviter, withdrawn.ID); err != nil {
+		t.Fatalf("Revoke() error = %v", err)
+	}
+	older, err := setup.service.Invite(ctx, setup.inviter, setup.room.ID, accounts.Handle("cai", cai.ID()))
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	newer, err := setup.service.Invite(ctx, setup.inviter, setup.room.ID, accounts.Handle("dan", dan.ID()))
+	if err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+
+	pending, err := setup.service.Pending(ctx, setup.inviter, setup.room.ID)
+	if err != nil {
+		t.Fatalf("Pending() error = %v", err)
+	}
+	var listed []string
+	for _, invitation := range pending {
+		listed = append(listed, invitation.ID)
+	}
+	if want := []string{newer.ID, older.ID}; !slices.Equal(listed, want) {
+		t.Errorf("Pending() = %v, want %v", listed, want)
+	}
+
+	bruno, _, err := setup.accounts.Register(ctx, "bruno", "another good password")
+	if err != nil {
+		t.Fatalf("register bruno: %v", err)
+	}
+	outsider := sessions.Principal{AccountID: bruno.ID, UserID: bruno.UserID, ApplicationID: applications.FirstPartyID}
+	if _, err := setup.service.Pending(ctx, outsider, setup.room.ID); !errors.Is(err, ErrRoomNotFound) {
+		t.Errorf("listing a room one is not in error = %v, want %v", err, ErrRoomNotFound)
+	}
+	if _, _, err := setup.rooms.AddMember(ctx, applications.FirstPartyID, setup.room.ID, bruno.UserID); err != nil {
+		t.Fatalf("AddMember() error = %v", err)
+	}
+	if others, err := setup.service.Pending(ctx, outsider, setup.room.ID); err != nil || len(others) != 0 {
+		t.Errorf("another member's list = %v, %v, want nothing of ana's", others, err)
+	}
+
+	later := time.Now().UTC().Add(InvitationLifetime + time.Minute)
+	setup.service.now = func() time.Time { return later }
+	if expired, err := setup.service.Pending(ctx, setup.inviter, setup.room.ID); err != nil || len(expired) != 0 {
+		t.Errorf("a day later Pending() = %v, %v, want nothing", expired, err)
 	}
 }

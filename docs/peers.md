@@ -36,7 +36,7 @@ POST /v1/me/rooms/{room_id}/invitations
 - Somebody already in the room answers `409`.
 - Somebody the room's owner banned answers `403`, and a link already sent to them stops admitting them. Lifting the ban before the link expires makes it work again.
 - A visitor is never a room's owner, and never inherits one: moderation stays on the room's home ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)).
-- **The link lasts a day and is used once.** `DELETE /v1/me/room-invitations/{id}` withdraws it before then.
+- **The link lasts a day and is used once.** `DELETE /v1/me/room-invitations/{id}` withdraws it before then, and `GET /v1/me/rooms/{room_id}/invitations` lists the ones a person made into a room that still work, with their links. Only their own: the other people in the room did not send them. The list names this installation by the address the request reached, because a page reading it sends no `Origin`.
 - **The link names this installation by the address the inviting browser used.** Opened as `localhost`, that is the inviter's own machine, and the interface says so: nobody elsewhere can follow it. Open Convia at an address others can reach.
 
 **The link is not a secret.** It can go through any channel. Accepting it needs a signature by the key whose fingerprint is Bia's identifier, and the username must be `bia`. A link forwarded to somebody else, or read on the way, lets nobody else in.

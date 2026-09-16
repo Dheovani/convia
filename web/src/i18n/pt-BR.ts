@@ -115,6 +115,16 @@ export const ptBR: Words = {
     wantAccount: 'Criar uma conta',
   },
 
+  presence: {
+    online: 'Disponível',
+    busy: 'Ocupado',
+    away: 'Ausente',
+    offline: 'Desconectado',
+    yours: 'Seu status',
+    current: (state) => `Seu status: ${state}`,
+    idle: 'Uma página parada mostra você como ausente.',
+  },
+
   rail: {
     chat: 'Conversas',
     calls: 'Chamadas',
@@ -182,6 +192,7 @@ export const ptBR: Words = {
     nothingOpen: 'Nada está aberto.',
     pickOne: 'Escolha uma conversa à esquerda, ou abra uma nova.',
     aRoom: 'uma sala',
+    roomDeleted: (room) => `${room} foi apagada.`,
   },
 
   sidebar: {
@@ -286,7 +297,14 @@ export const ptBR: Words = {
     copy: 'Copiar link',
     thisComputer:
       'Este link aponta para este computador, então só funciona para quem usa a Convia nesta mesma máquina. Abra a Convia num endereço que outras pessoas alcancem para convidá-las.',
-    anyConvia: 'Pessoas em qualquer Convia podem entrar com o identificador delas. Ele aparece no avatar.',
+    anyConvia: 'Pessoas em qualquer Convia podem entrar com o identificador delas. Ele aparece nas configurações.',
+    pendingHeading: 'Aguardando entrar',
+    pendingUnreadable: 'Não foi possível ler os convites que você fez.',
+    until: (time) => `até ${time}`,
+    copyFor: (invitee) => `Copiar o link para ${invitee}`,
+    withdraw: 'Retirar',
+    withdrawFor: (invitee) => `Retirar o convite para ${invitee}`,
+    withdrawFailed: 'Não foi possível retirar o convite. Tente de novo.',
     notConfirmed:
       'A Convia onde esta sala fica não confirmou sua saída, então você continua nela. Tente de novo mais tarde.',
     forgetFailed: 'Não foi possível esquecer esta sala. Tente de novo.',

@@ -110,6 +110,16 @@ export const en = {
     wantAccount: 'Create an account',
   },
 
+  presence: {
+    online: 'Available',
+    busy: 'Busy',
+    away: 'Away',
+    offline: 'Offline',
+    yours: 'Your status',
+    current: (state: string) => `Your status: ${state}`,
+    idle: 'An idle page shows you as away.',
+  },
+
   rail: {
     chat: 'Chat',
     calls: 'Calls',
@@ -177,6 +187,7 @@ export const en = {
     nothingOpen: 'Nothing is open.',
     pickOne: 'Pick a conversation on the left, or open a new one.',
     aRoom: 'a room',
+    roomDeleted: (room: string) => `${room} was deleted.`,
   },
 
   sidebar: {
@@ -280,7 +291,14 @@ export const en = {
     copy: 'Copy link',
     thisComputer:
       'This link names this computer, so it only works for somebody using Convia on this same machine. Open Convia at an address others can reach to invite them.',
-    anyConvia: 'People on any Convia can join with their handle. They find it on their avatar.',
+    anyConvia: 'People on any Convia can join with their handle. They find it in their settings.',
+    pendingHeading: 'Waiting to join',
+    pendingUnreadable: 'The invitations you made could not be read.',
+    until: (time: string) => `until ${time}`,
+    copyFor: (invitee: string) => `Copy the link for ${invitee}`,
+    withdraw: 'Withdraw',
+    withdrawFor: (invitee: string) => `Withdraw the invitation for ${invitee}`,
+    withdrawFailed: 'The invitation could not be withdrawn. Try again.',
     notConfirmed:
       'The Convia this room lives on did not confirm that you left, so you are still in it. Try again later.',
     forgetFailed: 'This room could not be forgotten. Try again.',

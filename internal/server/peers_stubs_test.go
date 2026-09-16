@@ -55,6 +55,12 @@ func (stubPeerService) Invite(context.Context, sessions.Principal, string, strin
 
 func (stubPeerService) Revoke(context.Context, sessions.Principal, string) error { return nil }
 
+func (service stubPeerService) Pending(ctx context.Context, principal sessions.Principal,
+	roomID string) ([]peers.Invitation, error) {
+	invitation, err := service.Invite(ctx, principal, roomID, "")
+	return []peers.Invitation{invitation}, err
+}
+
 func (stubPeerService) Look(context.Context, accounts.Identity, string) (peers.Link, peers.Preview, error) {
 	preview, _ := stubPeerHost{}.Preview(context.Background(), peers.Signer{}, "")
 	return peers.Link{Home: "https://convia.example"}, preview, nil

@@ -371,6 +371,7 @@ func (service *Service) Update(ctx context.Context, applicationID, id string,
 	}
 
 	service.audit(ctx, "room.updated", room)
+	service.announceRoom(ctx, events.RoomUpdated, room.ApplicationID, room.ID)
 	return room, nil
 }
 
@@ -419,22 +420,24 @@ because an administrator tidied up a listing would be the wrong default, so a
 call in progress runs to its end.
 */
 func (service *Service) Close(ctx context.Context, applicationID, id string) (Room, error) {
-	return service.transition(ctx, applicationID, id, StatusClosed, "room.closed")
+	return service.transition(ctx, applicationID, id, StatusClosed, events.RoomClosed)
 }
 
 // Reopen returns a closed room to service.
 func (service *Service) Reopen(ctx context.Context, applicationID, id string) (Room, error) {
-	return service.transition(ctx, applicationID, id, StatusOpen, "room.reopened")
+	return service.transition(ctx, applicationID, id, StatusOpen, events.RoomReopened)
 }
 
 /*
 transition moves a room between lifecycle states.
 
-Repeating a transition succeeds and records nothing further, so a client that
-retries after a timeout is never punished for it.
+Repeating a transition succeeds and announces nothing further, so a client that
+retries after a timeout is never punished for it, and nobody is told twice.
+Whether it changed is read just before the write; two transitions racing each
+other may both announce, which costs a subscriber one extra read.
 */
 func (service *Service) transition(ctx context.Context, applicationID, id string,
-	status Status, event string) (Room, error) {
+	status Status, event events.Type) (Room, error) {
 	if err := service.requireApplication(ctx, applicationID); err != nil {
 		return Room{}, err
 	}
@@ -442,13 +445,30 @@ func (service *Service) transition(ctx context.Context, applicationID, id string
 		return Room{}, ErrNotFound
 	}
 
+	before, err := service.store.Get(ctx, applicationID, id)
+	if err != nil {
+		return Room{}, err
+	}
+
 	room, err := service.store.SetStatus(ctx, applicationID, id, status, now())
 	if err != nil {
 		return Room{}, err
 	}
 
-	service.audit(ctx, event, room)
+	service.audit(ctx, string(event), room)
+	if before.Status != status {
+		service.announceRoom(ctx, event, room.ApplicationID, room.ID)
+	}
 	return room, nil
+}
+
+/*
+announceRoom tells whoever is listening that a room changed. It names the room
+and nothing else: its name is a label somebody chose, and whoever may read it
+reads it back.
+*/
+func (service *Service) announceRoom(ctx context.Context, kind events.Type, applicationID, roomID string) {
+	service.stream.Publish(ctx, events.New(kind, applicationID, roomID, api.RequestIDFromContext(ctx), nil))
 }
 
 /*
@@ -475,6 +495,7 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 	}
 
 	service.audit(ctx, "room.deleted", Room{ID: id, ApplicationID: applicationID})
+	service.announceRoom(ctx, events.RoomDeleted, applicationID, id)
 
 	// Nobody can find a call in a room that is gone, so the call ends with it.
 	if service.calls != nil {

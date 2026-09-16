@@ -17,18 +17,20 @@ What streams:
   - somebody being given a place in a room or losing one, because since M18 a
     person can do that to another person, and the person it was done to is not
     the one who made the request;
+  - a room being changed, closed, reopened or deleted, for the same reason:
+    since M18 a room's owner does it, and everybody else in the room did not;
   - whether somebody is available, because that is the shortest-lived thing
     Convia holds at all.
 
 What does not, and why:
 
-  - **Rooms, users, credentials, and applications.** These change because the
+  - **Users, credentials, and applications.** These change because the
     application changed them, through a request that already returned the new
     state. Announcing it back would tell a client what it just did.
   - **A connection credential being issued.** It is the result of a request the
     subscriber made, and it is a fact about a secret. Nothing learns anything
     it did not already have.
-  - **An invitation being issued or withdrawn.** Same reason as rooms: the
+  - **An invitation being issued or withdrawn.** Same reason as users: the
     application did it.
   - **An invitation being redeemed.** This one is somebody else's act, but it
     is already delivered as `participant.joined`, which carries the invitation
@@ -39,7 +41,7 @@ invitee's own act, it is the only signal that somebody is not coming, and
 nothing else observes it.
 
 Presence is the other exception, and it is the interesting one, because an
-application asserts it — which is the very reason rooms and users are absent.
+application asserts it — which is the very reason users are absent.
 The difference is that **the assertion is not the change**. What a subscriber is
 told is the aggregate across a person's devices, and the moment it lapses on a
 timer; the instance that sent the heartbeat knows neither. See internal/presence.
@@ -106,8 +108,8 @@ const (
 	/*
 		MessagePosted reports that somebody said something in a room.
 
-		It streams for the reason rooms and users do not. A room being renamed
-		is the application telling itself what it just did; a message is the
+		It streams for the reason users do not. A user being renamed is the
+		application telling itself what it just did; a message is the
 		application's *other* instances learning what one of them did, and the
 		people they are holding connections for are waiting on it. Since M16 a
 		backend is several processes, and the one that handled the post is
@@ -137,8 +139,7 @@ const (
 	/*
 		MemberAdded reports that somebody now has a place in a room.
 
-		Rooms do not stream, and membership did not either while only an
-		application changed it. Since M18-003 a person adds another person, and
+		Membership did not stream while only an application changed it. Since M18-003 a person adds another person, and
 		the one added is waiting on a sidebar that has no other way to learn it.
 		The name is the audit trail's, as every type's is.
 	*/
@@ -151,6 +152,29 @@ const (
 		that claimed to know which it was would be guessing.
 	*/
 	MemberRemoved Type = "room.member_removed"
+	/*
+		RoomUpdated reports that a room now reads differently: its name, or
+		anything else an application may change about it.
+
+		Rooms did not stream while only an application changed them, because
+		the application would only be telling itself what it just did. Since
+		M18-025 a room's owner changes it too, and the other people in it have
+		no way to learn that but an event. It carries no data: the name is a
+		label somebody chose, and it is read back by whoever may read it.
+	*/
+	RoomUpdated Type = "room.updated"
+	// RoomClosed reports that a room stopped taking anything new. What was said
+	// stays readable.
+	RoomClosed Type = "room.closed"
+	// RoomReopened reports that a closed room is in use again.
+	RoomReopened Type = "room.reopened"
+	/*
+		RoomDeleted reports that a room is gone, for everybody who was in it.
+
+		It is the last event about the room anybody receives: a person's stream
+		stops covering the room as it delivers this.
+	*/
+	RoomDeleted Type = "room.deleted"
 	/*
 		PresenceChanged reports that Convia will now say something different
 		about whether one of an application's people is available.
@@ -182,6 +206,7 @@ func Types() []Type {
 		InvitationDeclined,
 		MessagePosted, MessageEdited, MessageDeleted,
 		MemberAdded, MemberRemoved,
+		RoomUpdated, RoomClosed, RoomReopened, RoomDeleted,
 		PresenceChanged,
 	}
 }
@@ -262,7 +287,7 @@ func subjectOf(kind Type) (SubjectType, bool) {
 		return SubjectInvitation, true
 	case MessagePosted, MessageEdited, MessageDeleted:
 		return SubjectMessage, true
-	case MemberAdded, MemberRemoved:
+	case MemberAdded, MemberRemoved, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
 		return SubjectRoom, true
 	case PresenceChanged:
 		return SubjectUser, true

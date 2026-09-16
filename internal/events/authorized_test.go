@@ -61,10 +61,15 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeMembersRead),
 			expected:  []Type{MemberAdded, MemberRemoved},
 		},
+		"rooms only": {
+			principal: holding(credentials.ScopeEventsRead, credentials.ScopeRoomsRead),
+			expected:  []Type{RoomUpdated, RoomClosed, RoomReopened, RoomDeleted},
+		},
 		"everything": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead,
 				credentials.ScopeParticipantsRead, credentials.ScopeInvitationsRead,
-				credentials.ScopeMessagesRead, credentials.ScopeMembersRead, credentials.ScopePresenceRead),
+				credentials.ScopeMessagesRead, credentials.ScopeMembersRead, credentials.ScopeRoomsRead,
+				credentials.ScopePresenceRead),
 			expected: Types(),
 		},
 		/*
@@ -117,7 +122,7 @@ answered with an error.
 */
 func TestACredentialWithNothingToReceiveIsRefusedRatherThanConnected(t *testing.T) {
 	broker := NewBroker()
-	principal := holding(credentials.ScopeEventsRead, credentials.ScopeRoomsRead)
+	principal := holding(credentials.ScopeEventsRead, credentials.ScopeUsersRead)
 
 	if _, err := Authorize(broker, principal).Subscribe(); !errors.Is(err, ErrForbidden) {
 		t.Errorf("Subscribe() with nothing to receive error = %v, want %v", err, ErrForbidden)

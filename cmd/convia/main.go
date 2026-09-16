@@ -296,6 +296,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantEvents:       events.NewTenantHandler(logger, broker),
 		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
 		TenantPresence:     presence.NewTenantHandler(logger, presenceService),
+		PersonalPresence:   presence.NewPersonalHandler(logger, presenceService, roomService),
 
 		InvitationAuthenticator: invitationService,
 		Invitations:             invitations.NewHolderHandler(logger, invitationService),

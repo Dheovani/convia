@@ -184,6 +184,9 @@ type Dependencies struct {
 	*/
 	TenantPresence *presence.TenantHandler
 
+	// PersonalPresence is the same presence, asserted by a person's own pages.
+	PersonalPresence *presence.PersonalHandler
+
 	/*
 		The invitation surface is authenticated by an invitation itself, which
 		is what makes it authorization rather than a record of the
@@ -1009,6 +1012,8 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodPost, path: api.Prefix + "/me/rooms/{room_id}/invitations", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Invite)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/rooms/{room_id}/invitations", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Pending)},
 			route{method: http.MethodDelete, path: api.Prefix + "/me/room-invitations/{invitation_id}",
 				surface: surfaceSession, handler: http.HandlerFunc(invitations.Revoke)},
 			route{method: http.MethodPost, path: api.Prefix + "/me/invitation-previews", surface: surfaceSession,
@@ -1102,6 +1107,22 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.TenantPresence.Forget)},
 			route{method: http.MethodGet, path: api.Prefix + "/presence", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantPresence.List)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalPresence != nil {
+		/*
+			A person's own pages, each a device, and the people they share a
+			room with. The people are named in the query, as an application's
+			read names them.
+		*/
+		table = append(table,
+			route{method: http.MethodPut, path: api.Prefix + "/me/presence/{device_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalPresence.Assert)},
+			route{method: http.MethodDelete, path: api.Prefix + "/me/presence/{device_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalPresence.Withdraw)},
+			route{method: http.MethodGet, path: api.Prefix + "/me/people/presence", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalPresence.People)},
 		)
 	}
 

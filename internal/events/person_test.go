@@ -312,3 +312,30 @@ func TestEveryTypeAPersonHearsHappensInARoom(t *testing.T) {
 		}
 	}
 }
+
+/*
+TestARoomsChangesReachOnlyThoseInIt is M18-029: a room its owner renamed, closed
+or deleted is news to everybody else in it, and to nobody outside it. Deleting it
+is the last they hear of it.
+*/
+func TestARoomsChangesReachOnlyThoseInIt(t *testing.T) {
+	broker := NewBroker()
+	inside := listen(t, broker, "usr_ana", "room_a")
+	outside := listen(t, broker, "usr_bea", "room_b")
+
+	for _, kind := range []Type{RoomUpdated, RoomClosed, RoomReopened} {
+		broker.Publish(New(kind, "app_1", "room_a", "req_1", nil))
+		if got := receive(t, inside).Type; got != kind {
+			t.Errorf("the person in the room received %q, want %q", got, kind)
+		}
+	}
+	quiet(t, outside)
+
+	broker.Publish(New(RoomDeleted, "app_1", "room_a", "req_1", nil))
+	if got := receive(t, inside).Type; got != RoomDeleted {
+		t.Fatalf("the person in the room received %q, want to hear it was deleted", got)
+	}
+	broker.Publish(posted("room_a"))
+	quiet(t, inside)
+	quiet(t, outside)
+}

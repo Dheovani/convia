@@ -143,6 +143,47 @@ func (store *Store) RevokeInvitation(
 }
 
 /*
+PendingInvitations lists the invitations one person made into one room that can
+still be accepted, newest first.
+
+A person sees only their own: an invitation is a message they sent, and the
+other people in the room did not send it.
+*/
+func (store *Store) PendingInvitations(
+	ctx context.Context,
+	applicationID,
+	roomID,
+	inviterUserID string,
+	at time.Time,
+	limit int,
+) ([]Invitation, error) {
+	statement := `SELECT ` + invitationColumns + ` FROM room_invitations
+		WHERE application_id = $1 AND room_id = $2 AND inviter_user_id = $3
+		  AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $4
+		ORDER BY created_at DESC, id DESC
+		LIMIT $5`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, roomID, inviterUserID, at, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list pending invitations: %w", err)
+	}
+	defer rows.Close()
+
+	var pending []Invitation
+	for rows.Next() {
+		invitation, err := scanInvitation(rows)
+		if err != nil {
+			return nil, fmt.Errorf("read pending invitation: %w", err)
+		}
+		pending = append(pending, invitation)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list pending invitations: %w", err)
+	}
+	return pending, nil
+}
+
+/*
 ClaimNonce records that a signed request was seen, and reports whether it was
 the first time.
 

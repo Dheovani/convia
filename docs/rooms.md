@@ -277,6 +277,8 @@ An application owns its people's names and reads them itself, which is why a `Ro
 
 Every change of membership is announced, whichever surface made it: `room.member_added` and `room.member_removed`, about the room, naming the person in `data.user_id`. Only a change is announced, as only a change is audited. An application receives them with `members:read`, by stream or by webhook; a person receives them for the rooms they are in, including the one they were just added to or removed from. Leaving and being removed are one type, because membership records no actor. Erasure announces nothing. See [`events.md`](events.md#a-persons-stream).
 
+The room's own changes are announced too, whoever made them: `room.updated`, `room.closed`, `room.reopened` and `room.deleted`, naming the room and nothing else. A transition that repeats the room's state announces nothing. An application receives them with `rooms:read`; a person receives them for the rooms they are in, and `room.deleted` is the last event about a room they receive.
+
 #### Not built yet
 
 - **No `Idempotency-Key` on this surface.** The idempotency guard identifies a caller by an application or operator credential, and a session is neither. Opening a room twice opens two rooms; the interface disables its button while a request is in flight.

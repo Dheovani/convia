@@ -54,6 +54,7 @@ var mayReach = map[string]string{
 	"convia/internal/api":         "the request identifier and the one public error shape",
 	"convia/internal/credentials": "the scopes that decide who may assert and who may read",
 	"convia/internal/events":      "how a change is announced",
+	"convia/internal/sessions":    "the person a page asserts for, on the session surface",
 	"convia/internal/users":       "who a claim is about, and whether the application still serves them",
 }
 

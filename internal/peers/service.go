@@ -186,6 +186,28 @@ func (service *Service) Invite(ctx context.Context, principal sessions.Principal
 }
 
 // Revoke withdraws an invitation the person asking made and nobody accepted.
+/*
+Pending lists the invitations a person made into a room here that nobody has
+accepted and that still work, so they can be sent again or withdrawn.
+
+It is bounded rather than paged: a link lasts a day, so a person holding more
+than this many at once is not somebody a page would help.
+*/
+func (service *Service) Pending(ctx context.Context, principal sessions.Principal, roomID string) ([]Invitation, error) {
+	member, err := service.rooms.IsMember(ctx, principal.ApplicationID, roomID, principal.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("check membership: %w", err)
+	}
+	if !member {
+		return nil, ErrRoomNotFound
+	}
+	return service.store.PendingInvitations(ctx, principal.ApplicationID, roomID, principal.UserID,
+		service.now(), MaxPendingInvitations)
+}
+
+// MaxPendingInvitations is the most invitations Pending lists at once.
+const MaxPendingInvitations = 100
+
 func (service *Service) Revoke(ctx context.Context, principal sessions.Principal, id string) error {
 	if !ValidInvitationID(id) {
 		return ErrNotFound

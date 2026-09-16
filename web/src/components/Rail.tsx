@@ -1,5 +1,10 @@
+import { useId, useRef, useState } from 'react'
+
+import type { PresenceState } from '../api/types'
 import { useWords } from '../i18n/language'
+import { statuses, type Status } from '../state/preferences'
 import { Mark } from './Mark'
+import { PresenceDot } from './Presence'
 
 export type Mode = 'chat' | 'calls' | 'settings'
 
@@ -7,8 +12,10 @@ interface RailProps {
   mode: Mode
   onMode: (mode: Mode) => void
   displayName: string
-  // handle is how this person is named to somebody else, shown on the avatar.
-  handle: string
+  // status is what the person chose; said is what their page says, which is away when it went idle.
+  status: Status
+  said: PresenceState
+  onStatus: (status: Status) => void
   onSignOut: () => void
   // narrow lays the rail out as a bar along the bottom of the screen.
   narrow?: boolean
@@ -67,7 +74,100 @@ function initials(name: string): string {
   return (first + last).toUpperCase()
 }
 
-export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = false }: RailProps) {
+/*
+StatusMenu is the person's avatar, which says their status and changes it. The
+choices open above it on a narrow screen, where the rail is at the bottom, and
+beside it otherwise; Escape closes them and gives the keyboard back.
+*/
+function StatusMenu({
+  displayName,
+  status,
+  said,
+  onStatus,
+  narrow,
+}: {
+  displayName: string
+  status: Status
+  said: PresenceState
+  onStatus: (status: Status) => void
+  narrow: boolean
+}) {
+  const words = useWords()
+  const [open, setOpen] = useState(false)
+  const menu = useId()
+  const avatar = useRef<HTMLButtonElement>(null)
+
+  function close() {
+    setOpen(false)
+    avatar.current?.focus()
+  }
+
+  return (
+    <div
+      className="relative"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && open) {
+          close()
+        }
+      }}
+    >
+      <button
+        ref={avatar}
+        type="button"
+        className="relative grid size-9 cursor-pointer place-items-center rounded-full bg-accent-soft text-xs
+          font-semibold text-accent-ink"
+        aria-label={words.presence.current(words.presence[said])}
+        title={words.presence.current(words.presence[said])}
+        aria-expanded={open}
+        aria-controls={menu}
+        onClick={() => (open ? close() : setOpen(true))}
+      >
+        <span aria-hidden="true">{initials(displayName)}</span>
+        <span className="absolute -right-0.5 -bottom-0.5 grid rounded-full bg-surface-sunken p-0.5" aria-hidden="true">
+          <PresenceDot state={said} />
+        </span>
+      </button>
+      {open && (
+        <div
+          id={menu}
+          role="group"
+          aria-label={words.presence.yours}
+          className={`absolute z-20 flex w-48 flex-col gap-1 rounded-md border border-line bg-surface-raised p-2
+            shadow-raised ${narrow ? 'right-0 bottom-11' : 'bottom-0 left-11'}`}
+        >
+          {statuses.map((each) => (
+            <button
+              key={each}
+              type="button"
+              aria-pressed={each === status}
+              className="flex min-h-8 cursor-pointer items-center gap-2 rounded-sm px-2 text-left text-[0.82rem]
+                hover:bg-surface-hover aria-pressed:bg-accent-soft"
+              onClick={() => {
+                onStatus(each)
+                close()
+              }}
+            >
+              <PresenceDot state={each} />
+              <span aria-hidden="true">{words.presence[each]}</span>
+            </button>
+          ))}
+          <p className="m-0 px-2 pt-1 text-[0.7rem] leading-snug text-ink-faint">{words.presence.idle}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function Rail({
+  mode,
+  onMode,
+  displayName,
+  status,
+  said,
+  onStatus,
+  onSignOut,
+  narrow = false,
+}: RailProps) {
   const words = useWords()
 
   return (
@@ -105,14 +205,7 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = fa
       </ul>
 
       <div className={narrow ? 'flex items-center gap-1' : 'mt-auto flex flex-col items-center gap-2'}>
-        <span
-          className="grid size-9 place-items-center rounded-full bg-accent-soft text-xs
-            font-semibold text-accent-ink"
-          title={handle}
-          aria-hidden="true"
-        >
-          {initials(displayName)}
-        </span>
+        <StatusMenu displayName={displayName} status={status} said={said} onStatus={onStatus} narrow={narrow} />
         <button
           type="button"
           className="min-h-6 cursor-pointer rounded-sm px-1.5 py-1 text-[0.68rem] text-ink-faint hover:text-ink"

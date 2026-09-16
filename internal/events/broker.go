@@ -372,6 +372,14 @@ func (person *audience) admits(event Event) bool {
 	}
 
 	_, before := person.rooms[roomID]
+	if event.Type == RoomDeleted {
+		// Nobody is in a room that is gone, and nothing more about it will come.
+		delete(person.rooms, roomID)
+		if person.reading {
+			person.changes = append(person.changes, membership{roomID: roomID, member: false})
+		}
+		return before
+	}
 	if !about(event, person.userID) {
 		return before
 	}
@@ -397,7 +405,7 @@ path, which is the answer that fails closed when a type is added.
 */
 func roomOf(event Event) (string, bool) {
 	switch event.Type {
-	case MemberAdded, MemberRemoved:
+	case MemberAdded, MemberRemoved, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
 		return event.Subject.ID, event.Subject.ID != ""
 	case MessagePosted, MessageEdited, MessageDeleted,
 		CallStarted, CallEnded,

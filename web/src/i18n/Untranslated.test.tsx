@@ -66,6 +66,7 @@ const data = [
   'Off topic.',
   'Bruno Alves',
   'Carla Dias',
+  'bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH',
   'ana',
   ana.handle,
   'Headset',
@@ -118,6 +119,21 @@ function workspace() {
     })
     .on('GET', `${standupPath}/bans`, { body: { data: [] } })
     .on('GET', '/v1/me/people', { body: { data: [bruno, carla] } })
+    .on('GET', `${standupPath}/invitations`, {
+      body: {
+        data: [
+          {
+            id: 'rin_BIA7KQZP4XN2VJH6TBWMDR3YAF',
+            link: 'https://convia.example/invitations/rin_BIA7KQZP4XN2VJH6TBWMDR3YAF',
+            invitee: 'bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH',
+            expires_at: '2026-09-15T14:04:56.000Z',
+          },
+        ],
+      },
+    })
+    .on('GET', '/v1/me/people/presence', {
+      body: { data: [{ user_id: ana.user_id, state: 'online' }, { user_id: bruno.user_id, state: 'away' }] },
+    })
     .on('POST', `${standupPath}/call/join`, { status: 200, body: session })
     .on('POST', `${standupPath}/call/leave`, { status: 204 })
     .on('GET', `${standupPath}/call/participants`, {
@@ -161,7 +177,14 @@ describe('every word on screen comes from the catalogue', () => {
     await person.click(screen.getByRole('button', { name: said.conversation.people }))
     await screen.findByRole('button', { name: said.people.addNamed('Carla Dias') })
     await screen.findByText(said.people.nobodyBanned)
+    await screen.findByText(said.people.pendingHeading)
+    await screen.findByText(said.presence.away)
     expectAllMarked()
+
+    await person.click(screen.getByRole('button', { name: said.presence.current(said.presence.online) }))
+    await screen.findByRole('group', { name: said.presence.yours })
+    expectAllMarked()
+    await person.keyboard('{Escape}')
 
     await person.click(screen.getByRole('button', { name: said.roomSettings.open }))
     await person.click(screen.getByRole('button', { name: said.roomSettings.deleteRoom }))

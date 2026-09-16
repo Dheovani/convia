@@ -107,6 +107,17 @@ Holding one does not grant the other. An application that reports presence from 
 
 The tenant is the one the credential proves. There is no path parameter, no query, and no body field anywhere on this surface that could name another application — two applications naming the same user identifier are two unrelated people, exactly as they are everywhere else in Convia.
 
+## People in Convia's own product
+
+A person signed in to Convia has presence too, through the same service and the same expiry. The product owner decided how it is said:
+
+- **Each open page asserts it**, as a device of its own, with `PUT /v1/me/presence/{device_id}`. The page names itself once per tab and repeats the heartbeat every 25 seconds, asking for 60. Closing the page withdraws it with `DELETE`; a page that cannot lapses on its timer.
+- **The person chooses** available, busy or away, and a page nobody has touched for five minutes says away when they chose available. A page in a call is never idle. The choice is kept in the browser.
+- **A person sees the presence of the people they share a room with**, and their own, with `GET /v1/me/people/presence?user_id=…`. Anybody else named is left out rather than refused, so the read cannot be used to find out which identifiers exist.
+- **Visitors from other installations are left out**, both ways: their pages report to their own installation, so this one would only ever call them offline. A person here is told apart by having an account here.
+
+It does not arrive on a person's stream. That stream is authorized per room, and presence is about a person; the page reads it again every twenty seconds for the people it shows, which bounds how late a change is seen.
+
 ## Presence on the event stream
 
 ```json
