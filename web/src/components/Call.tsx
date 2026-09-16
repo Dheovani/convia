@@ -370,8 +370,8 @@ function Tile({
 CallStage is a room's call, in the room: who is in it, how well they are
 connected, and the controls.
 
-The room's owner is the call's moderator, so the owner sees Remove on everybody
-else. Anybody the media server shows before Convia has named them is shown as
+The room's owner and moderators are the call's moderators, so they see Remove
+on everybody else. Anybody the media server shows before Convia has named them is shown as
 joining, and named when the list is read again.
 */
 export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: boolean }) {

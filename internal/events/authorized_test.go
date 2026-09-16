@@ -59,7 +59,7 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 		*/
 		"membership only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeMembersRead),
-			expected:  []Type{MemberAdded, MemberRemoved},
+			expected:  []Type{MemberAdded, MemberRemoved, MemberRoleChanged},
 		},
 		"rooms only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeRoomsRead),

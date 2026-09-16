@@ -22,6 +22,7 @@ domain still knows nothing about messages.
 */
 type membership interface {
 	Get(ctx context.Context, applicationID, id string) (rooms.Room, error)
+	Moderating(ctx context.Context, applicationID, roomID, userID string) (bool, error)
 	IsMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
 	RoomsOf(ctx context.Context, applicationID, userID string, options rooms.MembershipOptions) (rooms.Membership, error)
 	Many(ctx context.Context, applicationID string, ids []string) (map[string]rooms.Room, error)
@@ -72,6 +73,8 @@ screen is the shape that makes an interface feel slow.
 type Room struct {
 	Room   rooms.Room
 	Unread int64
+	// Moderator is whether the person moderates the room without owning it.
+	Moderator bool
 }
 
 // Sidebar is one page of the rooms somebody is in.
@@ -96,8 +99,10 @@ func (personal *Personal) Rooms(ctx context.Context, options rooms.MembershipOpt
 	}
 
 	identifiers := make([]string, 0, len(membership.Members))
+	moderated := make(map[string]bool, len(membership.Members))
 	for _, member := range membership.Members {
 		identifiers = append(identifiers, member.RoomID)
+		moderated[member.RoomID] = member.Moderator
 	}
 
 	unread, err := personal.unread(ctx, identifiers)
@@ -123,7 +128,7 @@ func (personal *Personal) Rooms(ctx context.Context, options rooms.MembershipOpt
 		if !present {
 			continue
 		}
-		page.Rooms = append(page.Rooms, Room{Room: room, Unread: unread[identifier]})
+		page.Rooms = append(page.Rooms, Room{Room: room, Unread: unread[identifier], Moderator: moderated[identifier]})
 	}
 	return page, nil
 }
@@ -183,9 +188,19 @@ func (personal *Personal) Delete(ctx context.Context, id string) (Message, error
 		return Message{}, fmt.Errorf("read the message's room: %w", err)
 	}
 
-	if room.Status == rooms.StatusDeleted || room.OwnerUserID == "" ||
-		room.OwnerUserID != personal.principal.UserID {
+	if room.Status == rooms.StatusDeleted || room.OwnerUserID == "" {
 		return Message{}, ErrNotAuthor
+	}
+	if room.OwnerUserID != personal.principal.UserID {
+		// A moderator takes down what others said too, as the owner does.
+		moderating, err := personal.rooms.Moderating(ctx, personal.principal.ApplicationID, room.ID,
+			personal.principal.UserID)
+		if err != nil {
+			return Message{}, fmt.Errorf("check who moderates the room: %w", err)
+		}
+		if !moderating {
+			return Message{}, ErrNotAuthor
+		}
 	}
 
 	return personal.service.Remove(ctx, personal.principal.ApplicationID, id)

@@ -389,6 +389,70 @@ func (service *Service) requirePerson(ctx context.Context, applicationID, userID
 }
 
 /*
+SetModerator makes a member of a room a moderator, or stops them being one, and
+announces it when it changed. The rules are the store's; see Store.SetModerator.
+*/
+func (service *Service) SetModerator(ctx context.Context, applicationID, roomID, userID string,
+	moderator bool) (bool, error) {
+	if _, err := service.requireRoomForMembership(ctx, applicationID, roomID); err != nil {
+		return false, err
+	}
+	changed, err := service.store.SetModerator(ctx, applicationID, roomID, userID, moderator)
+	if err != nil || !changed {
+		return changed, err
+	}
+
+	role := RoleMember
+	if moderator {
+		role = RoleModerator
+	}
+	service.announceRole(ctx, applicationID, roomID, userID, role)
+	return true, nil
+}
+
+/*
+TransferOwner hands a room to another member who could hold it, and announces
+what each of the two now is.
+*/
+func (service *Service) TransferOwner(ctx context.Context, applicationID, roomID, from, to string) error {
+	if _, err := service.requireRoomForMembership(ctx, applicationID, roomID); err != nil {
+		return err
+	}
+	if err := service.store.TransferOwner(ctx, applicationID, roomID, from, to); err != nil {
+		return err
+	}
+
+	service.logger.InfoContext(ctx, "room.owner_transferred",
+		"application_id", applicationID,
+		"room_id", roomID,
+		"from_user_id", from,
+		"to_user_id", to,
+		"request_id", api.RequestIDFromContext(ctx),
+	)
+	service.announceRole(ctx, applicationID, roomID, to, RoleOwner)
+	service.announceRole(ctx, applicationID, roomID, from, RoleMember)
+	return nil
+}
+
+// Moderating reports whether somebody moderates a room without owning it.
+func (service *Service) Moderating(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
+	member, err := service.store.Member(ctx, applicationID, roomID, userID)
+	if errors.Is(err, ErrNotAMember) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return member.Moderator, nil
+}
+
+// announceRole tells whoever is listening what somebody now is in a room.
+func (service *Service) announceRole(ctx context.Context, applicationID, roomID, userID string, role Role) {
+	service.stream.Publish(ctx, events.New(events.MemberRoleChanged, applicationID, roomID,
+		api.RequestIDFromContext(ctx), events.Data{"user_id": userID, "role": string(role)}))
+}
+
+/*
 announceMembership records a change to who belongs where, and tells whoever is
 listening.
 

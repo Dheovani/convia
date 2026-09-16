@@ -42,7 +42,7 @@ func readingScopeFor(kind Type) credentials.Scope {
 			read a history must not learn its shape from the stream either.
 		*/
 		return credentials.ScopeMessagesRead
-	case MemberAdded, MemberRemoved:
+	case MemberAdded, MemberRemoved, MemberRoleChanged:
 		// The scope that already lists who is in a room, on either side of the
 		// change.
 		return credentials.ScopeMembersRead
@@ -129,7 +129,7 @@ about — calls with M18-004 — and not before.
 func personTypes() []Type {
 	return []Type{
 		MessagePosted, MessageEdited, MessageDeleted,
-		MemberAdded, MemberRemoved,
+		MemberAdded, MemberRemoved, MemberRoleChanged,
 		RoomUpdated, RoomClosed, RoomReopened, RoomDeleted,
 		CallStarted, CallEnded,
 		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,

@@ -90,7 +90,7 @@ function Entry({
   name: string
   showName: boolean
   mine: boolean
-  // removable is somebody else's message in a room this person owns.
+  // removable is somebody else's message in a room this person owns or moderates.
   removable: boolean
   onEdit: (body: string) => Promise<void>
   onWithdraw: () => Promise<void>
@@ -312,8 +312,9 @@ export function Conversation({
     foot.current?.scrollIntoView({ block: 'end' })
   }, [messages.length])
 
-  // Only a room here has an owner who can act from this page.
+  // Only a room here has an owner or moderators who can act from this page.
   const owner = room.owned && onRoomDeleted !== undefined
+  const moderating = (room.owned || room.moderator) && onRoomDeleted !== undefined
 
   let previousDay = ''
   let previousAuthor: string | undefined
@@ -373,7 +374,7 @@ export function Conversation({
         <Recoverable zone="call" placement="border-b border-line" resetKey={room.id}>
           <CallProblem roomId={room.id} />
           <CallPreparation room={room} running={callRunning} />
-          <CallStage room={room} moderator={room.owned} />
+          <CallStage room={room} moderator={room.owned || room.moderator} />
         </Recoverable>
       )}
 
@@ -418,7 +419,7 @@ export function Conversation({
                       name={nameOf(message)}
                       showName={opensADay || changesAuthor}
                       mine={message.user_id === selfId}
-                      removable={owner && message.user_id !== selfId}
+                      removable={moderating && message.user_id !== selfId}
                       onEdit={(body) => edit(message.id, body)}
                       onWithdraw={() => withdraw(message.id)}
                     />
@@ -448,6 +449,7 @@ export function Conversation({
             members={members}
             membersFailed={membersFailed}
             onChanged={reloadMembers}
+            onRoomChanged={onRoomChanged}
             onLeave={onLeave}
             {...(onForget === undefined ? {} : { onForget })}
             onExpired={onExpired}

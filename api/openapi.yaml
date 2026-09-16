@@ -5287,7 +5287,7 @@ paths:
 
         **A removal is not a ban.** Anybody in the room may add the person back. To keep them out, ban them instead.
 
-        Only the room's owner may remove somebody, and an owner does not remove themselves: they leave, which passes the room on, and asking to is `400 invalid_request`. Removing somebody who is not in the room succeeds and changes nothing.
+        Only the room's owner or a moderator may remove somebody, and nobody removes themselves: they leave, and asking to is `400 invalid_request`. A moderator does not remove the owner or another moderator, and asking to is `403`. Removing somebody who is not in the room succeeds and changes nothing.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -5484,7 +5484,7 @@ paths:
       tags: [Me]
       summary: Who is banned from a room I own
       description: |
-        Returns one page of the people kept out of a room the signed-in person owns, by the names they go by. Only the room's owner may read it: who is banned is the owner's decision, not something every member is told.
+        Returns one page of the people kept out of a room the signed-in person owns or moderates, by the names they go by. Only the room's owner and its moderators may read it: who is banned is their decision, not something every member is told.
 
         Ordered by the person's identifier; the cursor is the last `user_id` on the page.
       x-lifecycle: experimental
@@ -5521,13 +5521,137 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/me/rooms/{room_id}/moderators/{user_id}:
+    put:
+      operationId: nameMyRoomModerator
+      tags: [Me]
+      summary: Make somebody a moderator of a room I own
+      description: |
+        Makes a member of a room the signed-in person owns one of its moderators. A moderator removes and bans people, lifts bans, takes down what others said, and moderates the room's calls from their next join; a moderator does not act on the owner or another moderator, and does not rename, close, reopen or delete the room. See docs/adr/0015.
+
+        Only somebody who could own the room can moderate it: an active member who signs in on this installation. Anybody else is `404 not found`. The owner does not name themselves, and asking to is `400 invalid_request`. Naming somebody twice succeeds.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The person moderates the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+    delete:
+      operationId: unnameMyRoomModerator
+      tags: [Me]
+      summary: Stop somebody moderating a room I own
+      description: |
+        Makes a moderator of a room the signed-in person owns a member again. Asking about somebody who does not moderate it succeeds.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: The person no longer moderates the room.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/rooms/{room_id}/owner:
+    put:
+      operationId: transferMyRoom
+      tags: [Me]
+      summary: Hand a room I own to somebody else
+      description: |
+        Makes another member the owner of a room the signed-in person owns. The person who owned it stays in the room as a member; the new owner stops being a moderator, because the owner already does everything a moderator does. Each change is announced as `room.member_role_changed`.
+
+        Only somebody who could own the room can be given it: an active member who signs in on this installation. Anybody else is `404 not found`. Handing a room to oneself is `400 invalid_request`. Two handovers at once cannot both succeed: the second is `403`, because it no longer comes from the owner.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoomTransferRequest"
+      responses:
+        "200":
+          description: The room, which this person no longer owns.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OwnRoom"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/OwnerRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me/rooms/{room_id}/bans/{user_id}:
     put:
       operationId: banMyRoomMember
       tags: [Me]
       summary: Ban somebody from a room I own
       description: |
-        Keeps somebody out of a room the signed-in person owns, and takes their place if they have one. What they said stays.
+        Keeps somebody out of a room the signed-in person owns or moderates, and takes their place if they have one. What they said stays. A moderator does not ban the owner or another moderator, and asking to is `403`.
 
         **Nobody can bring them back until the ban is lifted**: adding them is refused, an invitation for them cannot be made, and a link already sent to them no longer admits them.
 
@@ -5566,7 +5690,7 @@ paths:
       tags: [Me]
       summary: Lift a ban on a room I own
       description: |
-        Lets somebody be brought back into a room the signed-in person owns. It gives them no place: somebody still has to add them. Lifting a ban that is not there succeeds.
+        Lets somebody be brought back into a room the signed-in person owns or moderates. It gives them no place: somebody still has to add them. Lifting a ban that is not there succeeds.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -5935,7 +6059,7 @@ paths:
       description: |
         Upgrades the connection to a WebSocket and delivers the events about the rooms the signed-in person is in, as they happen. It is how Convia's own interface stops asking every few seconds.
 
-        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, `room.member_removed`, `room.updated`, `room.closed`, `room.reopened`, `room.deleted`, `call.started`, `call.ended`, `participant.joined`, `participant.left`, `participant.removed`, and `participant.role_changed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. `room.deleted` is the last event about a room a person receives. Presence is absent because nothing on this surface reads it yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
+        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, `room.member_removed`, `room.member_role_changed`, `room.updated`, `room.closed`, `room.reopened`, `room.deleted`, `call.started`, `call.ended`, `participant.joined`, `participant.left`, `participant.removed`, and `participant.role_changed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. `room.deleted` is the last event about a room a person receives. Presence is absent because nothing on this surface reads it yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
 
         Which rooms is read before the upgrade, kept current by the membership events the stream carries, and read again every minute, when the session is also checked again. A session that stops authenticating — signed out, expired, or suspended — ends the stream with close code `4001`, which a reconnect would not change. Within that minute a stream may still carry events about a room its person has just left; what they name is identifiers, and reading any of it asks for membership again.
 
@@ -6252,7 +6376,7 @@ paths:
       tags: [Me]
       summary: Withdraw something I said
       description: |
-        Withdraws a message the signed-in person wrote, or takes down anybody's message in a room they own, leaving a tombstone where it was. The tombstone's `deleted_by` says which of the two it was.
+        Withdraws a message the signed-in person wrote, or takes down anybody's message in a room they own or moderate, leaving a tombstone where it was. The tombstone's `deleted_by` says which of the two it was.
 
         The row stays, keeps its position in the history, and loses its body — a history that closed over the hole would move every later message and slide some past a reader's cursor unseen.
 
@@ -9707,7 +9831,7 @@ components:
         One room in somebody's sidebar, with what they have not read in it.
 
         The unread count travels with the room rather than being fetched separately, because a sidebar is redrawn constantly and a request per row on the screen is the shape that makes an interface feel slow.
-      required: [id, name, status, unread, owned]
+      required: [id, name, status, unread, owned, moderator]
       additionalProperties: false
       properties:
         id:
@@ -9732,6 +9856,10 @@ components:
         owned:
           type: boolean
           description: Whether this person owns the room, and so may moderate it.
+          example: false
+        moderator:
+          type: boolean
+          description: Whether this person moderates the room without owning it.
           example: false
 
     Sidebar:
@@ -9803,6 +9931,15 @@ components:
           maxLength: 120
           example: Weekend plans
 
+    RoomTransferRequest:
+      type: object
+      description: Who a room is handed to.
+      required: [user_id]
+      additionalProperties: false
+      properties:
+        user_id:
+          $ref: "#/components/schemas/UserId"
+
     OwnRoom:
       type: object
       description: A room as a person in it sees it.
@@ -9842,9 +9979,9 @@ components:
           example: Ana Ribeiro
         role:
           type: string
-          enum: [owner, member]
+          enum: [owner, moderator, member]
           description: |
-            What the person is in the room, present only when they are listed as a member of one. A room has at most one owner, and a room an application created has none.
+            What the person is in the room, present only when they are listed as a member of one. A room has at most one owner, and a room an application created has none. A moderator moderates the people in the room and not the room itself.
           example: member
 
     PersonPage:
@@ -10081,7 +10218,7 @@ components:
           type: string
           enum: [author, owner]
           description: |
-            Who withdrew the message: its `author`, or the `owner` of the room it was said in. Which person is never said. Absent on a message that was not withdrawn, and on one cleared because its author was erased.
+            Who withdrew the message: its `author`, or the `owner` of the room it was said in or one of its moderators, who take messages down alike. Which person is never said. Absent on a message that was not withdrawn, and on one cleared because its author was erased.
           example: author
 
     ReadStateRequest:
@@ -10396,6 +10533,7 @@ components:
         - message.deleted
         - room.member_added
         - room.member_removed
+        - room.member_role_changed
         - room.updated
         - room.closed
         - room.reopened

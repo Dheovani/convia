@@ -254,6 +254,48 @@ func (handler *SessionHandler) Bans(response http.ResponseWriter, request *http.
 	handler.writePeople(response, request, page)
 }
 
+// NameModerator makes a member a moderator of a room the signed-in person owns.
+func (handler *SessionHandler) NameModerator(response http.ResponseWriter, request *http.Request) {
+	handler.act(response, request, func(personal *Personal) error {
+		return personal.NameModerator(request.Context(), request.PathValue("room_id"),
+			request.PathValue("user_id"), true)
+	})
+}
+
+// UnnameModerator stops a member moderating a room the signed-in person owns.
+func (handler *SessionHandler) UnnameModerator(response http.ResponseWriter, request *http.Request) {
+	handler.act(response, request, func(personal *Personal) error {
+		return personal.NameModerator(request.Context(), request.PathValue("room_id"),
+			request.PathValue("user_id"), false)
+	})
+}
+
+// transferRequest names who a room is handed to.
+type transferRequest struct {
+	UserID string `json:"user_id"`
+}
+
+// Transfer hands a room the signed-in person owns to another member.
+func (handler *SessionHandler) Transfer(response http.ResponseWriter, request *http.Request) {
+	personal, ok := handler.personal(response, request)
+	if !ok {
+		return
+	}
+
+	var body transferRequest
+	if failure := api.DecodeJSON(response, request, &body); failure != nil {
+		handler.writeFailure(response, request, failure)
+		return
+	}
+
+	room, err := personal.Transfer(request.Context(), request.PathValue("room_id"), body.UserID)
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+	handler.write(response, request, http.StatusOK, representOwnRoom(room, personal.principal.UserID))
+}
+
 // Rename gives a room the signed-in person owns a new name, and nothing else.
 func (handler *SessionHandler) Rename(response http.ResponseWriter, request *http.Request) {
 	personal, ok := handler.personal(response, request)
@@ -349,6 +391,11 @@ func (handler *SessionHandler) writeError(response http.ResponseWriter, request 
 	if errors.Is(err, ErrNotOwner) {
 		handler.writeFailure(response, request, api.NewFailure(http.StatusForbidden, api.CodeForbidden,
 			"Only the room's owner can do that."))
+		return
+	}
+	if errors.Is(err, ErrNotModerator) {
+		handler.writeFailure(response, request, api.NewFailure(http.StatusForbidden, api.CodeForbidden,
+			"Only the room's owner or a moderator can do that."))
 		return
 	}
 	if errors.Is(err, ErrUserNotFound) || errors.Is(err, ErrUserUnavailable) || errors.Is(err, ErrBanned) {

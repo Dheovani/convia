@@ -156,7 +156,7 @@ Deriving membership from participation was considered and rejected. A chat-first
 room is one somebody joins and reads before any call happens in it, so a rule
 built on `participants` would leave every silent room with no members at all.
 
-### One owner, no lifecycle
+### One owner, some moderators, no lifecycle
 
 `00018` gave membership no role, reasoning that a room member held no power a
 role could name. **That was reversed by the product owner** in `M18-025`: a room
@@ -165,6 +165,8 @@ room rather than on each membership, so a room has at most one owner and the
 database refuses an owner who is not a member. A room an application created has
 no owner. [ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md) records the
 decision and *Acting as yourself* below describes what the owner may do.
+
+In `M18-030` the owner gained **moderators**, flagged on their memberships, so that the flag ends with the place. [ADR 0015](adr/0015-an-owner-names-moderators-and-may-hand-a-room-over.md) records why.
 
 A participation records `joined`, `left` and `removed` because a call's roster
 is the record of one occasion. Membership is **current state**: somebody is in
@@ -229,19 +231,27 @@ The session surface arrived in two steps. `M31-009` let a person read and write 
 | `PATCH /v1/me/rooms/{room_id}` | rename a room I own |
 | `POST /v1/me/rooms/{room_id}/close`, `…/reopen` | close or reopen a room I own |
 | `DELETE /v1/me/rooms/{room_id}` | delete a room I own |
-| `DELETE /v1/me/rooms/{room_id}/members/{user_id}` | remove somebody from a room I own |
-| `GET /v1/me/rooms/{room_id}/bans` | who is banned from a room I own |
+| `DELETE /v1/me/rooms/{room_id}/members/{user_id}` | remove somebody from a room I own or moderate |
+| `GET /v1/me/rooms/{room_id}/bans` | who is banned from a room I own or moderate |
 | `PUT`, `DELETE /v1/me/rooms/{room_id}/bans/{user_id}` | ban somebody, or lift the ban |
+| `PUT`, `DELETE /v1/me/rooms/{room_id}/moderators/{user_id}` | make somebody a moderator of a room I own, or stop them |
+| `PUT /v1/me/rooms/{room_id}/owner` | hand a room I own to another member |
 
-**Any member** may open a room, add somebody, leave, and see who is here and who could be. **The owner** of a room may also remove and ban people, rename, close, reopen and delete it, and take down anybody's message in it. A member asking for an owner's act is refused with `403 forbidden`, because they already know the room exists; somebody outside the room is told `404`.
+**Any member** may open a room, add somebody, leave, and see who is here and who could be. **A moderator** may also remove and ban people, lift bans, and take down anybody's message, but not act on the owner or another moderator. **The owner** may do all of that to anybody, rename, close, reopen and delete the room, name moderators, and hand the room over. A member asking for what they may not do is refused with `403 forbidden`, because they already know the room exists; somebody outside the room is told `404`.
+
+#### Moderators, and handing a room over
+
+The owner names moderators among the members who could own the room: active, and with an account on this installation. Anybody else is `404`. Being a moderator is part of a place in the room, so somebody who leaves stops moderating and comes back as a member. The owner and the moderators join the room's calls as the call's moderators; somebody named during a call moderates it from their next join. A message a moderator takes down reads `deleted_by: owner`, as the owner's does.
+
+The owner may hand the room to another member who could own it, and stays in it as a member. The new owner stops being a moderator. Two handovers at once cannot both succeed: the second is refused, because it no longer comes from the owner. Every change is announced as `room.member_role_changed`. [ADR 0015](adr/0015-an-owner-names-moderators-and-may-hand-a-room-over.md) records the decision.
 
 #### Whoever opens a room owns it, and passes it on
 
-The owner is set when the room is opened. When the owner goes — leaving, removed by the application, banned by nobody but still gone, or erased — the room passes to its **longest-standing active member who has an account on this installation**, in the same transaction and under the room's lock. A visitor from another installation never inherits, so moderation stays with the room's home; a room left with only visitors has no owner until somebody who signs in here is added. Members cannot remove or ban the owner; only the application can remove them.
+The owner is set when the room is opened. When the owner goes — leaving, removed by the application, banned by nobody but still gone, or erased — the room passes to its **longest-standing moderator**, or, with none, its **longest-standing member**, of those who are active and have an account on this installation, in the same transaction and under the room's lock. A visitor from another installation never inherits, so moderation stays with the room's home; a room left with only visitors has no owner until somebody who signs in here is added. Members cannot remove or ban the owner; only the application can remove them.
 
 #### A removal is not a ban
 
-Anybody in the room may add back somebody who was removed. Somebody **banned** cannot be added by anybody, cannot be invited, and cannot use a link they were already sent, until the owner lifts the ban — and lifting it gives no place back. A ban and an addition racing each other cannot both win, because both take the room's lock. Adding somebody banned is refused with the same `404` as every other reason, so a member does not learn the owner's decision. **The application is not bound by bans**: it keeps full authority over its own rooms.
+Anybody in the room may add back somebody who was removed. Somebody **banned** cannot be added by anybody, cannot be invited, and cannot use a link they were already sent, until the owner or a moderator lifts the ban — and lifting it gives no place back. A ban and an addition racing each other cannot both win, because both take the room's lock. Adding somebody banned is refused with the same `404` as every other reason, so a member does not learn the owner's decision. **The application is not bound by bans**: it keeps full authority over its own rooms.
 
 #### A person names only somebody they already share a room with
 
@@ -265,7 +275,7 @@ A person opens a room with **a name and nothing else**. An alias is the applicat
 
 #### What a person cannot do
 
-**Moderate a room they do not own.** Removing, banning, renaming, closing and deleting are the owner's. There is one owner, and ownership cannot be handed over deliberately yet.
+**Moderate a room they neither own nor moderate.** Removing and banning are the owner's and the moderators'; renaming, closing, reopening, deleting, naming moderators and handing the room over are the owner's alone.
 
 **Leave on somebody else's behalf.** Leaving is `POST …/leave` rather than `DELETE …/members/{user_id}`, because on this surface that address could only ever name the caller, and a path carrying an identifier with exactly one legal value is a path inviting somebody to try another.
 
@@ -287,5 +297,3 @@ The room's own changes are announced too, whoever made them: `room.updated`, `ro
 ## Not Yet Implemented
 
 - **Erasure**, as above.
-- **More than one moderator, and handing a room over.** A room has one owner, chosen by who opened it and then by succession. The reason `00009` and M10 gave for not modelling membership at all — that Convia held no credentials for an application's people — stopped being true when people began signing in, and is recorded above under *Membership*.
-- **Announcing a room's own changes.** Renaming, closing and deleting are not events yet, so other members see them on their next read.

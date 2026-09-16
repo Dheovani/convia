@@ -150,7 +150,8 @@ type Message struct {
 
 /*
 Remover is who took a message down: its author, or the owner of the room it was
-said in.
+said in. A moderator takes messages down as the owner does, and is recorded the
+same way.
 
 Which person is never recorded, only which of the two, so that a room does not
 read an owner's removal as the author taking their words back.

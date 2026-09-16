@@ -20,6 +20,7 @@ Convia records a great deal and streams very little. The line is not "what is in
 | `message.posted`, `message.edited`, `message.deleted` | message | Somebody said something in a room, changed it, or withdrew it. See [`messages.md`](messages.md). |
 | `room.member_added` | room | Somebody now has a place in the room. `data.user_id` says who. |
 | `room.member_removed` | room | Somebody no longer does, whether they left or the application removed them. |
+| `room.member_role_changed` | room | Somebody was made the room's owner or a moderator, or stopped being one. `data.user_id` says who, and `data.role` what they are now. |
 | `room.updated` | room | The room reads differently: its name, or anything else about it. Read it again to see what. |
 | `room.closed`, `room.reopened` | room | The room stopped taking anything new, or started again. |
 | `room.deleted` | room | The room is gone. It is the last event about it anybody receives. |

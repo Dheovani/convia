@@ -338,6 +338,7 @@ type membership interface {
 	IsMember(ctx context.Context, applicationID, roomID, userID string) (bool, error)
 	RoomIDsOf(ctx context.Context, applicationID, userID string) ([]string, error)
 	Get(ctx context.Context, applicationID, id string) (rooms.Room, error)
+	Moderating(ctx context.Context, applicationID, roomID, userID string) (bool, error)
 }
 
 // directory is how a person learns what to call the people in a call.
@@ -461,7 +462,9 @@ func (personal *Personal) Roster(ctx context.Context, roomID string, options Lis
 
 /*
 Join seats this person in the call a room they are in is holding, starting one
-if it holds none. The room's owner joins as its moderator.
+if it holds none. The room's owner and its moderators join as the call's
+moderators. A role is decided when somebody joins, so a moderator named during a
+call moderates it from their next join.
 */
 func (personal *Personal) Join(ctx context.Context, roomID string) (Seat, bool, error) {
 	room, err := personal.room(ctx, roomID)
@@ -470,7 +473,12 @@ func (personal *Personal) Join(ctx context.Context, roomID string) (Seat, bool, 
 	}
 
 	role := RoleMember
-	if room.OwnerUserID == personal.principal.UserID {
+	moderating, err := personal.rooms.Moderating(ctx, personal.principal.ApplicationID, room.ID,
+		personal.principal.UserID)
+	if err != nil {
+		return Seat{}, false, fmt.Errorf("check who moderates the room: %w", err)
+	}
+	if room.OwnerUserID == personal.principal.UserID || moderating {
 		role = RoleModerator
 	}
 

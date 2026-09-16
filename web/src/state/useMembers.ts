@@ -77,7 +77,10 @@ export function useMembers(source: RoomSource, onExpired: () => void): Members {
       return
     }
     return listen((event) => {
-      const membership = event.type === 'room.member_added' || event.type === 'room.member_removed'
+      const membership =
+        event.type === 'room.member_added' ||
+        event.type === 'room.member_removed' ||
+        event.type === 'room.member_role_changed'
       if (membership && event.subject.id === id) {
         reload()
       }

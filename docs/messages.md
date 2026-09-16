@@ -143,7 +143,7 @@ This is the first place a session principal decides anything, and what it decide
 
 Editing and withdrawing are the exception, and the asymmetry is deliberate: they check **authorship**, not membership. Somebody who wrote a message was in the room when they wrote it, and having been removed since does not hand their own words to anybody else.
 
-**The owner of a room can take down anybody's message in it** ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)). The tombstone's `deleted_by` is `owner` rather than `author`, and never names the person, so the room does not read the removal as its author taking the words back. A member who is not the owner is refused with the `409` they have always received. Taking down a message already withdrawn changes nothing, including who withdrew it. A room an application created has no owner, so nobody takes down anybody else's message there.
+**The owner of a room and its moderators can take down anybody's message in it** ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md), [ADR 0015](adr/0015-an-owner-names-moderators-and-may-hand-a-room-over.md)). The tombstone's `deleted_by` is `owner` rather than `author`, whichever of them did it, and never names the person, so the room does not read the removal as its author taking the words back. A member who neither owns nor moderates the room is refused with the `409` they have always received. Taking down a message already withdrawn changes nothing, including who withdrew it. A room an application created has no owner, so nobody takes down anybody else's message there.
 
 ### The sidebar
 

@@ -88,7 +88,7 @@ A person signed in to Convia reaches a call through the room it is held in, unde
 - **Any member of the room joins its call, and joining a quiet room starts one.** `POST .../call/join` answers `201` when it started the call and `200` when it joined one, and two people starting at once end up in the same call.
 - **Nobody ends a call for everybody.** It ends when its last participant has gone: `person` when they left by asking, `system` when the media server reported their connection gone or their place in the room went away.
 - **Whether a call is empty is decided under the call's lock**, which joining takes too, so somebody arriving as the last person leaves either keeps the call running or starts a new one, and is never seated in a call that ended around them.
-- **The room's owner joins as the call's moderator** and may put somebody out of it, who is disconnected at once.
+- **The room's owner and its moderators join as the call's moderators** and may put somebody out of it, who is disconnected at once. Somebody named a moderator during a call moderates it from their next join.
 
 `GET /v1/me/calls` lists the calls running in the person's rooms. Only calls in rooms a person opened end when they empty; an application's calls end when the application ends them.
 

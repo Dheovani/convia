@@ -287,10 +287,11 @@ export const api = {
   },
 
   /*
-  What only a room's owner may do.
+  What only a room's owner may do, and what its moderators may do too.
 
-  The interface offers these to the owner alone, and Convia refuses them to
-  anybody else: a member is told 403, and somebody outside the room 404.
+  A moderator removes, bans and lifts bans, but not on the owner or another
+  moderator; everything else here is the owner's. Convia refuses the rest: a
+  member is told 403, and somebody outside the room 404.
   */
   renameRoom(roomId: string, name: string): Promise<OwnRoom> {
     return call<OwnRoom>(`/me/rooms/${encodeURIComponent(roomId)}`, { method: 'PATCH', body: { name } })
@@ -323,6 +324,26 @@ export const api = {
   unban(roomId: string, userId: string): Promise<void> {
     return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/bans/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
+    })
+  },
+
+  nameModerator(roomId: string, userId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/moderators/${encodeURIComponent(userId)}`, {
+      method: 'PUT',
+    })
+  },
+
+  unnameModerator(roomId: string, userId: string): Promise<void> {
+    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/moderators/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    })
+  },
+
+  // handOver makes another member the owner; this person stays as a member.
+  handOver(roomId: string, userId: string): Promise<OwnRoom> {
+    return call<OwnRoom>(`/me/rooms/${encodeURIComponent(roomId)}/owner`, {
+      method: 'PUT',
+      body: { user_id: userId },
     })
   },
 

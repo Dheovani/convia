@@ -18,6 +18,8 @@ interface RoomPeopleProps {
   members: Person[]
   membersFailed: boolean
   onChanged: () => void
+  // onRoomChanged asks for the room to be read again, after handing it over.
+  onRoomChanged: () => void
   onLeave: () => Promise<void>
   // onForget is set for a room on another installation, for when leaving it fails.
   onForget?: () => Promise<void>
@@ -309,9 +311,10 @@ RoomPeople is who is in a room, who could be, and the way out.
 person adds only somebody they already share a room with; anybody else is
 invited by handle, which makes a link rather than a membership.
 
-**There is no way to remove somebody.** Convia offers none to a person, because
-membership carries no role for that power to rest on, and a button that could
-only ever fail would be worse than no button.
+**Moderating is offered only where Convia allows it.** The owner removes and
+bans anybody, names moderators and hands the room over; a moderator removes and
+bans members only. A button that could only ever fail would be worse than no
+button.
 
 A room on another installation shows who is in it and the way out, and nothing
 else: adding and inviting are acts of the room's home, done by the people who
@@ -328,6 +331,7 @@ export function RoomPeople({
   members,
   membersFailed,
   onChanged,
+  onRoomChanged,
   onLeave,
   onForget,
   onExpired,
@@ -344,13 +348,19 @@ export function RoomPeople({
   const [bansFailed, setBansFailed] = useState(false)
   const [bansRead, setBansRead] = useState(0)
   const [acting, setActing] = useState<string | null>(null)
+  // handing is who this person asked to make the owner, until they confirm.
+  const [handing, setHanding] = useState<Person | null>(null)
   const words = useWords()
   const said = words.people
   const nameOf = (person: Person) => label(words, person)
 
   const remote = home !== undefined
-  // Only the owner of a room here moderates it from this page.
-  const moderating = room.owned && !remote
+  // Only the owner and the moderators of a room here moderate it from this page.
+  const owning = room.owned && !remote
+  const moderating = (room.owned || room.moderator) && !remote
+  // A moderator acts on members only; the owner on anybody but themselves.
+  const actsOn = (person: Person) =>
+    person.user_id !== selfId && (owning || (moderating && person.role === 'member'))
   const inRoom = new Set(members.map((person) => person.user_id))
   const addable = (candidates ?? []).filter((person) => !inRoom.has(person.user_id))
 
@@ -421,8 +431,8 @@ export function RoomPeople({
   }
 
   /*
-  Who is banned is read only for the owner, the one person Convia tells, and read
-  again after every ban and every lifted one.
+  Who is banned is read only for the owner and the moderators, the people Convia
+  tells, and read again after every ban and every lifted one.
   */
   useEffect(() => {
     if (!moderating) {
@@ -450,7 +460,7 @@ export function RoomPeople({
     return () => controller.abort()
   }, [moderating, room.id, bansRead])
 
-  // moderate runs one of the owner's acts on somebody, then reads what changed.
+  // moderate runs one act of moderation on somebody, then reads what changed.
   async function moderate(person: Person, act: () => Promise<void>, fallback: string) {
     setActing(person.user_id)
     setFailure(null)
@@ -460,6 +470,22 @@ export function RoomPeople({
       setBansRead((count) => count + 1)
     } catch (error) {
       fail(error, fallback)
+    } finally {
+      setActing(null)
+    }
+  }
+
+  // handOver makes somebody else the owner, then reads the room and its people again.
+  async function handOver(person: Person) {
+    setActing(person.user_id)
+    setFailure(null)
+    try {
+      await api.handOver(room.id, person.user_id)
+      setHanding(null)
+      onChanged()
+      onRoomChanged()
+    } catch (error) {
+      fail(error, said.handOverFailed(nameOf(person)))
     } finally {
       setActing(null)
     }
@@ -521,15 +547,16 @@ export function RoomPeople({
         ) : (
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {members.map((person) => (
-              <li key={person.user_id} className="flex items-center gap-2 text-[0.88rem]">
+              <li key={person.user_id} className="flex flex-wrap items-center gap-x-2 text-[0.88rem]">
                 {dot(person)}
                 <span className="min-w-0 flex-1 truncate">
                   {nameOf(person)}
                   {person.role === 'owner' && <span className="text-ink-faint"> · {said.owner}</span>}
+                  {person.role === 'moderator' && <span className="text-ink-faint"> · {said.moderator}</span>}
                   {person.user_id === selfId && <span className="text-ink-faint"> {said.youTag}</span>}
                 </span>
-                {moderating && person.user_id !== selfId && (
-                  <span className="flex flex-none gap-0.5">
+                {actsOn(person) && (
+                  <span className="flex flex-none flex-wrap gap-0.5">
                     <button
                       type="button"
                       className={moderation}
@@ -560,7 +587,55 @@ export function RoomPeople({
                     >
                       {said.ban}
                     </button>
+                    {owning && (
+                      <>
+                        <button
+                          type="button"
+                          className={moderation}
+                          aria-label={
+                            person.role === 'moderator'
+                              ? said.unnameModeratorNamed(nameOf(person))
+                              : said.nameModeratorNamed(nameOf(person))
+                          }
+                          disabled={acting !== null}
+                          onClick={() =>
+                            void moderate(
+                              person,
+                              () =>
+                                person.role === 'moderator'
+                                  ? api.unnameModerator(room.id, person.user_id)
+                                  : api.nameModerator(room.id, person.user_id),
+                              said.roleFailed(nameOf(person)),
+                            )
+                          }
+                        >
+                          {person.role === 'moderator' ? said.unnameModerator : said.nameModerator}
+                        </button>
+                        <button
+                          type="button"
+                          className={moderation}
+                          aria-label={said.handOverNamed(nameOf(person))}
+                          disabled={acting !== null}
+                          onClick={() => setHanding(person)}
+                        >
+                          {said.handOver}
+                        </button>
+                      </>
+                    )}
                   </span>
+                )}
+                {handing?.user_id === person.user_id && (
+                  <div className="mt-1 flex basis-full flex-col gap-2">
+                    <p className="m-0 text-[0.8rem] leading-relaxed">{said.confirmHandOver(nameOf(person), room.name)}</p>
+                    <div className="flex gap-2">
+                      <Button tone="primary" size="small" disabled={acting !== null} onClick={() => void handOver(person)}>
+                        {acting === person.user_id ? said.handingOver : said.handOverConfirm}
+                      </Button>
+                      <Button size="small" disabled={acting !== null} onClick={() => setHanding(null)}>
+                        {said.keepOwning}
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </li>
             ))}

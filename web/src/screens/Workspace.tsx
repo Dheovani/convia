@@ -202,7 +202,7 @@ export function Workspace({
 
   async function create(name: string) {
     const room = await api.createRoom(name)
-    remember({ id: room.id, name: room.name, status: room.status, unread: 0, owned: room.owned })
+    remember({ id: room.id, name: room.name, status: room.status, unread: 0, owned: room.owned, moderator: false })
     choose(sourceKey({ kind: 'local', id: room.id }))
     refresh()
   }
@@ -221,7 +221,7 @@ export function Workspace({
       choose(sourceKey({ kind: 'remote', id: joined.remote_room.id }))
       return
     }
-    remember({ id: joined.room_id, name: joined.room_name, status: 'open', unread: 0, owned: false })
+    remember({ id: joined.room_id, name: joined.room_name, status: 'open', unread: 0, owned: false, moderator: false })
     choose(sourceKey({ kind: 'local', id: joined.room_id }))
     refresh()
   }
@@ -295,7 +295,7 @@ export function Workspace({
     if (remote !== undefined) {
       open = {
         source,
-        room: { id: remote.id, name: remote.name, status: 'open', unread: 0, owned: false },
+        room: { id: remote.id, name: remote.name, status: 'open', unread: 0, owned: false, moderator: false },
         selfId: remote.user_id,
         home: remote.home,
       }
