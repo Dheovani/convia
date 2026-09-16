@@ -69,6 +69,9 @@ const data = [
   'ana',
   ana.handle,
   'Headset',
+  // Each language is named in its own words.
+  'English',
+  'Português (Brasil)',
   'A',
   'BA',
   /^\d{1,2}:\d{2} [AP]M$/,
@@ -204,6 +207,37 @@ describe('every word on screen comes from the catalogue', () => {
     await person.click(screen.getByRole('button', { name: said.rail.calls }))
     await screen.findByRole('region', { name: said.call.current })
     await screen.findByText(new RegExp(said.call.since('').replace(/[⟦⟧]/g, '').trim()))
+    expectAllMarked()
+  })
+
+  it('in every section of the settings', async () => {
+    workspace()
+      .on('PATCH', '/v1/me/password', {
+        status: 403,
+        failure: { code: 'wrong_password', message: 'The current password is not right.' },
+      })
+      .install()
+    speaking()
+    const person = userEvent.setup()
+
+    await person.click(await screen.findByRole('button', { name: said.rail.settings }))
+    await person.type(screen.getByLabelText(said.settings.currentPassword), 'a guess')
+    await person.type(screen.getByLabelText(said.settings.newPassword), 'a replacement password')
+    await person.type(screen.getByLabelText(said.settings.confirmPassword), 'a replacement password')
+    await person.click(screen.getByRole('button', { name: said.settings.changePassword }))
+    await screen.findByText(said.settings.wrongPassword)
+    await person.click(screen.getByRole('button', { name: said.settings.everywhere }))
+    expectAllMarked()
+
+    const sections = screen.getByRole('complementary', { name: said.settings.title })
+    for (const section of ['appearance', 'language', 'calls'] as const) {
+      await person.click(within(sections).getByRole('button', { name: said.settings.sections[section] }))
+      await screen.findByRole('heading', { level: 2, name: said.settings.sections[section] })
+      expectAllMarked()
+    }
+
+    await person.click(screen.getByRole('button', { name: said.settings.checkDevices }))
+    await screen.findByRole('region', { name: said.settings.checking })
     expectAllMarked()
   })
 })

@@ -227,6 +227,23 @@ export const api = {
     return call<void>('/sessions/current', { method: 'DELETE' })
   },
 
+  // signOutEverywhere ends every session of the account, this one included.
+  signOutEverywhere(): Promise<void> {
+    return call<void>('/sessions', { method: 'DELETE' })
+  },
+
+  /*
+  changePassword replaces the password. Convia rotates this session in the same
+  answer and ends every other one; a wrong current password is `wrong_password`,
+  and the session survives it.
+  */
+  changePassword(current: string, next: string): Promise<void> {
+    return call<void>('/me/password', {
+      method: 'PATCH',
+      body: { current_password: current, new_password: next },
+    })
+  },
+
   me(signal?: AbortSignal): Promise<Account> {
     return call<Account>('/me', signal ? { signal } : {})
   },

@@ -237,6 +237,30 @@ func TestChangingAPasswordRotatesThisSessionToo(t *testing.T) {
 }
 
 /*
+TestAWrongCurrentPasswordIsNotAnEndedSession keeps a typo from signing somebody
+out. A page that is told 401 believes its session is gone.
+*/
+func TestAWrongCurrentPasswordIsNotAnEndedSession(t *testing.T) {
+	handler := NewHandler(quiet(), &stubService{account: somebody(), err: accounts.ErrWrongPassword})
+
+	request := signedIn(http.MethodPatch, "/v1/me/password",
+		`{"current_password":"not it at all","new_password":"a new one entirely"}`)
+
+	response := httptest.NewRecorder()
+	handler.ChangePassword(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusForbidden, response.Body)
+	}
+	if !strings.Contains(response.Body.String(), `"code":"wrong_password"`) {
+		t.Errorf("body = %s, want the wrong_password code", response.Body)
+	}
+	if response.Header().Get("Set-Cookie") != "" {
+		t.Error("a refused change touched the session cookie")
+	}
+}
+
+/*
 TestSigningOutEverywhereDoesNotSpareThisBrowser is the whole meaning of the
 operation.
 */

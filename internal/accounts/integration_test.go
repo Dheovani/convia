@@ -321,8 +321,8 @@ func TestChangingAPasswordNeedsTheCurrentOneAndKeepsTheKey(t *testing.T) {
 	}
 
 	if _, err := setup.service.ChangePassword(ctx, account.ID, "not the current one",
-		"a replacement password"); !errors.Is(err, ErrUnauthenticated) {
-		t.Errorf("ChangePassword() without the current one error = %v, want %v", err, ErrUnauthenticated)
+		"a replacement password"); !errors.Is(err, ErrWrongPassword) {
+		t.Errorf("ChangePassword() without the current one error = %v, want %v", err, ErrWrongPassword)
 	}
 	if _, err := setup.service.ChangePassword(ctx, account.ID, samplePassword, "short"); err == nil {
 		t.Error("ChangePassword() accepted a password below the floor")

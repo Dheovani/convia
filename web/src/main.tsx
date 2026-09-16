@@ -2,7 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from './App'
-import { choose, LanguageContext } from './i18n/language'
+import { Speaking } from './i18n/language'
+import { applyTheme, rememberedTheme } from './state/preferences'
 import './styles/theme.css'
 
 const root = document.getElementById('root')
@@ -10,14 +11,13 @@ if (root === null) {
   throw new Error('convia: the page has no root element to mount into')
 }
 
-// The page speaks the first language the browser prefers that it knows, and says which.
-const language = choose(navigator.languages)
-document.documentElement.lang = language.tag
+// The theme is put on the page before anything is drawn, so nothing flashes in the other one.
+applyTheme(rememberedTheme())
 
 createRoot(root).render(
   <StrictMode>
-    <LanguageContext.Provider value={language}>
+    <Speaking>
       <App />
-    </LanguageContext.Provider>
+    </Speaking>
   </StrictMode>,
 )

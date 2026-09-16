@@ -17,19 +17,10 @@ interface RailProps {
 /*
 The rail is the outermost of the three zones: which part of Convia you are in.
 
-Settings is present and disabled rather than absent. An interface that grows new
-top-level destinations as they are built teaches people that its shape is
-unreliable; one that shows where they will be, greyed, teaches them where to look
-later. It says what it is waiting for.
-
 On a narrow screen it is a bar along the bottom, where a thumb reaches it, and
 the mark gives up its place.
 */
-const destinations: { id: Mode; ready: boolean }[] = [
-  { id: 'chat', ready: true },
-  { id: 'calls', ready: true },
-  { id: 'settings', ready: false },
-]
+const destinations: Mode[] = ['chat', 'calls', 'settings']
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -61,19 +52,17 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = fa
 
       <ul className={`m-0 flex list-none gap-1 p-0 ${narrow ? 'flex-1 flex-row' : 'w-full flex-col'}`}>
         {destinations.map((destination) => (
-          <li key={destination.id} className={narrow ? 'flex-1' : undefined}>
+          <li key={destination} className={narrow ? 'flex-1' : undefined}>
             <button
               type="button"
               className="min-h-11 w-full cursor-pointer rounded-md px-1 py-2 text-[0.72rem] font-medium
                 text-ink-dim transition-colors enabled:hover:bg-surface-hover
                 enabled:hover:text-ink aria-[current=page]:bg-accent-soft
-                aria-[current=page]:text-accent-ink disabled:cursor-default disabled:opacity-40"
-              aria-current={mode === destination.id ? 'page' : undefined}
-              disabled={!destination.ready}
-              title={destination.ready ? words.rail[destination.id] : words.rail.settingsLater}
-              onClick={() => onMode(destination.id)}
+                aria-[current=page]:text-accent-ink"
+              aria-current={mode === destination ? 'page' : undefined}
+              onClick={() => onMode(destination)}
             >
-              {words.rail[destination.id]}
+              {words.rail[destination]}
             </button>
           </li>
         ))}

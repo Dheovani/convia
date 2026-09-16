@@ -93,7 +93,7 @@ Tailwind generates refers to them by `var()` rather than by value. There is no
 decided here, once, instead of at every element that uses one.
 */
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme='dark']) {
     color-scheme: light;
 
     --color-surface-sunken: #e9eaf0;
@@ -120,6 +120,40 @@ decided here, once, instead of at every element that uses one.
     --shadow-raised: 0 1px 2px rgba(18, 20, 30, 0.08),
       0 8px 24px rgba(18, 20, 30, 0.06);
   }
+}
+
+/*
+A theme the person chose wins over the system's. Dark is the default the rules
+above already give, so choosing it only has to stop the light palette applying;
+choosing light repeats that palette unconditionally. The two copies are held
+identical by the contrast test.
+*/
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-surface-sunken: #e9eaf0;
+  --color-surface-deep: #f3f4f8;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f4f5f9;
+  --color-surface-hover: #eceef4;
+
+  --color-line: #dfe1ea;
+  --color-line-strong: #c7cad6;
+
+  --color-ink: #15161c;
+  --color-ink-dim: #5c5f70;
+  --color-ink-faint: #64677a;
+
+  --color-accent: #6341ef;
+  --color-accent-strong: #5433e3;
+  --color-accent-soft: rgba(99, 65, 239, 0.12);
+  --color-accent-ink: #5433e3;
+
+  --color-danger: #b8284c;
+  --color-positive: #0c6f4b;
+
+  --shadow-raised: 0 1px 2px rgba(18, 20, 30, 0.08),
+    0 8px 24px rgba(18, 20, 30, 0.06);
 }
 
 @layer base {

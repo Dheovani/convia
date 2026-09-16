@@ -314,11 +314,13 @@ func (handler *Handler) writeFailure(response http.ResponseWriter, request *http
 /*
 writeError translates a domain failure into the answer a caller gets.
 
-Signing in and changing a password share the same refusal, and it says nothing
-about which half was wrong. An account that does not exist, a wrong password, a
-suspended account, and a digest Convia cannot read are one answer, because any
-difference between them is a way to find out more about an account than its
-name.
+Signing in refuses every failure the same way, and it says nothing about which
+half was wrong. An account that does not exist, a wrong password, a suspended
+account, and a digest Convia cannot read are one answer, because any difference
+between them is a way to find out more about an account than its name.
+
+Changing a password is different: the caller is already the account, so a wrong
+current password is said as what it is, and not as a session that ended.
 */
 func (handler *Handler) writeError(response http.ResponseWriter, request *http.Request, err error) {
 	var validation accounts.ValidationError
@@ -332,6 +334,11 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 		handler.writeFailure(response, request,
 			api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 				"The username and password do not match an account."))
+
+	case errors.Is(err, accounts.ErrWrongPassword):
+		handler.writeFailure(response, request,
+			api.NewFailure(http.StatusForbidden, api.CodeWrongPassword,
+				"The current password is not right."))
 
 	case errors.Is(err, accounts.ErrUsernameTaken):
 		handler.writeFailure(response, request,

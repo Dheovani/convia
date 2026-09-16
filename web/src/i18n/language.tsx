@@ -1,6 +1,7 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
 import { ApiError, NetworkError } from '../api/client'
+import { rememberedLanguage, rememberLanguage, type LanguageChoice } from '../state/preferences'
 import { en, type Words } from './en'
 import { ptBR } from './pt-BR'
 
@@ -18,24 +19,41 @@ export interface Language {
   formatting: string
 }
 
-const languages: { tag: string; primary: string; words: Words }[] = [
+const languages: { tag: 'en' | 'pt-BR'; primary: string; words: Words }[] = [
   { tag: 'en', primary: 'en', words: en },
   { tag: 'pt-BR', primary: 'pt', words: ptBR },
 ]
 
+/*
+languageNames are each language in its own words, which is how somebody looks
+for theirs in a list, whatever the page is speaking.
+*/
+export const languageNames: Record<'en' | 'pt-BR', string> = {
+  en: 'English',
+  'pt-BR': 'Português (Brasil)',
+}
+
 export const english: Language = { tag: 'en', words: en, formatting: 'en' }
 
-/*
-choose picks the first language the browser prefers that the interface speaks.
+const primaryOf = (tag: string) => tag.split('-', 1)[0]?.toLowerCase()
 
-It matches on the primary subtag, so a browser asking for pt-PT or en-GB is
-spoken to in the one Portuguese or English there is. Nothing is remembered yet:
-the choice is the browser's until there are settings to override it.
+/*
+choose picks the language the page speaks.
+
+A language the person chose wins. Otherwise it is the first one the browser
+prefers that the interface speaks, matched on the primary subtag, so a browser
+asking for pt-PT or en-GB is spoken to in the one Portuguese or English there
+is. Dates follow the browser's own tag for that language when it has one.
 */
-export function choose(preferred: readonly string[]): Language {
+export function choose(preferred: readonly string[], chosen: LanguageChoice = 'browser'): Language {
+  const named = languages.find((language) => language.tag === chosen)
+  if (named !== undefined) {
+    const formatting = preferred.find((tag) => primaryOf(tag) === named.primary) ?? named.tag
+    return { tag: named.tag, words: named.words, formatting }
+  }
+
   for (const tag of preferred) {
-    const primary = tag.split('-', 1)[0]?.toLowerCase()
-    const spoken = languages.find((language) => language.primary === primary)
+    const spoken = languages.find((language) => language.primary === primaryOf(tag))
     if (spoken !== undefined) {
       return { tag: spoken.tag, words: spoken.words, formatting: tag }
     }
@@ -55,6 +73,55 @@ export function useLanguage(): Language {
 
 export function useWords(): Words {
   return useContext(LanguageContext).words
+}
+
+// Choosing is what the settings offer: the choice, and changing it.
+export interface Choosing {
+  choice: LanguageChoice
+  // browser is the language the browser alone would pick.
+  browser: 'en' | 'pt-BR'
+  setChoice: (choice: LanguageChoice) => void
+}
+
+export const ChoosingContext = createContext<Choosing>({
+  choice: 'browser',
+  browser: 'en',
+  setChoice: () => {},
+})
+
+export function useChoosing(): Choosing {
+  return useContext(ChoosingContext)
+}
+
+/*
+Speaking is the page speaking the language chosen in this browser, and changing
+it the moment another is chosen. The page's `lang` follows.
+*/
+export function Speaking({ children }: { children: React.ReactNode }) {
+  const [choice, setChoice] = useState(rememberedLanguage)
+
+  const language = useMemo(() => choose(navigator.languages, choice), [choice])
+  const choosing = useMemo<Choosing>(
+    () => ({
+      choice,
+      browser: choose(navigator.languages).tag === 'pt-BR' ? 'pt-BR' : 'en',
+      setChoice: (next) => {
+        rememberLanguage(next)
+        setChoice(next)
+      },
+    }),
+    [choice],
+  )
+
+  useEffect(() => {
+    document.documentElement.lang = language.tag
+  }, [language.tag])
+
+  return (
+    <ChoosingContext.Provider value={choosing}>
+      <LanguageContext.Provider value={language}>{children}</LanguageContext.Provider>
+    </ChoosingContext.Provider>
+  )
 }
 
 /*

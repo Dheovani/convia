@@ -107,6 +107,26 @@ describe('a narrow screen', () => {
   })
 })
 
+describe('the settings on a narrow screen', () => {
+  beforeEach(() => screenOf(true))
+
+  it('lists the sections first, and shows one in their place', async () => {
+    workspace()
+    const person = userEvent.setup()
+
+    await person.click(within(await screen.findByRole('navigation', { name: 'Convia' })).getByRole('button', { name: 'Settings' }))
+    const sections = screen.getByRole('complementary', { name: 'Settings' })
+    expect(screen.queryByRole('main')).not.toBeInTheDocument()
+
+    await person.click(within(sections).getByRole('button', { name: 'Appearance' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Appearance' })).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Settings' })).not.toBeInTheDocument()
+
+    await person.click(screen.getByRole('button', { name: 'Back to settings' }))
+    expect(await screen.findByRole('complementary', { name: 'Settings' })).toBeInTheDocument()
+  })
+})
+
 describe('a wide screen', () => {
   beforeEach(() => screenOf(false))
 
