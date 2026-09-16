@@ -2,10 +2,32 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 import { api, ApiError, NetworkError } from '../api/client'
 import type { CallPresence } from '../api/types'
-import { connect, type Connection, type Ending, type Seen } from '../media/connection'
+import {
+  connect,
+  listDevices,
+  noDevices,
+  openPreview,
+  type Choice,
+  type Connection,
+  type DeviceKind,
+  type Devices,
+  type Ending,
+  type Preview,
+  type Seen,
+} from '../media/connection'
 import type { Listener } from './events'
+import { defaultChoice, remember, remembered } from './preferences'
 
 export type Phase = 'idle' | 'joining' | 'joined'
+
+// Notice is something that happened in the call, said once and then gone.
+export interface Notice {
+  id: number
+  text: string
+}
+
+// noticeLifetime is how long somebody arriving or leaving stays said on screen.
+const noticeLifetime = 5_000
 
 interface Snapshot {
   // roomId is the room whose call this person is in, or joining.
@@ -16,27 +38,42 @@ interface Snapshot {
   names: ReadonlyMap<string, CallPresence>
   microphone: boolean
   camera: boolean
+  // reconnecting is true while the media client is getting a dropped connection back.
+  reconnecting: boolean
   // problem is the last thing worth telling the person, about the room it names.
   problem: { roomId: string; message: string } | null
+  notices: Notice[]
+  // preparing is the room whose call this person is getting ready to join.
+  preparing: string | null
+  preview: Preview | null
+  choice: Choice
+  devices: Devices
 }
 
 export interface CallSession extends Snapshot {
+  prepare: (roomId: string) => Promise<void>
+  cancelPreparing: (roomId: string) => void
+  choose: (change: Partial<Choice>) => Promise<void>
   join: (roomId: string) => Promise<void>
   leave: () => Promise<void>
   remove: (userId: string) => Promise<void>
   setMicrophone: (on: boolean) => Promise<void>
   setCamera: (on: boolean) => Promise<void>
+  switchDevice: (kind: DeviceKind, id: string) => Promise<void>
+  refreshDevices: () => Promise<void>
   dismiss: () => void
 }
 
-const quiet: Snapshot = {
+type CallPart = Pick<Snapshot, 'roomId' | 'phase' | 'seen' | 'names' | 'microphone' | 'camera' | 'reconnecting'>
+
+const outOfCall: CallPart = {
   roomId: null,
   phase: 'idle',
   seen: [],
   names: new Map(),
   microphone: false,
   camera: false,
-  problem: null,
+  reconnecting: false,
 }
 
 /*
@@ -44,12 +81,23 @@ The default is a call nobody can join. A component rendered outside the workspac
 — in a test, or a screen added later — shows no call rather than failing.
 */
 export const CallContext = createContext<CallSession>({
-  ...quiet,
+  ...outOfCall,
+  problem: null,
+  notices: [],
+  preparing: null,
+  preview: null,
+  choice: defaultChoice,
+  devices: noDevices,
+  prepare: async () => {},
+  cancelPreparing: () => {},
+  choose: async () => {},
   join: async () => {},
   leave: async () => {},
   remove: async () => {},
   setMicrophone: async () => {},
   setCamera: async () => {},
+  switchDevice: async () => {},
+  refreshDevices: async () => {},
   dismiss: () => {},
 })
 
@@ -103,25 +151,57 @@ const endings: Record<Exclude<Ending, 'lost' | 'closed'>, string> = {
   elsewhere: 'You joined this call somewhere else, so it closed here.',
 }
 
+// unavailable says which device the person wanted and is in the call without.
+function unavailable(roomId: string, wanted: Choice, got: { microphone: boolean; camera: boolean }) {
+  if (wanted.microphone && !got.microphone) {
+    return { roomId, message: 'Your microphone is not available, so nobody can hear you.' }
+  }
+  if (wanted.camera && !got.camera) {
+    return { roomId, message: 'Your camera is not available, so nobody can see you.' }
+  }
+  return null
+}
+
+function nameOf(present: CallPresence): string {
+  return present.display_name || 'Somebody'
+}
+
 /*
-useCallSession holds the one call this page is in.
+useCallSession holds the one call this page is in, and getting ready to join one.
 
 It lives in the workspace rather than in a conversation, because a call goes on
 while its person reads another room: the conversation that shows it can go away
 and the call must not.
 
-A join is an attempt, numbered. Everything an attempt learns later — a
-connection opening, a person arriving, a connection closing — is dropped if a
-newer attempt, or leaving, has happened since, so a slow answer about the call
-somebody already left cannot pull them back into it.
+A join is an attempt, numbered, and so is opening a preview. Everything an attempt
+learns later — a connection opening, a person arriving, a device being granted —
+is dropped if a newer attempt, or leaving, has happened since, so a slow answer
+about the call somebody already left cannot pull them back into it.
 */
 export function useCallSession(onExpired: () => void, listen: (listener: Listener) => () => void): CallSession {
-  const [state, setState] = useState<Snapshot>(quiet)
+  const [state, setState] = useState<Snapshot>(() => ({
+    ...outOfCall,
+    problem: null,
+    notices: [],
+    preparing: null,
+    preview: null,
+    choice: remembered(),
+    devices: noDevices,
+  }))
 
   const connection = useRef<Connection | null>(null)
   const current = useRef<string | null>(null)
   const attempt = useRef(0)
   const asked = useRef(new Set<string>())
+
+  const preparing = useRef<string | null>(null)
+  const preview = useRef<Preview | null>(null)
+  const preparation = useRef(0)
+  const choice = useRef(state.choice)
+
+  const names = useRef<ReadonlyMap<string, CallPresence>>(new Map())
+  const awaiting = useRef(new Set<string>())
+  const noticeCount = useRef(0)
 
   const expired = useRef(onExpired)
   expired.current = onExpired
@@ -138,14 +218,138 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     return false
   }
 
+  function notify(text: string) {
+    const id = ++noticeCount.current
+    setState((was) => ({ ...was, notices: [...was.notices, { id, text }].slice(-3) }))
+    window.setTimeout(() => {
+      setState((was) => ({ ...was, notices: was.notices.filter((notice) => notice.id !== id) }))
+    }, noticeLifetime)
+  }
+
+  function outOfTheCall(problem: Snapshot['problem']) {
+    connection.current = null
+    current.current = null
+    names.current = new Map()
+    awaiting.current = new Set()
+    patch({ ...outOfCall, problem })
+  }
+
   async function readNames(roomId: string) {
     try {
       const page = await api.callParticipants(roomId)
-      if (current.current === roomId) {
-        patch({ names: new Map(page.data.map((present) => [present.participant_id, present])) })
+      if (current.current !== roomId) {
+        return
+      }
+
+      const named = new Map(page.data.map((present) => [present.participant_id, present]))
+      names.current = named
+      patch({ names: named })
+
+      for (const identity of [...awaiting.current]) {
+        const present = named.get(identity)
+        if (present !== undefined) {
+          awaiting.current.delete(identity)
+          notify(`${nameOf(present)} joined the call.`)
+        }
       }
     } catch (error) {
       unauthenticated(error)
+    }
+  }
+
+  /*
+  Somebody arriving is said by name. The media server shows them before Convia's
+  list of who is in the call may name them, so an unnamed arrival waits for the
+  list to be read again rather than being said as nobody.
+  */
+  function arrived(identity: string) {
+    const present = names.current.get(identity)
+    if (present !== undefined) {
+      notify(`${nameOf(present)} joined the call.`)
+      return
+    }
+    awaiting.current.add(identity)
+    if (current.current !== null) {
+      void readNames(current.current)
+    }
+  }
+
+  function departed(identity: string) {
+    if (awaiting.current.delete(identity)) {
+      return
+    }
+    const present = names.current.get(identity)
+    if (present !== undefined) {
+      notify(`${nameOf(present)} left the call.`)
+    }
+  }
+
+  async function refreshDevices() {
+    try {
+      patch({ devices: await listDevices() })
+    } catch {
+      // The list keeps what it had.
+    }
+  }
+
+  function closePreview() {
+    preparation.current++
+    preview.current?.stop()
+    preview.current = null
+  }
+
+  async function showPreview() {
+    const mine = ++preparation.current
+    preview.current?.stop()
+    preview.current = null
+    patch({ preview: null })
+
+    const opened = await openPreview(choice.current)
+    if (mine !== preparation.current) {
+      opened.stop()
+      return
+    }
+
+    preview.current = opened
+    patch({ preview: opened })
+    await refreshDevices()
+  }
+
+  /*
+  prepare opens the preview for a room's call. Nothing is joined, and nothing is
+  asked of Convia, until the person presses join.
+  */
+  async function prepare(roomId: string) {
+    if (current.current === roomId) {
+      return
+    }
+    preparing.current = roomId
+    patch({ preparing: roomId, problem: null })
+    await showPreview()
+  }
+
+  function cancelPreparing(roomId: string) {
+    if (preparing.current !== roomId) {
+      return
+    }
+    preparing.current = null
+    closePreview()
+    patch({ preparing: null, preview: null })
+  }
+
+  /*
+  choose changes what the person wants and remembers it in this browser. While they
+  are getting ready, the preview is opened again with the new choice, so what they
+  see is what the call will get.
+  */
+  async function choose(change: Partial<Choice>) {
+    const next: Choice = { ...choice.current, ...change }
+    choice.current = next
+    remember(next)
+    patch({ choice: next })
+
+    if (preparing.current !== null) {
+      await showPreview()
     }
   }
 
@@ -160,7 +364,9 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     const mine = ++attempt.current
     current.current = roomId
     asked.current = new Set()
-    patch({ roomId, phase: 'joining', seen: [], names: new Map(), problem: null })
+    awaiting.current = new Set()
+    names.current = new Map()
+    patch({ roomId, phase: 'joining', seen: [], names: new Map(), problem: null, reconnecting: false })
 
     let seated = false
     try {
@@ -170,7 +376,8 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         return false
       }
 
-      const opened = await connect(session.media_url, session.media_token, {
+      const wanted = choice.current
+      const opened = await connect(session.media_url, session.media_token, wanted, {
         onChange: (seen) => {
           if (mine === attempt.current) {
             patch({ seen })
@@ -179,6 +386,21 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         onEnded: (ending) => {
           if (mine === attempt.current) {
             void ended(roomId, ending)
+          }
+        },
+        onReconnecting: (reconnecting) => {
+          if (mine === attempt.current) {
+            patch({ reconnecting })
+          }
+        },
+        onArrived: (identity) => {
+          if (mine === attempt.current) {
+            arrived(identity)
+          }
+        },
+        onDeparted: (identity) => {
+          if (mine === attempt.current) {
+            departed(identity)
           }
         },
       })
@@ -192,10 +414,8 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
       patch({
         phase: 'joined',
         microphone: opened.microphone,
-        camera: false,
-        problem: opened.microphone
-          ? null
-          : { roomId, message: 'Your microphone is not available, so nobody can hear you.' },
+        camera: opened.camera,
+        problem: unavailable(roomId, wanted, opened),
       })
       void readNames(roomId)
       return true
@@ -208,13 +428,9 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         void api.leaveCall(roomId).catch(() => undefined)
       }
 
-      current.current = null
-      setState({
-        ...quiet,
-        problem: {
-          roomId,
-          message: seated ? "The call's media server could not be reached." : explainJoin(error),
-        },
+      outOfTheCall({
+        roomId,
+        message: seated ? "The call's media server could not be reached." : explainJoin(error),
       })
       return false
     }
@@ -237,26 +453,32 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     */
     if (ending === 'closed') {
       attempt.current++
-      current.current = null
-      setState(quiet)
+      outOfTheCall(null)
       return
     }
 
     if (ending === 'lost') {
       if (!(await open(roomId))) {
-        setState((was) => (was.problem !== null ? was : { ...quiet, problem: { roomId, message: 'The connection to the call was lost.' } }))
+        setState((was) =>
+          was.problem !== null ? was : { ...was, problem: { roomId, message: 'The connection to the call was lost.' } },
+        )
       }
       return
     }
 
     attempt.current++
-    current.current = null
-    setState({ ...quiet, problem: { roomId, message: endings[ending] } })
+    outOfTheCall({ roomId, message: endings[ending] })
   }
 
+  // join closes the preview, which holds the devices the call is about to open, and joins.
   async function join(roomId: string) {
     if (current.current === roomId) {
       return
+    }
+    if (preparing.current !== null) {
+      preparing.current = null
+      closePreview()
+      patch({ preparing: null, preview: null })
     }
     if (current.current !== null) {
       await leave()
@@ -269,9 +491,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     const opened = connection.current
 
     attempt.current++
-    connection.current = null
-    current.current = null
-    setState(quiet)
+    outOfTheCall(null)
 
     /*
     Convia is told before the connection closes, and the order matters. The
@@ -304,6 +524,11 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     }
   }
 
+  /*
+  Turning the microphone or camera on and off inside a call changes that call and
+  nothing else. What a call starts with is decided before joining, where the choice
+  is remembered; a mute in the middle of one is not a preference.
+  */
   async function setMicrophone(on: boolean) {
     const opened = connection.current
     const roomId = current.current
@@ -333,19 +558,40 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
   }
 
   /*
+  switchDevice changes a device, in the call when there is one, and remembers it:
+  somebody who picked their headset mid-call wants it next time too.
+  */
+  async function switchDevice(kind: DeviceKind, id: string) {
+    const opened = connection.current
+    const roomId = current.current
+    if (opened !== null && roomId !== null) {
+      try {
+        await opened.switchDevice(kind, id)
+      } catch {
+        patch({ problem: { roomId, message: 'That device could not be used.' } })
+        return
+      }
+    }
+
+    const change: Partial<Choice> =
+      kind === 'audioinput' ? { audioInput: id } : kind === 'videoinput' ? { videoInput: id } : { audioOutput: id }
+    await choose(change)
+  }
+
+  /*
   Who is in the call is read again when Convia says it changed, and when the
   media server shows somebody Convia has not named yet — once per person, for
   the reason a conversation asks for its member list once per stranger.
   */
-  const reread = useRef(readNames)
-  reread.current = readNames
+  const latest = useRef({ readNames, refreshDevices, closePreview })
+  latest.current = { readNames, refreshDevices, closePreview }
 
   useEffect(
     () =>
       listen((event) => {
         const roomId = current.current
         if (roomId !== null && event.type.startsWith('participant.') && event.data?.['room_id'] === roomId) {
-          void reread.current(roomId)
+          void latest.current.readNames(roomId)
         }
       }),
     [listen],
@@ -365,13 +611,22 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     for (const person of strangers) {
       asked.current.add(person.identity)
     }
-    void reread.current(roomId)
+    void latest.current.readNames(roomId)
   }, [state.seen, state.names, state.roomId])
 
-  // A page that goes away — signing out — hangs up rather than leaving a connection behind.
+  // A device plugged in or taken out changes the lists the person chooses from.
+  useEffect(() => {
+    const media = navigator.mediaDevices
+    const changed = () => void latest.current.refreshDevices()
+    media?.addEventListener('devicechange', changed)
+    return () => media?.removeEventListener('devicechange', changed)
+  }, [])
+
+  // A page that goes away — signing out — hangs up and lets go of its devices.
   useEffect(
     () => () => {
       attempt.current++
+      latest.current.closePreview()
       void connection.current?.hangUp()
     },
     [],
@@ -379,11 +634,16 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
 
   return {
     ...state,
+    prepare,
+    cancelPreparing,
+    choose,
     join,
     leave,
     remove,
     setMicrophone,
     setCamera,
+    switchDevice,
+    refreshDevices,
     dismiss: () => patch({ problem: null }),
   }
 }

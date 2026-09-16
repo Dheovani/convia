@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { api, sourceKey, type RoomSource } from '../api/client'
 import type { Account, SidebarRoom } from '../api/types'
-import { CallAudio, CallBar, CallsList } from '../components/Call'
+import { CallAudio, CallBar, CallNotices, CallsList } from '../components/Call'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
 import { Sidebar } from '../components/Sidebar'
@@ -264,6 +264,7 @@ export function Workspace({
     <EventsContext.Provider value={stream}>
       <CallContext.Provider value={call}>
       <CallAudio />
+      <CallNotices />
       <div
         className="grid h-full grid-cols-[var(--rail-width)_minmax(0,1fr)]
           grid-rows-[auto_minmax(0,1fr)] bg-surface

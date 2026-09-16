@@ -4,13 +4,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { CallPresence, JoinSession, RoomCall } from '../api/types'
 import { Workspace } from '../screens/Workspace'
-import { DisconnectReason, Room } from '../test/livekit'
+import { ConnectionQuality, createLocalVideoTrack, DisconnectReason, Room } from '../test/livekit'
 import { FakeConvia, ana, room } from '../test/server'
 
 vi.mock('livekit-client', () => import('../test/livekit'))
 
-beforeEach(() => Room.reset())
+beforeEach(() => {
+  Room.reset()
+  window.localStorage.clear()
+})
 afterEach(() => vi.unstubAllGlobals())
+
+type Person = ReturnType<typeof userEvent.setup>
 
 const standupPath = `/v1/me/rooms/${room().id}`
 const design = room({ id: 'room_DESIGNREVIEW7QK4XMZP2VJH6T', name: 'Design review' })
@@ -71,6 +76,18 @@ function open(server: FakeConvia) {
   return render(<Workspace account={ana} onSignedOut={() => {}} />)
 }
 
+// preparation is getting ready to join, which the header's button opens.
+async function preparation(person: Person, label = 'Start call') {
+  await person.click(await screen.findByRole('button', { name: label }))
+  return screen.findByRole('region', { name: 'Prepare to join' })
+}
+
+// joined gets ready and joins, the whole of pressing the button twice.
+async function joined(person: Person, label = 'Start call') {
+  const ready = await preparation(person, label)
+  await person.click(within(ready).getByRole('button', { name: label }))
+}
+
 // connected waits for the page to open its media connection, and returns it.
 async function connected(): Promise<Room> {
   return waitFor(() => {
@@ -80,13 +97,111 @@ async function connected(): Promise<Room> {
   })
 }
 
+describe('getting ready to join', () => {
+  it('shows the microphone before joining, and joins only when asked', async () => {
+    const server = standup()
+    open(server)
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+
+    expect(await within(ready).findByRole('meter', { name: 'Microphone level' })).toBeInTheDocument()
+    expect(Room.made).toHaveLength(0)
+    expect(server.asked('POST', `${standupPath}/call/join`)).toBeUndefined()
+
+    await person.click(within(ready).getByRole('button', { name: 'Start call' }))
+
+    const media = await connected()
+    expect(media.connect).toHaveBeenCalledWith(session.media_url, session.media_token)
+    expect(screen.queryByRole('region', { name: 'Prepare to join' })).not.toBeInTheDocument()
+  })
+
+  // The preview lets go of the devices so the call can open them again.
+  it('stops the preview when the person joins or cancels', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+    await waitFor(() => expect(Room.opened).toHaveLength(1))
+
+    await person.click(within(ready).getByRole('button', { name: 'Cancel' }))
+
+    expect(Room.opened[0]?.stop).toHaveBeenCalled()
+    expect(await screen.findByRole('button', { name: 'Start call' })).toBeInTheDocument()
+  })
+
+  it('remembers in this browser whether the camera starts on', async () => {
+    const first = open(standup())
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+    await person.click(within(ready).getByRole('button', { name: 'Turn camera on' }))
+    await waitFor(() => expect(createLocalVideoTrack).toHaveBeenCalled())
+    await person.click(within(ready).getByRole('button', { name: 'Start call' }))
+
+    const media = await connected()
+    await waitFor(() => expect(media.localParticipant.setCameraEnabled).toHaveBeenCalledWith(true))
+
+    first.unmount()
+    open(standup())
+
+    const again = await preparation(person)
+    expect(within(again).getByRole('button', { name: 'Turn camera off' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('joins with the microphone the person chose', async () => {
+    Room.devices = [
+      { deviceId: 'mic-built-in', kind: 'audioinput', label: 'Built-in microphone' },
+      { deviceId: 'mic-headset', kind: 'audioinput', label: 'Headset' },
+    ]
+    open(standup())
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+    const microphone = await within(ready).findByRole('combobox', { name: 'Microphone' })
+    await waitFor(() => expect(within(microphone).getByRole('option', { name: 'Headset' })).toBeInTheDocument())
+    await person.selectOptions(microphone, 'mic-headset')
+    await person.click(within(ready).getByRole('button', { name: 'Start call' }))
+
+    const media = await connected()
+    expect(media.options).toMatchObject({ audioCaptureDefaults: { deviceId: 'mic-headset' } })
+  })
+
+  it('explains a refused microphone, and still lets the person join', async () => {
+    Room.refusals = { microphone: 'NotAllowedError' }
+    open(standup())
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+
+    expect(await within(ready).findByText(/Convia is not allowed to use your microphone/)).toBeInTheDocument()
+    expect(within(ready).getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+
+    await person.click(within(ready).getByRole('button', { name: 'Start call' }))
+
+    expect(await screen.findByText('Your microphone is not available, so nobody can hear you.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Leave call' })).toBeInTheDocument()
+  })
+
+  it('says a camera held by another app is busy', async () => {
+    Room.refusals = { camera: 'NotReadableError' }
+    open(standup())
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+    await person.click(within(ready).getByRole('button', { name: 'Turn camera on' }))
+
+    expect(await within(ready).findByText('Your camera is being used by another app.')).toBeInTheDocument()
+  })
+})
+
 describe('calls', () => {
   it('starts a call in a quiet room and connects with what Convia issued', async () => {
     const server = standup()
     open(server)
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
 
     const media = await connected()
     expect(media.connect).toHaveBeenCalledWith(session.media_url, session.media_token)
@@ -102,7 +217,7 @@ describe('calls', () => {
     open(standup())
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
 
     await waitFor(() => expect(media.localParticipant.setMicrophoneEnabled).toHaveBeenCalledWith(true))
@@ -116,7 +231,7 @@ describe('calls', () => {
     open(standup({ calls: [running] }))
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Join call' }))
+    await joined(person, 'Join call')
     await connected()
   })
 
@@ -130,7 +245,7 @@ describe('calls', () => {
     open(server)
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
 
     let toldFirst: boolean | undefined
@@ -146,12 +261,28 @@ describe('calls', () => {
     expect(screen.queryByRole('region', { name: 'Call' })).not.toBeInTheDocument()
   })
 
+  it('switches the microphone in the middle of a call', async () => {
+    Room.devices = [{ deviceId: 'mic-headset', kind: 'audioinput', label: 'Headset' }]
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+
+    await person.click(await screen.findByRole('button', { name: 'Devices' }))
+    const microphone = await screen.findByRole('combobox', { name: 'Microphone' })
+    await waitFor(() => expect(within(microphone).getByRole('option', { name: 'Headset' })).toBeInTheDocument())
+    await person.selectOptions(microphone, 'mic-headset')
+
+    await waitFor(() => expect(media.switchActiveDevice).toHaveBeenCalledWith('audioinput', 'mic-headset'))
+  })
+
   it("lets the room's owner take somebody out of the call", async () => {
     const server = standup({ owned: true })
     open(server)
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
     act(() => media.arrive(brunoInTheCall.participant_id))
 
@@ -167,11 +298,11 @@ describe('calls', () => {
     open(standup({ owned: false }))
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
     act(() => media.arrive(brunoInTheCall.participant_id))
 
-    expect(await screen.findByText('Bruno Alves')).toBeInTheDocument()
+    expect(await within(await screen.findByRole('region', { name: 'Call' })).findByText('Bruno Alves')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /out of the call/ })).not.toBeInTheDocument()
   })
 
@@ -179,7 +310,7 @@ describe('calls', () => {
     open(standup())
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
 
     await person.click(screen.getByRole('button', { name: 'Design review' }))
@@ -202,7 +333,7 @@ describe('calls', () => {
     open(server)
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
 
     expect(await screen.findByText('Calls cannot be held here right now.')).toBeInTheDocument()
     expect(screen.queryByText('Whatever the server happened to say.')).not.toBeInTheDocument()
@@ -213,7 +344,7 @@ describe('calls', () => {
     open(standup())
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
     await screen.findByRole('button', { name: 'Leave call' })
 
@@ -229,7 +360,7 @@ describe('calls', () => {
     open(server)
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const first = await connected()
     await screen.findByRole('button', { name: 'Leave call' })
 
@@ -248,7 +379,7 @@ describe('calls', () => {
     open(server)
     const person = userEvent.setup()
 
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
+    await joined(person)
     const media = await connected()
     await screen.findByRole('button', { name: 'Leave call' })
 
@@ -258,19 +389,6 @@ describe('calls', () => {
     expect(Room.made).toHaveLength(1)
     expect(server.calls.filter((call) => call.path === `${standupPath}/call/join`)).toHaveLength(1)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('tells somebody whose microphone cannot be had that nobody can hear them', async () => {
-    Room.microphoneRefused = true
-    open(standup())
-    const person = userEvent.setup()
-
-    await person.click(await screen.findByRole('button', { name: 'Start call' }))
-
-    expect(
-      await screen.findByText('Your microphone is not available, so nobody can hear you.'),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Leave call' })).toBeInTheDocument()
   })
 
   it('lists the calls running in my rooms and opens one', async () => {
@@ -290,5 +408,83 @@ describe('calls', () => {
     open(server)
 
     expect(await screen.findByRole('button', { name: 'Start call' })).toBeDisabled()
+  })
+})
+
+describe('what a call says as it goes', () => {
+  it('says when the connection is being got back', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    const stage = await screen.findByRole('region', { name: 'Call' })
+
+    act(() => media.emit('reconnecting'))
+    expect(await within(stage).findByText('Reconnecting to the call…')).toBeInTheDocument()
+
+    act(() => media.emit('reconnected'))
+    await waitFor(() => expect(within(stage).queryByText('Reconnecting to the call…')).not.toBeInTheDocument())
+  })
+
+  it('says when this person’s own connection is weak', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+
+    act(() => media.weaken('local', ConnectionQuality.Poor))
+
+    expect(await screen.findByText('Your connection is weak. Others may not hear or see you well.')).toBeInTheDocument()
+  })
+
+  it('marks somebody whose connection is weak or lost', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    act(() => media.arrive(brunoInTheCall.participant_id))
+    const stage = await screen.findByRole('region', { name: 'Call' })
+    await within(stage).findByText('Bruno Alves')
+
+    act(() => media.weaken(brunoInTheCall.participant_id, ConnectionQuality.Poor))
+    expect(await within(stage).findByText('weak connection')).toBeInTheDocument()
+
+    act(() => media.weaken(brunoInTheCall.participant_id, ConnectionQuality.Lost))
+    expect(await within(stage).findByText('connection lost')).toBeInTheDocument()
+  })
+
+  // Joining a call is not everybody in it arriving.
+  it('does not announce the people already in the call as arriving', async () => {
+    Room.alreadyInCall = [brunoInTheCall.participant_id]
+    open(standup({ calls: [running] }))
+    const person = userEvent.setup()
+
+    await joined(person, 'Join call')
+    await connected()
+
+    const stage = await screen.findByRole('region', { name: 'Call' })
+    expect(await within(stage).findByText('Bruno Alves')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('status', { name: 'Call notices' })).queryByText(/joined the call/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('says who joined and who left, for everybody listening', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    const notices = screen.getByRole('status', { name: 'Call notices' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Leave call' })).toBeInTheDocument())
+
+    act(() => media.arrive(brunoInTheCall.participant_id))
+    expect(await within(notices).findByText('Bruno Alves joined the call.')).toBeInTheDocument()
+
+    act(() => media.depart(brunoInTheCall.participant_id))
+    expect(await within(notices).findByText('Bruno Alves left the call.')).toBeInTheDocument()
   })
 })

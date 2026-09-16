@@ -1,15 +1,23 @@
-import type { DisconnectReason as Reason, Participant } from 'livekit-client'
+import type {
+  DisconnectReason as Reason,
+  LocalAudioTrack,
+  LocalVideoTrack,
+  Participant,
+  RemoteParticipant,
+} from 'livekit-client'
 
 /*
 The media plane, as this page sees it.
 
 Everything the rest of the interface knows about a call's audio and video comes
-through here, in Convia's words: who is seen, whether they are speaking, what can
-be attached to an element. Nothing else in the page imports the media client, so
-replacing it is work in this file.
+through here, in Convia's words: who is seen, whether they are speaking, how well
+they are connected, which devices there are, what can be attached to an element.
+Nothing else in the page imports the media client, so replacing it is work in
+this file.
 
-**The media client is loaded when somebody first joins a call**, not with the
-page. It is most of the weight a call adds, and most visits never join one.
+**The media client is loaded when somebody first gets ready to join a call**, not
+with the page. It is most of the weight a call adds, and most visits never join
+one.
 */
 
 // Attachable is a track an element can play.
@@ -17,6 +25,12 @@ export interface Attachable {
   attach: (element: HTMLMediaElement) => HTMLMediaElement
   detach: (element: HTMLMediaElement) => HTMLMediaElement
 }
+
+/*
+Quality is how well a connection is carrying somebody, in the three states worth
+saying. The media client distinguishes excellent from good, which nobody acts on.
+*/
+export type Quality = 'good' | 'poor' | 'lost'
 
 /*
 Seen is one person in the call, as the media server reports them.
@@ -31,6 +45,7 @@ export interface Seen {
   speaking: boolean
   microphone: boolean
   camera: boolean
+  quality: Quality
   video?: Attachable
   audio?: Attachable
 }
@@ -46,37 +61,205 @@ another page. `lost` is everything else, and is the only one worth trying again.
 */
 export type Ending = 'closed' | 'removed' | 'ended' | 'elsewhere' | 'lost'
 
+export type DeviceKind = 'audioinput' | 'videoinput' | 'audiooutput'
+
+export interface Device {
+  id: string
+  label: string
+}
+
+export interface Devices {
+  audioinput: Device[]
+  videoinput: Device[]
+  audiooutput: Device[]
+}
+
+export const noDevices: Devices = { audioinput: [], videoinput: [], audiooutput: [] }
+
+/*
+Choice is what a person decided about their devices before joining.
+
+An empty device identifier is the system's default, which is what somebody who
+never chose gets, and what somebody whose chosen device went away falls back to.
+*/
+export interface Choice {
+  microphone: boolean
+  camera: boolean
+  audioInput: string
+  videoInput: string
+  audioOutput: string
+}
+
+/*
+Refusal is why a device could not be had, in the terms a person can act on: they
+refused it, there is none, something else holds it, or it simply failed.
+*/
+export type Refusal = 'denied' | 'missing' | 'busy' | 'failed'
+
+/*
+Preview is the person's own camera and microphone before they join.
+
+It is opened with the devices they chose and closed before the call opens them
+again, so nothing holds a camera the call is about to ask for.
+*/
+export interface Preview {
+  video?: Attachable
+  refused: { microphone?: Refusal; camera?: Refusal }
+  // level is how loud the microphone is right now, from 0 to 1.
+  level: () => number
+  stop: () => void
+}
+
 export interface Connection {
   setMicrophone: (on: boolean) => Promise<void>
   setCamera: (on: boolean) => Promise<void>
+  switchDevice: (kind: DeviceKind, id: string) => Promise<void>
   hangUp: () => Promise<void>
 }
 
 export interface Listeners {
   onChange: (seen: Seen[]) => void
   onEnded: (ending: Ending) => void
+  onReconnecting: (reconnecting: boolean) => void
+  // onArrived and onDeparted are about people who came or went after this page joined.
+  onArrived: (identity: string) => void
+  onDeparted: (identity: string) => void
 }
 
 export interface Connected {
   connection: Connection
-  // microphone is false when the person is in the call and nobody can hear them.
+  // microphone and camera are false when they were wanted and could not be had.
   microphone: boolean
+  camera: boolean
 }
 
 /*
-connect joins the media session a join session names, with the microphone on and
-the camera off.
+listDevices lists the microphones, cameras and speakers this browser offers.
 
-It resolves once the connection is open. A microphone that cannot be had does not
-fail it: the person is in the call and can hear it, and `microphone` says that
-nobody can hear them. A connection that cannot be opened rejects, and is closed
-first, so nothing is left half-open.
+It does not ask for permission. Before permission is given a browser lists
+devices without names, so each is named by its kind and position until the
+preview has been allowed to open one. Choosing where sound plays is offered only
+where the browser can do it.
 */
-export async function connect(url: string, token: string, listeners: Listeners): Promise<Connected> {
-  const { DisconnectReason, Room, RoomEvent, Track } = await import('livekit-client')
+export async function listDevices(): Promise<Devices> {
+  const { Room, supportsAudioOutputSelection } = await import('livekit-client')
 
-  const room = new Room({ adaptiveStream: true, dynacast: true })
+  const named = (devices: MediaDeviceInfo[], kind: string): Device[] =>
+    devices
+      .filter((device) => device.deviceId !== '')
+      .map((device, index) => ({ id: device.deviceId, label: device.label || `${kind} ${index + 1}` }))
+
+  const [audioinput, videoinput, audiooutput] = await Promise.all([
+    Room.getLocalDevices('audioinput', false),
+    Room.getLocalDevices('videoinput', false),
+    supportsAudioOutputSelection() ? Room.getLocalDevices('audiooutput', false) : Promise.resolve([]),
+  ])
+
+  return {
+    audioinput: named(audioinput, 'Microphone'),
+    videoinput: named(videoinput, 'Camera'),
+    audiooutput: named(audiooutput, 'Speaker'),
+  }
+}
+
+/*
+openPreview opens the devices a person chose, so they can see and hear what the
+call will get before joining it.
+
+This is where the browser asks for permission, when the person has decided to
+join rather than the moment they open a room. A device that cannot be had does not
+fail the preview: it is reported, and the person may still join without it.
+*/
+export async function openPreview(choice: Choice): Promise<Preview> {
+  const { createAudioAnalyser, createLocalAudioTrack, createLocalVideoTrack, MediaDeviceFailure } =
+    await import('livekit-client')
+
+  function refusalOf(error: unknown): Refusal {
+    switch (MediaDeviceFailure.getFailure(error)) {
+      case MediaDeviceFailure.PermissionDenied:
+        return 'denied'
+      case MediaDeviceFailure.NotFound:
+        return 'missing'
+      case MediaDeviceFailure.DeviceInUse:
+        return 'busy'
+      default:
+        return 'failed'
+    }
+  }
+
+  const refused: Preview['refused'] = {}
+
+  let audio: LocalAudioTrack | undefined
+  if (choice.microphone) {
+    try {
+      audio = await createLocalAudioTrack(choice.audioInput === '' ? {} : { deviceId: choice.audioInput })
+    } catch (error) {
+      refused.microphone = refusalOf(error)
+    }
+  }
+
+  let video: LocalVideoTrack | undefined
+  if (choice.camera) {
+    try {
+      video = await createLocalVideoTrack(choice.videoInput === '' ? {} : { deviceId: choice.videoInput })
+    } catch (error) {
+      refused.camera = refusalOf(error)
+    }
+  }
+
+  const analyser = audio === undefined ? undefined : createAudioAnalyser(audio)
+  let stopped = false
+
+  return {
+    ...(video === undefined ? {} : { video }),
+    refused,
+    level: () => (analyser === undefined || stopped ? 0 : analyser.calculateVolume()),
+    stop() {
+      if (stopped) {
+        return
+      }
+      stopped = true
+      void analyser?.cleanup().catch(() => undefined)
+      audio?.stop()
+      video?.stop()
+    },
+  }
+}
+
+/*
+connect joins the media session a join session names, with the devices and the
+microphone and camera the person chose.
+
+It resolves once the connection is open. A microphone or camera that cannot be
+had does not fail it: the person is in the call, and `microphone` and `camera`
+say what they are without. A connection that cannot be opened rejects, and is
+closed first, so nothing is left half-open.
+*/
+export async function connect(url: string, token: string, choice: Choice, listeners: Listeners): Promise<Connected> {
+  const { ConnectionQuality, DisconnectReason, Room, RoomEvent, Track } = await import('livekit-client')
+
+  const room = new Room({
+    adaptiveStream: true,
+    dynacast: true,
+    ...(choice.audioInput === '' ? {} : { audioCaptureDefaults: { deviceId: choice.audioInput } }),
+    ...(choice.videoInput === '' ? {} : { videoCaptureDefaults: { deviceId: choice.videoInput } }),
+    ...(choice.audioOutput === '' ? {} : { audioOutput: { deviceId: choice.audioOutput } }),
+  })
+
   let hungUp = false
+  // settled is false while the connection opens, so the people already in the call are not announced as arriving.
+  let settled = false
+
+  function qualityOf(participant: Participant): Quality {
+    switch (participant.connectionQuality) {
+      case ConnectionQuality.Poor:
+        return 'poor'
+      case ConnectionQuality.Lost:
+        return 'lost'
+      default:
+        return 'good'
+    }
+  }
 
   function see(participant: Participant, local: boolean): Seen {
     const camera = participant.getTrackPublication(Track.Source.Camera)
@@ -88,6 +271,7 @@ export async function connect(url: string, token: string, listeners: Listeners):
       speaking: participant.isSpeaking,
       microphone: microphone !== undefined && !microphone.isMuted,
       camera: camera?.track !== undefined && !camera.isMuted,
+      quality: qualityOf(participant),
       ...(camera?.track === undefined ? {} : { video: camera.track }),
       ...(local || microphone?.track === undefined ? {} : { audio: microphone.track }),
     }
@@ -120,8 +304,18 @@ export async function connect(url: string, token: string, listeners: Listeners):
   }
 
   room
-    .on(RoomEvent.ParticipantConnected, changed)
-    .on(RoomEvent.ParticipantDisconnected, changed)
+    .on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+      changed()
+      if (settled && !hungUp) {
+        listeners.onArrived(participant.identity)
+      }
+    })
+    .on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+      changed()
+      if (settled && !hungUp) {
+        listeners.onDeparted(participant.identity)
+      }
+    })
     .on(RoomEvent.TrackSubscribed, changed)
     .on(RoomEvent.TrackUnsubscribed, changed)
     .on(RoomEvent.TrackMuted, changed)
@@ -129,6 +323,18 @@ export async function connect(url: string, token: string, listeners: Listeners):
     .on(RoomEvent.LocalTrackPublished, changed)
     .on(RoomEvent.LocalTrackUnpublished, changed)
     .on(RoomEvent.ActiveSpeakersChanged, changed)
+    .on(RoomEvent.ConnectionQualityChanged, changed)
+    .on(RoomEvent.Reconnecting, () => {
+      if (!hungUp) {
+        listeners.onReconnecting(true)
+      }
+    })
+    .on(RoomEvent.Reconnected, () => {
+      if (!hungUp) {
+        listeners.onReconnecting(false)
+        changed()
+      }
+    })
     .on(RoomEvent.Disconnected, (reason?: Reason) => {
       if (!hungUp) {
         hungUp = true
@@ -143,17 +349,31 @@ export async function connect(url: string, token: string, listeners: Listeners):
     await room.disconnect()
     throw error
   }
+  settled = true
 
-  let microphone = true
-  try {
-    await room.localParticipant.setMicrophoneEnabled(true)
-  } catch {
-    microphone = false
+  let microphone = false
+  if (choice.microphone) {
+    try {
+      await room.localParticipant.setMicrophoneEnabled(true)
+      microphone = true
+    } catch {
+      microphone = false
+    }
+  }
+
+  let camera = false
+  if (choice.camera) {
+    try {
+      await room.localParticipant.setCameraEnabled(true)
+      camera = true
+    } catch {
+      camera = false
+    }
   }
 
   /*
   A browser plays audio only after the person has done something on the page.
-  Pressing "Start call" was that, and asking here is what keeps the first voice
+  Pressing "Join call" was that, and asking here is what keeps the first voice
   from being silently withheld.
   */
   void room.startAudio().catch(() => undefined)
@@ -161,6 +381,7 @@ export async function connect(url: string, token: string, listeners: Listeners):
 
   return {
     microphone,
+    camera,
     connection: {
       async setMicrophone(on) {
         await room.localParticipant.setMicrophoneEnabled(on)
@@ -168,6 +389,13 @@ export async function connect(url: string, token: string, listeners: Listeners):
       },
       async setCamera(on) {
         await room.localParticipant.setCameraEnabled(on)
+        changed()
+      },
+      async switchDevice(kind, id) {
+        // The system's default is named "default" to a browser, and "" to this page.
+        if (!(await room.switchActiveDevice(kind, id === '' ? 'default' : id))) {
+          throw new Error('the device could not be used')
+        }
         changed()
       },
       async hangUp() {
