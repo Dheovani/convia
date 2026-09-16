@@ -81,7 +81,8 @@ const headingText = 'm-0 font-display text-[0.72rem] font-semibold tracking-[0.0
 const heading = `${headingText} mb-2`
 
 const moderation =
-  'cursor-pointer rounded-sm px-1 py-0.5 text-[0.72rem] text-ink-faint hover:bg-surface-hover hover:text-ink ' +
+  'inline-flex min-h-6 cursor-pointer items-center rounded-sm px-1.5 py-0.5 text-[0.72rem] text-ink-faint ' +
+  'hover:bg-surface-hover hover:text-ink ' +
   'disabled:cursor-default disabled:opacity-60'
 
 // Chevron marks a section that folds away, turned while it is open.

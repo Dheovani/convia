@@ -13,6 +13,7 @@ import {
   type Devices,
   type Ending,
   type Preview,
+  type Refusal,
   type Seen,
 } from '../media/connection'
 import type { Listener } from './events'
@@ -29,6 +30,39 @@ export interface Notice {
 // noticeLifetime is how long somebody arriving or leaving stays said on screen.
 const noticeLifetime = 5_000
 
+/*
+weakBeforeOffer is how long a person's own connection stays weak before the call
+offers to continue with audio alone. The media client already lowers the video
+it sends and receives on its own; this is for a connection that stays bad after
+that, and a few seconds of a dip is not one.
+*/
+const weakBeforeOffer = 10_000
+
+const deviceWords: Record<DeviceKind, string> = {
+  audioinput: 'microphone',
+  videoinput: 'camera',
+  audiooutput: 'speaker',
+}
+
+function chosenOf(choice: Choice, kind: DeviceKind): string {
+  return kind === 'audioinput' ? choice.audioInput : kind === 'videoinput' ? choice.videoInput : choice.audioOutput
+}
+
+// deviceFailure says what happened to a device in the middle of a call.
+function deviceFailure(refusal: Refusal, kind: DeviceKind | undefined): string {
+  const device = kind === undefined ? 'microphone or camera' : deviceWords[kind]
+  switch (refusal) {
+    case 'denied':
+      return `Convia is no longer allowed to use your ${device}.`
+    case 'missing':
+      return `Your ${device} was disconnected.`
+    case 'busy':
+      return `Your ${device} is being used by another app.`
+    default:
+      return `Your ${device} stopped working.`
+  }
+}
+
 interface Snapshot {
   // roomId is the room whose call this person is in, or joining.
   roomId: string | null
@@ -40,6 +74,10 @@ interface Snapshot {
   camera: boolean
   // reconnecting is true while the media client is getting a dropped connection back.
   reconnecting: boolean
+  // audioOnly is true while the person hears the call without its video.
+  audioOnly: boolean
+  // offerAudioOnly is true once their connection has been weak long enough to offer it.
+  offerAudioOnly: boolean
   // problem is the last thing worth telling the person, about the room it names.
   problem: { roomId: string; message: string } | null
   notices: Notice[]
@@ -61,10 +99,16 @@ export interface CallSession extends Snapshot {
   setCamera: (on: boolean) => Promise<void>
   switchDevice: (kind: DeviceKind, id: string) => Promise<void>
   refreshDevices: () => Promise<void>
+  goAudioOnly: () => Promise<void>
+  resumeVideo: () => void
+  declineAudioOnly: () => void
   dismiss: () => void
 }
 
-type CallPart = Pick<Snapshot, 'roomId' | 'phase' | 'seen' | 'names' | 'microphone' | 'camera' | 'reconnecting'>
+type CallPart = Pick<
+  Snapshot,
+  'roomId' | 'phase' | 'seen' | 'names' | 'microphone' | 'camera' | 'reconnecting' | 'audioOnly' | 'offerAudioOnly'
+>
 
 const outOfCall: CallPart = {
   roomId: null,
@@ -74,6 +118,8 @@ const outOfCall: CallPart = {
   microphone: false,
   camera: false,
   reconnecting: false,
+  audioOnly: false,
+  offerAudioOnly: false,
 }
 
 /*
@@ -98,6 +144,9 @@ export const CallContext = createContext<CallSession>({
   setCamera: async () => {},
   switchDevice: async () => {},
   refreshDevices: async () => {},
+  goAudioOnly: async () => {},
+  resumeVideo: () => {},
+  declineAudioOnly: () => {},
   dismiss: () => {},
 })
 
@@ -202,6 +251,10 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
   const names = useRef<ReadonlyMap<string, CallPresence>>(new Map())
   const awaiting = useRef(new Set<string>())
   const noticeCount = useRef(0)
+  // declined is true once the person said no to audio alone, until their connection recovers.
+  const declined = useRef(false)
+  // lost are the chosen devices already said to be gone in this call.
+  const lost = useRef(new Set<DeviceKind>())
 
   const expired = useRef(onExpired)
   expired.current = onExpired
@@ -284,11 +337,38 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     }
   }
 
+  /*
+  refreshDevices reads the devices again. In a call, a chosen device that is no
+  longer there — unplugged, or switched off — is replaced by the system's default
+  for this call, and said. The choice itself is kept, so the device is used again
+  the next time it is there when a call is joined.
+  */
   async function refreshDevices() {
+    let devices: Devices
     try {
-      patch({ devices: await listDevices() })
+      devices = await listDevices()
     } catch {
-      // The list keeps what it had.
+      return
+    }
+    patch({ devices })
+
+    const opened = connection.current
+    if (opened === null) {
+      return
+    }
+
+    for (const kind of ['audioinput', 'videoinput', 'audiooutput'] as const) {
+      const chosen = chosenOf(choice.current, kind)
+      if (chosen === '' || devices[kind].some((device) => device.id === chosen)) {
+        lost.current.delete(kind)
+        continue
+      }
+      if (lost.current.has(kind) || (kind === 'audiooutput' && devices[kind].length === 0)) {
+        continue
+      }
+      lost.current.add(kind)
+      void opened.switchDevice(kind, '').catch(() => undefined)
+      notify(`Your ${deviceWords[kind]} was disconnected, so the call is using the system default.`)
     }
   }
 
@@ -366,7 +446,17 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     asked.current = new Set()
     awaiting.current = new Set()
     names.current = new Map()
-    patch({ roomId, phase: 'joining', seen: [], names: new Map(), problem: null, reconnecting: false })
+    lost.current = new Set()
+    patch({
+      roomId,
+      phase: 'joining',
+      seen: [],
+      names: new Map(),
+      problem: null,
+      reconnecting: false,
+      audioOnly: false,
+      offerAudioOnly: false,
+    })
 
     let seated = false
     try {
@@ -401,6 +491,11 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         onDeparted: (identity) => {
           if (mine === attempt.current) {
             departed(identity)
+          }
+        },
+        onDeviceFailure: (refusal, kind) => {
+          if (mine === attempt.current) {
+            patch({ problem: { roomId, message: deviceFailure(refusal, kind) } })
           }
         },
       })
@@ -579,6 +674,36 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
   }
 
   /*
+  goAudioOnly spares a weak connection: the person's own camera goes off, and
+  nobody else's video is received until they ask for it again. Their camera is
+  theirs to turn back on; the video they receive comes back with resumeVideo.
+  */
+  async function goAudioOnly() {
+    const opened = connection.current
+    if (opened === null) {
+      return
+    }
+    opened.setReceiveVideo(false)
+    patch({ audioOnly: true, offerAudioOnly: false })
+    await setCamera(false)
+  }
+
+  function resumeVideo() {
+    const opened = connection.current
+    if (opened === null) {
+      return
+    }
+    opened.setReceiveVideo(true)
+    declined.current = true
+    patch({ audioOnly: false })
+  }
+
+  function declineAudioOnly() {
+    declined.current = true
+    patch({ offerAudioOnly: false })
+  }
+
+  /*
   Who is in the call is read again when Convia says it changed, and when the
   media server shows somebody Convia has not named yet — once per person, for
   the reason a conversation asks for its member list once per stranger.
@@ -614,6 +739,29 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     void latest.current.readNames(roomId)
   }, [state.seen, state.names, state.roomId])
 
+  /*
+  A connection that has been weak for a while is offered audio alone, once: saying
+  no, or turning video back on, is not asked again until the connection has
+  recovered and weakened again.
+  */
+  const self = state.seen.find((person) => person.local)
+  const weak = state.phase === 'joined' && !state.reconnecting && self !== undefined && self.quality !== 'good'
+
+  useEffect(() => {
+    if (!weak) {
+      declined.current = false
+      setState((was) => (was.offerAudioOnly ? { ...was, offerAudioOnly: false } : was))
+      return
+    }
+    if (state.audioOnly || declined.current) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      setState((was) => ({ ...was, offerAudioOnly: true }))
+    }, weakBeforeOffer)
+    return () => window.clearTimeout(timer)
+  }, [weak, state.audioOnly])
+
   // A device plugged in or taken out changes the lists the person chooses from.
   useEffect(() => {
     const media = navigator.mediaDevices
@@ -644,6 +792,9 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     setCamera,
     switchDevice,
     refreshDevices,
+    goAudioOnly,
+    resumeVideo,
+    declineAudioOnly,
     dismiss: () => patch({ problem: null }),
   }
 }

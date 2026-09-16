@@ -24,7 +24,7 @@ const sizes = {
   small: 'px-3 py-1 text-[0.78rem]',
 } as const
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+interface ButtonProps extends React.ComponentProps<'button'> {
   tone?: keyof typeof tones
   size?: keyof typeof sizes
 }

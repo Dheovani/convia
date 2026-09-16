@@ -28,9 +28,17 @@ A binary built with `go build` alone has no interface, because the bundle needs 
 | **Sidebar** | which conversation, and what you have not read |
 | **Stage** | the conversation itself |
 
-Calls and settings are shown and disabled rather than hidden. An interface that grows new top-level destinations as they are built teaches people that its shape is unreliable; one that shows where they will be teaches them where to look later. Each says what it is waiting for.
+Settings is shown and disabled rather than hidden. An interface that grows new top-level destinations as they are built teaches people that its shape is unreliable; one that shows where they will be teaches them where to look later. Each says what it is waiting for.
 
-They are a CSS grid rather than nested boxes, because they are peers — the rail does not contain the sidebar — and a layout that says so is one a narrow screen can rearrange by changing the grid alone.
+They are a CSS grid rather than nested boxes, because they are peers — the rail does not contain the sidebar.
+
+### On a narrow screen
+
+Below 48rem — a phone, or a window pushed to one side — **one zone is shown at a time**. The list comes first; choosing a conversation replaces it, and the conversation's header offers **Back to conversations**. The rail becomes a bar along the bottom, because that is where a thumb is, and choosing a destination there goes back to its list. Leaving or losing the open room goes back to the list too, rather than to an empty screen.
+
+A call goes on while the list is read, and its bar is shown above the list, so **Return** is one tap away.
+
+Which zone is shown is decided in the component, from `useNarrow`, rather than by hiding one with CSS: a hidden zone would still be read by a screen reader and reached by the keyboard, and the tests, which run without a layout engine, could not tell the two arrangements apart.
 
 ## What it talks to
 
@@ -115,6 +123,10 @@ A call is in its room. The conversation header offers **Start call** in a quiet 
 
 **A device that cannot be had is explained, and does not keep anybody out.** A refused permission says how to allow it again — from the site settings beside the address, because a browser will not ask twice — and offers **Try again**; a missing device, one another app holds, and one that simply failed are each said. The person may join without it, and the call then says that nobody can hear, or see, them.
 
+**A device taken away in the middle of a call is replaced, and said.** When a chosen microphone, camera or speaker disappears, the call switches that kind to the system default and says so. The choice stays remembered, so the headset is chosen again next time it is there. A device that stops working mid-call is said the same way as one that could not be had while getting ready.
+
+**A connection that stays weak is offered audio alone.** After ten seconds of the person's own connection being weak, the stage offers **Continue with audio only** or **Not now**. Audio alone turns the person's own camera off and stops receiving everybody's video, which is most of what a call costs, and says so with **Turn video back on**. That brings back the video they receive; their camera stays theirs to turn back on, because whether others see them again is their decision, not the network's. Saying not now is not asked again until the connection has recovered and weakened again. A dip shorter than ten seconds offers nothing, because a prompt for every passing wobble teaches people to dismiss it.
+
 **A call says how it is going.** While the media client is getting a dropped connection back, the stage and the bar say it is reconnecting. A weak connection of one's own is said above the tiles, and anybody else's on their tile — *weak connection*, or *connection lost*. Who joined and who left is said once, by name, in a polite live region that a screen reader reads without interrupting and that clears itself after a few seconds; the people already in the call when one joins it are not announced as arriving.
 
 **The call goes on while its person reads something else.** It is held by the workspace rather than by the conversation, and so is its sound. Whenever the stage is not on screen, a bar names the room the call is in, with **Return** and **Leave call**.
@@ -126,6 +138,26 @@ A call is in its room. The conversation header offers **Start call** in a quiet 
 **What went wrong is said, in the page's words.** A refused join is worded from its status: removed from this call, a room that is gone, a closed room, an installation that cannot hold calls. A connection that closed is told apart by why: taken out of the call, the call ending, and joining from another page are said and not undone, and only a lost connection is tried again, once. A microphone that cannot be had does not keep anybody out of the call; it says that nobody can hear them.
 
 The media client is loaded when somebody first gets ready to join a call, as its own chunk, so the page does not wait for it. Everything the interface knows about audio and video goes through `web/src/media/connection.ts`, which is the one file that imports the client.
+
+## Journeys, end to end
+
+`web/e2e` drives the critical journeys of a call in a real browser with a fake camera and microphone, against a real Convia and a real LiveKit: two people joining and being in the call together, the owner taking somebody out who then cannot come back, a closed page being noticed by the media server, an empty call ending when its last person leaves, deleting a room ending its call, and the call bar on a phone. CI runs them on every change, in the *End-to-end call journeys* job.
+
+To run them locally, start PostgreSQL and LiveKit with `docker compose --profile media up -d postgres livekit`, then a Convia built with the interface and started with `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES=true`, and:
+
+```bash
+cd web
+npx playwright install chromium   # once
+CONVIA_E2E_SHARE_URL=http://192.168.0.2:8080 npm run test:e2e
+```
+
+| Variable | What it is |
+| --- | --- |
+| `CONVIA_E2E_URL` | where the browser opens Convia; `http://localhost:8080` by default. It has to be localhost or HTTPS, because the session cookie is `__Host-` and needs a secure context. |
+| `CONVIA_E2E_SHARE_URL` | the same Convia at an address on the machine's network. Rooms are shared by invitation, and an invitation link to loopback is refused as Convia itself, which is also why private addresses have to be allowed. |
+| `CONVIA_E2E_CHANNEL` | an installed browser to use instead of Playwright's Chromium, such as `msedge` or `chrome`. |
+
+Every journey registers new people, so they can run against a database that already holds data, and they leave their rooms behind.
 
 ## What is served, and how it is cached
 
@@ -174,7 +206,16 @@ Inter and Space Grotesk are the intended faces and are **not bundled**. The poli
 
 ## Accessibility
 
-Not a later pass. `M18-010` is an exit criterion, and these are the parts already load-bearing:
+The target is **WCAG 2.2 AA**. It is checked by the tests that describe the interface, not by an automated auditor: the usual one, axe-core, is MPL-2.0, which this repository does not take as a dependency. What those tests hold:
+
+- **Contrast is a test.** `web/src/styles/contrast.test.ts` reads the tokens from `theme.css` and requires 4.5:1 for every text colour on every surface, in both palettes, and 3:1 for the accent where it marks something without words. A token changed by eye fails there, not in front of somebody who cannot read it. Accent text uses its own token, `--color-accent-ink`, because the accent that fills a button is too dark to be read as text on the dark surfaces.
+- **Targets are at least 24 pixels**, the AA minimum, including the small actions in headers and on tiles; the rail's destinations are 44.
+- **A skip link** goes past the rail and the list straight to the conversation, which takes focus.
+- **Focus is never lost.** Getting ready to join puts focus on joining; cancelling, or leaving the call, gives it back to the call button. **Escape** closes the room menu and gives focus back to the button that opened it.
+- **Every region is named**: the page has a heading, the zones are landmarks, the call's controls are a named group whose toggles say whether they are pressed, and the people in a call are a named list.
+
+And, from before:
+
 
 - One focus ring, defined once, never removed. The usual `outline: none` is how interfaces lose keyboard navigation silently.
 - Row actions appear on **hover and focus**. Focus is the half that is usually forgotten, and without it they cannot be reached from the keyboard at all.
@@ -191,8 +232,9 @@ Named here rather than discovered later.
 - **No router.** There is one screen and a selected room, and the URL does not change. It works because the server answers every path with the page, so adding a router later is additive.
 - **The lists of people are one page.** Somebody who shares rooms with more than a hundred people sees the first hundred. Paging wants a screen where it matters.
 - **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.
-- **Calls are said, not yet recovered.** A lost connection is retried once and a reconnection is said, but nothing adapts to a degraded network — lowering the video a person sends, or offering to continue with audio alone (`M18-012`). Nobody on another installation can join a call here yet (`M33-002`), and no end-to-end test drives a call in CI (`M18-014`).
+- **A weak connection is met by the person, not by the call.** Audio alone is offered, but the video a person sends is not lowered for others. The media client's adaptive stream and simulcast choices are its defaults, and nothing here tunes them. Nobody on another installation can join a call here yet (`M33-002`).
+- **Accessibility is not audited by a tool.** The tests hold what is listed under *Accessibility*, and nothing checks what nobody thought to write down. A manual pass with a screen reader is still the check that finds the rest.
 - **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
 - **The webfonts are not bundled.** See *The design*.
-- **The bundle is split once.** The page is one chunk of roughly 87 kB compressed, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
+- **The bundle is split once.** The page is one chunk of roughly 91 kB compressed, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
 - **Tailwind costs a little at this size.** Its reset and the utilities in use come to roughly three kilobytes more, compressed, than the hand-written CSS it replaced. That is the expected shape of the trade: a utility system pays for itself once the same spacing and colour decisions are being repeated across many screens, and this interface currently has two.

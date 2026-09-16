@@ -26,7 +26,7 @@ kept in step.
 
   --color-ink: #ecedf2;
   --color-ink-dim: #9b9dac;
-  --color-ink-faint: #6b6d7c;
+  --color-ink-faint: #8a8c9b;
   --color-on-accent: #ffffff;
 
   /*
@@ -34,9 +34,11 @@ kept in step.
   currently true — the selected room, the focused field, the unread count. A
   second accent would make both of those mean less.
   */
-  --color-accent: #7c5cff;
-  --color-accent-strong: #8f74ff;
-  --color-accent-soft: rgba(124, 92, 255, 0.16);
+  --color-accent: #6f4ff5;
+  --color-accent-strong: #5f3fe8;
+  --color-accent-soft: rgba(111, 79, 245, 0.16);
+  /* The accent as text, which has to be lighter than the accent as a fill. */
+  --color-accent-ink: #a391ff;
 
   --color-danger: #ff5c7c;
   --color-positive: #3ddc97;
@@ -105,14 +107,15 @@ decided here, once, instead of at every element that uses one.
 
     --color-ink: #15161c;
     --color-ink-dim: #5c5f70;
-    --color-ink-faint: #8b8e9e;
+    --color-ink-faint: #64677a;
 
     --color-accent: #6341ef;
     --color-accent-strong: #5433e3;
     --color-accent-soft: rgba(99, 65, 239, 0.12);
+    --color-accent-ink: #5433e3;
 
-    --color-danger: #d32d55;
-    --color-positive: #12855c;
+    --color-danger: #b8284c;
+    --color-positive: #0c6f4b;
 
     --shadow-raised: 0 1px 2px rgba(18, 20, 30, 0.08),
       0 8px 24px rgba(18, 20, 30, 0.06);

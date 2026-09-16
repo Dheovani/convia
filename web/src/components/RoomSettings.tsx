@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 
 import { api, ApiError, NetworkError } from '../api/client'
 import type { SidebarRoom } from '../api/types'
@@ -31,6 +31,7 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
   const [failure, setFailure] = useState<string | null>(null)
   const panel = useId()
   const field = useId()
+  const trigger = useRef<HTMLButtonElement>(null)
 
   function dismiss() {
     setOpen(false)
@@ -60,7 +61,13 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
 
   return (
     <div className="relative">
-      <Button size="small" aria-expanded={open} aria-controls={panel} onClick={() => (open ? dismiss() : setOpen(true))}>
+      <Button
+        ref={trigger}
+        size="small"
+        aria-expanded={open}
+        aria-controls={panel}
+        onClick={() => (open ? dismiss() : setOpen(true))}
+      >
         Room
       </Button>
 
@@ -69,6 +76,13 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
           id={panel}
           role="group"
           aria-label={`Settings for ${room.name}`}
+          // Escape closes the menu and puts the keyboard back where it was.
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              dismiss()
+              trigger.current?.focus()
+            }
+          }}
           className="absolute right-0 z-10 mt-2 flex w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 rounded-md
             border border-line bg-surface-raised p-3 shadow-lg"
         >

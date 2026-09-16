@@ -23,4 +23,7 @@ Thumbs.db
 # source twice and inviting the two to disagree. The page served when it is
 # absent is committed, because the embed pattern has to match something.
 web/node_modules/
+# What the end-to-end journeys leave behind when they run.
+web/test-results/
+web/playwright-report/
 internal/web/assets/dist/

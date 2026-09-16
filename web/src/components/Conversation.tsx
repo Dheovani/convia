@@ -36,6 +36,8 @@ interface ConversationProps {
   visitor joins a call elsewhere with M33-002.
   */
   callRunning?: boolean
+  // onBack is set on a narrow screen, where the conversation is shown instead of the list.
+  onBack?: () => void
 }
 
 function when(timestamp: string): string {
@@ -180,7 +182,7 @@ function Entry({
             >
               <button
                 type="button"
-                className="cursor-pointer rounded-sm px-1 py-0.5 text-[0.72rem] text-ink-faint
+                className="inline-flex min-h-6 cursor-pointer items-center rounded-sm px-1.5 py-0.5 text-[0.72rem] text-ink-faint
                   hover:bg-surface-hover hover:text-ink"
                 onClick={() => {
                   setDraft(message.body ?? '')
@@ -191,7 +193,7 @@ function Entry({
               </button>
               <button
                 type="button"
-                className="cursor-pointer rounded-sm px-1 py-0.5 text-[0.72rem] text-ink-faint
+                className="inline-flex min-h-6 cursor-pointer items-center rounded-sm px-1.5 py-0.5 text-[0.72rem] text-ink-faint
                   hover:bg-surface-hover hover:text-ink"
                 onClick={() => void onWithdraw()}
               >
@@ -206,7 +208,7 @@ function Entry({
             >
               <button
                 type="button"
-                className="cursor-pointer rounded-sm px-1 py-0.5 text-[0.72rem] text-ink-faint
+                className="inline-flex min-h-6 cursor-pointer items-center rounded-sm px-1.5 py-0.5 text-[0.72rem] text-ink-faint
                   hover:bg-surface-hover hover:text-ink"
                 onClick={() => void onWithdraw()}
               >
@@ -232,6 +234,7 @@ export function Conversation({
   onRoomChanged,
   onRoomDeleted,
   callRunning = false,
+  onBack,
 }: ConversationProps) {
   const { messages, loading, failed, send, edit, withdraw } = useConversation(source, onExpired, onActivity)
   const {
@@ -310,8 +313,22 @@ export function Conversation({
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label={room.name}>
-      <header className="flex items-center gap-3 border-b border-line px-5 py-3">
-        <h2 className="m-0 font-display text-base font-semibold">{room.name}</h2>
+      <header className="flex flex-wrap items-center gap-3 border-b border-line px-3 py-3 md:px-5">
+        {onBack !== undefined && (
+          <button
+            type="button"
+            className="grid size-8 flex-none cursor-pointer place-items-center rounded-md text-ink-dim
+              hover:bg-surface-hover hover:text-ink"
+            aria-label="Back to conversations"
+            onClick={onBack}
+          >
+            <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor"
+              strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 3.5 5.5 8l4.5 4.5" />
+            </svg>
+          </button>
+        )}
+        <h2 className="m-0 min-w-0 truncate font-display text-base font-semibold">{room.name}</h2>
         {room.alias !== undefined && (
           <span className="font-mono text-[0.78rem] text-ink-faint">{room.alias}</span>
         )}
