@@ -8,6 +8,7 @@ import { Rail, type Mode } from '../components/Rail'
 import { Sidebar } from '../components/Sidebar'
 import { CallContext, useCallSession } from '../state/call'
 import { EventsContext, useEventStream } from '../state/events'
+import { useNarrow } from '../state/useNarrow'
 import { useCalls } from '../state/useCalls'
 import { useRemoteRooms } from '../state/useRemoteRooms'
 import { useRooms } from '../state/useRooms'
@@ -40,13 +41,13 @@ conversation itself.
 The zones are a grid rather than nested flex boxes because they are peers — the
 rail does not contain the sidebar, and the sidebar does not contain the stage —
 and a layout that says so is one that can be rearranged for a narrow screen by
-changing the grid alone, which is exactly what happens below `md`.
+changing the grid.
 
-Narrow is the base and wide is the variant, because that is the direction
-Tailwind's breakpoints run. The narrow layout is deliberately the crude one: the
-room list sits above the conversation and is reached by scrolling rather than
-from behind a drawer, because a drawer is a navigation model and this milestone
-has not decided on one. What it must not do is overflow sideways.
+**On a narrow screen one zone is shown at a time**, which is what the product
+owner decided: the list, or the conversation, with a way back from the second to
+the first, and the rail as a bar along the bottom. Choosing a room shows it;
+choosing a destination, leaving a room, or pressing back shows the list. The zone
+that is not shown is not rendered, so it is neither reachable nor read out.
 
 It also holds the event stream, one for the page, and hands it down through
 context: the sidebar, the open room, and its member list all listen to the same
@@ -64,6 +65,15 @@ export function Workspace({
 }) {
   const [mode, setMode] = useState<Mode>('chat')
   const [selected, setSelected] = useState<string | null>(null)
+
+  const narrow = useNarrow()
+  const [showing, setShowing] = useState<'list' | 'conversation'>('list')
+
+  // choose opens a room, which on a narrow screen replaces the list.
+  function choose(key: string) {
+    setSelected(key)
+    setShowing('conversation')
+  }
 
   const stream = useEventStream(onSignedOut)
   const { live, listen } = stream
@@ -149,7 +159,7 @@ export function Workspace({
   async function create(name: string) {
     const room = await api.createRoom(name)
     remember({ id: room.id, name: room.name, status: room.status, unread: 0, owned: room.owned })
-    setSelected(sourceKey({ kind: 'local', id: room.id }))
+    choose(sourceKey({ kind: 'local', id: room.id }))
     refresh()
   }
 
@@ -164,11 +174,11 @@ export function Workspace({
     const joined = await api.join(link)
     if (joined.remote_room !== undefined) {
       elsewhere.remember(joined.remote_room)
-      setSelected(sourceKey({ kind: 'remote', id: joined.remote_room.id }))
+      choose(sourceKey({ kind: 'remote', id: joined.remote_room.id }))
       return
     }
     remember({ id: joined.room_id, name: joined.room_name, status: 'open', unread: 0, owned: false })
-    setSelected(sourceKey({ kind: 'local', id: joined.room_id }))
+    choose(sourceKey({ kind: 'local', id: joined.room_id }))
     refresh()
   }
 
@@ -196,6 +206,7 @@ export function Workspace({
 
   // settleAfter opens something else once a room has gone from the lists.
   function settleAfter(source: RoomSource) {
+    setShowing('list')
     const next = rooms.find((room) => source.kind !== 'local' || room.id !== source.id)
     const nextElsewhere = elsewhere.remoteRooms.find((room) => source.kind !== 'remote' || room.id !== source.id)
     if (next !== undefined) {
@@ -252,37 +263,65 @@ export function Workspace({
   open, or another destination is.
   */
   const callRoom = call.roomId === null ? undefined : rooms.find((candidate) => candidate.id === call.roomId)
-  const stageShown = mode === 'chat' && open?.source.kind === 'local' && open.source.id === call.roomId
+  const mainShown = !narrow || (showing === 'conversation' && open !== null)
+  const listShown = !narrow || !mainShown
+  const stageShown = mainShown && mode === 'chat' && open?.source.kind === 'local' && open.source.id === call.roomId
   const callRoomId = call.roomId
 
   function openRoom(roomId: string) {
     setMode('chat')
-    setSelected(sourceKey({ kind: 'local', id: roomId }))
+    choose(sourceKey({ kind: 'local', id: roomId }))
   }
+
+  const callBar =
+    call.phase !== 'idle' && !stageShown && callRoomId !== null ? (
+      <CallBar roomName={callRoom?.name ?? 'a room'} onReturn={() => openRoom(callRoomId)} />
+    ) : null
 
   return (
     <EventsContext.Provider value={stream}>
       <CallContext.Provider value={call}>
       <CallAudio />
       <CallNotices />
+      <h1 className="sr-only">Convia</h1>
+      {mainShown && open !== null && (
+        <a
+          href="#conversation"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-20
+            focus:rounded-md focus:bg-surface-raised focus:px-3 focus:py-2"
+        >
+          Skip to the conversation
+        </a>
+      )}
       <div
-        className="grid h-full grid-cols-[var(--rail-width)_minmax(0,1fr)]
-          grid-rows-[auto_minmax(0,1fr)] bg-surface
-          md:grid-cols-[var(--rail-width)_var(--sidebar-width)_minmax(0,1fr)] md:grid-rows-1"
+        className={
+          narrow
+            ? 'grid h-full grid-cols-1 grid-rows-[minmax(0,1fr)_auto] bg-surface'
+            : 'grid h-full grid-cols-[var(--rail-width)_var(--sidebar-width)_minmax(0,1fr)] bg-surface'
+        }
       >
         <Rail
+          narrow={narrow}
           mode={mode}
-          onMode={setMode}
+          onMode={(next) => {
+            setMode(next)
+            setShowing('list')
+          }}
           displayName={account.username}
           handle={account.handle}
           onSignOut={() => void signOut()}
         />
 
+        {listShown && (
         <aside
-          className="col-start-2 row-start-1 flex max-h-[34vh] min-h-0 flex-col border-b border-line
-            bg-surface-deep md:max-h-none md:border-r md:border-b-0"
+          className={
+            narrow
+              ? 'row-start-1 flex min-h-0 flex-col bg-surface-deep'
+              : 'flex min-h-0 flex-col border-r border-line bg-surface-deep'
+          }
           aria-label="Conversations"
         >
+          {narrow && callBar}
           {mode === 'calls' ? (
             <CallsList calls={running.calls} rooms={rooms} onOpen={openRoom} />
           ) : (
@@ -291,7 +330,7 @@ export function Workspace({
               remoteRooms={elsewhere.remoteRooms}
               selected={selected}
               loading={loading}
-              onSelect={setSelected}
+              onSelect={choose}
               onCreate={create}
               onLook={(link) => api.look(link)}
               onJoin={join}
@@ -303,11 +342,15 @@ export function Workspace({
             </p>
           )}
         </aside>
+        )}
 
-        <main className="col-start-2 row-start-2 flex min-h-0 min-w-0 flex-col md:col-start-3 md:row-start-1">
-          {call.phase !== 'idle' && !stageShown && callRoomId !== null && (
-            <CallBar roomName={callRoom?.name ?? 'a room'} onReturn={() => openRoom(callRoomId)} />
-          )}
+        {mainShown && (
+        <main
+          id="conversation"
+          tabIndex={-1}
+          className={`flex min-h-0 min-w-0 flex-col focus:outline-none ${narrow ? 'row-start-1' : ''}`}
+        >
+          {callBar}
           {open === null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
               <p className="m-0">Nothing is open.</p>
@@ -330,9 +373,11 @@ export function Workspace({
               onRoomChanged={refresh}
               {...(open.source.kind === 'local' ? { onRoomDeleted: () => deleted(open.source) } : {})}
               callRunning={running.calls.some((candidate) => candidate.room_id === open.room.id)}
+              {...(narrow ? { onBack: () => setShowing('list') } : {})}
             />
           )}
         </main>
+        )}
       </div>
       </CallContext.Provider>
     </EventsContext.Provider>

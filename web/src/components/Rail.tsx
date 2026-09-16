@@ -9,6 +9,8 @@ interface RailProps {
   // handle is how this person is named to somebody else, shown on the avatar.
   handle: string
   onSignOut: () => void
+  // narrow lays the rail out as a bar along the bottom of the screen.
+  narrow?: boolean
 }
 
 /*
@@ -18,6 +20,9 @@ Settings is present and disabled rather than absent. An interface that grows new
 top-level destinations as they are built teaches people that its shape is
 unreliable; one that shows where they will be, greyed, teaches them where to look
 later. It says what it is waiting for.
+
+On a narrow screen it is a bar along the bottom, where a thumb reaches it, and
+the mark gives up its place.
 */
 const destinations: { id: Mode; label: string; ready: boolean; waiting?: string }[] = [
   { id: 'chat', label: 'Chat', ready: true },
@@ -35,26 +40,31 @@ function initials(name: string): string {
   return (first + last).toUpperCase()
 }
 
-export function Rail({ mode, onMode, displayName, handle, onSignOut }: RailProps) {
+export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = false }: RailProps) {
   return (
     <nav
-      className="row-span-2 flex flex-col items-center gap-3 border-r border-line
-        bg-surface-sunken px-2 py-3 md:row-span-1"
+      className={
+        narrow
+          ? 'row-start-2 flex items-center gap-2 border-t border-line bg-surface-sunken px-2 py-1'
+          : 'flex flex-col items-center gap-3 border-r border-line bg-surface-sunken px-2 py-3'
+      }
       aria-label="Convia"
     >
-      <div className="grid size-11 place-items-center text-ink" title="Convia">
-        <Mark size={30} />
-      </div>
+      {!narrow && (
+        <div className="grid size-11 place-items-center text-ink" title="Convia">
+          <Mark size={30} />
+        </div>
+      )}
 
-      <ul className="m-0 flex w-full list-none flex-col gap-1 p-0">
+      <ul className={`m-0 flex list-none gap-1 p-0 ${narrow ? 'flex-1 flex-row' : 'w-full flex-col'}`}>
         {destinations.map((destination) => (
-          <li key={destination.id}>
+          <li key={destination.id} className={narrow ? 'flex-1' : undefined}>
             <button
               type="button"
-              className="w-full cursor-pointer rounded-md px-1 py-2 text-[0.72rem] font-medium
+              className="min-h-11 w-full cursor-pointer rounded-md px-1 py-2 text-[0.72rem] font-medium
                 text-ink-dim transition-colors enabled:hover:bg-surface-hover
                 enabled:hover:text-ink aria-[current=page]:bg-accent-soft
-                aria-[current=page]:text-accent disabled:cursor-default disabled:opacity-40"
+                aria-[current=page]:text-accent-ink disabled:cursor-default disabled:opacity-40"
               aria-current={mode === destination.id ? 'page' : undefined}
               disabled={!destination.ready}
               title={destination.ready ? destination.label : destination.waiting}
@@ -66,10 +76,10 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut }: RailProps
         ))}
       </ul>
 
-      <div className="mt-auto flex flex-col items-center gap-2">
+      <div className={narrow ? 'flex items-center gap-1' : 'mt-auto flex flex-col items-center gap-2'}>
         <span
           className="grid size-9 place-items-center rounded-full bg-accent-soft text-xs
-            font-semibold text-accent"
+            font-semibold text-accent-ink"
           title={handle}
           aria-hidden="true"
         >
@@ -77,7 +87,7 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut }: RailProps
         </span>
         <button
           type="button"
-          className="cursor-pointer rounded-sm p-1 text-[0.68rem] text-ink-faint hover:text-ink"
+          className="min-h-6 cursor-pointer rounded-sm px-1.5 py-1 text-[0.68rem] text-ink-faint hover:text-ink"
           onClick={onSignOut}
         >
           Sign out

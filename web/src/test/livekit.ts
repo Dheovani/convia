@@ -24,12 +24,17 @@ export const RoomEvent = {
   LocalTrackUnpublished: 'localTrackUnpublished',
   ActiveSpeakersChanged: 'activeSpeakersChanged',
   ConnectionQualityChanged: 'connectionQualityChanged',
+  TrackPublished: 'trackPublished',
+  MediaDevicesError: 'mediaDevicesError',
   Reconnecting: 'reconnecting',
   Reconnected: 'reconnected',
   Disconnected: 'disconnected',
 } as const
 
-export const Track = { Source: { Camera: 'camera', Microphone: 'microphone' } } as const
+export const Track = {
+  Source: { Camera: 'camera', Microphone: 'microphone' },
+  Kind: { Audio: 'audio', Video: 'video' },
+} as const
 
 export const ConnectionQuality = {
   Excellent: 'excellent',
@@ -109,9 +114,23 @@ export const createAudioAnalyser = () => ({ calculateVolume: () => 0.4, analyser
 
 export const supportsAudioOutputSelection = () => true
 
+function attachable() {
+  return { attach: vi.fn((element: unknown) => element), detach: vi.fn((element: unknown) => element) }
+}
+
 class Publication {
+  readonly kind: string
   isMuted = false
-  track = { attach: vi.fn((element: unknown) => element), detach: vi.fn((element: unknown) => element) }
+  track: ReturnType<typeof attachable> | undefined = attachable()
+
+  constructor(kind: string) {
+    this.kind = kind
+  }
+
+  // setSubscribed is receiving the track or not; a track nobody receives has nothing to attach.
+  setSubscribed = vi.fn((on: boolean) => {
+    this.track = on ? attachable() : undefined
+  })
 }
 
 export class Participant {
@@ -129,11 +148,15 @@ export class Participant {
   }
 
   publish(source: string) {
-    this.publications.set(source, new Publication())
+    this.publications.set(source, new Publication(source === Track.Source.Camera ? Track.Kind.Video : Track.Kind.Audio))
   }
 
   unpublish(source: string) {
     this.publications.delete(source)
+  }
+
+  get videoTrackPublications(): Map<string, Publication> {
+    return new Map([...this.publications].filter(([, publication]) => publication.kind === Track.Kind.Video))
   }
 }
 
@@ -240,6 +263,21 @@ export class Room {
       participant.connectionQuality = quality
       this.emit(RoomEvent.ConnectionQualityChanged, quality, participant)
     }
+  }
+
+  // showVideo is somebody already in the call turning their camera on.
+  showVideo(identity: string) {
+    const participant = this.remoteParticipants.get(identity)
+    if (participant === undefined) {
+      return
+    }
+    participant.publish(Track.Source.Camera)
+    this.emit(RoomEvent.TrackPublished, participant.getTrackPublication(Track.Source.Camera), participant)
+  }
+
+  // failDevice is a device the call is using failing, named as the browser's error would be.
+  failDevice(name: string, kind?: string) {
+    this.emit(RoomEvent.MediaDevicesError, new DOMException('failed', name), kind)
   }
 
   // close is the media server closing the connection, for a reason it gives.

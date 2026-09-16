@@ -411,6 +411,121 @@ describe('calls', () => {
   })
 })
 
+describe('when a call has to cope', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('says a chosen microphone was disconnected, and uses the default', async () => {
+    Room.devices = [{ deviceId: 'mic-headset', kind: 'audioinput', label: 'Headset' }]
+    open(standup())
+    const person = userEvent.setup()
+
+    const ready = await preparation(person)
+    const microphone = await within(ready).findByRole('combobox', { name: 'Microphone' })
+    await waitFor(() => expect(within(microphone).getByRole('option', { name: 'Headset' })).toBeInTheDocument())
+    await person.selectOptions(microphone, 'mic-headset')
+    await person.click(within(ready).getByRole('button', { name: 'Start call' }))
+    const media = await connected()
+
+    Room.devices = []
+    await person.click(await screen.findByRole('button', { name: 'Devices' }))
+
+    const notices = screen.getByRole('status', { name: 'Call notices' })
+    expect(
+      await within(notices).findByText('Your microphone was disconnected, so the call is using the system default.'),
+    ).toBeInTheDocument()
+    expect(media.switchActiveDevice).toHaveBeenCalledWith('audioinput', 'default')
+  })
+
+  it('says a device stopped working in the middle of a call', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    await screen.findByRole('button', { name: 'Leave call' })
+
+    act(() => media.failDevice('NotReadableError', 'audioinput'))
+
+    expect(await screen.findByText('Your microphone is being used by another app.')).toBeInTheDocument()
+  })
+
+  it('offers audio alone once the connection has been weak for a while, and pauses video', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    act(() => media.arrive(brunoInTheCall.participant_id))
+    act(() => media.showVideo(brunoInTheCall.participant_id))
+    const stage = await screen.findByRole('region', { name: 'Call' })
+    await within(stage).findByRole('button', { name: 'Leave call' })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const later = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    act(() => media.weaken('local', ConnectionQuality.Poor))
+    await act(() => vi.advanceTimersByTimeAsync(9_000))
+    expect(within(stage).queryByRole('button', { name: 'Continue with audio only' })).not.toBeInTheDocument()
+
+    await act(() => vi.advanceTimersByTimeAsync(1_000))
+    await later.click(within(stage).getByRole('button', { name: 'Continue with audio only' }))
+
+    const bruno = media.remoteParticipants.get(brunoInTheCall.participant_id)?.getTrackPublication('camera')
+    expect(bruno?.setSubscribed).toHaveBeenCalledWith(false)
+    expect(media.localParticipant.setCameraEnabled).toHaveBeenCalledWith(false)
+    expect(await within(stage).findByText('Audio only: video is paused to spare your connection.')).toBeInTheDocument()
+
+    // Somebody who turns their camera on meanwhile is not received either.
+    act(() => media.arrive('part_CARLAINTHECALL7QK4XMZP2VJ'))
+    act(() => media.showVideo('part_CARLAINTHECALL7QK4XMZP2VJ'))
+    const carla = media.remoteParticipants.get('part_CARLAINTHECALL7QK4XMZP2VJ')?.getTrackPublication('camera')
+    expect(carla?.setSubscribed).toHaveBeenCalledWith(false)
+
+    await later.click(within(stage).getByRole('button', { name: 'Turn video back on' }))
+
+    expect(bruno?.setSubscribed).toHaveBeenLastCalledWith(true)
+    expect(within(stage).queryByText('Audio only: video is paused to spare your connection.')).not.toBeInTheDocument()
+  })
+
+  it('does not offer audio alone for a dip the connection recovers from', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    const stage = await screen.findByRole('region', { name: 'Call' })
+    await within(stage).findByRole('button', { name: 'Leave call' })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    act(() => media.weaken('local', ConnectionQuality.Poor))
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+    act(() => media.weaken('local', ConnectionQuality.Good))
+    await act(() => vi.advanceTimersByTimeAsync(20_000))
+
+    expect(within(stage).queryByRole('button', { name: 'Continue with audio only' })).not.toBeInTheDocument()
+  })
+
+  it('does not ask again once the person said not now', async () => {
+    open(standup())
+    const person = userEvent.setup()
+
+    await joined(person)
+    const media = await connected()
+    const stage = await screen.findByRole('region', { name: 'Call' })
+    await within(stage).findByRole('button', { name: 'Leave call' })
+
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const later = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+
+    act(() => media.weaken('local', ConnectionQuality.Poor))
+    await act(() => vi.advanceTimersByTimeAsync(10_000))
+    await later.click(within(stage).getByRole('button', { name: 'Not now' }))
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+
+    expect(within(stage).queryByRole('button', { name: 'Continue with audio only' })).not.toBeInTheDocument()
+  })
+})
+
 describe('what a call says as it goes', () => {
   it('says when the connection is being got back', async () => {
     open(standup())

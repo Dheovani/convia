@@ -117,6 +117,123 @@ jobs:
         working-directory: web
         run: npm test
 
+  e2e:
+    name: End-to-end call journeys
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: convia
+          POSTGRES_PASSWORD: convia
+          POSTGRES_DB: convia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=convia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # The Convia under test, configured as a developer's is. Development-only
+    # credentials, matched in docker-compose.yml. Private addresses are allowed
+    # because the journeys share rooms by invitation through the runner's own
+    # network address: a link to loopback is refused as Convia itself.
+    env:
+      CONVIA_ENVIRONMENT: development
+      CONVIA_HTTP_HOST: 0.0.0.0
+      CONVIA_HTTP_PORT: "8080"
+      CONVIA_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
+      CONVIA_LIVEKIT_URL: http://127.0.0.1:7880
+      CONVIA_LIVEKIT_API_KEY: devkey
+      CONVIA_LIVEKIT_API_SECRET: a-development-secret-long-enough-to-be-accepted
+      CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES: "true"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the interface and Convia
+        run: |
+          npm ci --prefix web
+          npm run build --prefix web
+          go build -o convia ./cmd/convia
+
+      # The media server reports who connected and who left to the Convia on the
+      # runner, and a browser on the runner reaches it on loopback.
+      - name: Start LiveKit
+        run: |
+          docker run --detach --name convia-livekit \
+            --add-host host.docker.internal:host-gateway \
+            --publish 127.0.0.1:7880:7880 \
+            --publish 127.0.0.1:7881:7881 \
+            --publish 127.0.0.1:7882:7882/udp \
+            --env "LIVEKIT_KEYS=devkey: a-development-secret-long-enough-to-be-accepted" \
+            --env "LIVEKIT_CONFIG=$(printf 'webhook:\n  api_key: devkey\n  urls:\n    - http://host.docker.internal:8080/media/reports\n')" \
+            livekit/livekit-server:v1.13.6 --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+
+      - name: Start Convia
+        run: |
+          ./convia migrate up
+          nohup ./convia serve > convia.log 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl --silent --fail --output /dev/null http://127.0.0.1:8080/health \
+              && curl --silent --fail --output /dev/null http://127.0.0.1:7880/; then
+              echo "CONVIA_E2E_SHARE_URL=http://$(hostname -I | awk '{print $1}'):8080" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Convia or LiveKit did not become ready"
+          cat convia.log
+          docker logs convia-livekit
+          exit 1
+
+      - name: Install the browser
+        working-directory: web
+        run: npx playwright install --with-deps chromium
+
+      - name: Type-check the journeys
+        working-directory: web
+        run: npm run typecheck:e2e
+
+      - name: Run the journeys
+        working-directory: web
+        run: npm run test:e2e
+
+      - name: Show what Convia and LiveKit said
+        if: failure()
+        run: |
+          cat convia.log
+          docker logs convia-livekit
+
+      - name: Upload the journeys' report
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: e2e-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 14
+
   integration:
     name: Integration tests
     runs-on: ubuntu-latest

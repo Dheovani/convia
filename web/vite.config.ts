@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { configDefaults } from 'vitest/config'
 
 /*
 Convia serves its own interface, so the build writes into the Go package that
@@ -63,6 +64,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
+    // The end-to-end journeys are Playwright's, and need a running Convia.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     css: true,
   },
 })

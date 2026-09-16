@@ -4,6 +4,7 @@ import type {
   LocalVideoTrack,
   Participant,
   RemoteParticipant,
+  RemoteTrackPublication,
 } from 'livekit-client'
 
 /*
@@ -114,6 +115,8 @@ export interface Connection {
   setMicrophone: (on: boolean) => Promise<void>
   setCamera: (on: boolean) => Promise<void>
   switchDevice: (kind: DeviceKind, id: string) => Promise<void>
+  // setReceiveVideo stops, or resumes, receiving everybody else's video.
+  setReceiveVideo: (on: boolean) => void
   hangUp: () => Promise<void>
 }
 
@@ -124,6 +127,8 @@ export interface Listeners {
   // onArrived and onDeparted are about people who came or went after this page joined.
   onArrived: (identity: string) => void
   onDeparted: (identity: string) => void
+  // onDeviceFailure is a device the call is using that stopped working.
+  onDeviceFailure: (refusal: Refusal, kind?: DeviceKind) => void
 }
 
 export interface Connected {
@@ -131,6 +136,22 @@ export interface Connected {
   // microphone and camera are false when they were wanted and could not be had.
   microphone: boolean
   camera: boolean
+}
+
+type Failures = (typeof import('livekit-client'))['MediaDeviceFailure']
+
+// refusalOf reads why a device could not be had, in the terms a person can act on.
+function refusalOf(failures: Failures, error: unknown): Refusal {
+  switch (failures.getFailure(error)) {
+    case failures.PermissionDenied:
+      return 'denied'
+    case failures.NotFound:
+      return 'missing'
+    case failures.DeviceInUse:
+      return 'busy'
+    default:
+      return 'failed'
+  }
 }
 
 /*
@@ -174,19 +195,6 @@ export async function openPreview(choice: Choice): Promise<Preview> {
   const { createAudioAnalyser, createLocalAudioTrack, createLocalVideoTrack, MediaDeviceFailure } =
     await import('livekit-client')
 
-  function refusalOf(error: unknown): Refusal {
-    switch (MediaDeviceFailure.getFailure(error)) {
-      case MediaDeviceFailure.PermissionDenied:
-        return 'denied'
-      case MediaDeviceFailure.NotFound:
-        return 'missing'
-      case MediaDeviceFailure.DeviceInUse:
-        return 'busy'
-      default:
-        return 'failed'
-    }
-  }
-
   const refused: Preview['refused'] = {}
 
   let audio: LocalAudioTrack | undefined
@@ -194,7 +202,7 @@ export async function openPreview(choice: Choice): Promise<Preview> {
     try {
       audio = await createLocalAudioTrack(choice.audioInput === '' ? {} : { deviceId: choice.audioInput })
     } catch (error) {
-      refused.microphone = refusalOf(error)
+      refused.microphone = refusalOf(MediaDeviceFailure, error)
     }
   }
 
@@ -203,7 +211,7 @@ export async function openPreview(choice: Choice): Promise<Preview> {
     try {
       video = await createLocalVideoTrack(choice.videoInput === '' ? {} : { deviceId: choice.videoInput })
     } catch (error) {
-      refused.camera = refusalOf(error)
+      refused.camera = refusalOf(MediaDeviceFailure, error)
     }
   }
 
@@ -236,7 +244,8 @@ say what they are without. A connection that cannot be opened rejects, and is
 closed first, so nothing is left half-open.
 */
 export async function connect(url: string, token: string, choice: Choice, listeners: Listeners): Promise<Connected> {
-  const { ConnectionQuality, DisconnectReason, Room, RoomEvent, Track } = await import('livekit-client')
+  const { ConnectionQuality, DisconnectReason, MediaDeviceFailure, Room, RoomEvent, Track } =
+    await import('livekit-client')
 
   const room = new Room({
     adaptiveStream: true,
@@ -249,6 +258,8 @@ export async function connect(url: string, token: string, choice: Choice, listen
   let hungUp = false
   // settled is false while the connection opens, so the people already in the call are not announced as arriving.
   let settled = false
+  // receiveVideo is false while the person has chosen to hear the call without seeing it.
+  let receiveVideo = true
 
   function qualityOf(participant: Participant): Quality {
     switch (participant.connectionQuality) {
@@ -317,6 +328,17 @@ export async function connect(url: string, token: string, choice: Choice, listen
       }
     })
     .on(RoomEvent.TrackSubscribed, changed)
+    .on(RoomEvent.TrackPublished, (publication: RemoteTrackPublication) => {
+      if (!receiveVideo && publication.kind === Track.Kind.Video) {
+        publication.setSubscribed(false)
+      }
+      changed()
+    })
+    .on(RoomEvent.MediaDevicesError, (error: Error, kind?: MediaDeviceKind) => {
+      if (!hungUp) {
+        listeners.onDeviceFailure(refusalOf(MediaDeviceFailure, error), kind)
+      }
+    })
     .on(RoomEvent.TrackUnsubscribed, changed)
     .on(RoomEvent.TrackMuted, changed)
     .on(RoomEvent.TrackUnmuted, changed)
@@ -395,6 +417,15 @@ export async function connect(url: string, token: string, choice: Choice, listen
         // The system's default is named "default" to a browser, and "" to this page.
         if (!(await room.switchActiveDevice(kind, id === '' ? 'default' : id))) {
           throw new Error('the device could not be used')
+        }
+        changed()
+      },
+      setReceiveVideo(on) {
+        receiveVideo = on
+        for (const participant of room.remoteParticipants.values()) {
+          for (const publication of participant.videoTrackPublications.values()) {
+            publication.setSubscribed(on)
+          }
         }
         changed()
       },

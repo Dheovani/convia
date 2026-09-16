@@ -23,8 +23,22 @@ because what is below has the controls.
 */
 export function CallButton({ room, running }: { room: SidebarRoom; running: boolean }) {
   const call = useCall()
+  const button = useRef<HTMLButtonElement>(null)
+  const hidden = call.roomId === room.id || call.preparing === room.id
 
-  if (call.roomId === room.id || call.preparing === room.id) {
+  /*
+  When getting ready is cancelled, or the call is over, the keyboard comes back
+  here, where it was before, rather than to the top of the page.
+  */
+  const wasHidden = useRef(hidden)
+  useEffect(() => {
+    if (wasHidden.current && !hidden) {
+      button.current?.focus()
+    }
+    wasHidden.current = hidden
+  }, [hidden])
+
+  if (hidden) {
     return null
   }
 
@@ -32,6 +46,7 @@ export function CallButton({ room, running }: { room: SidebarRoom; running: bool
 
   return (
     <Button
+      ref={button}
       size="small"
       tone="primary"
       disabled={cannotStart}
@@ -56,7 +71,7 @@ export function CallProblem({ roomId }: { roomId: string }) {
       <span className="flex-1 text-danger">{call.problem.message}</span>
       <button
         type="button"
-        className="cursor-pointer rounded-sm px-1 text-[0.75rem] text-ink-faint hover:text-ink"
+        className="min-h-6 cursor-pointer rounded-sm px-1.5 text-[0.75rem] text-ink-faint hover:text-ink"
         onClick={call.dismiss}
       >
         Dismiss
@@ -251,7 +266,7 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
           )}
 
           <div className="mt-1 flex gap-2">
-            <Button tone="primary" size="small" onClick={() => void call.join(room.id)}>
+            <Button tone="primary" size="small" autoFocus onClick={() => void call.join(room.id)}>
               {running ? 'Join call' : 'Start call'}
             </Button>
             <Button size="small" onClick={() => call.cancelPreparing(room.id)}>
@@ -304,7 +319,7 @@ function Tile({
         {onRemove !== undefined && (
           <button
             type="button"
-            className="flex-none cursor-pointer rounded-sm px-1 text-ink-faint hover:bg-surface-hover hover:text-ink"
+            className="min-h-6 flex-none cursor-pointer rounded-sm px-1.5 text-ink-faint hover:bg-surface-hover hover:text-ink"
             aria-label={`Take ${name} out of the call`}
             onClick={onRemove}
           >
@@ -356,7 +371,31 @@ export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: b
         )
       )}
 
-      <ul className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-0">
+      {call.audioOnly ? (
+        <div className="mt-0 mb-3 flex flex-wrap items-center gap-2 text-[0.82rem] text-ink-dim" role="status">
+          <span>Audio only: video is paused to spare your connection.</span>
+          <Button size="small" onClick={call.resumeVideo}>
+            Turn video back on
+          </Button>
+        </div>
+      ) : (
+        call.offerAudioOnly && (
+          <div className="mt-0 mb-3 flex flex-wrap items-center gap-2 text-[0.82rem] text-ink-dim" role="status">
+            <span>Your connection has been weak for a while.</span>
+            <Button size="small" onClick={() => void call.goAudioOnly()}>
+              Continue with audio only
+            </Button>
+            <Button size="small" onClick={call.declineAudioOnly}>
+              Not now
+            </Button>
+          </div>
+        )
+      )}
+
+      <ul
+        className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-0"
+        aria-label="People in the call"
+      >
         {call.seen.map((person) => {
           const present = call.names.get(person.identity)
           const name = person.local ? 'You' : present?.display_name || 'Joining…'
