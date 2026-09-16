@@ -58,6 +58,20 @@ export const ptBR: Words = {
     loading: 'Carregando a Convia',
   },
 
+  recovery: {
+    pageBroken: 'A Convia parou de funcionar.',
+    zoneBroken: 'Esta parte da Convia parou de funcionar.',
+    soundBroken: 'O som da chamada parou de funcionar.',
+    hint: 'Tentar de novo costuma resolver. Recarregar a página também encerra a chamada em que você está.',
+    tryAgain: 'Tentar de novo',
+    reload: 'Recarregar a página',
+    details: 'Detalhes para relatar',
+    copy: 'Copiar detalhes',
+    copied: 'Copiado',
+    unexpected: 'Algo deu errado. Se a página parar de responder, recarregue-a.',
+    dismiss: 'Dispensar',
+  },
+
   signIn: {
     unreachable: 'Não foi possível falar com a Convia. Verifique sua conexão e tente de novo.',
     notAccepted: 'A Convia não aceitou esse nome de usuário ou essa senha. Confira as regras abaixo de cada campo.',

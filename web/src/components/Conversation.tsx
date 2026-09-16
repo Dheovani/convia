@@ -8,6 +8,7 @@ import { useMembers } from '../state/useMembers'
 import { CallButton, CallPreparation, CallProblem, CallStage } from './Call'
 import { Composer } from './Composer'
 import { Button, input } from './controls'
+import { Recoverable } from './Recovery'
 import { label, RoomPeople } from './RoomPeople'
 import { RoomSettings } from './RoomSettings'
 
@@ -368,11 +369,12 @@ export function Conversation({
       </header>
 
       {source.kind === 'local' && (
-        <>
+        // The call is its own zone: when it breaks, the conversation goes on under it.
+        <Recoverable zone="call" placement="border-b border-line" resetKey={room.id}>
           <CallProblem roomId={room.id} />
           <CallPreparation room={room} running={callRunning} />
           <CallStage room={room} moderator={room.owned} />
-        </>
+        </Recoverable>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">

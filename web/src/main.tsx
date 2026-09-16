@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { App } from './App'
+import { Recoverable } from './components/Recovery'
 import { Speaking } from './i18n/language'
 import { applyTheme, rememberedTheme } from './state/preferences'
 import './styles/theme.css'
@@ -17,7 +18,9 @@ applyTheme(rememberedTheme())
 createRoot(root).render(
   <StrictMode>
     <Speaking>
-      <App />
+      <Recoverable zone="page" variant="page">
+        <App />
+      </Recoverable>
     </Speaking>
   </StrictMode>,
 )

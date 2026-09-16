@@ -36,7 +36,8 @@ reads, that did not come through the catalogue.
 
 What people wrote — names, messages, device labels — is not the catalogue's, so
 the test names it in `data`. Anything without a letter, such as a count or a
-time, says nothing a translation would change.
+time, says nothing a translation would change, and anything marked
+`translate="no"` — the technical details of a failure — is not meant to be.
 */
 export function unmarked(root: HTMLElement, data: readonly (string | RegExp)[]): string[] {
   const known = (text: string) =>
@@ -48,7 +49,7 @@ export function unmarked(root: HTMLElement, data: readonly (string | RegExp)[]):
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
     const text = node.textContent?.trim() ?? ''
-    if (!known(text)) {
+    if (node.parentElement?.closest('[translate="no"]') === null && !known(text)) {
       found.add(text)
     }
   }

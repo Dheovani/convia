@@ -5,6 +5,7 @@ import type { Account, SidebarRoom } from '../api/types'
 import { CallAudio, CallBar, CallNotices, CallsList } from '../components/Call'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
+import { Recoverable } from '../components/Recovery'
 import { SettingsNav, SettingsPage, type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
 import { useWords } from '../i18n/language'
@@ -296,7 +297,9 @@ export function Workspace({
   return (
     <EventsContext.Provider value={stream}>
       <CallContext.Provider value={call}>
-      <CallAudio />
+      <Recoverable zone="call sound" variant="sound" resetKey={call.roomId ?? ''}>
+        <CallAudio />
+      </Recoverable>
       <CallNotices />
       <h1 className="sr-only">{words.brand}</h1>
       {mainShown && (settings || open !== null) && (
@@ -315,17 +318,19 @@ export function Workspace({
             : 'grid h-full grid-cols-[var(--rail-width)_var(--sidebar-width)_minmax(0,1fr)] bg-surface'
         }
       >
-        <Rail
-          narrow={narrow}
-          mode={mode}
-          onMode={(next) => {
-            setMode(next)
-            setShowing('list')
-          }}
-          displayName={account.username}
-          handle={account.handle}
-          onSignOut={() => void signOut()}
-        />
+        <Recoverable zone="rail" variant="toast" placement={narrow ? 'row-start-2' : undefined}>
+          <Rail
+            narrow={narrow}
+            mode={mode}
+            onMode={(next) => {
+              setMode(next)
+              setShowing('list')
+            }}
+            displayName={account.username}
+            handle={account.handle}
+            onSignOut={() => void signOut()}
+          />
+        </Recoverable>
 
         {listShown && (
         <aside
@@ -337,22 +342,24 @@ export function Workspace({
           aria-label={settings ? words.settings.title : said.conversations}
         >
           {narrow && callBar}
-          {settings ? (
-            <SettingsNav section={section} onSection={chooseSection} />
-          ) : mode === 'calls' ? (
-            <CallsList calls={running.calls} rooms={rooms} onOpen={openRoom} />
-          ) : (
-            <Sidebar
-              rooms={rooms}
-              remoteRooms={elsewhere.remoteRooms}
-              selected={selected}
-              loading={loading}
-              onSelect={choose}
-              onCreate={create}
-              onLook={(link) => api.look(link)}
-              onJoin={join}
-            />
-          )}
+          <Recoverable zone={`${mode} list`} resetKey={mode}>
+            {settings ? (
+              <SettingsNav section={section} onSection={chooseSection} />
+            ) : mode === 'calls' ? (
+              <CallsList calls={running.calls} rooms={rooms} onOpen={openRoom} />
+            ) : (
+              <Sidebar
+                rooms={rooms}
+                remoteRooms={elsewhere.remoteRooms}
+                selected={selected}
+                loading={loading}
+                onSelect={choose}
+                onCreate={create}
+                onLook={(link) => api.look(link)}
+                onJoin={join}
+              />
+            )}
+          </Recoverable>
           {failed && (
             <p className="m-0 border-t border-line px-4 py-2 text-[0.75rem] text-ink-faint" role="status">
               {said.retrying}
@@ -368,36 +375,41 @@ export function Workspace({
           className={`flex min-h-0 min-w-0 flex-col focus:outline-none ${narrow ? 'row-start-1' : ''}`}
         >
           {callBar}
-          {settings ? (
-            <SettingsPage
-              section={section}
-              account={account}
-              onSignedOut={onSignedOut}
-              {...(narrow ? { onBack: () => setShowing('list') } : {})}
-            />
-          ) : open === null ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
-              <p className="m-0">{said.nothingOpen}</p>
-              <p className="m-0 text-[0.85rem] text-ink-faint">{said.pickOne}</p>
-            </div>
-          ) : (
-            <Conversation
-              key={sourceKey(open.source)}
-              source={open.source}
-              room={open.room}
-              account={account}
-              selfId={open.selfId}
-              {...(open.home === undefined ? {} : { home: open.home })}
-              onExpired={onSignedOut}
-              onActivity={refreshSoon}
-              onLeave={() => leave(open.source)}
-              {...(open.source.kind === 'remote' ? { onForget: () => forgetElsewhere(open.source) } : {})}
-              onRoomChanged={refresh}
-              {...(open.source.kind === 'local' ? { onRoomDeleted: () => deleted(open.source) } : {})}
-              callRunning={running.calls.some((candidate) => candidate.room_id === open.room.id)}
-              {...(narrow ? { onBack: () => setShowing('list') } : {})}
-            />
-          )}
+          <Recoverable
+            zone={settings ? `settings ${section}` : 'conversation'}
+            resetKey={settings ? `settings:${section}` : `${mode}:${selected ?? ''}`}
+          >
+            {settings ? (
+              <SettingsPage
+                section={section}
+                account={account}
+                onSignedOut={onSignedOut}
+                {...(narrow ? { onBack: () => setShowing('list') } : {})}
+              />
+            ) : open === null ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
+                <p className="m-0">{said.nothingOpen}</p>
+                <p className="m-0 text-[0.85rem] text-ink-faint">{said.pickOne}</p>
+              </div>
+            ) : (
+              <Conversation
+                key={sourceKey(open.source)}
+                source={open.source}
+                room={open.room}
+                account={account}
+                selfId={open.selfId}
+                {...(open.home === undefined ? {} : { home: open.home })}
+                onExpired={onSignedOut}
+                onActivity={refreshSoon}
+                onLeave={() => leave(open.source)}
+                {...(open.source.kind === 'remote' ? { onForget: () => forgetElsewhere(open.source) } : {})}
+                onRoomChanged={refresh}
+                {...(open.source.kind === 'local' ? { onRoomDeleted: () => deleted(open.source) } : {})}
+                callRunning={running.calls.some((candidate) => candidate.room_id === open.room.id)}
+                {...(narrow ? { onBack: () => setShowing('list') } : {})}
+              />
+            )}
+          </Recoverable>
         </main>
         )}
       </div>

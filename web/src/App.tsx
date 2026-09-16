@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { api, ApiError } from './api/client'
 import type { Account } from './api/types'
+import { Shelf, Unexpected } from './components/Recovery'
 import { useWords } from './i18n/language'
 import { SignIn } from './screens/SignIn'
 import { Workspace } from './screens/Workspace'
@@ -52,17 +53,35 @@ export function App() {
     return () => controller.abort()
   }, [])
 
+  return (
+    <Shelf>
+      <Unexpected />
+      <Signed session={session} onSession={setSession} loading={words.app.loading} />
+    </Shelf>
+  )
+}
+
+// Signed is the screen for who is signed in: nobody yet known, nobody, or somebody.
+function Signed({
+  session,
+  onSession,
+  loading,
+}: {
+  session: Session
+  onSession: (session: Session) => void
+  loading: string
+}) {
   if (session === undefined) {
     return (
       <div className="grid h-full place-items-center bg-surface-deep" role="status" aria-live="polite">
-        <span className="sr-only">{words.app.loading}</span>
+        <span className="sr-only">{loading}</span>
       </div>
     )
   }
 
   if (session === null) {
-    return <SignIn onSignedIn={setSession} />
+    return <SignIn onSignedIn={onSession} />
   }
 
-  return <Workspace account={session} onSignedOut={() => setSession(null)} />
+  return <Workspace account={session} onSignedOut={() => onSession(null)} />
 }
