@@ -4,7 +4,7 @@ import type { RoomSource } from '../api/client'
 import type { Account, Message, Person, SidebarRoom } from '../api/types'
 import { useConversation } from '../state/useConversation'
 import { useMembers } from '../state/useMembers'
-import { CallButton, CallProblem, CallStage } from './Call'
+import { CallButton, CallPreparation, CallProblem, CallStage } from './Call'
 import { Composer } from './Composer'
 import { Button, input } from './controls'
 import { label, RoomPeople } from './RoomPeople'
@@ -347,6 +347,7 @@ export function Conversation({
       {source.kind === 'local' && (
         <>
           <CallProblem roomId={room.id} />
+          <CallPreparation room={room} running={callRunning} />
           <CallStage room={room} moderator={room.owned} />
         </>
       )}

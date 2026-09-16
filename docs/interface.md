@@ -107,7 +107,15 @@ It reconnects after a second, doubling to half a minute, so that every tab of ev
 
 ## Calls
 
-A call is in its room. The conversation header offers **Start call** in a quiet room and **Join call** in one holding a call, and the stage opens above the messages: who is in the call, **Mute**, **Start camera**, and **Leave call**. A person joins speaking and unseen, and turns the camera on deliberately. A closed room offers **Start call** disabled, because it keeps a call it was holding and does not start a new one. See [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md).
+A call is in its room. The conversation header offers **Start call** in a quiet room and **Join call** in one holding a call, and the stage opens above the messages: who is in the call, **Mute**, **Start camera**, **Devices**, and **Leave call**. A closed room offers **Start call** disabled, because it keeps a call it was holding and does not start a new one. See [ADR 0014](adr/0014-a-call-in-a-room-ends-when-its-people-leave.md).
+
+**Joining is prepared first.** The button opens a preparation in the room, and nothing is joined until the person presses join there: their own camera, a meter of the microphone's level, a choice of microphone, camera and — where the browser can route sound — speaker, and whether the call starts with the microphone and camera on. The browser asks for permission here, when the person has decided to join, and not the moment a room opens. The preview lets go of the devices before the call opens them, and cancelling, or reading another room, lets go of them too.
+
+**A choice is remembered in this browser**, not in the account: a device identifier means something only to the browser that saw the device, so carrying it to another computer would choose nothing there. What is remembered is the devices and whether the microphone and camera start on, decided while getting ready; muting in the middle of a call is not a preference and changes nothing next time. Somebody who never chose starts speaking and unseen, on the system's devices. A device picked from **Devices** in the middle of a call is switched at once and remembered, because somebody who picked their headset wants it next time too.
+
+**A device that cannot be had is explained, and does not keep anybody out.** A refused permission says how to allow it again — from the site settings beside the address, because a browser will not ask twice — and offers **Try again**; a missing device, one another app holds, and one that simply failed are each said. The person may join without it, and the call then says that nobody can hear, or see, them.
+
+**A call says how it is going.** While the media client is getting a dropped connection back, the stage and the bar say it is reconnecting. A weak connection of one's own is said above the tiles, and anybody else's on their tile — *weak connection*, or *connection lost*. Who joined and who left is said once, by name, in a polite live region that a screen reader reads without interrupting and that clears itself after a few seconds; the people already in the call when one joins it are not announced as arriving.
 
 **The call goes on while its person reads something else.** It is held by the workspace rather than by the conversation, and so is its sound. Whenever the stage is not on screen, a bar names the room the call is in, with **Return** and **Leave call**.
 
@@ -117,7 +125,7 @@ A call is in its room. The conversation header offers **Start call** in a quiet 
 
 **What went wrong is said, in the page's words.** A refused join is worded from its status: removed from this call, a room that is gone, a closed room, an installation that cannot hold calls. A connection that closed is told apart by why: taken out of the call, the call ending, and joining from another page are said and not undone, and only a lost connection is tried again, once. A microphone that cannot be had does not keep anybody out of the call; it says that nobody can hear them.
 
-The media client is loaded when somebody first joins a call, as its own chunk, so the page does not wait for it. Everything the interface knows about audio and video goes through `web/src/media/connection.ts`, which is the one file that imports the client.
+The media client is loaded when somebody first gets ready to join a call, as its own chunk, so the page does not wait for it. Everything the interface knows about audio and video goes through `web/src/media/connection.ts`, which is the one file that imports the client.
 
 ## What is served, and how it is cached
 
@@ -183,7 +191,7 @@ Named here rather than discovered later.
 - **No router.** There is one screen and a selected room, and the URL does not change. It works because the server answers every path with the page, so adding a router later is additive.
 - **The lists of people are one page.** Somebody who shares rooms with more than a hundred people sees the first hundred. Paging wants a screen where it matters.
 - **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.
-- **Calls are the first delivery.** No choosing a camera or microphone (`M18-006`), no preview before joining (`M18-007`), and a refused permission or a degraded network is said rather than guided through (`M18-011`, `M18-012`). Nobody on another installation can join a call here yet (`M33-002`).
+- **Calls are said, not yet recovered.** A lost connection is retried once and a reconnection is said, but nothing adapts to a degraded network — lowering the video a person sends, or offering to continue with audio alone (`M18-012`). Nobody on another installation can join a call here yet (`M33-002`), and no end-to-end test drives a call in CI (`M18-014`).
 - **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
 - **The webfonts are not bundled.** See *The design*.
 - **The bundle is split once.** The page is one chunk of roughly 87 kB compressed, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
