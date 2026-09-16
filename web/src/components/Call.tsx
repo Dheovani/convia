@@ -142,7 +142,7 @@ function DeviceSelect({
 }
 
 // Devices lists the devices a person chooses between, and where sound plays when the browser allows it.
-function Devices({ onChoose }: { onChoose: (kind: DeviceKind, id: string) => void }) {
+export function Devices({ onChoose }: { onChoose: (kind: DeviceKind, id: string) => void }) {
   const call = useCall()
 
   return (
@@ -185,6 +185,73 @@ function Level({ preview }: { preview: Preview }) {
 }
 
 /*
+usePreviewFor lets go of the devices a preview opened for `holder` when whatever
+showed it goes away, so a camera is never left on by a screen nobody sees.
+*/
+export function usePreviewFor(holder: string) {
+  const call = useCall()
+  const cancel = useRef(call.cancelPreparing)
+  cancel.current = call.cancelPreparing
+  useEffect(() => () => cancel.current(holder), [holder])
+}
+
+/*
+OwnPicture is the person's own camera while a preview is open, mirrored as a
+person expects to see themselves.
+*/
+export function OwnPicture({ holder }: { holder: string }) {
+  const call = useCall()
+  const said = useWords().call
+  const { choice, preview } = call
+  const video = usePlayed<HTMLVideoElement>(call.preparing === holder ? preview?.video : undefined)
+
+  return (
+    <div className="relative aspect-video w-full overflow-hidden rounded-md bg-surface-raised md:w-64 md:flex-none">
+      {choice.camera && preview?.video !== undefined ? (
+        // Muted: this is only the picture.
+        <video ref={video} className="size-full -scale-x-100 object-cover" autoPlay playsInline muted />
+      ) : (
+        <span className="grid size-full place-items-center text-[0.8rem] text-ink-faint">
+          {preview === null ? said.startingDevices : said.cameraOff}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// OwnLevel is how loud the microphone is while a preview has it.
+export function OwnLevel() {
+  const { choice, preview } = useCall()
+  if (!choice.microphone || preview === null || preview.refused.microphone !== undefined) {
+    return null
+  }
+  return <Level preview={preview} />
+}
+
+// PreviewRefusals says which device a preview could not have, and offers to try again.
+export function PreviewRefusals() {
+  const call = useCall()
+  const said = useWords().call
+  const refused = call.preview?.refused ?? {}
+
+  if (refused.microphone === undefined && refused.camera === undefined) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-col gap-1 text-[0.8rem] text-danger" role="alert">
+      {refused.microphone !== undefined && <p className="m-0">{said.refused(refused.microphone, 'audioinput')}</p>}
+      {refused.camera !== undefined && <p className="m-0">{said.refused(refused.camera, 'videoinput')}</p>}
+      <div>
+        <Button size="small" onClick={() => void call.choose({})}>
+          {said.tryAgain}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/*
 CallPreparation is getting ready to join a room's call: seeing yourself, hearing
 that the microphone works, choosing devices, and deciding whether to start with
 the microphone and camera on.
@@ -195,39 +262,25 @@ person may join without it.
 */
 export function CallPreparation({ room, running }: { room: SidebarRoom; running: boolean }) {
   const call = useCall()
-  const video = usePlayed<HTMLVideoElement>(call.preparing === room.id ? call.preview?.video : undefined)
   const words = useWords()
   const said = words.call
 
   // Leaving the room lets go of the camera and microphone the preview holds.
-  const cancel = useRef(call.cancelPreparing)
-  cancel.current = call.cancelPreparing
-  const roomId = room.id
-  useEffect(() => () => cancel.current(roomId), [roomId])
+  usePreviewFor(room.id)
 
   if (call.preparing !== room.id) {
     return null
   }
 
-  const { choice, preview } = call
-  const refused = preview?.refused ?? {}
+  const { choice } = call
 
   return (
     <section aria-label={said.prepare} className="border-b border-line bg-surface-sunken px-3 py-3 md:px-5">
       <div className="flex flex-col gap-3 md:flex-row">
-        <div className="relative aspect-video w-full overflow-hidden rounded-md bg-surface-raised md:w-64 md:flex-none">
-          {choice.camera && preview?.video !== undefined ? (
-            // Mirrored, as a person expects to see themselves, and muted: this is only the picture.
-            <video ref={video} className="size-full -scale-x-100 object-cover" autoPlay playsInline muted />
-          ) : (
-            <span className="grid size-full place-items-center text-[0.8rem] text-ink-faint">
-              {preview === null ? said.startingDevices : said.cameraOff}
-            </span>
-          )}
-        </div>
+        <OwnPicture holder={room.id} />
 
         <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {choice.microphone && preview !== null && refused.microphone === undefined && <Level preview={preview} />}
+          <OwnLevel />
 
           <div className="flex flex-wrap gap-2">
             <Button
@@ -244,19 +297,7 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
 
           <Devices onChoose={(kind, id) => void call.switchDevice(kind, id)} />
 
-          {(refused.microphone !== undefined || refused.camera !== undefined) && (
-            <div className="flex flex-col gap-1 text-[0.8rem] text-danger" role="alert">
-              {refused.microphone !== undefined && (
-                <p className="m-0">{said.refused(refused.microphone, 'audioinput')}</p>
-              )}
-              {refused.camera !== undefined && <p className="m-0">{said.refused(refused.camera, 'videoinput')}</p>}
-              <div>
-                <Button size="small" onClick={() => void call.choose({})}>
-                  {said.tryAgain}
-                </Button>
-              </div>
-            </div>
-          )}
+          <PreviewRefusals />
 
           <div className="mt-1 flex gap-2">
             <Button tone="primary" size="small" autoFocus onClick={() => void call.join(room.id)}>

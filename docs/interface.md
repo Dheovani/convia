@@ -28,13 +28,15 @@ A binary built with `go build` alone has no interface, because the bundle needs 
 | **Sidebar** | which conversation, and what you have not read |
 | **Stage** | the conversation itself |
 
-Settings is shown and disabled rather than hidden. An interface that grows new top-level destinations as they are built teaches people that its shape is unreliable; one that shows where they will be teaches them where to look later. Each says what it is waiting for.
+Each destination uses the other two zones the same way: a list in the sidebar, and what was chosen from it in the stage. For settings, the list is the sections.
+
+The rail's destinations are icons, named in a tooltip and for a screen reader. Their names did not fit: the rail is as wide as an icon, and *Configurações* is twice as long as *Chat*.
 
 They are a CSS grid rather than nested boxes, because they are peers — the rail does not contain the sidebar.
 
 ### On a narrow screen
 
-Below 48rem — a phone, or a window pushed to one side — **one zone is shown at a time**. The list comes first; choosing a conversation replaces it, and the conversation's header offers **Back to conversations**. The rail becomes a bar along the bottom, because that is where a thumb is, and choosing a destination there goes back to its list. Leaving or losing the open room goes back to the list too, rather than to an empty screen.
+Below 48rem — a phone, or a window pushed to one side — **one zone is shown at a time**. The list comes first; choosing a conversation replaces it, and the conversation's header offers **Back to conversations**. The settings work the same way, with **Back to settings**. The rail becomes a bar along the bottom, because that is where a thumb is, and choosing a destination there goes back to its list. Leaving or losing the open room goes back to the list too, rather than to an empty screen.
 
 A call goes on while the list is read, and its bar is shown above the list, so **Return** is one tap away.
 
@@ -139,6 +141,21 @@ A call is in its room. The conversation header offers **Start call** in a quiet 
 
 The media client is loaded when somebody first gets ready to join a call, as its own chunk, so the page does not wait for it. Everything the interface knows about audio and video goes through `web/src/media/connection.ts`, which is the one file that imports the client.
 
+## Settings
+
+Four sections, chosen from the sidebar.
+
+- **Account.** The person's handle, with a button to copy it, because it is what somebody on another installation needs to invite them. Changing the password, which asks for the current one and says again what the registration form says: nothing can reset a lost password. **Sign out everywhere**, which asks first and then ends every session of the account, this one included.
+- **Appearance.** Match the system, dark, or light.
+- **Language.** The browser's language, English, or Português (Brasil). Each language is named in its own words and marked with its `lang`, so a screen reader says each name the way its speakers do.
+- **Calls.** Whether calls start with the microphone and the camera on, and which devices they use: the same choice getting ready to join makes. **Check my devices** opens the camera and the microphone's level away from any call, and leaving the section lets go of them. During a call it is not offered, because the call holds the devices, and a device chosen here switches the call's at once.
+
+**What lives in the account is changed through Convia; what lives in this browser is changed at once.** The password and the sessions are the account's. The theme, the language and the devices are kept in this browser, for the reason the devices already were: a device identifier means nothing to another browser, and the sign-in page, which has no account to read, has to look and speak the way the person chose. Nothing needs saving.
+
+**A wrong current password is not a session that ended.** Convia answers it with `403 wrong_password`, so the page says the password was wrong and the person stays signed in. Each wrong password is charged to the per-address budget failed sign-ins spend; see [`sessions.md`](sessions.md#changing-a-password). A right one keeps this browser signed in, with a new session, and ends every other.
+
+**The chosen theme is on the page before anything is drawn.** It is a `data-theme` attribute on the root, set before React mounts, so nothing flashes in the other palette. Matching the system is no attribute at all.
+
 ## Journeys, end to end
 
 `web/e2e` drives the critical journeys of a call in a real browser with a fake camera and microphone, against a real Convia and a real LiveKit: two people joining and being in the call together, the owner taking somebody out who then cannot come back, a closed page being noticed by the media server, an empty call ending when its last person leaves, deleting a room ending its call, and the call bar on a phone. CI runs them on every change, in the *End-to-end call journeys* job.
@@ -160,6 +177,8 @@ The browser is told to speak English, whatever the machine speaks, because the j
 | `CONVIA_E2E_CHANNEL` | an installed browser to use instead of Playwright's Chromium, such as `msedge` or `chrome`. |
 
 Every journey registers new people, so they can run against a database that already holds data, and they leave their rooms behind.
+
+To hold a real call with somebody on another machine, see [the runbook](runbooks/call-between-two-machines.md).
 
 ## What is served, and how it is cached
 
@@ -192,11 +211,11 @@ Alongside it: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
 
 ## The design
 
-Dark first, because this is a place people keep open beside their work for hours and a light surface at that size is the one they turn off. The light palette is the same roles at the same contrasts, not a second design.
+Dark first, because this is a place people keep open beside their work for hours and a light surface at that size is the one they turn off. The light palette is the same roles at the same contrasts, not a second design. It is written twice, once for each way of reaching it, and the contrast test fails if the two copies differ.
 
 Tokens are named for the job they do — `--color-surface-sunken`, `--color-ink-dim` — rather than for what they look like. A token called `--color-gray-700` has to be renamed the day it stops being gray.
 
-They are declared in `@theme`, which is Tailwind's, so `bg-surface-deep` and `var(--color-surface-deep)` are the same value rather than two that have to be kept in step. **The light palette is a redefinition of those same variables under a media query, and there is no `dark:` variant anywhere in the interface** — every utility Tailwind generates refers to the token by `var()`, so the colour is decided once instead of at every element that uses one.
+They are declared in `@theme`, which is Tailwind's, so `bg-surface-deep` and `var(--color-surface-deep)` are the same value rather than two that have to be kept in step. **The light palette is a redefinition of those same variables — under a media query when the system prefers light and nobody chose dark, and under `data-theme='light'` when somebody chose light — and there is no `dark:` variant anywhere in the interface** — every utility Tailwind generates refers to the token by `var()`, so the colour is decided once instead of at every element that uses one.
 
 Tailwind runs as a Vite plugin and emits one static stylesheet. That is not a packaging preference: the play CDN generates styles in the browser and injects them inline, which would need `unsafe-inline` and a third-party origin in the policy below — undoing most of what it is for.
 
@@ -210,7 +229,7 @@ Inter and Space Grotesk are the intended faces and are **not bundled**. The poli
 
 The interface speaks **English and Brazilian Portuguese**. Every word it shows, and every name and hint a screen reader reads, comes from a catalogue in `web/src/i18n`: `en.ts` is the shape, and `pt-BR.ts` follows it.
 
-**The browser decides.** The page speaks the first language in `navigator.languages` it knows, matched by language rather than country, so a browser asking for `pt-PT` reads the Brazilian words and one asking for anything unknown reads English. The page's `lang` says which. There is no switch yet: an explicit choice is a setting, and will be kept in this browser, beside the call's devices, when the Settings destination exists. Dates and times are written the way the browser's own tag writes them, so `pt-PT` keeps Portugal's dates under the Brazilian words.
+**The person decides, and otherwise the browser does.** A language chosen in the settings is kept in this browser and wins. Without one, the page speaks the first language in `navigator.languages` it knows, matched by language rather than country, so a browser asking for `pt-PT` reads the Brazilian words and one asking for anything unknown reads English. The page's `lang` says which, and changes the moment another is chosen. Dates and times are written the way the browser's own tag for that language writes them, so `pt-PT` keeps Portugal's dates under the Brazilian words.
 
 **The catalogue is plain TypeScript, with no library.** A phrase that takes something — a name, a count, a device — is a function, so each language builds its own sentence rather than filling a slot in an English one. That matters more than it looks: *seu microfone* and *sua câmera* change the words around them, so the Portuguese sentences about devices are written whole for each device. Counts use `Intl.PluralRules`, which knows that Portuguese counts zero as one. A language that leaves out a phrase, or adds one, does not compile.
 
@@ -253,10 +272,10 @@ Named here rather than discovered later.
 - **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.
 - **A weak connection is met by the person, not by the call.** Audio alone is offered, but the video a person sends is not lowered for others. The media client's adaptive stream and simulcast choices are its defaults, and nothing here tunes them. Nobody on another installation can join a call here yet (`M33-002`).
 - **Accessibility is not audited by a tool.** The tests hold what is listed under *Accessibility*, and nothing checks what nobody thought to write down. A manual pass with a screen reader is still the check that finds the rest.
-- **The language cannot be chosen yet.** It is the browser's until the Settings destination exists to override it.
+- **What was said before a language changed stays in the old one** until it goes: a call's notice for a few seconds, a problem until it is dismissed. Both are worded when they happen.
 - **What Convia serves outside the page is English**: the page's description, the page shown when no interface was built, and every error body. The first two are read by almost nobody; the last is never shown.
 - **The untranslated test covers the screens it visits.** A screen it does not reach — a rare refusal, a notice nobody triggered — is held only by review. The catalogue makes such a string stand out, since it is the only English in a component.
 - **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
 - **The webfonts are not bundled.** See *The design*.
-- **The bundle is split once.** The page is one chunk of roughly 98 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
+- **The bundle is split once.** The page is one chunk of roughly 101 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
 - **Tailwind costs a little at this size.** Its reset and the utilities in use come to roughly three kilobytes more, compressed, than the hand-written CSS it replaced. That is the expected shape of the trade: a utility system pays for itself once the same spacing and colour decisions are being repeated across many screens, and this interface currently has two.

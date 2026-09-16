@@ -17,7 +17,7 @@ They are a courtesy and not the check: Convia refuses anything that breaks them
 whatever this page does, and a page that fell out of step would only be sending
 requests that come back refused.
 */
-const minimumPasswordLength = 12
+export const minimumPasswordLength = 12
 const usernamePattern = /^[a-z0-9][a-z0-9._-]{2,31}$/
 
 /*

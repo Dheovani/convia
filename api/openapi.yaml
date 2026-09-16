@@ -7329,6 +7329,12 @@ paths:
         owner out of their own account. The account's key is sealed again under
         the new password and is otherwise unchanged, so the account identifier
         and handle stay what they were.
+
+        A wrong current password is `403 wrong_password`, not `401`: the
+        session is still good, and a page told `401` believes it has ended.
+        Each wrong password is charged to the same per-address budget as a
+        failed sign-in, because a stolen session must not be a way to guess
+        the password it does not carry.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -7353,7 +7359,7 @@ paths:
         "401":
           $ref: "#/components/responses/SessionRequired"
         "403":
-          $ref: "#/components/responses/WrongOrigin"
+          $ref: "#/components/responses/WrongPassword"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "413":
@@ -10492,6 +10498,7 @@ components:
         - unsupported_media_type
         - payload_too_large
         - unauthenticated
+        - wrong_password
         - forbidden
         - not_found
         - method_not_allowed
@@ -10984,6 +10991,27 @@ components:
             error:
               code: forbidden
               message: Only the room's owner can do that.
+              request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
+
+    WrongPassword:
+      description: |
+        The current password given is not the account's password, with code
+        `wrong_password`. The session is still good.
+
+        On this route the same status also answers a request that did not
+        come from Convia's own page, as `WrongOrigin` describes, with code
+        `forbidden`.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/RequestId"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: wrong_password
+              message: The current password is not right.
               request_id: MXHJAY4MJNX2FO22XWJ3XNCKHT
 
     WrongOrigin:

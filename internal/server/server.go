@@ -357,6 +357,10 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			served = authenticate(logger, invitationVerifier{service: dependencies.InvitationAuthenticator},
 				failures, resolve, served)
 		case surfaceSession:
+			// A guess is charged after the origin is checked, so another page cannot spend the budget.
+			if entry.guessable {
+				served = budgeted(logger, signingIn, resolve, served)
+			}
 			served = authenticate(logger, sessionVerifier{service: dependencies.SessionAuthenticator},
 				signingIn, resolve, sameOrigin(logger, served))
 		default:
@@ -482,6 +486,15 @@ type route struct {
 		one -- does not, because repeating it is already harmless.
 	*/
 	idempotent bool
+
+	/*
+		guessable marks a route on the session surface that checks a password.
+
+		A stolen session is not the password, and a route that confirms a
+		password would let whoever holds one guess it. Its failures are charged
+		to the same budget as signing in.
+	*/
+	guessable bool
 }
 
 /*
@@ -840,7 +853,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			route{method: http.MethodGet, path: api.Prefix + "/me", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.Sessions.Me)},
 			route{method: http.MethodPatch, path: api.Prefix + "/me/password", surface: surfaceSession,
-				handler: http.HandlerFunc(dependencies.Sessions.ChangePassword)},
+				handler: http.HandlerFunc(dependencies.Sessions.ChangePassword), guessable: true},
 		)
 	}
 

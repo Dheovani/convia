@@ -72,3 +72,27 @@ describe.each(Object.entries(palettes))('the %s palette', (_, palette) => {
     }
   })
 })
+
+/*
+The light palette is written twice: once for a system that prefers it, and once
+for a person who chose it here. The copies are the same palette, or choosing
+light would not look like the system's light.
+*/
+describe('the light palette a person chooses', () => {
+  const chosen = ":root[data-theme='light'] {"
+
+  function declarations(css: string): string[] {
+    return [...css.matchAll(/(--[a-z-]+|color-scheme):\s*([^;]+);/g)].map(([, name, value]) =>
+      `${name}: ${value?.replace(/\s+/g, ' ')}`,
+    )
+  }
+
+  it('is the palette a light system gets', () => {
+    const [, afterMedia = ''] = theme.split(light)
+    const [system = '', explicit = ''] = afterMedia.split(chosen)
+    const ofExplicit = explicit.slice(0, explicit.indexOf('}'))
+
+    expect(declarations(ofExplicit).length).toBeGreaterThan(10)
+    expect(declarations(ofExplicit)).toEqual(declarations(system))
+  })
+})

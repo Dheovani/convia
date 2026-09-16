@@ -152,6 +152,8 @@ Four things happen together:
 
 The current password is required. A stolen session must not be enough to lock the owner out of their own account, and since the key is sealed by the password, out of their own identity with it. The new digest and the newly sealed key are written in one statement, so they never describe different passwords.
 
+A wrong current password is **`403 wrong_password`**, not the `401` a failed sign-in gets. The caller is already the account, so there is nothing to enumerate, and the session is still good: a page told `401` would believe it had ended and sign the person out over a typo. Each wrong password is **charged to the per-address budget failed sign-ins spend**, because a stolen session is not the password, and without the charge it would be a way to guess it. That budget is also the one every session request is checked against, so an address that spends it waits out the minute on this surface as a whole.
+
 ## Why a password is hashed differently from every other secret
 
 `M07-004` stores application keys as a plain SHA-256 digest: 130 bits of randomness cannot be searched, so a slow hash buys nothing and costs latency on every request.

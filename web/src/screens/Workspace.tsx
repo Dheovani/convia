@@ -5,6 +5,7 @@ import type { Account, SidebarRoom } from '../api/types'
 import { CallAudio, CallBar, CallNotices, CallsList } from '../components/Call'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
+import { SettingsNav, SettingsPage, type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
 import { useWords } from '../i18n/language'
 import { CallContext, useCallSession } from '../state/call'
@@ -45,10 +46,14 @@ and a layout that says so is one that can be rearranged for a narrow screen by
 changing the grid.
 
 **On a narrow screen one zone is shown at a time**, which is what the product
-owner decided: the list, or the conversation, with a way back from the second to
-the first, and the rail as a bar along the bottom. Choosing a room shows it;
-choosing a destination, leaving a room, or pressing back shows the list. The zone
-that is not shown is not rendered, so it is neither reachable nor read out.
+owner decided: the list, or what was chosen from it, with a way back from the
+second to the first, and the rail as a bar along the bottom. Choosing a room or a
+section of the settings shows it; choosing a destination, leaving a room, or
+pressing back shows the list. The zone that is not shown is not rendered, so it is
+neither reachable nor read out.
+
+Settings take the same two zones: the sections where the conversations are
+listed, and the section where a conversation is read.
 
 It also holds the event stream, one for the page, and hands it down through
 context: the sidebar, the open room, and its member list all listen to the same
@@ -70,12 +75,18 @@ export function Workspace({
   const narrow = useNarrow()
   const words = useWords()
   const said = words.workspace
-  const [showing, setShowing] = useState<'list' | 'conversation'>('list')
+  const [showing, setShowing] = useState<'list' | 'chosen'>('list')
+  const [section, setSection] = useState<Section>('account')
 
   // choose opens a room, which on a narrow screen replaces the list.
   function choose(key: string) {
     setSelected(key)
-    setShowing('conversation')
+    setShowing('chosen')
+  }
+
+  function chooseSection(next: Section) {
+    setSection(next)
+    setShowing('chosen')
   }
 
   const stream = useEventStream(onSignedOut)
@@ -266,7 +277,8 @@ export function Workspace({
   open, or another destination is.
   */
   const callRoom = call.roomId === null ? undefined : rooms.find((candidate) => candidate.id === call.roomId)
-  const mainShown = !narrow || (showing === 'conversation' && open !== null)
+  const settings = mode === 'settings'
+  const mainShown = !narrow || (showing === 'chosen' && (settings || open !== null))
   const listShown = !narrow || !mainShown
   const stageShown = mainShown && mode === 'chat' && open?.source.kind === 'local' && open.source.id === call.roomId
   const callRoomId = call.roomId
@@ -287,13 +299,13 @@ export function Workspace({
       <CallAudio />
       <CallNotices />
       <h1 className="sr-only">{words.brand}</h1>
-      {mainShown && open !== null && (
+      {mainShown && (settings || open !== null) && (
         <a
           href="#conversation"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-20
             focus:rounded-md focus:bg-surface-raised focus:px-3 focus:py-2"
         >
-          {said.skip}
+          {settings ? said.skipToSettings : said.skip}
         </a>
       )}
       <div
@@ -322,10 +334,12 @@ export function Workspace({
               ? 'row-start-1 flex min-h-0 flex-col bg-surface-deep'
               : 'flex min-h-0 flex-col border-r border-line bg-surface-deep'
           }
-          aria-label={said.conversations}
+          aria-label={settings ? words.settings.title : said.conversations}
         >
           {narrow && callBar}
-          {mode === 'calls' ? (
+          {settings ? (
+            <SettingsNav section={section} onSection={chooseSection} />
+          ) : mode === 'calls' ? (
             <CallsList calls={running.calls} rooms={rooms} onOpen={openRoom} />
           ) : (
             <Sidebar
@@ -354,7 +368,14 @@ export function Workspace({
           className={`flex min-h-0 min-w-0 flex-col focus:outline-none ${narrow ? 'row-start-1' : ''}`}
         >
           {callBar}
-          {open === null ? (
+          {settings ? (
+            <SettingsPage
+              section={section}
+              account={account}
+              onSignedOut={onSignedOut}
+              {...(narrow ? { onBack: () => setShowing('list') } : {})}
+            />
+          ) : open === null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
               <p className="m-0">{said.nothingOpen}</p>
               <p className="m-0 text-[0.85rem] text-ink-faint">{said.pickOne}</p>

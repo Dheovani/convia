@@ -17,19 +17,45 @@ interface RailProps {
 /*
 The rail is the outermost of the three zones: which part of Convia you are in.
 
-Settings is present and disabled rather than absent. An interface that grows new
-top-level destinations as they are built teaches people that its shape is
-unreliable; one that shows where they will be, greyed, teaches them where to look
-later. It says what it is waiting for.
+The destinations are icons, named for a screen reader and in a tooltip. Words do
+not fit: the rail is as narrow as an icon, and a destination's name in another
+language can be twice as long as in English.
 
 On a narrow screen it is a bar along the bottom, where a thumb reaches it, and
 the mark gives up its place.
 */
-const destinations: { id: Mode; ready: boolean }[] = [
-  { id: 'chat', ready: true },
-  { id: 'calls', ready: true },
-  { id: 'settings', ready: false },
-]
+const destinations: Mode[] = ['chat', 'calls', 'settings']
+
+const iconProps = {
+  'aria-hidden': true,
+  viewBox: '0 0 24 24',
+  className: 'size-5',
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.75,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const
+
+const icons: Record<Mode, React.ReactNode> = {
+  chat: (
+    <svg {...iconProps}>
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z" />
+    </svg>
+  ),
+  calls: (
+    <svg {...iconProps}>
+      <path d="M6.6 3.5h2.1l1.5 4-2 1.3a11 11 0 0 0 7 7l1.3-2 4 1.5v2.1a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.6 5.7a2 2 0 0 1 2-2.2z" />
+    </svg>
+  ),
+  settings: (
+    <svg {...iconProps}>
+      <path d="M4 7h9M17 7h3M4 17h3M11 17h9" />
+      <circle cx="15" cy="7" r="2" />
+      <circle cx="9" cy="17" r="2" />
+    </svg>
+  ),
+}
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -61,19 +87,18 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = fa
 
       <ul className={`m-0 flex list-none gap-1 p-0 ${narrow ? 'flex-1 flex-row' : 'w-full flex-col'}`}>
         {destinations.map((destination) => (
-          <li key={destination.id} className={narrow ? 'flex-1' : undefined}>
+          <li key={destination} className={narrow ? 'flex-1' : undefined}>
             <button
               type="button"
-              className="min-h-11 w-full cursor-pointer rounded-md px-1 py-2 text-[0.72rem] font-medium
-                text-ink-dim transition-colors enabled:hover:bg-surface-hover
-                enabled:hover:text-ink aria-[current=page]:bg-accent-soft
-                aria-[current=page]:text-accent-ink disabled:cursor-default disabled:opacity-40"
-              aria-current={mode === destination.id ? 'page' : undefined}
-              disabled={!destination.ready}
-              title={destination.ready ? words.rail[destination.id] : words.rail.settingsLater}
-              onClick={() => onMode(destination.id)}
+              className="grid min-h-11 w-full cursor-pointer place-items-center rounded-md px-1 py-2
+                text-ink-dim transition-colors hover:bg-surface-hover hover:text-ink
+                aria-[current=page]:bg-accent-soft aria-[current=page]:text-accent-ink"
+              aria-current={mode === destination ? 'page' : undefined}
+              aria-label={words.rail[destination]}
+              title={words.rail[destination]}
+              onClick={() => onMode(destination)}
             >
-              {words.rail[destination.id]}
+              {icons[destination]}
             </button>
           </li>
         ))}

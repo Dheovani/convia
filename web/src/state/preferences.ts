@@ -53,3 +53,63 @@ export function remember(choice: Choice): void {
     // The choice still holds for this page.
   }
 }
+
+/*
+How the page looks and which language it speaks are kept in this browser too, for
+the same reason as the devices and for one of their own: the choice is made
+before signing in as much as after, and the sign-in page has no account to read
+it from.
+*/
+export type Theme = 'system' | 'dark' | 'light'
+export type LanguageChoice = 'browser' | 'en' | 'pt-BR'
+
+const themeKey = 'convia.theme'
+const languageKey = 'convia.language'
+
+function read<T extends string>(storage: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const stored = window.localStorage.getItem(storage)
+    return allowed.find((value) => value === stored) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+function write(storage: string, value: string): void {
+  try {
+    window.localStorage.setItem(storage, value)
+  } catch {
+    // The choice still holds for this page.
+  }
+}
+
+export const themes: readonly Theme[] = ['system', 'dark', 'light']
+export const languageChoices: readonly LanguageChoice[] = ['browser', 'en', 'pt-BR']
+
+export function rememberedTheme(): Theme {
+  return read(themeKey, themes, 'system')
+}
+
+/*
+applyTheme puts a theme on the page. The stylesheet follows the system unless
+the page names one, so following the system is naming none.
+*/
+export function applyTheme(theme: Theme): void {
+  if (theme === 'system') {
+    delete document.documentElement.dataset['theme']
+  } else {
+    document.documentElement.dataset['theme'] = theme
+  }
+}
+
+export function rememberTheme(theme: Theme): void {
+  write(themeKey, theme)
+}
+
+export function rememberedLanguage(): LanguageChoice {
+  return read(languageKey, languageChoices, 'browser')
+}
+
+export function rememberLanguage(choice: LanguageChoice): void {
+  write(languageKey, choice)
+}

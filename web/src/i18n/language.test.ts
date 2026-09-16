@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { rememberedLanguage, rememberedTheme } from '../state/preferences'
 import { en } from './en'
 import { choose } from './language'
 import { plural } from './plural'
@@ -17,6 +18,20 @@ describe('the language the page speaks', () => {
     expect(language.tag).toBe('pt-BR')
     expect(language.words).toBe(ptBR)
     expect(language.formatting).toBe('pt-PT')
+  })
+
+  it('is the one the person chose, with dates the browser writes that language in', () => {
+    expect(choose(['pt-PT', 'en-GB'], 'en')).toMatchObject({ tag: 'en', formatting: 'en-GB' })
+    expect(choose(['en-US'], 'pt-BR')).toMatchObject({ tag: 'pt-BR', words: ptBR, formatting: 'pt-BR' })
+    expect(choose(['pt-PT'], 'browser')).toMatchObject({ tag: 'pt-BR', formatting: 'pt-PT' })
+  })
+
+  it('forgets a choice this browser kept that it cannot read', () => {
+    window.localStorage.setItem('convia.language', 'klingon')
+    expect(rememberedLanguage()).toBe('browser')
+    window.localStorage.setItem('convia.theme', 'sepia')
+    expect(rememberedTheme()).toBe('system')
+    window.localStorage.clear()
   })
 
   it('is English when the browser prefers nothing the interface knows', () => {

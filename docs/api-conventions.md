@@ -45,6 +45,7 @@ Adding a code is an additive change. Changing the meaning of an existing code is
 | `invalid_request`        | 400    | Valid JSON that violates the endpoint contract, such as an unknown field |
 | `malformed_json`         | 400    | Body that is not valid JSON, or a value with an unexpected JSON type    |
 | `unauthenticated`        | 401    | No usable credential; every reason a key can fail produces this one code |
+| `wrong_password`         | 403    | A signed-in person confirmed an act with a password that is not theirs; the session is still good |
 | `forbidden`              | 403    | Valid credential lacking the scope the operation requires               |
 | `not_found`              | 404    | Unknown route or missing resource                                       |
 | `method_not_allowed`     | 405    | Known route addressed with an unsupported method; `Allow` is returned   |

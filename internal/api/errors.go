@@ -32,6 +32,15 @@ const (
 	*/
 	CodeUnauthenticated ErrorCode = "unauthenticated"
 	/*
+		CodeWrongPassword reports a password a signed-in person gave to confirm
+		an act on their own account that is not their password.
+
+		It is distinct from CodeUnauthenticated because the session is still
+		good: the person is who they say, and only what they typed was wrong.
+		Answering 401 would tell a page its session had ended.
+	*/
+	CodeWrongPassword ErrorCode = "wrong_password"
+	/*
 		CodeForbidden reports an authenticated caller whose credential does not
 		carry the scope the operation requires.
 
@@ -87,6 +96,7 @@ func ErrorCodes() []ErrorCode {
 		CodeUnsupportedMediaType,
 		CodePayloadTooLarge,
 		CodeUnauthenticated,
+		CodeWrongPassword,
 		CodeForbidden,
 		CodeNotFound,
 		CodeMethodNotAllowed,

@@ -51,6 +51,16 @@ the other three credential families already make.
 var ErrUnauthenticated = errors.New("the username and password do not authenticate")
 
 /*
+ErrWrongPassword reports that the password somebody signed in gave to confirm an
+act on their own account is not their password.
+
+It is not [ErrUnauthenticated]. The caller is already this account, so there is
+nothing to enumerate, and the difference is what lets a page say the password
+was wrong rather than that its session ended.
+*/
+var ErrWrongPassword = errors.New("the current password is not the account's password")
+
+/*
 ErrBusy reports that Convia declined to hash a password right now.
 
 It is not a refusal of the credentials and must never be reported as one: the
@@ -310,7 +320,7 @@ func (service *Service) ChangePassword(ctx context.Context, id string, current, 
 	}
 	if !matches {
 		service.refused(ctx, id, "password")
-		return Identity{}, ErrUnauthenticated
+		return Identity{}, ErrWrongPassword
 	}
 
 	normalized, err := NormalizePassword(next)

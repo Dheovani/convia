@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"convia/internal/accounts"
 	"convia/internal/api"
+	"convia/internal/sessions"
 )
 
 // browser builds the request a signed-in person's browser would make, carrying
@@ -257,6 +259,48 @@ func TestRegisteringIsRationedBySuccessesToo(t *testing.T) {
 	response := register(own)
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("registration %d status = %d, want %d", registrationBurst+1, response.Code,
+			http.StatusTooManyRequests)
+	}
+	if response.Header().Get("Retry-After") == "" {
+		t.Error("the refusal does not say when to try again")
+	}
+}
+
+/*
+TestGuessingAPasswordThroughASessionIsBudgeted is what keeps a stolen session
+from being a way to find the password it does not carry.
+
+Changing a password asks for the current one, and a wrong one is answered as
+such, so each answer is a guess. Each is charged like a failed sign-in, and the
+address runs out as it would signing in.
+*/
+func TestGuessingAPasswordThroughASessionIsBudgeted(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	dependencies := testDependencies()
+	dependencies.Sessions = sessions.NewHandler(logger, stubSessions{
+		account: sampleAccount(), err: accounts.ErrWrongPassword})
+	handler := New("127.0.0.1:0", logger, dependencies).Handler
+
+	guess := func() *httptest.ResponseRecorder {
+		request := asPerson(httptest.NewRequest(http.MethodPatch, api.Prefix+"/me/password",
+			strings.NewReader(`{"current_password":"a guess","new_password":"a new one entirely"}`)))
+		request.Header.Set("Content-Type", "application/json")
+
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	for attempt := range signInFailureBurst {
+		if response := guess(); response.Code != http.StatusForbidden {
+			t.Fatalf("guess %d status = %d, want %d: %s", attempt+1, response.Code,
+				http.StatusForbidden, response.Body)
+		}
+	}
+
+	response := guess()
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("guess %d status = %d, want %d", signInFailureBurst+1, response.Code,
 			http.StatusTooManyRequests)
 	}
 	if response.Header().Get("Retry-After") == "" {
