@@ -53,6 +53,20 @@ export const en = {
     loading: 'Loading Convia',
   },
 
+  recovery: {
+    pageBroken: 'Convia stopped working.',
+    zoneBroken: 'This part of Convia stopped working.',
+    soundBroken: "The call's sound stopped working.",
+    hint: 'Trying again usually fixes it. Reloading the page also ends a call you are in.',
+    tryAgain: 'Try again',
+    reload: 'Reload the page',
+    details: 'Details to report',
+    copy: 'Copy details',
+    copied: 'Copied',
+    unexpected: 'Something went wrong. If the page stops responding, reload it.',
+    dismiss: 'Dismiss',
+  },
+
   signIn: {
     unreachable: 'Convia could not be reached. Check your connection and try again.',
     notAccepted: 'Convia did not accept that username or password. Check the rules under each field.',

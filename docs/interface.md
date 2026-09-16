@@ -141,6 +141,20 @@ A call is in its room. The conversation header offers **Start call** in a quiet 
 
 The media client is loaded when somebody first gets ready to join a call, as its own chunk, so the page does not wait for it. Everything the interface knows about audio and video goes through `web/src/media/connection.ts`, which is the one file that imports the client.
 
+## When part of it breaks
+
+**Each zone has its own boundary**, which is what the product owner decided: the rail, the list, what is open beside it, a room's call, and the call's sound. A zone that throws is replaced by a panel saying that part stopped working, and everything else stays as it was — a conversation that breaks leaves the list, and a call goes on and is heard. One more boundary around the page catches what nothing smaller did.
+
+The panel offers **Try again**, which draws that part afresh, **Reload the page**, which also ends a call, and **Details to report**: the build, the time, the zone and what was thrown, with a button to copy them. The build is named by the bundle's file, whose hash says exactly which one it was. The details carry nothing a person wrote, and they are marked `translate="no"`: they are written for whoever reads the report. Opening another room, section or destination clears a broken zone.
+
+The rail and the call's sound are too small to hold a panel, so their failure is a toast with **Try again**.
+
+**Nothing is sent anywhere.** A failure is written to the browser's console, and a channel for reports is `M22`'s.
+
+**A failure outside React** — a promise nobody waited for, an error thrown from a timer — is said once in a toast at the bottom right, *Something went wrong. If the page stops responding, reload it.*, until it is dismissed. The page stays as it is. A request the page cancelled, and a file that did not load, are not failures.
+
+The toasts share one place at the bottom right: these, a call's notices, and a zone that broke.
+
 ## Settings
 
 Four sections, chosen from the sidebar.
@@ -275,7 +289,7 @@ Named here rather than discovered later.
 - **What was said before a language changed stays in the old one** until it goes: a call's notice for a few seconds, a problem until it is dismissed. Both are worded when they happen.
 - **What Convia serves outside the page is English**: the page's description, the page shown when no interface was built, and every error body. The first two are read by almost nobody; the last is never shown.
 - **The untranslated test covers the screens it visits.** A screen it does not reach — a rare refusal, a notice nobody triggered — is held only by review. The catalogue makes such a string stand out, since it is the only English in a component.
-- **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
+- **A broken conversation hides a call's controls.** The call goes on and is heard, but its stage was inside what broke, and the bar that offers **Return** and **Leave call** is shown only when the stage is not. **Try again**, or opening another room, brings them back.
 - **The webfonts are not bundled.** See *The design*.
-- **The bundle is split once.** The page is one chunk of roughly 101 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
+- **The bundle is split once.** The page is one chunk of roughly 103 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
 - **Tailwind costs a little at this size.** Its reset and the utilities in use come to roughly three kilobytes more, compressed, than the hand-written CSS it replaced. That is the expected shape of the trade: a utility system pays for itself once the same spacing and colour decisions are being repeated across many screens, and this interface currently has two.

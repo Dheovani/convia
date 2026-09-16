@@ -5,6 +5,7 @@ import { useLanguage, useWords } from '../i18n/language'
 import type { Attachable, Device, DeviceKind, Preview, Seen } from '../media/connection'
 import { useCall } from '../state/call'
 import { Button, input } from './controls'
+import { OnShelf } from './Recovery'
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -510,7 +511,8 @@ export function CallAudio() {
 }
 
 /*
-CallNotices says who arrived and who left, wherever this person is on the page.
+CallNotices says who arrived and who left, wherever this person is on the page,
+among the toasts at the bottom right.
 
 It is a polite live region, so a screen reader says each one once without
 interrupting, and each goes away on its own after a few seconds.
@@ -520,18 +522,15 @@ export function CallNotices() {
   const words = useWords()
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-label={words.call.notices}
-      className="pointer-events-none fixed right-4 bottom-4 z-10 flex flex-col items-end gap-1"
-    >
-      {call.notices.map((notice) => (
-        <p key={notice.id} className="m-0 rounded-md border border-line bg-surface-raised px-3 py-1.5 text-[0.8rem]">
-          {notice.text}
-        </p>
-      ))}
-    </div>
+    <OnShelf>
+      <div role="status" aria-live="polite" aria-label={words.call.notices} className="flex flex-col items-end gap-1">
+        {call.notices.map((notice) => (
+          <p key={notice.id} className="m-0 rounded-md border border-line bg-surface-raised px-3 py-1.5 text-[0.8rem]">
+            {notice.text}
+          </p>
+        ))}
+      </div>
+    </OnShelf>
   )
 }
 
