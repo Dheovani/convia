@@ -30,6 +30,8 @@ A binary built with `go build` alone has no interface, because the bundle needs 
 
 Each destination uses the other two zones the same way: a list in the sidebar, and what was chosen from it in the stage. For settings, the list is the sections.
 
+The rail's destinations are icons, named in a tooltip and for a screen reader. Their names did not fit: the rail is as wide as an icon, and *Configurações* is twice as long as *Chat*.
+
 They are a CSS grid rather than nested boxes, because they are peers — the rail does not contain the sidebar.
 
 ### On a narrow screen
@@ -175,6 +177,8 @@ The browser is told to speak English, whatever the machine speaks, because the j
 | `CONVIA_E2E_CHANNEL` | an installed browser to use instead of Playwright's Chromium, such as `msedge` or `chrome`. |
 
 Every journey registers new people, so they can run against a database that already holds data, and they leave their rooms behind.
+
+To hold a real call with somebody on another machine, see [the runbook](runbooks/call-between-two-machines.md).
 
 ## What is served, and how it is cached
 
