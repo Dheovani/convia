@@ -2,6 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 
 import { api, ApiError, NetworkError } from '../api/client'
 import type { CallPresence } from '../api/types'
+import type { Words } from '../i18n/en'
+import { useWords } from '../i18n/language'
 import {
   connect,
   listDevices,
@@ -13,7 +15,6 @@ import {
   type Devices,
   type Ending,
   type Preview,
-  type Refusal,
   type Seen,
 } from '../media/connection'
 import type { Listener } from './events'
@@ -38,29 +39,8 @@ that, and a few seconds of a dip is not one.
 */
 const weakBeforeOffer = 10_000
 
-const deviceWords: Record<DeviceKind, string> = {
-  audioinput: 'microphone',
-  videoinput: 'camera',
-  audiooutput: 'speaker',
-}
-
 function chosenOf(choice: Choice, kind: DeviceKind): string {
   return kind === 'audioinput' ? choice.audioInput : kind === 'videoinput' ? choice.videoInput : choice.audioOutput
-}
-
-// deviceFailure says what happened to a device in the middle of a call.
-function deviceFailure(refusal: Refusal, kind: DeviceKind | undefined): string {
-  const device = kind === undefined ? 'microphone or camera' : deviceWords[kind]
-  switch (refusal) {
-    case 'denied':
-      return `Convia is no longer allowed to use your ${device}.`
-    case 'missing':
-      return `Your ${device} was disconnected.`
-    case 'busy':
-      return `Your ${device} is being used by another app.`
-    default:
-      return `Your ${device} stopped working.`
-  }
 }
 
 interface Snapshot {
@@ -158,61 +138,62 @@ export function useCall(): CallSession {
 The words come from the status, never from Convia's own prose, for the reason the
 sign-in form gives.
 */
-function explainJoin(error: unknown): string {
+function explainJoin(words: Words, error: unknown): string {
+  const said = words.call
   if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Try again.'
+    return words.common.unreachable
   }
   if (error instanceof ApiError) {
     switch (error.status) {
       case 403:
-        return 'You cannot join this call. You may have been taken out of it.'
+        return said.forbidden
       case 404:
-        return 'This room is no longer available.'
+        return said.roomGone
       case 409:
-        return 'This call cannot be joined right now. A closed room does not start new calls.'
+        return said.cannotJoin
       case 503:
-        return 'Calls cannot be held here right now.'
+        return said.noCalls
     }
   }
-  return 'The call could not be joined. Try again.'
+  return said.joinFailed
 }
 
-function explainRemoval(error: unknown): string {
+function explainRemoval(words: Words, error: unknown): string {
+  const said = words.call
   if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Try again.'
+    return words.common.unreachable
   }
   if (error instanceof ApiError) {
     switch (error.status) {
       case 403:
-        return "Only the room's owner can take somebody out of the call."
+        return said.notOwner
       case 404:
-        return 'That person is no longer in the call.'
+        return said.notInCall
       case 409:
-        return 'Join the call to take somebody out of it.'
+        return said.joinFirst
     }
   }
-  return 'That person could not be taken out of the call.'
+  return said.removeFailed
 }
 
-const endings: Record<Exclude<Ending, 'lost' | 'closed'>, string> = {
-  removed: 'You were taken out of the call.',
-  ended: 'The call ended.',
-  elsewhere: 'You joined this call somewhere else, so it closed here.',
+// endedBecause says why a call this person was in was closed on purpose.
+function endedBecause(words: Words, how: Exclude<Ending, 'lost' | 'closed'>): string {
+  return words.call[how]
 }
 
 // unavailable says which device the person wanted and is in the call without.
-function unavailable(roomId: string, wanted: Choice, got: { microphone: boolean; camera: boolean }) {
+function unavailable(words: Words, roomId: string, wanted: Choice, got: { microphone: boolean; camera: boolean }) {
   if (wanted.microphone && !got.microphone) {
-    return { roomId, message: 'Your microphone is not available, so nobody can hear you.' }
+    return { roomId, message: words.call.unheard }
   }
   if (wanted.camera && !got.camera) {
-    return { roomId, message: 'Your camera is not available, so nobody can see you.' }
+    return { roomId, message: words.call.unseen }
   }
   return null
 }
 
-function nameOf(present: CallPresence): string {
-  return present.display_name || 'Somebody'
+function nameOf(words: Words, present: CallPresence): string {
+  return present.display_name || words.common.somebody
 }
 
 /*
@@ -226,6 +207,8 @@ A join is an attempt, numbered, and so is opening a preview. Everything an attem
 learns later — a connection opening, a person arriving, a device being granted —
 is dropped if a newer attempt, or leaving, has happened since, so a slow answer
 about the call somebody already left cannot pull them back into it.
+
+What it says is worded when it happens, in the language the page speaks.
 */
 export function useCallSession(onExpired: () => void, listen: (listener: Listener) => () => void): CallSession {
   const [state, setState] = useState<Snapshot>(() => ({
@@ -258,6 +241,11 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
 
   const expired = useRef(onExpired)
   expired.current = onExpired
+
+  // said is read through a ref, because a connection's listeners outlive the render that opened it.
+  const spoken = useWords()
+  const said = useRef(spoken)
+  said.current = spoken
 
   function patch(change: Partial<Snapshot>) {
     setState((was) => ({ ...was, ...change }))
@@ -302,7 +290,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         const present = named.get(identity)
         if (present !== undefined) {
           awaiting.current.delete(identity)
-          notify(`${nameOf(present)} joined the call.`)
+          notify(said.current.call.joined(nameOf(said.current, present)))
         }
       }
     } catch (error) {
@@ -318,7 +306,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
   function arrived(identity: string) {
     const present = names.current.get(identity)
     if (present !== undefined) {
-      notify(`${nameOf(present)} joined the call.`)
+      notify(said.current.call.joined(nameOf(said.current, present)))
       return
     }
     awaiting.current.add(identity)
@@ -333,7 +321,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     }
     const present = names.current.get(identity)
     if (present !== undefined) {
-      notify(`${nameOf(present)} left the call.`)
+      notify(said.current.call.left(nameOf(said.current, present)))
     }
   }
 
@@ -368,7 +356,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
       }
       lost.current.add(kind)
       void opened.switchDevice(kind, '').catch(() => undefined)
-      notify(`Your ${deviceWords[kind]} was disconnected, so the call is using the system default.`)
+      notify(said.current.call.replaced(kind))
     }
   }
 
@@ -495,7 +483,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         },
         onDeviceFailure: (refusal, kind) => {
           if (mine === attempt.current) {
-            patch({ problem: { roomId, message: deviceFailure(refusal, kind) } })
+            patch({ problem: { roomId, message: said.current.call.failed(refusal, kind) } })
           }
         },
       })
@@ -510,7 +498,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
         phase: 'joined',
         microphone: opened.microphone,
         camera: opened.camera,
-        problem: unavailable(roomId, wanted, opened),
+        problem: unavailable(said.current, roomId, wanted, opened),
       })
       void readNames(roomId)
       return true
@@ -525,7 +513,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
 
       outOfTheCall({
         roomId,
-        message: seated ? "The call's media server could not be reached." : explainJoin(error),
+        message: seated ? said.current.call.mediaUnreachable : explainJoin(said.current, error),
       })
       return false
     }
@@ -538,7 +526,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
   with a new credential. Anything Convia or the media server did on purpose is
   said, and not undone.
   */
-  async function ended(roomId: string, ending: Ending) {
+  async function ended(roomId: string, how: Ending) {
     connection.current = null
 
     /*
@@ -546,23 +534,23 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
     is nothing to say to somebody who is leaving and nothing to rejoin. The media
     server reports the connection gone, which is how Convia learns of it.
     */
-    if (ending === 'closed') {
+    if (how === 'closed') {
       attempt.current++
       outOfTheCall(null)
       return
     }
 
-    if (ending === 'lost') {
+    if (how === 'lost') {
       if (!(await open(roomId))) {
         setState((was) =>
-          was.problem !== null ? was : { ...was, problem: { roomId, message: 'The connection to the call was lost.' } },
+          was.problem !== null ? was : { ...was, problem: { roomId, message: said.current.call.lost } },
         )
       }
       return
     }
 
     attempt.current++
-    outOfTheCall({ roomId, message: endings[ending] })
+    outOfTheCall({ roomId, message: endedBecause(said.current, how) })
   }
 
   // join closes the preview, which holds the devices the call is about to open, and joins.
@@ -614,7 +602,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
       await readNames(roomId)
     } catch (error) {
       if (!unauthenticated(error)) {
-        patch({ problem: { roomId, message: explainRemoval(error) } })
+        patch({ problem: { roomId, message: explainRemoval(said.current, error) } })
       }
     }
   }
@@ -634,7 +622,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
       await opened.setMicrophone(on)
       patch({ microphone: on, problem: null })
     } catch {
-      patch({ microphone: false, problem: { roomId, message: 'Your microphone is not available.' } })
+      patch({ microphone: false, problem: { roomId, message: said.current.call.microphoneUnavailable } })
     }
   }
 
@@ -648,7 +636,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
       await opened.setCamera(on)
       patch({ camera: on, problem: null })
     } catch {
-      patch({ camera: false, problem: { roomId, message: 'Your camera is not available.' } })
+      patch({ camera: false, problem: { roomId, message: said.current.call.cameraUnavailable } })
     }
   }
 
@@ -663,7 +651,7 @@ export function useCallSession(onExpired: () => void, listen: (listener: Listene
       try {
         await opened.switchDevice(kind, id)
       } catch {
-        patch({ problem: { roomId, message: 'That device could not be used.' } })
+        patch({ problem: { roomId, message: said.current.call.deviceUnusable } })
         return
       }
     }

@@ -165,10 +165,10 @@ where the browser can do it.
 export async function listDevices(): Promise<Devices> {
   const { Room, supportsAudioOutputSelection } = await import('livekit-client')
 
-  const named = (devices: MediaDeviceInfo[], kind: string): Device[] =>
+  const listed = (devices: MediaDeviceInfo[]): Device[] =>
     devices
       .filter((device) => device.deviceId !== '')
-      .map((device, index) => ({ id: device.deviceId, label: device.label || `${kind} ${index + 1}` }))
+      .map((device) => ({ id: device.deviceId, label: device.label }))
 
   const [audioinput, videoinput, audiooutput] = await Promise.all([
     Room.getLocalDevices('audioinput', false),
@@ -177,9 +177,9 @@ export async function listDevices(): Promise<Devices> {
   ])
 
   return {
-    audioinput: named(audioinput, 'Microphone'),
-    videoinput: named(videoinput, 'Camera'),
-    audiooutput: named(audiooutput, 'Speaker'),
+    audioinput: listed(audioinput),
+    videoinput: listed(videoinput),
+    audiooutput: listed(audiooutput),
   }
 }
 

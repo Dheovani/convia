@@ -151,6 +151,8 @@ npx playwright install chromium   # once
 CONVIA_E2E_SHARE_URL=http://192.168.0.2:8080 npm run test:e2e
 ```
 
+The browser is told to speak English, whatever the machine speaks, because the journeys find things by what they say.
+
 | Variable | What it is |
 | --- | --- |
 | `CONVIA_E2E_URL` | where the browser opens Convia; `http://localhost:8080` by default. It has to be localhost or HTTPS, because the session cookie is `__Host-` and needs a secure context. |
@@ -204,6 +206,24 @@ The mark is an open ring with a point at the opening: a conversation that is not
 
 Inter and Space Grotesk are the intended faces and are **not bundled**. The policy allows no third-party origin, so a webfont has to be committed to the repository rather than fetched — a decision about repository weight, not about design. The stack in the tokens is what a system actually has, in the same proportions.
 
+## Language
+
+The interface speaks **English and Brazilian Portuguese**. Every word it shows, and every name and hint a screen reader reads, comes from a catalogue in `web/src/i18n`: `en.ts` is the shape, and `pt-BR.ts` follows it.
+
+**The browser decides.** The page speaks the first language in `navigator.languages` it knows, matched by language rather than country, so a browser asking for `pt-PT` reads the Brazilian words and one asking for anything unknown reads English. The page's `lang` says which. There is no switch yet: an explicit choice is a setting, and will be kept in this browser, beside the call's devices, when the Settings destination exists. Dates and times are written the way the browser's own tag writes them, so `pt-PT` keeps Portugal's dates under the Brazilian words.
+
+**The catalogue is plain TypeScript, with no library.** A phrase that takes something — a name, a count, a device — is a function, so each language builds its own sentence rather than filling a slot in an English one. That matters more than it looks: *seu microfone* and *sua câmera* change the words around them, so the Portuguese sentences about devices are written whole for each device. Counts use `Intl.PluralRules`, which knows that Portuguese counts zero as one. A language that leaves out a phrase, or adds one, does not compile.
+
+**Convia's own prose never reaches the screen.** Error bodies are English, and [`api-conventions.md`](api-conventions.md) promises only their `code`. What a refusal says is worded from its status or its code, and a code with no words of its own falls back to what the action would say anyway.
+
+Three tests hold this:
+
+- **Nothing on screen skips the catalogue.** `Untranslated.test.tsx` renders the sign-in form, an owned room with its panels open, getting ready for a call, the call, and the list of calls in a language whose every word is marked, and fails on any unmarked text, name or hint that is not somebody's data.
+- **Nothing is copied rather than translated.** A phrase identical in both catalogues fails, except the product's name and `99+`.
+- **The page reads in Portuguese**: signing in, counting unread messages, a refusal worded from its code, and times written the way the language writes them. An end-to-end journey checks that a browser preferring Portuguese is spoken to in it.
+
+To add a language, copy `pt-BR.ts`, translate it, and add it to the list in `language.tsx`.
+
 ## Accessibility
 
 The target is **WCAG 2.2 AA**. It is checked by the tests that describe the interface, not by an automated auditor: the usual one, axe-core, is MPL-2.0, which this repository does not take as a dependency. What those tests hold:
@@ -215,7 +235,6 @@ The target is **WCAG 2.2 AA**. It is checked by the tests that describe the inte
 - **Every region is named**: the page has a heading, the zones are landmarks, the call's controls are a named group whose toggles say whether they are pressed, and the people in a call are a named list.
 
 And, from before:
-
 
 - One focus ring, defined once, never removed. The usual `outline: none` is how interfaces lose keyboard navigation silently.
 - Row actions appear on **hover and focus**. Focus is the half that is usually forgotten, and without it they cannot be reached from the keyboard at all.
@@ -234,7 +253,10 @@ Named here rather than discovered later.
 - **Opening a room twice opens two rooms.** The session surface has no `Idempotency-Key`, so the button is disabled while a request is in flight and that is the whole of the protection.
 - **A weak connection is met by the person, not by the call.** Audio alone is offered, but the video a person sends is not lowered for others. The media client's adaptive stream and simulcast choices are its defaults, and nothing here tunes them. Nobody on another installation can join a call here yet (`M33-002`).
 - **Accessibility is not audited by a tool.** The tests hold what is listed under *Accessibility*, and nothing checks what nobody thought to write down. A manual pass with a screen reader is still the check that finds the rest.
+- **The language cannot be chosen yet.** It is the browser's until the Settings destination exists to override it.
+- **What Convia serves outside the page is English**: the page's description, the page shown when no interface was built, and every error body. The first two are read by almost nobody; the last is never shown.
+- **The untranslated test covers the screens it visits.** A screen it does not reach — a rare refusal, a notice nobody triggered — is held only by review. The catalogue makes such a string stand out, since it is the only English in a component.
 - **No error boundary.** A component that throws takes the screen with it. It wants deciding alongside what a recoverable failure looks like, rather than a blank page with a generic apology.
 - **The webfonts are not bundled.** See *The design*.
-- **The bundle is split once.** The page is one chunk of roughly 91 kB compressed, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
+- **The bundle is split once.** The page is one chunk of roughly 98 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
 - **Tailwind costs a little at this size.** Its reset and the utilities in use come to roughly three kilobytes more, compressed, than the hand-written CSS it replaced. That is the expected shape of the trade: a utility system pays for itself once the same spacing and colour decisions are being repeated across many screens, and this interface currently has two.

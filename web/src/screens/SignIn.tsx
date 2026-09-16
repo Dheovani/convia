@@ -4,6 +4,8 @@ import { api, ApiError, NetworkError } from '../api/client'
 import type { Account } from '../api/types'
 import { Button, Field } from '../components/controls'
 import { Wordmark } from '../components/Mark'
+import type { Words } from '../i18n/en'
+import { useWords } from '../i18n/language'
 
 type Mode = 'sign-in' | 'register'
 
@@ -26,43 +28,40 @@ the password is wrong, so this says the same thing for both, rather than
 inventing a distinction the server refused to make. Nothing here repeats the
 server's own prose: the status and the mode decide the words.
 */
-function explain(error: unknown, mode: Mode): string {
+function explain(words: Words, error: unknown, mode: Mode): string {
+  const said = words.signIn
   if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Check your connection and try again.'
+    return said.unreachable
   }
   if (error instanceof ApiError) {
     switch (error.status) {
       case 400:
-        return 'Convia did not accept that username or password. Check the rules under each field.'
+        return said.notAccepted
       case 401:
-        return 'That username and password do not match an account.'
+        return said.mismatch
       case 403:
-        return 'This page could not prove it came from Convia. Reload and try again.'
+        return said.foreignPage
       case 409:
-        return 'That username is taken. Choose another.'
+        return said.taken
       case 429:
-        return mode === 'register'
-          ? 'Too many accounts were attempted from here. Try again later.'
-          : 'Too many attempts from here. Wait a moment and try again.'
+        return mode === 'register' ? said.tooManyAccounts : said.tooManyAttempts
       case 503:
-        return 'Convia is busy right now. Try again in a moment.'
+        return said.busy
     }
   }
-  return mode === 'register'
-    ? 'Convia could not create the account. Try again.'
-    : 'Convia could not sign you in. Try again.'
+  return mode === 'register' ? said.registerFailed : said.signInFailed
 }
 
 // problem reports what is wrong with a new account before it is sent, or null.
-function problem(username: string, password: string, confirmation: string): string | null {
+function problem(words: Words, username: string, password: string, confirmation: string): string | null {
   if (!usernamePattern.test(username.trim().toLowerCase())) {
-    return 'That username is not one Convia accepts. Check the rule under it.'
+    return words.signIn.badUsername
   }
   if ([...password].length < minimumPasswordLength) {
-    return `A password must be at least ${minimumPasswordLength} characters.`
+    return words.signIn.shortPassword(minimumPasswordLength)
   }
   if (password !== confirmation) {
-    return 'The two passwords do not match.'
+    return words.signIn.passwordsDiffer
   }
   return null
 }
@@ -75,6 +74,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
   const [failure, setFailure] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const words = useWords()
+  const said = words.signIn
   const failureId = useId()
   const registering = mode === 'register'
 
@@ -91,7 +92,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
     }
 
     if (registering) {
-      const wrong = problem(username, password, confirmation)
+      const wrong = problem(words, username, password, confirmation)
       if (wrong !== null) {
         setFailure(wrong)
         return
@@ -105,16 +106,16 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
         registering ? await api.register(username, password) : await api.signIn(username, password),
       )
     } catch (error) {
-      setFailure(explain(error, mode))
+      setFailure(explain(words, error, mode))
       setBusy(false)
     }
   }
 
   const described = failure ? { 'aria-describedby': failureId } : {}
 
-  let action = registering ? 'Create account' : 'Sign in'
+  let action = registering ? said.createAccount : said.signIn
   if (busy) {
-    action = registering ? 'Creating account…' : 'Signing in…'
+    action = registering ? said.creatingAccount : said.signingIn
   }
 
   return (
@@ -132,16 +133,14 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
           <Wordmark />
         </div>
         <h1 className="m-0 font-display text-[1.6rem] font-semibold tracking-[-0.02em]">
-          {registering ? 'Create your account' : 'Sign in'}
+          {registering ? said.registerTitle : said.signInTitle}
         </h1>
         <p className="mt-0 mb-2 text-[0.9rem] text-ink-dim">
-          {registering
-            ? 'Your account lives on this Convia, and nowhere else.'
-            : 'Talk, meet, and stay in touch.'}
+          {registering ? said.registerLead : said.signInLead}
         </p>
 
         <Field
-          label="Username"
+          label={said.username}
           name="username"
           autoComplete="username"
           autoCapitalize="none"
@@ -152,15 +151,10 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
           onChange={(event) => setUsername(event.target.value)}
           {...described}
         />
-        {registering && (
-          <p className="-mt-2 mb-0 text-[0.75rem] text-ink-faint">
-            3 to 32 characters: letters, digits, dots, dashes and underscores, starting with a
-            letter or a digit.
-          </p>
-        )}
+        {registering && <p className="-mt-2 mb-0 text-[0.75rem] text-ink-faint">{said.usernameRule}</p>}
 
         <Field
-          label="Password"
+          label={said.password}
           type="password"
           name="password"
           autoComplete={registering ? 'new-password' : 'current-password'}
@@ -172,11 +166,9 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
 
         {registering && (
           <>
-            <p className="-mt-2 mb-0 text-[0.75rem] text-ink-faint">
-              At least {minimumPasswordLength} characters. That is the only rule.
-            </p>
+            <p className="-mt-2 mb-0 text-[0.75rem] text-ink-faint">{said.passwordRule(minimumPasswordLength)}</p>
             <Field
-              label="Confirm password"
+              label={said.confirmation}
               type="password"
               name="confirmation"
               autoComplete="new-password"
@@ -194,9 +186,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
               className="m-0 rounded-md border border-line bg-surface-raised px-3 py-2
                 text-[0.78rem] leading-relaxed text-ink-dim"
             >
-              <strong className="font-semibold text-ink">Keep this password safe.</strong> It locks
-              your account's key, so nobody can reset it, not even whoever runs this Convia. If you
-              forget it, the account is lost.
+              <strong className="font-semibold text-ink">{said.keepSafe}</strong> {said.keepSafeWhy}
             </p>
           </>
         )}
@@ -221,7 +211,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
           disabled={busy}
           onClick={() => switchTo(registering ? 'sign-in' : 'register')}
         >
-          {registering ? 'I already have an account' : 'Create an account'}
+          {registering ? said.haveAccount : said.wantAccount}
         </Button>
       </form>
     </main>

@@ -10,6 +10,9 @@ They run one at a time. Each creates its own people and rooms, but the media
 server and the budgets Convia keeps per address are shared, and a journey that
 competes for them proves less than one that does not.
 
+The browser speaks English whatever the machine speaks, because the journeys find
+things by what they say.
+
 CONVIA_E2E_URL is the Convia to drive, and CONVIA_E2E_CHANNEL picks an installed
 browser instead of the bundled Chromium (`msedge`, say). See docs/interface.md.
 */
@@ -24,6 +27,7 @@ export default defineConfig({
   reporter: process.env['CI'] ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
     ...devices['Desktop Chrome'],
+    locale: 'en-US',
     baseURL: process.env['CONVIA_E2E_URL'] ?? 'http://localhost:8080',
     ...(channel === undefined ? {} : { channel }),
     permissions: ['microphone', 'camera'],

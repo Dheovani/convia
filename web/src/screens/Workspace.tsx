@@ -6,6 +6,7 @@ import { CallAudio, CallBar, CallNotices, CallsList } from '../components/Call'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
 import { Sidebar } from '../components/Sidebar'
+import { useWords } from '../i18n/language'
 import { CallContext, useCallSession } from '../state/call'
 import { EventsContext, useEventStream } from '../state/events'
 import { useNarrow } from '../state/useNarrow'
@@ -67,6 +68,8 @@ export function Workspace({
   const [selected, setSelected] = useState<string | null>(null)
 
   const narrow = useNarrow()
+  const words = useWords()
+  const said = words.workspace
   const [showing, setShowing] = useState<'list' | 'conversation'>('list')
 
   // choose opens a room, which on a narrow screen replaces the list.
@@ -275,7 +278,7 @@ export function Workspace({
 
   const callBar =
     call.phase !== 'idle' && !stageShown && callRoomId !== null ? (
-      <CallBar roomName={callRoom?.name ?? 'a room'} onReturn={() => openRoom(callRoomId)} />
+      <CallBar roomName={callRoom?.name ?? said.aRoom} onReturn={() => openRoom(callRoomId)} />
     ) : null
 
   return (
@@ -283,14 +286,14 @@ export function Workspace({
       <CallContext.Provider value={call}>
       <CallAudio />
       <CallNotices />
-      <h1 className="sr-only">Convia</h1>
+      <h1 className="sr-only">{words.brand}</h1>
       {mainShown && open !== null && (
         <a
           href="#conversation"
           className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-20
             focus:rounded-md focus:bg-surface-raised focus:px-3 focus:py-2"
         >
-          Skip to the conversation
+          {said.skip}
         </a>
       )}
       <div
@@ -319,7 +322,7 @@ export function Workspace({
               ? 'row-start-1 flex min-h-0 flex-col bg-surface-deep'
               : 'flex min-h-0 flex-col border-r border-line bg-surface-deep'
           }
-          aria-label="Conversations"
+          aria-label={said.conversations}
         >
           {narrow && callBar}
           {mode === 'calls' ? (
@@ -338,7 +341,7 @@ export function Workspace({
           )}
           {failed && (
             <p className="m-0 border-t border-line px-4 py-2 text-[0.75rem] text-ink-faint" role="status">
-              Convia could not be reached. Retrying.
+              {said.retrying}
             </p>
           )}
         </aside>
@@ -353,10 +356,8 @@ export function Workspace({
           {callBar}
           {open === null ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-1 text-ink-dim">
-              <p className="m-0">Nothing is open.</p>
-              <p className="m-0 text-[0.85rem] text-ink-faint">
-                Pick a conversation on the left, or open a new one.
-              </p>
+              <p className="m-0">{said.nothingOpen}</p>
+              <p className="m-0 text-[0.85rem] text-ink-faint">{said.pickOne}</p>
             </div>
           ) : (
             <Conversation

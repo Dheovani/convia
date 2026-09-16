@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react'
 
 import { api, ApiError, NetworkError } from '../api/client'
 import type { Person, RoomInvitation, SidebarRoom } from '../api/types'
+import type { Words } from '../i18n/en'
+import { refused, useWords } from '../i18n/language'
 import { Button, input } from './controls'
 
 interface RoomPeopleProps {
@@ -21,36 +23,27 @@ interface RoomPeopleProps {
 }
 
 // label is what a person reads for somebody, which is never blank.
-export function label(person: Person): string {
-  return person.display_name.trim() === '' ? 'Somebody unnamed' : person.display_name
-}
-
-function explain(error: unknown, fallback: string): string {
-  if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Try again.'
-  }
-  if (error instanceof ApiError && error.status !== 404) {
-    return error.message
-  }
-  return fallback
+export function label(words: Words, person: Person): string {
+  return person.display_name.trim() === '' ? words.common.unnamed : person.display_name
 }
 
 // explainInvitation says why an invitation was not made, from the status alone.
-function explainInvitation(error: unknown): string {
+function explainInvitation(words: Words, error: unknown): string {
+  const said = words.people
   if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Try again.'
+    return words.common.unreachable
   }
   if (error instanceof ApiError) {
     switch (error.status) {
       case 400:
-        return 'That handle is not right. Check it with the person — every character counts.'
+        return said.badHandle
       case 404:
-        return 'You are no longer in this room.'
+        return said.noLongerIn
       case 409:
-        return 'That person is already in this room.'
+        return said.alreadyIn
     }
   }
-  return 'The invitation could not be made. Try again.'
+  return said.inviteFailed
 }
 
 /*
@@ -121,6 +114,8 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
   const [invitation, setInvitation] = useState<RoomInvitation | null>(null)
   const [copied, setCopied] = useState(false)
   const field = useId()
+  const words = useWords()
+  const said = words.people
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -138,7 +133,7 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
         onExpired()
         return
       }
-      setFailure(explainInvitation(error))
+      setFailure(explainInvitation(words, error))
     } finally {
       setBusy(false)
     }
@@ -153,22 +148,22 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
 
   return (
     <section>
-      <h3 className={heading}>Invite by handle</h3>
+      <h3 className={heading}>{said.inviteHeading}</h3>
       <form className="flex gap-2" onSubmit={submit}>
         <label className="sr-only" htmlFor={field}>
-          Handle
+          {said.handle}
         </label>
         <input
           id={field}
           className={`${input} min-w-0 flex-1 py-1.5 text-[0.82rem]`}
-          placeholder="name#IDENTIFIER"
+          placeholder={said.handlePlaceholder}
           autoCapitalize="none"
           spellCheck={false}
           value={handle}
           onChange={(event) => setHandle(event.target.value)}
         />
         <Button size="small" type="submit" disabled={busy || handle.trim() === ''}>
-          {busy ? 'Inviting…' : 'Invite'}
+          {busy ? said.inviting : said.invite}
         </Button>
       </form>
 
@@ -180,31 +175,24 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
 
       {invitation !== null && (
         <div className="mt-3 flex flex-col gap-2">
-          <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">
-            Send this link to {invitation.invitee}. It works once, for a day, and only for them.
-          </p>
+          <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">{said.sendLink(invitation.invitee)}</p>
           <input
             className={`${input} py-1.5 font-mono text-[0.72rem]`}
-            aria-label="Invitation link"
+            aria-label={said.linkLabel}
             readOnly
             value={invitation.link}
             onFocus={(event) => event.target.select()}
           />
           <Button size="small" className="self-start" onClick={() => copy(invitation.link)}>
-            {copied ? 'Copied' : 'Copy link'}
+            {copied ? said.copied : said.copy}
           </Button>
           {namesThisComputer(invitation.link) && (
-            <p className="m-0 text-[0.75rem] leading-relaxed text-danger">
-              This link names this computer, so it only works for somebody using Convia on this same
-              machine. Open Convia at an address others can reach to invite them.
-            </p>
+            <p className="m-0 text-[0.75rem] leading-relaxed text-danger">{said.thisComputer}</p>
           )}
         </div>
       )}
 
-      <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">
-        People on any Convia can join with their handle. They find it on their avatar.
-      </p>
+      <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">{said.anyConvia}</p>
     </section>
   )
 }
@@ -251,6 +239,9 @@ export function RoomPeople({
   const [bansFailed, setBansFailed] = useState(false)
   const [bansRead, setBansRead] = useState(0)
   const [acting, setActing] = useState<string | null>(null)
+  const words = useWords()
+  const said = words.people
+  const nameOf = (person: Person) => label(words, person)
 
   const remote = home !== undefined
   // Only the owner of a room here moderates it from this page.
@@ -266,7 +257,7 @@ export function RoomPeople({
       onExpired()
       return
     }
-    setFailure(explain(error, fallback))
+    setFailure(refused(words, error, fallback))
   }
 
   /*
@@ -311,7 +302,7 @@ export function RoomPeople({
       gives one sentence. Guessing which reason it was would be inventing a
       distinction the server refused to make.
       */
-      fail(error, `${label(person)} cannot be added to this room.`)
+      fail(error, said.cannotAdd(nameOf(person)))
     } finally {
       setAdding(null)
     }
@@ -369,10 +360,10 @@ export function RoomPeople({
       await onLeave()
     } catch (error) {
       if (remote && error instanceof ApiError && error.status === 503) {
-        setFailure('The Convia this room lives on did not confirm that you left, so you are still in it. Try again later.')
+        setFailure(said.notConfirmed)
         setStranded(true)
       } else {
-        fail(error, 'You are no longer in this room.')
+        fail(error, said.noLongerIn)
       }
       setLeaving(false)
       setConfirming(false)
@@ -395,7 +386,7 @@ export function RoomPeople({
     try {
       await onForget()
     } catch (error) {
-      fail(error, 'This room could not be forgotten. Try again.')
+      fail(error, said.forgetFailed)
       setLeaving(false)
     }
   }
@@ -403,60 +394,58 @@ export function RoomPeople({
   return (
     <aside
       id={id}
-      aria-label={`People in ${room.name}`}
+      aria-label={said.label(room.name)}
       className="flex max-h-[40vh] min-h-0 flex-col gap-5 overflow-y-auto border-t border-line
         bg-surface-deep p-4 md:max-h-none md:w-64 md:flex-none md:border-t-0 md:border-l"
     >
       {remote && (
-        <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">
-          This room lives on {hostOf(home)}. You take part through your own Convia.
-        </p>
+        <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">{said.livesOn(hostOf(home))}</p>
       )}
 
       <section>
-        <h3 className={heading}>In this room</h3>
+        <h3 className={heading}>{said.inRoom}</h3>
         {membersFailed ? (
-          <p className="m-0 text-[0.8rem] text-ink-faint">Who is here could not be read.</p>
+          <p className="m-0 text-[0.8rem] text-ink-faint">{said.membersUnreadable}</p>
         ) : (
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {members.map((person) => (
               <li key={person.user_id} className="flex items-center gap-2 text-[0.88rem]">
                 <span className="min-w-0 flex-1 truncate">
-                  {label(person)}
-                  {person.role === 'owner' && <span className="text-ink-faint"> · owner</span>}
-                  {person.user_id === selfId && <span className="text-ink-faint"> (you)</span>}
+                  {nameOf(person)}
+                  {person.role === 'owner' && <span className="text-ink-faint"> · {said.owner}</span>}
+                  {person.user_id === selfId && <span className="text-ink-faint"> {said.youTag}</span>}
                 </span>
                 {moderating && person.user_id !== selfId && (
                   <span className="flex flex-none gap-0.5">
                     <button
                       type="button"
                       className={moderation}
-                      aria-label={`Remove ${label(person)}`}
+                      aria-label={said.remove(nameOf(person))}
                       disabled={acting !== null}
                       onClick={() =>
                         void moderate(
                           person,
                           () => api.removeMember(room.id, person.user_id),
-                          `${label(person)} could not be removed.`,
+                          said.removeFailed(nameOf(person)),
                         )
                       }
                     >
-                      Remove
+                      {words.common.remove}
                     </button>
                     <button
                       type="button"
                       className={moderation}
-                      aria-label={`Ban ${label(person)}`}
+                      aria-label={said.banNamed(nameOf(person))}
                       disabled={acting !== null}
                       onClick={() =>
                         void moderate(
                           person,
                           () => api.ban(room.id, person.user_id),
-                          `${label(person)} could not be banned.`,
+                          said.banFailed(nameOf(person)),
                         )
                       }
                     >
-                      Ban
+                      {said.ban}
                     </button>
                   </span>
                 )}
@@ -474,39 +463,35 @@ export function RoomPeople({
               [&::-webkit-details-marker]:hidden"
           >
             <Chevron />
-            <h3 className={headingText}>Add somebody</h3>
+            <h3 className={headingText}>{said.addHeading}</h3>
             {addable.length > 0 && <span className="text-[0.72rem] text-ink-faint">{addable.length}</span>}
           </summary>
           {candidatesFailed ? (
-            <p className="m-0 text-[0.8rem] text-ink-faint">The people you could add could not be read.</p>
+            <p className="m-0 text-[0.8rem] text-ink-faint">{said.candidatesUnreadable}</p>
           ) : candidates === null ? (
-            <p className="m-0 text-[0.8rem] text-ink-faint">Loading…</p>
+            <p className="m-0 text-[0.8rem] text-ink-faint">{words.common.loading}</p>
           ) : addable.length === 0 ? (
             <p className="m-0 text-[0.8rem] leading-relaxed text-ink-faint">
-              {candidates.length === 0
-                ? 'You do not share a room with anybody else yet.'
-                : 'Everybody you share a room with is already here.'}
+              {candidates.length === 0 ? said.nobodyShared : said.everybodyHere}
             </p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {addable.map((person) => (
                 <li key={person.user_id} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[0.88rem]">{label(person)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[0.88rem]">{nameOf(person)}</span>
                   <Button
                     size="small"
-                    aria-label={`Add ${label(person)}`}
+                    aria-label={said.addNamed(nameOf(person))}
                     disabled={adding !== null}
                     onClick={() => void add(person)}
                   >
-                    {adding === person.user_id ? 'Adding…' : 'Add'}
+                    {adding === person.user_id ? said.adding : said.add}
                   </Button>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">
-            You can add people you already share a room with.
-          </p>
+          <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">{said.addHint}</p>
         </details>
       )}
 
@@ -517,43 +502,41 @@ export function RoomPeople({
               [&::-webkit-details-marker]:hidden"
           >
             <Chevron />
-            <h3 className={headingText}>Banned</h3>
+            <h3 className={headingText}>{said.banned}</h3>
             {bans !== null && bans.length > 0 && (
               <span className="text-[0.72rem] text-ink-faint">{bans.length}</span>
             )}
           </summary>
           {bansFailed ? (
-            <p className="m-0 text-[0.8rem] text-ink-faint">Who is banned could not be read.</p>
+            <p className="m-0 text-[0.8rem] text-ink-faint">{said.bansUnreadable}</p>
           ) : bans === null ? (
-            <p className="m-0 text-[0.8rem] text-ink-faint">Loading…</p>
+            <p className="m-0 text-[0.8rem] text-ink-faint">{words.common.loading}</p>
           ) : bans.length === 0 ? (
-            <p className="m-0 text-[0.8rem] text-ink-faint">Nobody is banned from this room.</p>
+            <p className="m-0 text-[0.8rem] text-ink-faint">{said.nobodyBanned}</p>
           ) : (
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {bans.map((person) => (
                 <li key={person.user_id} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate text-[0.88rem]">{label(person)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[0.88rem]">{nameOf(person)}</span>
                   <Button
                     size="small"
-                    aria-label={`Unban ${label(person)}`}
+                    aria-label={said.unbanNamed(nameOf(person))}
                     disabled={acting !== null}
                     onClick={() =>
                       void moderate(
                         person,
                         () => api.unban(room.id, person.user_id),
-                        `${label(person)} could not be unbanned.`,
+                        said.unbanFailed(nameOf(person)),
                       )
                     }
                   >
-                    Unban
+                    {said.unban}
                   </Button>
                 </li>
               ))}
             </ul>
           )}
-          <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">
-            Nobody can add or invite somebody banned until you lift it. Somebody you only remove can be added back.
-          </p>
+          <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">{said.bansHint}</p>
         </details>
       )}
 
@@ -568,30 +551,27 @@ export function RoomPeople({
       <section className="mt-auto">
         {stranded && onForget !== undefined && (
           <div className="mb-3 flex flex-col gap-2">
-            <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">
-              You can forget it here instead. It leaves your list, but {hostOf(home ?? '')} still counts you as a
-              member, and nothing here can take you out of it later.
-            </p>
+            <p className="m-0 text-[0.78rem] leading-relaxed text-ink-dim">{said.forgetInstead(hostOf(home ?? ''))}</p>
             <Button size="small" className="self-start" disabled={leaving} onClick={() => void forget()}>
-              {leaving ? 'Forgetting…' : 'Forget it here'}
+              {leaving ? said.forgetting : said.forget}
             </Button>
           </div>
         )}
         {confirming ? (
           <div className="flex flex-col gap-2">
-            <p className="m-0 text-[0.85rem]">Leave {room.name}? What you said stays.</p>
+            <p className="m-0 text-[0.85rem]">{said.confirmLeave(room.name)}</p>
             <div className="flex gap-2">
               <Button tone="primary" size="small" disabled={leaving} onClick={() => void leave()}>
-                {leaving ? 'Leaving…' : 'Leave'}
+                {leaving ? said.leaving : said.leave}
               </Button>
               <Button size="small" disabled={leaving} onClick={() => setConfirming(false)}>
-                Stay
+                {said.stay}
               </Button>
             </div>
           </div>
         ) : (
           <Button size="small" onClick={() => setConfirming(true)}>
-            Leave this room
+            {said.leaveRoom}
           </Button>
         )}
       </section>

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react'
 
 import type { RoomSource } from '../api/client'
 import type { Account, Message, Person, SidebarRoom } from '../api/types'
+import { useLanguage } from '../i18n/language'
 import { useConversation } from '../state/useConversation'
 import { useMembers } from '../state/useMembers'
 import { CallButton, CallPreparation, CallProblem, CallStage } from './Call'
@@ -40,20 +41,21 @@ interface ConversationProps {
   onBack?: () => void
 }
 
-function when(timestamp: string): string {
+// when and day are written the way the language the page speaks writes them.
+function when(timestamp: string, formatting: string): string {
   const at = new Date(timestamp)
   if (Number.isNaN(at.getTime())) {
     return ''
   }
-  return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return at.toLocaleTimeString(formatting, { hour: '2-digit', minute: '2-digit' })
 }
 
-function day(timestamp: string): string {
+function day(timestamp: string, formatting: string): string {
   const at = new Date(timestamp)
   if (Number.isNaN(at.getTime())) {
     return ''
   }
-  return at.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })
+  return at.toLocaleDateString(formatting, { weekday: 'long', month: 'long', day: 'numeric' })
 }
 
 const row = 'flex items-baseline gap-3 rounded-sm px-2 py-[3px]'
@@ -95,13 +97,15 @@ function Entry({
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(message.body ?? '')
   const [busy, setBusy] = useState(false)
+  const { words, formatting } = useLanguage()
+  const said = words.conversation
 
   if (message.deleted) {
     return (
       <li className={row}>
-        <span className={stamp}>{when(message.created_at)}</span>
+        <span className={stamp}>{when(message.created_at, formatting)}</span>
         <span className="text-ink-faint italic">
-          {message.deleted_by === 'owner' ? "Removed by the room's owner." : 'This message was withdrawn.'}
+          {message.deleted_by === 'owner' ? said.removedByOwner : said.withdrawn}
         </span>
       </li>
     )
@@ -109,7 +113,7 @@ function Entry({
 
   return (
     <li className={`${row} group hover:bg-surface-raised`}>
-      <span className={stamp}>{when(message.created_at)}</span>
+      <span className={stamp}>{when(message.created_at, formatting)}</span>
 
       {editing ? (
         <form
@@ -127,7 +131,7 @@ function Entry({
           }}
         >
           <label className="sr-only" htmlFor={`edit-${message.id}`}>
-            Edit message
+            {said.editLabel}
           </label>
           <input
             id={`edit-${message.id}`}
@@ -143,7 +147,7 @@ function Entry({
             }}
           />
           <Button type="submit" size="small" disabled={busy}>
-            Save
+            {words.common.save}
           </Button>
           <Button
             size="small"
@@ -152,7 +156,7 @@ function Entry({
               setDraft(message.body ?? '')
             }}
           >
-            Cancel
+            {words.common.cancel}
           </Button>
         </form>
       ) : (
@@ -161,12 +165,12 @@ function Entry({
             {showName ? (
               <p className="m-0 text-[0.8rem] font-semibold text-ink">{name}</p>
             ) : (
-              <span className="sr-only">{name}: </span>
+              <span className="sr-only">{said.speaker(name)}</span>
             )}
             <span className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.body}</span>
             {message.edited_at !== undefined && (
-              <span className="ml-1 text-[0.72rem] text-ink-faint" title={`Edited ${message.edited_at}`}>
-                (edited)
+              <span className="ml-1 text-[0.72rem] text-ink-faint" title={said.editedAt(message.edited_at)}>
+                {said.edited}
               </span>
             )}
           </div>
@@ -189,7 +193,7 @@ function Entry({
                   setEditing(true)
                 }}
               >
-                Edit
+                {said.edit}
               </button>
               <button
                 type="button"
@@ -197,7 +201,7 @@ function Entry({
                   hover:bg-surface-hover hover:text-ink"
                 onClick={() => void onWithdraw()}
               >
-                Withdraw
+                {said.withdraw}
               </button>
             </span>
           )}
@@ -212,7 +216,7 @@ function Entry({
                   hover:bg-surface-hover hover:text-ink"
                 onClick={() => void onWithdraw()}
               >
-                Remove
+                {words.common.remove}
               </button>
             </span>
           )}
@@ -245,6 +249,8 @@ export function Conversation({
   } = useMembers(source, onExpired)
 
   const [showPeople, setShowPeople] = useState(false)
+  const { words, formatting } = useLanguage()
+  const said = words.conversation
   const panel = useId()
   const foot = useRef<HTMLDivElement>(null)
 
@@ -284,16 +290,16 @@ export function Conversation({
 
   function nameOf(message: Message): string {
     if (message.user_id === undefined) {
-      return 'A guest'
+      return said.guest
     }
     if (message.user_id === selfId) {
-      return 'You'
+      return words.common.you
     }
     const person: Person | undefined = byId.get(message.user_id)
     if (person !== undefined) {
-      return label(person)
+      return label(words, person)
     }
-    return membersLoaded ? 'Somebody who left' : 'Somebody'
+    return membersLoaded ? said.somebodyWhoLeft : words.common.somebody
   }
 
   /*
@@ -319,7 +325,7 @@ export function Conversation({
             type="button"
             className="grid size-8 flex-none cursor-pointer place-items-center rounded-md text-ink-dim
               hover:bg-surface-hover hover:text-ink"
-            aria-label="Back to conversations"
+            aria-label={said.back}
             onClick={onBack}
           >
             <svg aria-hidden="true" viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor"
@@ -337,7 +343,7 @@ export function Conversation({
             className="rounded-full bg-surface-raised px-2 py-0.5 text-[0.68rem] tracking-[0.06em]
               text-ink-faint uppercase"
           >
-            closed
+            {words.common.closed}
           </span>
         )}
         <span className="flex-1" aria-hidden="true" />
@@ -354,7 +360,7 @@ export function Conversation({
             }
           }}
         >
-          People
+          {said.people}
         </Button>
         {owner && onRoomDeleted !== undefined && (
           <RoomSettings room={room} onChanged={onRoomChanged} onDeleted={onRoomDeleted} onExpired={onExpired} />
@@ -373,22 +379,20 @@ export function Conversation({
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-5">
             {loading && messages.length === 0 && (
-              <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">Loading…</p>
+              <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">{words.common.loading}</p>
             )}
             {failed && (
               <p className="mt-0 mb-3 text-[0.85rem] text-danger" role="alert">
-                This conversation could not be read. Convia will try again.
+                {said.unreadable}
               </p>
             )}
             {!loading && !failed && messages.length === 0 && (
-              <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">
-                Nothing has been said here yet.
-              </p>
+              <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint">{said.empty}</p>
             )}
 
             <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
               {messages.map((message) => {
-                const today = day(message.created_at)
+                const today = day(message.created_at, formatting)
                 const opensADay = today !== previousDay
                 const changesAuthor = message.user_id !== previousAuthor
                 previousDay = today

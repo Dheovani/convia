@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 
 import { ApiError, NetworkError } from '../api/client'
+import type { Words } from '../i18n/en'
+import { refused, useWords } from '../i18n/language'
 import { Button } from './controls'
 
 /*
@@ -19,21 +21,20 @@ interface ComposerProps {
   onSend: (body: string) => Promise<void>
 }
 
-function explain(error: unknown): string {
+function explain(words: Words, error: unknown): string {
+  const said = words.composer
   if (error instanceof NetworkError) {
-    return 'That did not send — Convia could not be reached.'
+    return said.unreachable
   }
   if (error instanceof ApiError) {
     switch (error.code) {
       case 'conflict':
-        return 'This room is closed. Nothing more can be said here.'
+        return said.closed
       case 'not_found':
-        return 'This room is no longer available to you.'
-      default:
-        return error.message
+        return said.gone
     }
   }
-  return 'That did not send.'
+  return refused(words, error, said.failed)
 }
 
 /*
@@ -49,6 +50,8 @@ export function Composer({ roomName, disabled, onSend }: ComposerProps) {
   const [failure, setFailure] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const field = useRef<HTMLTextAreaElement>(null)
+  const words = useWords()
+  const said = words.composer
 
   async function send() {
     const written = body.trim()
@@ -62,7 +65,7 @@ export function Composer({ roomName, disabled, onSend }: ComposerProps) {
       await onSend(written)
       setBody('')
     } catch (error) {
-      setFailure(explain(error))
+      setFailure(explain(words, error))
     } finally {
       setSending(false)
       field.current?.focus()
@@ -85,7 +88,7 @@ export function Composer({ roomName, disabled, onSend }: ComposerProps) {
         }}
       >
         <label className="sr-only" htmlFor="composer-body">
-          Message {roomName}
+          {said.label(roomName)}
         </label>
         <textarea
           id="composer-body"
@@ -93,7 +96,7 @@ export function Composer({ roomName, disabled, onSend }: ComposerProps) {
           className="max-h-[40vh] flex-1 resize-y border-0 bg-transparent p-2 focus:outline-none"
           rows={1}
           maxLength={bodyLimit}
-          placeholder={disabled ? 'This room is closed' : `Message ${roomName}`}
+          placeholder={disabled ? said.closedPlaceholder : said.label(roomName)}
           disabled={disabled}
           value={body}
           onChange={(event) => setBody(event.target.value)}
@@ -110,7 +113,7 @@ export function Composer({ roomName, disabled, onSend }: ComposerProps) {
           className="flex-none"
           disabled={disabled || sending || body.trim() === ''}
         >
-          Send
+          {said.send}
         </Button>
       </form>
     </div>
