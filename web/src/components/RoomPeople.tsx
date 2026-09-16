@@ -3,8 +3,10 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { api, ApiError, NetworkError } from '../api/client'
 import type { Person, RoomInvitation, SidebarRoom } from '../api/types'
 import type { Words } from '../i18n/en'
-import { refused, useWords } from '../i18n/language'
+import { refused, useLanguage, useWords } from '../i18n/language'
+import { usePresenceOf } from '../state/presence'
 import { Button, input } from './controls'
+import { PresenceDot } from './Presence'
 
 interface RoomPeopleProps {
   id: string
@@ -112,10 +114,63 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [invitation, setInvitation] = useState<RoomInvitation | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
+  const [pending, setPending] = useState<RoomInvitation[] | null>(null)
+  const [pendingFailed, setPendingFailed] = useState(false)
+  const [pendingRead, setPendingRead] = useState(0)
+  const [withdrawing, setWithdrawing] = useState<string | null>(null)
   const field = useId()
-  const words = useWords()
+  const { words, formatting } = useLanguage()
   const said = words.people
+
+  const expired = useRef(onExpired)
+  expired.current = onExpired
+
+  // The invitations this person made are read when the panel opens, and after each change.
+  useEffect(() => {
+    const controller = new AbortController()
+    api.pendingInvitations(roomId, controller.signal).then(
+      (list) => {
+        setPending(list.data)
+        setPendingFailed(false)
+      },
+      (error: unknown) => {
+        if (controller.signal.aborted) {
+          return
+        }
+        if (error instanceof ApiError && error.unauthenticated) {
+          expired.current()
+          return
+        }
+        setPendingFailed(true)
+      },
+    )
+    return () => controller.abort()
+  }, [roomId, pendingRead])
+
+  async function withdraw(target: RoomInvitation) {
+    setWithdrawing(target.id)
+    setFailure(null)
+    try {
+      await api.withdrawInvitation(target.id)
+      if (invitation?.id === target.id) {
+        setInvitation(null)
+      }
+      setPendingRead((count) => count + 1)
+    } catch (error) {
+      if (error instanceof ApiError && error.unauthenticated) {
+        onExpired()
+        return
+      }
+      setFailure(refused(words, error, said.withdrawFailed))
+    } finally {
+      setWithdrawing(null)
+    }
+  }
+
+  const until = (timestamp: string) =>
+    new Date(timestamp).toLocaleTimeString(formatting, { hour: '2-digit', minute: '2-digit' })
+  const others = (pending ?? []).filter((each) => each.id !== invitation?.id)
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -124,10 +179,11 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
     }
     setBusy(true)
     setFailure(null)
-    setCopied(false)
+    setCopied(null)
     try {
       setInvitation(await api.invite(roomId, handle.trim()))
       setHandle('')
+      setPendingRead((count) => count + 1)
     } catch (error) {
       if (error instanceof ApiError && error.unauthenticated) {
         onExpired()
@@ -139,11 +195,11 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
     }
   }
 
-  function copy(link: string) {
+  function copy(target: RoomInvitation) {
     void navigator.clipboard
-      ?.writeText(link)
-      .then(() => setCopied(true))
-      .catch(() => setCopied(false))
+      ?.writeText(target.link)
+      .then(() => setCopied(target.id))
+      .catch(() => setCopied(null))
   }
 
   return (
@@ -183,13 +239,62 @@ function Invite({ roomId, onExpired }: { roomId: string; onExpired: () => void }
             value={invitation.link}
             onFocus={(event) => event.target.select()}
           />
-          <Button size="small" className="self-start" onClick={() => copy(invitation.link)}>
-            {copied ? said.copied : said.copy}
-          </Button>
+          <span className="flex gap-2">
+            <Button size="small" onClick={() => copy(invitation)}>
+              {copied === invitation.id ? said.copied : said.copy}
+            </Button>
+            <Button
+              size="small"
+              aria-label={said.withdrawFor(invitation.invitee)}
+              disabled={withdrawing !== null}
+              onClick={() => void withdraw(invitation)}
+            >
+              {said.withdraw}
+            </Button>
+          </span>
           {namesThisComputer(invitation.link) && (
             <p className="m-0 text-[0.75rem] leading-relaxed text-danger">{said.thisComputer}</p>
           )}
         </div>
+      )}
+
+      {pendingFailed ? (
+        <p className="mt-3 mb-0 text-[0.8rem] text-ink-faint">{said.pendingUnreadable}</p>
+      ) : (
+        others.length > 0 && (
+          <div className="mt-3">
+            <h4 className="m-0 mb-1.5 text-[0.75rem] font-medium text-ink-dim">{said.pendingHeading}</h4>
+            <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+              {others.map((each) => (
+                <li key={each.id} className="flex flex-col gap-1">
+                  <span className="flex items-baseline gap-2 text-[0.78rem]">
+                    <span className="min-w-0 flex-1 truncate font-mono">{each.invitee}</span>
+                    <span className="flex-none text-[0.7rem] text-ink-faint">{said.until(until(each.expires_at))}</span>
+                  </span>
+                  <span className="flex gap-1">
+                    <button
+                      type="button"
+                      className={moderation}
+                      aria-label={said.copyFor(each.invitee)}
+                      onClick={() => copy(each)}
+                    >
+                      {copied === each.id ? said.copied : said.copy}
+                    </button>
+                    <button
+                      type="button"
+                      className={moderation}
+                      aria-label={said.withdrawFor(each.invitee)}
+                      disabled={withdrawing !== null}
+                      onClick={() => void withdraw(each)}
+                    >
+                      {said.withdraw}
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
       )}
 
       <p className="mt-2 mb-0 text-[0.72rem] leading-relaxed text-ink-faint">{said.anyConvia}</p>
@@ -248,6 +353,13 @@ export function RoomPeople({
   const moderating = room.owned && !remote
   const inRoom = new Set(members.map((person) => person.user_id))
   const addable = (candidates ?? []).filter((person) => !inRoom.has(person.user_id))
+
+  // Presence is only known for people here; a room elsewhere shows none.
+  const presence = usePresenceOf(remote ? [] : [...inRoom, ...addable.map((person) => person.user_id)])
+  const dot = (person: Person) => {
+    const state = presence.get(person.user_id)
+    return state === undefined ? null : <PresenceDot state={state} />
+  }
 
   const expired = useRef(onExpired)
   expired.current = onExpired
@@ -410,6 +522,7 @@ export function RoomPeople({
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {members.map((person) => (
               <li key={person.user_id} className="flex items-center gap-2 text-[0.88rem]">
+                {dot(person)}
                 <span className="min-w-0 flex-1 truncate">
                   {nameOf(person)}
                   {person.role === 'owner' && <span className="text-ink-faint"> · {said.owner}</span>}
@@ -478,6 +591,7 @@ export function RoomPeople({
             <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {addable.map((person) => (
                 <li key={person.user_id} className="flex items-center gap-2">
+                  {dot(person)}
                   <span className="min-w-0 flex-1 truncate text-[0.88rem]">{nameOf(person)}</span>
                   <Button
                     size="small"

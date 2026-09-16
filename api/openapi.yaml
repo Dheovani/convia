@@ -5935,7 +5935,7 @@ paths:
       description: |
         Upgrades the connection to a WebSocket and delivers the events about the rooms the signed-in person is in, as they happen. It is how Convia's own interface stops asking every few seconds.
 
-        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, `room.member_removed`, `call.started`, `call.ended`, `participant.joined`, `participant.left`, `participant.removed`, and `participant.role_changed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. Presence is absent because nothing on this surface reads it yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
+        **It carries only what the person could already read.** That is `message.posted`, `message.edited`, `message.deleted`, `room.member_added`, `room.member_removed`, `room.updated`, `room.closed`, `room.reopened`, `room.deleted`, `call.started`, `call.ended`, `participant.joined`, `participant.left`, `participant.removed`, and `participant.role_changed`, each delivered only when it names a room the person is in. A change to the person's own place is delivered when they were in the room before it or are in it after, so being added and being removed both arrive. `room.deleted` is the last event about a room a person receives. Presence is absent because nothing on this surface reads it yet. The envelope is the same `Event` an application receives, without `correlation_id`: the request that caused something was usually somebody else's.
 
         Which rooms is read before the upgrade, kept current by the membership events the stream carries, and read again every minute, when the session is also checked again. A session that stops authenticating — signed out, expired, or suspended — ends the stream with close code `4001`, which a reconnect would not change. Within that minute a stream may still carry events about a room its person has just left; what they name is identifiers, and reading any of it asks for membership again.
 
@@ -6294,6 +6294,39 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
 
   /v1/me/rooms/{room_id}/invitations:
+    get:
+      operationId: listMyRoomInvitations
+      tags: [Peers]
+      summary: List the invitations I made into a room that still work
+      description: |
+        Lists the invitations the signed-in person made into a room they are in that nobody has accepted, withdrawn or outlived, newest first, with the link to send again. Only their own: the other people in the room did not send them.
+
+        It is bounded rather than paged, at 100: a link lasts a day. The links name this installation by the address the request reached. Somebody not in the room is told `404 not found`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The invitations that still work.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomInvitationList"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
     post:
       operationId: inviteToMyRoom
       tags: [Peers]
@@ -7607,6 +7640,127 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+  /v1/me/presence/{device_id}:
+    put:
+      operationId: assertMyPresence
+      tags: [Presence]
+      summary: Report that one of my pages is present
+      description: |
+        Records or refreshes what one of the signed-in person's pages says about them, and returns what Convia will now say about the person. Each open page is a device of its own, named by the page, and sends this as its heartbeat, as an application's device does.
+
+        `busy` and `away` are the person's choice, or `away` a page that went idle. When several pages assert at once the strongest wins: `busy`, then `online`, then `away`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresenceAssertion"
+      responses:
+        "200":
+          $ref: "#/components/responses/PresenceState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+    delete:
+      operationId: withdrawMyPresence
+      tags: [Presence]
+      summary: Report that one of my pages is going away
+      description: |
+        Removes what one of the signed-in person's pages said, and returns what their other pages still say. A page sends it as it closes; one that cannot lapses on its timer.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceID"
+      responses:
+        "200":
+          $ref: "#/components/responses/PresenceState"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/PresenceUnavailable"
+
+  /v1/me/people/presence:
+    get:
+      operationId: listMyPeoplePresence
+      tags: [Presence]
+      summary: Read the presence of people I share a room with
+      description: |
+        Returns what Convia will say about each named person the signed-in person may see, in the order asked: themselves, and anybody with an account on this installation they share a room with. Anybody else named is left out rather than refused, so a list of identifiers cannot be used to find out which exist. Visitors from other installations are left out too, because their pages report to their own installation.
+
+        The page reads this again every few seconds for the people it shows; presence does not arrive on a person's stream.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          description: |
+            A person to read presence for. Repeat the parameter to ask about several; at most 100 in one request.
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 100
+            items:
+              $ref: "#/components/schemas/UserId"
+      responses:
+        "200":
+          description: Presence for each named person this person may see, in the order asked.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PresenceList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
         "429":
@@ -9412,6 +9566,18 @@ components:
           type: string
           format: date-time
 
+    RoomInvitationList:
+      type: object
+      description: The invitations a person made into a room that still work.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RoomInvitation"
+
     InvitationLinkRequest:
       type: object
       description: An invitation link somebody was sent.
@@ -10230,6 +10396,10 @@ components:
         - message.deleted
         - room.member_added
         - room.member_removed
+        - room.updated
+        - room.closed
+        - room.reopened
+        - room.deleted
         - presence.changed
 
     EventSubjectType:

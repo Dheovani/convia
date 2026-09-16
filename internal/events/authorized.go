@@ -46,6 +46,8 @@ func readingScopeFor(kind Type) credentials.Scope {
 		// The scope that already lists who is in a room, on either side of the
 		// change.
 		return credentials.ScopeMembersRead
+	case RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
+		return credentials.ScopeRoomsRead
 	case PresenceChanged:
 		return credentials.ScopePresenceRead
 	default:
@@ -115,8 +117,8 @@ personTypes are the events a person's stream carries.
 
 The rule is the tenant's, applied to a person: **a stream carries only what its
 subscriber could already read.** A person reads the messages and the members of
-the rooms they are in, so those are the types, and each is delivered only when
-it names such a room.
+the rooms they are in, and the rooms themselves, so those are the types, and
+each is delivered only when it names such a room.
 
 What is absent is absent for that reason and no other. Calls and their rosters
 have no route on the session surface yet, so a person cannot read them, and a
@@ -128,6 +130,7 @@ func personTypes() []Type {
 	return []Type{
 		MessagePosted, MessageEdited, MessageDeleted,
 		MemberAdded, MemberRemoved,
+		RoomUpdated, RoomClosed, RoomReopened, RoomDeleted,
 		CallStarted, CallEnded,
 		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
 	}

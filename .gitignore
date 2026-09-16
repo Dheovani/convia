@@ -27,6 +27,3 @@ web/node_modules/
 web/test-results/
 web/playwright-report/
 internal/web/assets/dist/
-
-# A machine's own changes to the development services, such as a call between two machines.
-docker-compose.override.yml

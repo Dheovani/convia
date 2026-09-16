@@ -82,7 +82,9 @@ test('leaving ends a call nobody else is in, and deleting a room ends its call',
   await join(a.page, 'Start call')
   expect((await api(ana, 'DELETE', `/v1/me/rooms/${room.id}`)).status).toBe(204)
 
-  await expect(a.page.getByText('The call ended.')).toBeVisible()
+  // The room is announced as deleted, so the page closes it and says so.
+  await expect(a.page.getByText(`${room.name} was deleted.`)).toBeVisible()
+  await expect(a.page.getByRole('button', { name: 'Leave call' })).toHaveCount(0)
   await expect.poll(() => callsOf(ana)).toBe(0)
 })
 

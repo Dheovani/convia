@@ -38,6 +38,12 @@ func (service *recordingService) Revoke(context.Context, sessions.Principal, str
 	return service.err
 }
 
+func (service *recordingService) Pending(ctx context.Context, principal sessions.Principal,
+	roomID string) ([]Invitation, error) {
+	invitation, err := service.Invite(ctx, principal, roomID, "")
+	return []Invitation{invitation}, err
+}
+
 func (service *recordingService) Look(context.Context, accounts.Identity, string) (Link, Preview, error) {
 	return Link{}, Preview{}, service.err
 }
@@ -91,6 +97,30 @@ func asPerson(method, target, body string) *http.Request {
 		SessionID: "ses_4XZQP7KN2VJH6TBWMDR3YAFC5E", AccountID: "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E",
 		UserID: "usr_7KQZP4XN2VJH6TBWMDR3YAFC5E", ApplicationID: "app_CONVIAAAAAAAAAAAAAAAAAAAAA",
 	}))
+}
+
+/*
+TestPendingLinksNameTheAddressTheListWasReadAt covers a list read without an
+Origin, which a page sends on no GET: the links name the address the request
+reached, through the proxy that terminated it.
+*/
+func TestPendingLinksNameTheAddressTheListWasReadAt(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+
+	request := asPerson(http.MethodGet, "/v1/me/rooms/room_7KQZP4XN2VJH6TBWMDR3YAFC5E/invitations", "")
+	request.Host = "convia.example"
+	request.Header.Del("Origin")
+	request.Header.Set("X-Forwarded-Proto", "https")
+
+	response := httptest.NewRecorder()
+	handler.Pending(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body)
+	}
+	if want := `"link":"https://convia.example/invitations/` + sampleInvitationID + `"`; !strings.Contains(response.Body.String(), want) {
+		t.Errorf("body = %s, want a link like %s", response.Body, want)
+	}
 }
 
 /*

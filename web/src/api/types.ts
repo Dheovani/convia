@@ -133,6 +133,25 @@ export interface RoomInvitation {
   expires_at: string
 }
 
+export interface RoomInvitationList {
+  data: RoomInvitation[]
+}
+
+// PresenceState is what Convia says about whether somebody is available.
+export type PresenceState = 'online' | 'away' | 'busy' | 'offline'
+
+// Presence is one person's presence, as the people who share a room with them see it.
+export interface Presence {
+  user_id: string
+  state: PresenceState
+  since?: string
+  expires_at?: string
+}
+
+export interface PresenceList {
+  data: Presence[]
+}
+
 // InvitationLook is what the home of a link says the invitation is for.
 export interface InvitationLook {
   home: string

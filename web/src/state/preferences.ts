@@ -113,3 +113,21 @@ export function rememberedLanguage(): LanguageChoice {
 export function rememberLanguage(choice: LanguageChoice): void {
   write(languageKey, choice)
 }
+
+/*
+Status is what a person chose to say about themselves: available, busy or away.
+It is kept in this browser, beside the theme; another device says what was chosen
+there, and busy wins wherever it was chosen.
+*/
+export type Status = 'online' | 'busy' | 'away'
+
+const statusKey = 'convia.status'
+export const statuses: readonly Status[] = ['online', 'busy', 'away']
+
+export function rememberedStatus(): Status {
+  return read(statusKey, statuses, 'online')
+}
+
+export function rememberStatus(status: Status): void {
+  write(statusKey, status)
+}

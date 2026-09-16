@@ -958,6 +958,47 @@ func (store *Store) SharesRoom(ctx context.Context, applicationID, userID, other
 }
 
 /*
+LocalNeighbours returns those of the candidates who are the person, or share a
+room that still exists with them, and who have an account on this installation.
+
+The account is what tells somebody signed in here from a visitor, whose user
+here names an account elsewhere. It is read from the accounts table directly,
+because the question is asked about many people at once, on every read of a
+roster.
+*/
+func (store *Store) LocalNeighbours(
+	ctx context.Context,
+	applicationID,
+	userID string,
+	candidates []string,
+) ([]string, error) {
+	const statement = `SELECT users.id
+	                   FROM users
+	                   JOIN accounts ON accounts.id = users.external_subject
+	                   WHERE users.application_id = $1
+	                     AND users.id = ANY($3)
+	                     AND (users.id = $2 OR EXISTS (
+	                           SELECT 1
+	                           FROM room_members AS mine
+	                           JOIN room_members AS theirs ON theirs.room_id = mine.room_id
+	                           JOIN rooms ON rooms.id = mine.room_id
+	                           WHERE mine.application_id = $1
+	                             AND mine.user_id = $2
+	                             AND theirs.user_id = users.id
+	                             AND rooms.status <> $4))`
+
+	rows, err := store.pool.Query(ctx, statement, applicationID, userID, candidates, StatusDeleted)
+	if err != nil {
+		return nil, fmt.Errorf("query neighbours: %w", err)
+	}
+	identifiers, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("read neighbours: %w", err)
+	}
+	return identifiers, nil
+}
+
+/*
 Acquaintances returns one page of the people somebody shares a room with.
 
 It is the whole of discovery on the session surface: a person can name only

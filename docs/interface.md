@@ -88,6 +88,10 @@ A link somebody was sent is pasted into **Join with a link** in the sidebar, whi
 
 When somebody cannot be added, the panel says one sentence. Convia gives one answer for a stranger, an identifier that names nobody, and somebody suspended, and wording them differently here would be inventing the distinction the server refused to make.
 
+**The people panel shows who is available.** Each person here gets a dot and its word — available, busy, away or offline — read again every twenty seconds while the panel is open. A visitor from another installation gets none, rather than being called offline. The person's own status is on their avatar in the rail, which opens a choice of available, busy or away; see [`presence.md`](presence.md#people-in-convias-own-product).
+
+**Invitations wait in the panel.** Under **Invite by handle**, the invitations the person made into the room that nobody has accepted are listed with their handle and the time they stop working, each with **Copy link** and **Withdraw**. The one just made is shown above, with its link and its own **Withdraw**. The handle to give somebody is in **Settings → Account**.
+
 **Only the owner of a room sees how to moderate it**, because Convia refuses everybody else and a button that could only ever fail is worse than no button ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)). The owner is marked in the people panel. For the owner, every other member has **Remove** and **Ban**, and a folded **Banned** section lists who is banned with **Unban**. The conversation header gains **Room**, with **Rename**, **Close** or **Reopen**, and **Delete room**, which asks first. The owner can **Remove** anybody else's message, and its tombstone reads *Removed by the room's owner.*, where a message its author withdrew reads *This message was withdrawn.*
 
 Leaving asks first, because getting back in needs somebody still inside. An owner who leaves passes the room on.
@@ -105,9 +109,9 @@ While the stream is open **nothing asks on a timer.** Each event is a read of ex
 | `message.posted` in the open room | what is newer than the newest message held |
 | `message.edited`, `message.deleted` in the open room | that one message, by its sequence |
 | `room.member_*` for the open room | its member list |
-| anything about any room | the sidebar, gathered over a quarter of a second so a burst is one read |
+| anything about any room, including `room.updated`, `room.closed` and `room.reopened` | the sidebar, gathered over a quarter of a second so a burst is one read |
 
-Losing one's own place is acted on before the read: the room leaves the sidebar at once, and if it was open, nothing stays open that the person can no longer read. Marking a room read also reads the sidebar again, because that is when the room's badge changed and no event says so.
+Losing one's own place, and a room being deleted, are acted on before the read: the room leaves the sidebar at once, and if it was open, nothing stays open that the person can no longer read. A deleted room is said in a toast, by the name it had, because it disappears without anybody on this page having done anything. Marking a room read also reads the sidebar again, because that is when the room's badge changed and no event says so.
 
 **While the stream is not open, the interface asks as it did before there was one** — the sidebar every fifteen seconds, an open room every five. Being told is an improvement on asking, never a replacement for being able to ask. When the stream opens again, what happened meanwhile was announced to nobody, so the sidebar is read, the open room reads forward for what is new, and then its newest window again for what was edited or withdrawn.
 
@@ -191,8 +195,6 @@ The browser is told to speak English, whatever the machine speaks, because the j
 | `CONVIA_E2E_CHANNEL` | an installed browser to use instead of Playwright's Chromium, such as `msedge` or `chrome`. |
 
 Every journey registers new people, so they can run against a database that already holds data, and they leave their rooms behind.
-
-To hold a real call with somebody on another machine, see [the runbook](runbooks/call-between-two-machines.md).
 
 ## What is served, and how it is cached
 
@@ -291,5 +293,5 @@ Named here rather than discovered later.
 - **The untranslated test covers the screens it visits.** A screen it does not reach — a rare refusal, a notice nobody triggered — is held only by review. The catalogue makes such a string stand out, since it is the only English in a component.
 - **A broken conversation hides a call's controls.** The call goes on and is heard, but its stage was inside what broke, and the bar that offers **Return** and **Leave call** is shown only when the stage is not. **Try again**, or opening another room, brings them back.
 - **The webfonts are not bundled.** See *The design*.
-- **The bundle is split once.** The page is one chunk of roughly 103 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
+- **The bundle is split once.** The page is one chunk of roughly 105 kB compressed, both languages included, and the media client a second of roughly 148 kB, loaded only when somebody joins a call.
 - **Tailwind costs a little at this size.** Its reset and the utilities in use come to roughly three kilobytes more, compressed, than the hand-written CSS it replaced. That is the expected shape of the trade: a utility system pays for itself once the same spacing and colour decisions are being repeated across many screens, and this interface currently has two.

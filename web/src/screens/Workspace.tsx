@@ -5,13 +5,15 @@ import type { Account, SidebarRoom } from '../api/types'
 import { CallAudio, CallBar, CallNotices, CallsList } from '../components/Call'
 import { Conversation } from '../components/Conversation'
 import { Rail, type Mode } from '../components/Rail'
-import { Recoverable } from '../components/Recovery'
+import { OnShelf, Recoverable, toastClass } from '../components/Recovery'
+import { Button } from '../components/controls'
 import { SettingsNav, SettingsPage, type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
 import { useWords } from '../i18n/language'
 import { CallContext, useCallSession } from '../state/call'
 import { EventsContext, useEventStream } from '../state/events'
 import { useNarrow } from '../state/useNarrow'
+import { useOwnPresence } from '../state/presence'
 import { useCalls } from '../state/useCalls'
 import { useRemoteRooms } from '../state/useRemoteRooms'
 import { useRooms } from '../state/useRooms'
@@ -24,6 +26,9 @@ that something changed since it last looked. A quarter of a second is below
 what anybody notices and above the gap between events in a burst.
 */
 const refreshDelay = 250
+
+// goneFor is how long the notice that a room was deleted stays up unless dismissed.
+const goneFor = 8_000
 
 // parseKey turns a selection back into where the room lives.
 function parseKey(key: string | null): RoomSource | null {
@@ -100,6 +105,7 @@ export function Workspace({
   rather than in a conversation, because it goes on while another room is read.
   */
   const call = useCallSession(onSignedOut, listen)
+  const presence = useOwnPresence(onSignedOut, call.phase !== 'idle')
   const running = useCalls(onSignedOut, live, listen)
   const refreshCalls = running.refresh
 
@@ -130,15 +136,38 @@ export function Workspace({
   acting on at once: the room goes before the read, and if it was open, nothing
   stays open that the person can no longer read.
   */
+  /*
+  A room deleted by its owner is said, by the name it had, because it disappears
+  from the list without anybody here having done anything.
+  */
+  const [gone, setGone] = useState<{ id: string; name: string } | null>(null)
+  const known = useRef(rooms)
+  known.current = rooms
+
+  useEffect(() => {
+    if (gone === null) {
+      return
+    }
+    const timer = window.setTimeout(() => setGone(null), goneFor)
+    return () => window.clearTimeout(timer)
+  }, [gone])
+
   useEffect(
     () =>
       listen((event) => {
-        const aboutARoom = event.type.startsWith('message.') || event.type.startsWith('room.member_')
+        const aboutARoom = event.type.startsWith('message.') || event.type.startsWith('room.')
         if (!aboutARoom) {
           return
         }
-        if (event.type === 'room.member_removed' && event.data?.['user_id'] === account.user_id) {
-          const roomId = event.subject.id
+        const roomId = event.subject.id
+        const leaves =
+          event.type === 'room.deleted' ||
+          (event.type === 'room.member_removed' && event.data?.['user_id'] === account.user_id)
+        if (leaves) {
+          const room = known.current.find((candidate) => candidate.id === roomId)
+          if (event.type === 'room.deleted' && room !== undefined) {
+            setGone({ id: roomId, name: room.name })
+          }
           forget(roomId)
           setSelected((current) => (current === sourceKey({ kind: 'local', id: roomId }) ? null : current))
         }
@@ -301,6 +330,16 @@ export function Workspace({
         <CallAudio />
       </Recoverable>
       <CallNotices />
+      {gone !== null && (
+        <OnShelf>
+          <div role="status" className={toastClass}>
+            <span>{words.workspace.roomDeleted(gone.name)}</span>
+            <Button size="small" onClick={() => setGone(null)}>
+              {words.recovery.dismiss}
+            </Button>
+          </div>
+        </OnShelf>
+      )}
       <h1 className="sr-only">{words.brand}</h1>
       {mainShown && (settings || open !== null) && (
         <a
@@ -327,7 +366,9 @@ export function Workspace({
               setShowing('list')
             }}
             displayName={account.username}
-            handle={account.handle}
+            status={presence.status}
+            said={presence.said}
+            onStatus={presence.choose}
             onSignOut={() => void signOut()}
           />
         </Recoverable>

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"convia/internal/accounts"
 	"convia/internal/api"
@@ -99,6 +100,7 @@ func (handler *PeerHandler) Accept(response http.ResponseWriter, request *http.R
 type personalService interface {
 	Invite(ctx context.Context, principal sessions.Principal, roomID, handle string) (Invitation, error)
 	Revoke(ctx context.Context, principal sessions.Principal, id string) error
+	Pending(ctx context.Context, principal sessions.Principal, roomID string) ([]Invitation, error)
 	Look(ctx context.Context, identity accounts.Identity, link string) (Link, Preview, error)
 	Join(ctx context.Context, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
@@ -172,6 +174,10 @@ type (
 		RemoteRoom *remoteRoomResponse `json:"remote_room,omitempty"`
 	}
 
+	invitationsResponse struct {
+		Data []invitationResponse `json:"data"`
+	}
+
 	remoteRoomsResponse struct {
 		Data []remoteRoomResponse `json:"data"`
 	}
@@ -219,12 +225,57 @@ func (handler *SessionHandler) Invite(response http.ResponseWriter, request *htt
 		return
 	}
 
-	write(handler.logger, response, request, http.StatusCreated, invitationResponse{
+	write(handler.logger, response, request, http.StatusCreated, representInvitation(home, invitation))
+}
+
+/*
+Pending lists the invitations this person made into a room that still work.
+
+The links name this installation by the address the request reached, the way
+the surface's origin check reconstructs it: a page reading a list sends no
+Origin, and the address it reached is the one it would have sent.
+*/
+func (handler *SessionHandler) Pending(response http.ResponseWriter, request *http.Request) {
+	principal, ok := handler.principal(response, request)
+	if !ok {
+		return
+	}
+
+	home, err := HomeFromOrigin(requestOrigin(request))
+	if err != nil {
+		writeError(handler.logger, response, request, err)
+		return
+	}
+
+	pending, err := handler.service.Pending(request.Context(), principal, request.PathValue("room_id"))
+	if err != nil {
+		writeError(handler.logger, response, request, err)
+		return
+	}
+
+	body := invitationsResponse{Data: make([]invitationResponse, 0, len(pending))}
+	for _, invitation := range pending {
+		body.Data = append(body.Data, representInvitation(home, invitation))
+	}
+	write(handler.logger, response, request, http.StatusOK, body)
+}
+
+// requestOrigin is the origin a request reached, from its Host and its scheme.
+func requestOrigin(request *http.Request) string {
+	scheme := "http"
+	if request.TLS != nil || strings.EqualFold(request.Header.Get("X-Forwarded-Proto"), "https") {
+		scheme = "https"
+	}
+	return scheme + "://" + request.Host
+}
+
+func representInvitation(home string, invitation Invitation) invitationResponse {
+	return invitationResponse{
 		ID:        invitation.ID,
 		Link:      Link{Home: home, InvitationID: invitation.ID}.String(),
 		Invitee:   invitation.InviteeHandle(),
 		ExpiresAt: api.FormatTimestamp(invitation.ExpiresAt),
-	})
+	}
 }
 
 // Revoke withdraws an invitation this person made.

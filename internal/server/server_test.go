@@ -303,6 +303,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		*/
 		TenantPresence: presence.NewTenantHandler(logger, presence.NewService(presence.NewMemory(),
 			servedTenant{}, user, events.NewAnnouncer(events.NewBroker(), nil, logger), logger)),
+		PersonalPresence: presence.NewPersonalHandler(logger, presence.NewService(presence.NewMemory(),
+			servedTenant{}, user, events.NewAnnouncer(events.NewBroker(), nil, logger), logger), everybodyNear{}),
 
 		SessionAuthenticator: stubSessionAuthenticator{principal: samplePerson()},
 		Sessions:             sessions.NewHandler(logger, stubSessions{account: sampleAccount()}),
@@ -361,6 +363,13 @@ func sampleAccount() accounts.Account {
 		CreatedAt: created,
 		UpdatedAt: created,
 	}
+}
+
+// everybodyNear shares a room with everybody, so presence answers for whoever is named.
+type everybodyNear struct{}
+
+func (everybodyNear) LocalNeighbours(_ context.Context, _, _ string, candidates []string) ([]string, error) {
+	return candidates, nil
 }
 
 // stubSessionAuthenticator verifies a presented cookie, or refuses everything.

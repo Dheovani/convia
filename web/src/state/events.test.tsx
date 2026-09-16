@@ -210,6 +210,43 @@ describe('being told rather than asking', () => {
     expect(screen.getByText('Nothing is open.')).toBeInTheDocument()
   })
 
+  // M18-029: what a room's owner did to the room reaches everybody else in it.
+  it('reads the rooms again when a room is renamed or closed', async () => {
+    const server = conversation()
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    await screen.findByRole('heading', { name: 'Standup' })
+    const socket = await connected()
+    await settle(server)
+
+    server.on('GET', '/v1/me/rooms', { body: { data: [room({ name: 'Weekly standup', status: 'closed' })] } })
+    act(() => socket.deliver(event('room.updated', { type: 'room', id: room().id }, {})))
+
+    expect(await screen.findByRole('heading', { name: 'Weekly standup' })).toBeInTheDocument()
+    expect(await screen.findByPlaceholderText('This room is closed')).toBeInTheDocument()
+  })
+
+  it('says a room was deleted, by the name it had, and closes it', async () => {
+    const server = conversation()
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    await screen.findByRole('heading', { name: 'Standup' })
+    const socket = await connected()
+    await settle(server)
+
+    server.on('GET', '/v1/me/rooms', {
+      status: 503,
+      failure: { code: 'unavailable', message: 'Convia is briefly unavailable.' },
+    })
+    act(() => socket.deliver(event('room.deleted', { type: 'room', id: room().id }, {})))
+
+    expect(await screen.findByText('Standup was deleted.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Standup' })).toBeNull())
+    expect(screen.getByText('Nothing is open.')).toBeInTheDocument()
+  })
+
   // Somebody joining the open room is read as it happens, which is how their
   // first message arrives already carrying their name.
   it('reads who is here again when somebody joins', async () => {

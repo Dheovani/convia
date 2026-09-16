@@ -3,6 +3,8 @@ import type {
   CallPresencePage,
   HistoryDirection,
   InvitationLook,
+  Presence,
+  PresenceList,
   JoinedRoom,
   JoinSession,
   Message,
@@ -13,6 +15,7 @@ import type {
   RemoteRoomPage,
   RoomCallList,
   RoomInvitation,
+  RoomInvitationList,
   RoomMember,
   Sidebar,
 } from './types'
@@ -87,7 +90,14 @@ interface RequestOptions {
   method?: string
   body?: unknown
   signal?: AbortSignal
+  keepalive?: boolean
 }
+
+/*
+presenceLifetime is how long one heartbeat stands, in seconds. A page sends one
+far more often than this, so a few that are lost do not take anybody offline.
+*/
+export const presenceLifetime = 60
 
 /*
 call performs one request against Convia's session surface.
@@ -115,6 +125,7 @@ async function call<T>(path: string, options: RequestOptions = {}): Promise<T> {
       credentials: 'same-origin',
       ...(body === undefined ? {} : { body }),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.keepalive ? { keepalive: true } : {}),
     })
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'AbortError') {
@@ -362,6 +373,37 @@ export const api = {
       method: 'POST',
       body: { handle },
     })
+  },
+
+  // pendingInvitations lists the invitations this person made into a room that still work.
+  pendingInvitations(roomId: string, signal?: AbortSignal): Promise<RoomInvitationList> {
+    return call<RoomInvitationList>(`/me/rooms/${encodeURIComponent(roomId)}/invitations`, signal ? { signal } : {})
+  },
+
+  // withdrawInvitation makes an invitation this person made stop working.
+  withdrawInvitation(invitationId: string): Promise<void> {
+    return call<void>(`/me/room-invitations/${encodeURIComponent(invitationId)}`, { method: 'DELETE' })
+  },
+
+  /*
+  Presence: each page is a device of its own, and says what it says as a
+  heartbeat. keepalive lets the last one, sent as the page closes, arrive.
+  */
+  assertPresence(deviceId: string, state: Exclude<Presence['state'], 'offline'>): Promise<Presence> {
+    return call<Presence>(`/me/presence/${encodeURIComponent(deviceId)}`, {
+      method: 'PUT',
+      body: { state, lifetime_seconds: presenceLifetime },
+    })
+  },
+
+  withdrawPresence(deviceId: string): Promise<Presence> {
+    return call<Presence>(`/me/presence/${encodeURIComponent(deviceId)}`, { method: 'DELETE', keepalive: true })
+  },
+
+  // peoplePresence reads the presence of the people this person shares a room with.
+  peoplePresence(userIds: string[], signal?: AbortSignal): Promise<PresenceList> {
+    const search = new URLSearchParams(userIds.map((id) => ['user_id', id]))
+    return call<PresenceList>(`/me/people/presence?${search.toString()}`, signal ? { signal } : {})
   },
 
   // look asks the home of an invitation link what it is for.

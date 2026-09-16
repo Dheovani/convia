@@ -20,20 +20,23 @@ Convia records a great deal and streams very little. The line is not "what is in
 | `message.posted`, `message.edited`, `message.deleted` | message | Somebody said something in a room, changed it, or withdrew it. See [`messages.md`](messages.md). |
 | `room.member_added` | room | Somebody now has a place in the room. `data.user_id` says who. |
 | `room.member_removed` | room | Somebody no longer does, whether they left or the application removed them. |
+| `room.updated` | room | The room reads differently: its name, or anything else about it. Read it again to see what. |
+| `room.closed`, `room.reopened` | room | The room stopped taking anything new, or started again. |
+| `room.deleted` | room | The room is gone. It is the last event about it anybody receives. |
 | `presence.changed` | user | Convia will now say something different about whether somebody is available. |
 
 Everything else Convia records is deliberately absent, and each has a reason:
 
-- **Rooms, users, credentials, applications.** These change because the application changed them, through a request that already returned the new state. Announcing it back would tell a client what it just did.
+- **Users, credentials, applications.** These change because the application changed them, through a request that already returned the new state. Announcing it back would tell a client what it just did.
 - **A connection credential being issued.** It is the result of a request the subscriber made, and it is a fact about a secret.
 - **An invitation being issued or withdrawn.** The application's own acts, as above.
 - **An invitation being redeemed.** This one *is* somebody else's act, but it already arrives as `participant.joined`, carrying the invitation that let them in. Publishing both would report one arrival twice.
 
 Declining is the exception among invitations because it is the invitee's own decision, it is the only signal that somebody is not coming, and nothing else observes it.
 
-Membership is the exception among rooms, for the same kind of reason. While only an application changed who was in a room, announcing it would have told the application what it just did. Since M18 a person adds another person, and the one added is not the one who made the request: their sidebar has no other way to learn it. Leaving and being removed are one type because membership records no actor, and a type that claimed to know which it was would be guessing. Only a change is announced, as only a change is audited, and erasure announces nothing — broadcasting every room somebody had been in would publish exactly the record erasure removes.
+Rooms stream for the same kind of reason. While only an application changed a room or who was in it, announcing it would have told the application what it just did. Since M18 a person adds another person, and a room's owner renames, closes, reopens and deletes it, and everybody else in the room is not the one who made the request: their sidebar has no other way to learn it. An application receives the room's own changes with `rooms:read`, by stream or by webhook, whoever made them; a change that repeats a room's state announces nothing. None of them carries data: the name is a label, read back by whoever may read it. Leaving and being removed are one type because membership records no actor, and a type that claimed to know which it was would be guessing. Only a change is announced, as only a change is audited, and erasure announces nothing — broadcasting every room somebody had been in would publish exactly the record erasure removes.
 
-Presence is the other exception, and it is the interesting one: an application asserts it, which is exactly why rooms and users are absent. The difference is that **the assertion is not the change**. What a subscriber is told is the aggregate across a person's devices, and the moment a claim lapsed on a timer — and the instance that sent the heartbeat knows neither. It comes with two rules of its own, both in [`presence.md`](presence.md): a heartbeat that changes nothing announces nothing, and `presence.changed` is the one event type Convia refuses to deliver by webhook.
+Presence is the other exception, and it is the interesting one: an application asserts it, which is exactly why users are absent. The difference is that **the assertion is not the change**. What a subscriber is told is the aggregate across a person's devices, and the moment a claim lapsed on a timer — and the instance that sent the heartbeat knows neither. It comes with two rules of its own, both in [`presence.md`](presence.md): a heartbeat that changes nothing announces nothing, and `presence.changed` is the one event type Convia refuses to deliver by webhook.
 
 ## Opening a stream
 

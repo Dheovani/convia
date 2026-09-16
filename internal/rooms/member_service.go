@@ -430,6 +430,20 @@ func (service *Service) RoomIDsOf(ctx context.Context, applicationID, userID str
 }
 
 /*
+LocalNeighbours returns those of the candidates a person may see the presence of:
+themselves, and anybody with an account here they share a room with. It checks
+nothing else, for the reason RoomIDsOf gives.
+*/
+func (service *Service) LocalNeighbours(
+	ctx context.Context,
+	applicationID,
+	userID string,
+	candidates []string,
+) ([]string, error) {
+	return service.store.LocalNeighbours(ctx, applicationID, userID, candidates)
+}
+
+/*
 Many returns several of an application's rooms, keyed by identifier.
 
 It is the read the sidebar performs once instead of once per row. A room that
