@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import type { RoomCall, SidebarRoom } from '../api/types'
-import type { Attachable, Device, DeviceKind, Preview, Refusal, Seen } from '../media/connection'
+import { useLanguage, useWords } from '../i18n/language'
+import type { Attachable, Device, DeviceKind, Preview, Seen } from '../media/connection'
 import { useCall } from '../state/call'
 import { Button, input } from './controls'
 
@@ -24,6 +25,7 @@ because what is below has the controls.
 export function CallButton({ room, running }: { room: SidebarRoom; running: boolean }) {
   const call = useCall()
   const button = useRef<HTMLButtonElement>(null)
+  const words = useWords()
   const hidden = call.roomId === room.id || call.preparing === room.id
 
   /*
@@ -50,10 +52,10 @@ export function CallButton({ room, running }: { room: SidebarRoom; running: bool
       size="small"
       tone="primary"
       disabled={cannotStart}
-      title={cannotStart ? 'A closed room does not start new calls.' : undefined}
+      title={cannotStart ? words.call.cannotStart : undefined}
       onClick={() => void call.prepare(room.id)}
     >
-      {running ? 'Join call' : 'Start call'}
+      {running ? words.call.join : words.call.start}
     </Button>
   )
 }
@@ -61,6 +63,7 @@ export function CallButton({ room, running }: { room: SidebarRoom; running: bool
 // CallProblem says what went wrong with the call in a room, until it is dismissed.
 export function CallProblem({ roomId }: { roomId: string }) {
   const call = useCall()
+  const words = useWords()
 
   if (call.problem === null || call.problem.roomId !== roomId) {
     return null
@@ -74,7 +77,7 @@ export function CallProblem({ roomId }: { roomId: string }) {
         className="min-h-6 cursor-pointer rounded-sm px-1.5 text-[0.75rem] text-ink-faint hover:text-ink"
         onClick={call.dismiss}
       >
-        Dismiss
+        {words.call.dismiss}
       </button>
     </div>
   )
@@ -99,39 +102,27 @@ function usePlayed<Element extends HTMLMediaElement>(track: Attachable | undefin
 }
 
 /*
-refusals explain a device that could not be had in terms a person can act on.
-
-A refused permission is the one that needs directions, because the browser will
-not ask again on its own: it has to be allowed from the site's settings, which
-every browser puts beside the address.
+DeviceSelect chooses one device of a kind. A device the browser gives no name
+is named by its kind and its place in the list.
 */
-const refusals: Record<Refusal, (device: string) => string> = {
-  denied: (device) =>
-    `Convia is not allowed to use your ${device}. Allow it from the site settings beside the address bar, then try again.`,
-  missing: (device) => `No ${device} was found.`,
-  busy: (device) => `Your ${device} is being used by another app.`,
-  failed: (device) => `Your ${device} could not be started.`,
-}
-
 function DeviceSelect({
   kind,
-  label,
   devices,
   value,
   onChoose,
 }: {
   kind: DeviceKind
-  label: string
   devices: Device[]
   value: string
   onChoose: (kind: DeviceKind, id: string) => void
 }) {
   const id = useId()
+  const words = useWords()
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <label htmlFor={id} className="text-[0.75rem] font-medium text-ink-dim">
-        {label}
+        {words.call.device(kind)}
       </label>
       <select
         id={id}
@@ -139,10 +130,10 @@ function DeviceSelect({
         value={devices.some((device) => device.id === value) ? value : ''}
         onChange={(event) => onChoose(kind, event.target.value)}
       >
-        <option value="">System default</option>
-        {devices.map((device) => (
+        <option value="">{words.call.systemDefault}</option>
+        {devices.map((device, index) => (
           <option key={device.id} value={device.id}>
-            {device.label}
+            {device.label || words.call.numbered(kind, index + 1)}
           </option>
         ))}
       </select>
@@ -158,14 +149,12 @@ function Devices({ onChoose }: { onChoose: (kind: DeviceKind, id: string) => voi
     <div className="grid gap-2 sm:grid-cols-3">
       <DeviceSelect
         kind="audioinput"
-        label="Microphone"
         devices={call.devices.audioinput}
         value={call.choice.audioInput}
         onChoose={onChoose}
       />
       <DeviceSelect
         kind="videoinput"
-        label="Camera"
         devices={call.devices.videoinput}
         value={call.choice.videoInput}
         onChoose={onChoose}
@@ -173,7 +162,6 @@ function Devices({ onChoose }: { onChoose: (kind: DeviceKind, id: string) => voi
       {call.devices.audiooutput.length > 0 && (
         <DeviceSelect
           kind="audiooutput"
-          label="Speaker"
           devices={call.devices.audiooutput}
           value={call.choice.audioOutput}
           onChoose={onChoose}
@@ -186,13 +174,14 @@ function Devices({ onChoose }: { onChoose: (kind: DeviceKind, id: string) => voi
 // Level is how loud the microphone is, read a few times a second while it is shown.
 function Level({ preview }: { preview: Preview }) {
   const [level, setLevel] = useState(0)
+  const words = useWords()
 
   useEffect(() => {
     const timer = window.setInterval(() => setLevel(preview.level()), 100)
     return () => window.clearInterval(timer)
   }, [preview])
 
-  return <meter className="h-2 w-full" min={0} max={1} value={level} aria-label="Microphone level" />
+  return <meter className="h-2 w-full" min={0} max={1} value={level} aria-label={words.call.level} />
 }
 
 /*
@@ -207,6 +196,8 @@ person may join without it.
 export function CallPreparation({ room, running }: { room: SidebarRoom; running: boolean }) {
   const call = useCall()
   const video = usePlayed<HTMLVideoElement>(call.preparing === room.id ? call.preview?.video : undefined)
+  const words = useWords()
+  const said = words.call
 
   // Leaving the room lets go of the camera and microphone the preview holds.
   const cancel = useRef(call.cancelPreparing)
@@ -222,7 +213,7 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
   const refused = preview?.refused ?? {}
 
   return (
-    <section aria-label="Prepare to join" className="border-b border-line bg-surface-sunken px-3 py-3 md:px-5">
+    <section aria-label={said.prepare} className="border-b border-line bg-surface-sunken px-3 py-3 md:px-5">
       <div className="flex flex-col gap-3 md:flex-row">
         <div className="relative aspect-video w-full overflow-hidden rounded-md bg-surface-raised md:w-64 md:flex-none">
           {choice.camera && preview?.video !== undefined ? (
@@ -230,7 +221,7 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
             <video ref={video} className="size-full -scale-x-100 object-cover" autoPlay playsInline muted />
           ) : (
             <span className="grid size-full place-items-center text-[0.8rem] text-ink-faint">
-              {preview === null ? 'Starting your devices…' : 'Your camera is off'}
+              {preview === null ? said.startingDevices : said.cameraOff}
             </span>
           )}
         </div>
@@ -244,10 +235,10 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
               aria-pressed={choice.microphone}
               onClick={() => void call.choose({ microphone: !choice.microphone })}
             >
-              {choice.microphone ? 'Turn microphone off' : 'Turn microphone on'}
+              {choice.microphone ? said.microphoneOff : said.microphoneOn}
             </Button>
             <Button size="small" aria-pressed={choice.camera} onClick={() => void call.choose({ camera: !choice.camera })}>
-              {choice.camera ? 'Turn camera off' : 'Turn camera on'}
+              {choice.camera ? said.cameraOffAction : said.cameraOn}
             </Button>
           </div>
 
@@ -255,11 +246,13 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
 
           {(refused.microphone !== undefined || refused.camera !== undefined) && (
             <div className="flex flex-col gap-1 text-[0.8rem] text-danger" role="alert">
-              {refused.microphone !== undefined && <p className="m-0">{refusals[refused.microphone]('microphone')}</p>}
-              {refused.camera !== undefined && <p className="m-0">{refusals[refused.camera]('camera')}</p>}
+              {refused.microphone !== undefined && (
+                <p className="m-0">{said.refused(refused.microphone, 'audioinput')}</p>
+              )}
+              {refused.camera !== undefined && <p className="m-0">{said.refused(refused.camera, 'videoinput')}</p>}
               <div>
                 <Button size="small" onClick={() => void call.choose({})}>
-                  Try again
+                  {said.tryAgain}
                 </Button>
               </div>
             </div>
@@ -267,10 +260,10 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
 
           <div className="mt-1 flex gap-2">
             <Button tone="primary" size="small" autoFocus onClick={() => void call.join(room.id)}>
-              {running ? 'Join call' : 'Start call'}
+              {running ? said.join : said.start}
             </Button>
             <Button size="small" onClick={() => call.cancelPreparing(room.id)}>
-              Cancel
+              {words.common.cancel}
             </Button>
           </div>
         </div>
@@ -278,8 +271,6 @@ export function CallPreparation({ room, running }: { room: SidebarRoom; running:
     </section>
   )
 }
-
-const qualityWords = { poor: 'weak connection', lost: 'connection lost' } as const
 
 function Tile({
   person,
@@ -291,6 +282,8 @@ function Tile({
   onRemove?: () => void
 }) {
   const video = usePlayed<HTMLVideoElement>(person.camera ? person.video : undefined)
+  const words = useWords()
+  const said = words.call
 
   return (
     <li
@@ -312,18 +305,18 @@ function Tile({
         <span className="min-w-0 flex-1 truncate">{name}</span>
         {person.quality !== 'good' && (
           <span className={`flex-none ${person.quality === 'lost' ? 'text-danger' : 'text-ink-faint'}`}>
-            {qualityWords[person.quality]}
+            {person.quality === 'lost' ? said.lostConnection : said.weakConnection}
           </span>
         )}
-        {!person.microphone && <span className="flex-none text-ink-faint">muted</span>}
+        {!person.microphone && <span className="flex-none text-ink-faint">{said.muted}</span>}
         {onRemove !== undefined && (
           <button
             type="button"
             className="min-h-6 flex-none cursor-pointer rounded-sm px-1.5 text-ink-faint hover:bg-surface-hover hover:text-ink"
-            aria-label={`Take ${name} out of the call`}
+            aria-label={said.takeOut(name)}
             onClick={onRemove}
           >
-            Remove
+            {words.common.remove}
           </button>
         )}
       </span>
@@ -343,6 +336,8 @@ export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: b
   const call = useCall()
   const [choosing, setChoosing] = useState(false)
   const panel = useId()
+  const words = useWords()
+  const said = words.call
 
   if (call.roomId !== room.id) {
     return null
@@ -351,42 +346,42 @@ export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: b
   const self = call.seen.find((person) => person.local)
 
   return (
-    <section aria-label="Call" className="border-b border-line bg-surface-sunken px-3 py-3 md:px-5">
+    <section aria-label={said.stage} className="border-b border-line bg-surface-sunken px-3 py-3 md:px-5">
       {call.phase === 'joining' && call.seen.length === 0 && (
         <p className="mt-0 mb-3 text-[0.85rem] text-ink-faint" role="status">
-          Joining the call…
+          {said.joiningCall}
         </p>
       )}
 
       {call.reconnecting ? (
         <p className="mt-0 mb-3 text-[0.82rem] text-ink-dim" role="status">
-          Reconnecting to the call…
+          {said.reconnecting}
         </p>
       ) : (
         self !== undefined &&
         self.quality !== 'good' && (
           <p className="mt-0 mb-3 text-[0.82rem] text-ink-dim" role="status">
-            Your connection is weak. Others may not hear or see you well.
+            {said.weak}
           </p>
         )
       )}
 
       {call.audioOnly ? (
         <div className="mt-0 mb-3 flex flex-wrap items-center gap-2 text-[0.82rem] text-ink-dim" role="status">
-          <span>Audio only: video is paused to spare your connection.</span>
+          <span>{said.audioOnly}</span>
           <Button size="small" onClick={call.resumeVideo}>
-            Turn video back on
+            {said.resumeVideo}
           </Button>
         </div>
       ) : (
         call.offerAudioOnly && (
           <div className="mt-0 mb-3 flex flex-wrap items-center gap-2 text-[0.82rem] text-ink-dim" role="status">
-            <span>Your connection has been weak for a while.</span>
+            <span>{said.weakForAWhile}</span>
             <Button size="small" onClick={() => void call.goAudioOnly()}>
-              Continue with audio only
+              {said.goAudioOnly}
             </Button>
             <Button size="small" onClick={call.declineAudioOnly}>
-              Not now
+              {said.notNow}
             </Button>
           </div>
         )
@@ -394,11 +389,11 @@ export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: b
 
       <ul
         className="m-0 grid list-none grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-2 p-0"
-        aria-label="People in the call"
+        aria-label={said.people}
       >
         {call.seen.map((person) => {
           const present = call.names.get(person.identity)
-          const name = person.local ? 'You' : present?.display_name || 'Joining…'
+          const name = person.local ? words.common.you : present?.display_name || said.joiningPerson
           return (
             <Tile
               key={person.identity}
@@ -414,12 +409,12 @@ export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: b
 
       {call.phase === 'joined' && (
         <>
-          <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Call controls">
+          <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label={said.controls}>
             <Button size="small" aria-pressed={call.microphone} onClick={() => void call.setMicrophone(!call.microphone)}>
-              {call.microphone ? 'Mute' : 'Unmute'}
+              {call.microphone ? said.mute : said.unmute}
             </Button>
             <Button size="small" aria-pressed={call.camera} onClick={() => void call.setCamera(!call.camera)}>
-              {call.camera ? 'Stop camera' : 'Start camera'}
+              {call.camera ? said.stopCamera : said.startCamera}
             </Button>
             <Button
               size="small"
@@ -433,10 +428,10 @@ export function CallStage({ room, moderator }: { room: SidebarRoom; moderator: b
                 }
               }}
             >
-              Devices
+              {said.devices}
             </Button>
             <Button size="small" className="ml-auto" onClick={() => void call.leave()}>
-              Leave call
+              {said.leave}
             </Button>
           </div>
           {choosing && (
@@ -481,12 +476,13 @@ interrupting, and each goes away on its own after a few seconds.
 */
 export function CallNotices() {
   const call = useCall()
+  const words = useWords()
 
   return (
     <div
       role="status"
       aria-live="polite"
-      aria-label="Call notices"
+      aria-label={words.call.notices}
       className="pointer-events-none fixed right-4 bottom-4 z-10 flex flex-col items-end gap-1"
     >
       {call.notices.map((notice) => (
@@ -506,34 +502,35 @@ going back to the call, and leaving it.
 */
 export function CallBar({ roomName, onReturn }: { roomName: string; onReturn: () => void }) {
   const call = useCall()
+  const said = useWords().call
 
   return (
     <div
       role="region"
-      aria-label="Current call"
+      aria-label={said.current}
       className="flex items-center gap-3 border-b border-line bg-accent-soft px-4 py-2 text-[0.82rem]"
     >
       <span className="min-w-0 flex-1 truncate">
-        {call.phase === 'joining' ? 'Joining the call in ' : 'In a call in '}
+        {call.phase === 'joining' ? said.joiningIn : said.inCallIn}
         <strong className="font-semibold">{roomName}</strong>
-        {call.reconnecting && <span className="text-ink-dim"> — reconnecting…</span>}
+        {call.reconnecting && <span className="text-ink-dim">{said.reconnectingShort}</span>}
       </span>
       <Button size="small" onClick={onReturn}>
-        Return
+        {said.return}
       </Button>
       <Button size="small" onClick={() => void call.leave()}>
-        Leave call
+        {said.leave}
       </Button>
     </div>
   )
 }
 
-function since(timestamp: string): string {
+function since(timestamp: string, formatting: string): string {
   const at = new Date(timestamp)
   if (Number.isNaN(at.getTime())) {
     return ''
   }
-  return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return at.toLocaleTimeString(formatting, { hour: '2-digit', minute: '2-digit' })
 }
 
 /*
@@ -552,6 +549,8 @@ export function CallsList({
   rooms: SidebarRoom[]
   onOpen: (roomId: string) => void
 }) {
+  const { words, formatting } = useLanguage()
+  const said = words.call
   const named = calls.flatMap((running) => {
     const room = rooms.find((candidate) => candidate.id === running.room_id)
     return room === undefined ? [] : [{ running, room }]
@@ -563,12 +562,10 @@ export function CallsList({
         className="mx-2 mt-0 mb-3 font-display text-[0.72rem] font-semibold tracking-[0.08em] text-ink-faint
           uppercase"
       >
-        Calls
+        {said.list}
       </h2>
       {named.length === 0 ? (
-        <p className="mx-2 my-0 text-[0.82rem] leading-relaxed text-ink-faint">
-          No call is running in your rooms. Start one from a conversation.
-        </p>
+        <p className="mx-2 my-0 text-[0.82rem] leading-relaxed text-ink-faint">{said.noneRunning}</p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
           {named.map(({ running, room }) => (
@@ -580,7 +577,9 @@ export function CallsList({
                 onClick={() => onOpen(room.id)}
               >
                 <span className="flex-1 truncate">{room.name}</span>
-                <span className="flex-none text-[0.7rem] text-ink-faint">since {since(running.created_at)}</span>
+                <span className="flex-none text-[0.7rem] text-ink-faint">
+                  {said.since(since(running.created_at, formatting))}
+                </span>
               </button>
             </li>
           ))}

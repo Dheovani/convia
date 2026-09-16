@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react'
 
 import { api, ApiError, NetworkError } from '../api/client'
 import type { SidebarRoom } from '../api/types'
+import { useWords } from '../i18n/language'
 import { Button, input } from './controls'
 
 interface RoomSettingsProps {
@@ -32,6 +33,8 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
   const panel = useId()
   const field = useId()
   const trigger = useRef<HTMLButtonElement>(null)
+  const words = useWords()
+  const said = words.roomSettings
 
   function dismiss() {
     setOpen(false)
@@ -52,7 +55,7 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
         return
       }
       setFailure(
-        error instanceof NetworkError ? 'Convia could not be reached. Try again.' : 'That could not be done. Try again.',
+        error instanceof NetworkError ? words.common.unreachable : said.failed,
       )
     } finally {
       setBusy(false)
@@ -68,14 +71,14 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
         aria-controls={panel}
         onClick={() => (open ? dismiss() : setOpen(true))}
       >
-        Room
+        {said.open}
       </Button>
 
       {open && (
         <div
           id={panel}
           role="group"
-          aria-label={`Settings for ${room.name}`}
+          aria-label={said.label(room.name)}
           // Escape closes the menu and puts the keyboard back where it was.
           onKeyDown={(event) => {
             if (event.key === 'Escape') {
@@ -105,7 +108,7 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
               }}
             >
               <label htmlFor={field} className="text-[0.78rem] text-ink-dim">
-                Room name
+                {said.name}
               </label>
               <input
                 id={field}
@@ -117,16 +120,16 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
               />
               <div className="flex gap-2">
                 <Button tone="primary" size="small" type="submit" disabled={busy || name.trim() === ''}>
-                  {busy ? 'Saving…' : 'Save'}
+                  {busy ? words.common.saving : words.common.save}
                 </Button>
                 <Button size="small" disabled={busy} onClick={() => setRenaming(false)}>
-                  Cancel
+                  {words.common.cancel}
                 </Button>
               </div>
             </form>
           ) : confirming ? (
             <div className="flex flex-col gap-2">
-              <p className="m-0 text-[0.85rem]">Delete {room.name} for everybody in it?</p>
+              <p className="m-0 text-[0.85rem]">{said.confirmDelete(room.name)}</p>
               <div className="flex gap-2">
                 <Button
                   tone="primary"
@@ -134,10 +137,10 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
                   disabled={busy}
                   onClick={() => void run(() => api.deleteRoom(room.id), onDeleted)}
                 >
-                  {busy ? 'Deleting…' : 'Delete'}
+                  {busy ? said.deleting : said.delete}
                 </Button>
                 <Button size="small" disabled={busy} onClick={() => setConfirming(false)}>
-                  Keep it
+                  {said.keep}
                 </Button>
               </div>
             </div>
@@ -150,19 +153,19 @@ export function RoomSettings({ room, onChanged, onDeleted, onExpired }: RoomSett
                   setRenaming(true)
                 }}
               >
-                Rename
+                {said.rename}
               </Button>
               {room.status === 'closed' ? (
                 <Button size="small" disabled={busy} onClick={() => void run(() => api.reopenRoom(room.id), onChanged)}>
-                  Reopen
+                  {said.reopen}
                 </Button>
               ) : (
                 <Button size="small" disabled={busy} onClick={() => void run(() => api.closeRoom(room.id), onChanged)}>
-                  Close
+                  {said.close}
                 </Button>
               )}
               <Button size="small" onClick={() => setConfirming(true)}>
-                Delete room
+                {said.deleteRoom}
               </Button>
             </div>
           )}

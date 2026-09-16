@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { api, ApiError } from './api/client'
 import type { Account } from './api/types'
+import { useWords } from './i18n/language'
 import { SignIn } from './screens/SignIn'
 import { Workspace } from './screens/Workspace'
 
@@ -17,6 +18,7 @@ type Session = Account | null | undefined
 
 export function App() {
   const [session, setSession] = useState<Session>(undefined)
+  const words = useWords()
 
   /*
   The page asks who it is serving before it draws anything.
@@ -53,7 +55,7 @@ export function App() {
   if (session === undefined) {
     return (
       <div className="grid h-full place-items-center bg-surface-deep" role="status" aria-live="polite">
-        <span className="sr-only">Loading Convia</span>
+        <span className="sr-only">{words.app.loading}</span>
       </div>
     )
   }

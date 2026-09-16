@@ -1,3 +1,4 @@
+import { useWords } from '../i18n/language'
 import { Mark } from './Mark'
 
 export type Mode = 'chat' | 'calls' | 'settings'
@@ -24,10 +25,10 @@ later. It says what it is waiting for.
 On a narrow screen it is a bar along the bottom, where a thumb reaches it, and
 the mark gives up its place.
 */
-const destinations: { id: Mode; label: string; ready: boolean; waiting?: string }[] = [
-  { id: 'chat', label: 'Chat', ready: true },
-  { id: 'calls', label: 'Calls', ready: true },
-  { id: 'settings', label: 'Settings', ready: false, waiting: 'Settings arrive later in M18.' },
+const destinations: { id: Mode; ready: boolean }[] = [
+  { id: 'chat', ready: true },
+  { id: 'calls', ready: true },
+  { id: 'settings', ready: false },
 ]
 
 function initials(name: string): string {
@@ -41,6 +42,8 @@ function initials(name: string): string {
 }
 
 export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = false }: RailProps) {
+  const words = useWords()
+
   return (
     <nav
       className={
@@ -48,10 +51,10 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = fa
           ? 'row-start-2 flex items-center gap-2 border-t border-line bg-surface-sunken px-2 py-1'
           : 'flex flex-col items-center gap-3 border-r border-line bg-surface-sunken px-2 py-3'
       }
-      aria-label="Convia"
+      aria-label={words.brand}
     >
       {!narrow && (
-        <div className="grid size-11 place-items-center text-ink" title="Convia">
+        <div className="grid size-11 place-items-center text-ink" title={words.brand}>
           <Mark size={30} />
         </div>
       )}
@@ -67,10 +70,10 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = fa
                 aria-[current=page]:text-accent-ink disabled:cursor-default disabled:opacity-40"
               aria-current={mode === destination.id ? 'page' : undefined}
               disabled={!destination.ready}
-              title={destination.ready ? destination.label : destination.waiting}
+              title={destination.ready ? words.rail[destination.id] : words.rail.settingsLater}
               onClick={() => onMode(destination.id)}
             >
-              {destination.label}
+              {words.rail[destination.id]}
             </button>
           </li>
         ))}
@@ -90,7 +93,7 @@ export function Rail({ mode, onMode, displayName, handle, onSignOut, narrow = fa
           className="min-h-6 cursor-pointer rounded-sm px-1.5 py-1 text-[0.68rem] text-ink-faint hover:text-ink"
           onClick={onSignOut}
         >
-          Sign out
+          {words.rail.signOut}
         </button>
       </div>
     </nav>

@@ -1,3 +1,5 @@
+import { useWords } from '../i18n/language'
+
 /*
 Convia's mark: an open ring and a point at the opening.
 
@@ -31,11 +33,13 @@ export function Mark({ size = 32 }: { size?: number }) {
 // Wordmark pairs the mark with the name, for the places that are the product
 // speaking rather than a control.
 export function Wordmark() {
+  const words = useWords()
+
   return (
     <span className="inline-flex items-center gap-2 text-ink">
       <Mark size={28} />
       <span className="font-display text-[1.2rem] font-semibold tracking-[-0.01em]">
-        Convia
+        {words.brand}
       </span>
     </span>
   )

@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import { ApiError, NetworkError, sourceKey } from '../api/client'
 import type { InvitationLook, RemoteRoom, SidebarRoom } from '../api/types'
+import type { Words } from '../i18n/en'
+import { refused, useWords } from '../i18n/language'
 import { Button, input } from './controls'
 
 interface SidebarProps {
@@ -15,14 +17,11 @@ interface SidebarProps {
   onJoin: (link: string) => Promise<void>
 }
 
-function explain(error: unknown): string {
-  if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Try again.'
+function explain(words: Words, error: unknown): string {
+  if (error instanceof ApiError && error.status === 403) {
+    return words.sidebar.cannotOpen
   }
-  if (error instanceof ApiError) {
-    return error.status === 403 ? 'You cannot open rooms right now.' : error.message
-  }
-  return 'The room could not be opened.'
+  return refused(words, error, words.sidebar.openFailed)
 }
 
 /*
@@ -31,23 +30,24 @@ explainLink says why a link could not be looked at or joined.
 The words come from the status and never from the other installation's prose,
 which this page did not write and cannot vouch for.
 */
-function explainLink(error: unknown): string {
+function explainLink(words: Words, error: unknown): string {
+  const said = words.sidebar
   if (error instanceof NetworkError) {
-    return 'Convia could not be reached. Try again.'
+    return words.common.unreachable
   }
   if (error instanceof ApiError) {
     switch (error.status) {
       case 400:
-        return 'That is not a Convia invitation link.'
+        return said.notALink
       case 404:
-        return 'That invitation cannot be used. It may have expired, been used, or been meant for somebody else.'
+        return said.unusableLink
       case 409:
-        return 'You are already in that room.'
+        return said.alreadyIn
       case 503:
-        return 'The Convia that link points to could not be reached. Try again in a moment.'
+        return said.homeUnreachable
     }
   }
-  return 'That link could not be used. Try again.'
+  return said.linkFailed
 }
 
 // hostOf is the part of a home a person recognizes.
@@ -71,6 +71,7 @@ function NewRoom({ onCreate, onDone }: { onCreate: (name: string) => Promise<voi
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  const words = useWords()
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
@@ -86,7 +87,7 @@ function NewRoom({ onCreate, onDone }: { onCreate: (name: string) => Promise<voi
       onDone()
     } catch (error) {
       // What was typed stays, for the reason the composer keeps a message.
-      setFailure(explain(error))
+      setFailure(explain(words, error))
       setBusy(false)
     }
   }
@@ -102,14 +103,14 @@ function NewRoom({ onCreate, onDone }: { onCreate: (name: string) => Promise<voi
       }}
     >
       <label className="sr-only" htmlFor="new-room-name">
-        Conversation name
+        {words.sidebar.nameLabel}
       </label>
       <input
         id="new-room-name"
         className={input}
         autoFocus
         maxLength={120}
-        placeholder="Name it"
+        placeholder={words.sidebar.namePlaceholder}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
@@ -120,10 +121,10 @@ function NewRoom({ onCreate, onDone }: { onCreate: (name: string) => Promise<voi
       )}
       <div className="flex gap-2">
         <Button tone="primary" size="small" type="submit" disabled={busy || name.trim() === ''}>
-          {busy ? 'Opening…' : 'Create'}
+          {busy ? words.sidebar.opening : words.sidebar.create}
         </Button>
         <Button size="small" disabled={busy} onClick={onDone}>
-          Cancel
+          {words.common.cancel}
         </Button>
       </div>
     </form>
@@ -151,6 +152,8 @@ function JoinByLink({
   const [look, setLook] = useState<InvitationLook | null>(null)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
+  const words = useWords()
+  const said = words.sidebar
 
   async function examine(event: React.FormEvent) {
     event.preventDefault()
@@ -162,7 +165,7 @@ function JoinByLink({
     try {
       setLook(await onLook(link.trim()))
     } catch (error) {
-      setFailure(explainLink(error))
+      setFailure(explainLink(words, error))
     } finally {
       setBusy(false)
     }
@@ -175,7 +178,7 @@ function JoinByLink({
       await onJoin(link.trim())
       onDone()
     } catch (error) {
-      setFailure(explainLink(error))
+      setFailure(explainLink(words, error))
       setBusy(false)
     }
   }
@@ -185,22 +188,22 @@ function JoinByLink({
       {look === null ? (
         <form className="flex flex-col gap-2" onSubmit={examine}>
           <label className="sr-only" htmlFor="invitation-link">
-            Invitation link
+            {said.linkLabel}
           </label>
           <input
             id="invitation-link"
             className={input}
             autoFocus
-            placeholder="Paste the link you were sent"
+            placeholder={said.linkPlaceholder}
             value={link}
             onChange={(event) => setLink(event.target.value)}
           />
           <div className="flex gap-2">
             <Button tone="primary" size="small" type="submit" disabled={busy || link.trim() === ''}>
-              {busy ? 'Looking…' : 'Look'}
+              {busy ? said.looking : said.look}
             </Button>
             <Button size="small" disabled={busy} onClick={onDone}>
-              Cancel
+              {words.common.cancel}
             </Button>
           </div>
         </form>
@@ -210,14 +213,14 @@ function JoinByLink({
             <strong className="font-semibold">{look.room_name}</strong>
           </p>
           <p className="m-0 text-[0.75rem] leading-relaxed text-ink-dim">
-            Invited by {look.inviter}, on {hostOf(look.home)}.
+            {said.invitedBy(look.inviter, hostOf(look.home))}
           </p>
           <div className="flex gap-2">
             <Button tone="primary" size="small" disabled={busy} onClick={() => void accept()}>
-              {busy ? 'Joining…' : 'Join'}
+              {busy ? said.joining : said.join}
             </Button>
             <Button size="small" disabled={busy} onClick={onDone}>
-              Cancel
+              {words.common.cancel}
             </Button>
           </div>
         </div>
@@ -279,18 +282,20 @@ export function Sidebar({
 }: SidebarProps) {
   const [creating, setCreating] = useState(false)
   const [joining, setJoining] = useState(false)
+  const words = useWords()
+  const said = words.sidebar
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-2 py-4">
       <div className="mx-2 mb-3 flex min-h-7 items-center justify-between gap-2">
-        <h2 className={`${headingClass} min-w-0 truncate`}>Conversations</h2>
+        <h2 className={`${headingClass} min-w-0 truncate`}>{said.heading}</h2>
         {!creating && !joining && (
           <span className="flex flex-none gap-0.5">
             <button
               type="button"
               className={actionClass}
-              aria-label="Join with a link"
-              title="Join with a link"
+              aria-label={said.joinWithLink}
+              title={said.joinWithLink}
               onClick={() => setJoining(true)}
             >
               <svg {...iconProps}>
@@ -301,8 +306,8 @@ export function Sidebar({
             <button
               type="button"
               className={actionClass}
-              aria-label="New conversation"
-              title="New conversation"
+              aria-label={said.newConversation}
+              title={said.newConversation}
               onClick={() => setCreating(true)}
             >
               <svg {...iconProps}>
@@ -317,11 +322,9 @@ export function Sidebar({
       {joining && <JoinByLink onLook={onLook} onJoin={onJoin} onDone={() => setJoining(false)} />}
 
       {loading && rooms.length === 0 ? (
-        <p className="mx-2 my-0 text-[0.82rem] text-ink-faint">Loading…</p>
+        <p className="mx-2 my-0 text-[0.82rem] text-ink-faint">{words.common.loading}</p>
       ) : rooms.length === 0 && remoteRooms.length === 0 ? (
-        <p className="mx-2 my-0 text-[0.82rem] leading-relaxed text-ink-faint">
-          You are not in any conversation yet. Open one, or join one with a link somebody sent you.
-        </p>
+        <p className="mx-2 my-0 text-[0.82rem] leading-relaxed text-ink-faint">{said.empty}</p>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
           {rooms.map((room) => {
@@ -340,18 +343,16 @@ export function Sidebar({
                       className="min-w-5 flex-none rounded-full bg-accent px-2 py-px text-center
                         text-[0.7rem] font-semibold text-on-accent"
                     >
-                      <span className="sr-only">
-                        {room.unread} unread {room.unread === 1 ? 'message' : 'messages'}
-                      </span>
-                      <span aria-hidden="true">{room.unread > 99 ? '99+' : room.unread}</span>
+                      <span className="sr-only">{said.unread(room.unread)}</span>
+                      <span aria-hidden="true">{room.unread > 99 ? said.manyUnread : room.unread}</span>
                     </span>
                   )}
                   {room.status === 'closed' && (
                     <span
                       className="flex-none text-[0.65rem] tracking-[0.06em] text-ink-faint uppercase"
-                      title="This room is closed"
+                      title={said.roomClosed}
                     >
-                      closed
+                      {words.common.closed}
                     </span>
                   )}
                 </button>
@@ -362,8 +363,8 @@ export function Sidebar({
       )}
 
       {remoteRooms.length > 0 && (
-        <section aria-label="Rooms on other Convias" className="mt-5">
-          <h2 className={`${headingClass} mx-2 mb-2`}>Elsewhere</h2>
+        <section aria-label={said.elsewhereLabel} className="mt-5">
+          <h2 className={`${headingClass} mx-2 mb-2`}>{said.elsewhere}</h2>
           <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
             {remoteRooms.map((room) => {
               const key = sourceKey({ kind: 'remote', id: room.id })
