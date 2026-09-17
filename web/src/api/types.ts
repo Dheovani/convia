@@ -34,6 +34,8 @@ export interface SidebarRoom {
   unread: number
   // owned is whether this person owns the room, and so may moderate it.
   owned: boolean
+  // moderator is whether this person moderates the room without owning it.
+  moderator: boolean
 }
 
 export interface Sidebar {
@@ -99,7 +101,7 @@ export interface Person {
   user_id: string
   display_name: string
   // role is present only when the person is listed as a member of a room.
-  role?: 'owner' | 'member'
+  role?: 'owner' | 'moderator' | 'member'
 }
 
 export interface PersonPage {

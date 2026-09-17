@@ -126,7 +126,7 @@ func (store *Store) CreateWithMember(ctx context.Context, room Room, member Memb
 		return err
 	}
 
-	const statement = `INSERT INTO room_members (` + memberColumns + `) VALUES ($1, $2, $3, $4)`
+	const statement = `INSERT INTO room_members (` + memberColumns + `) VALUES ($1, $2, $3, $4, false)`
 	if _, err := transaction.Exec(ctx, statement,
 		member.ApplicationID, member.RoomID, member.UserID, member.CreatedAt); err != nil {
 		return fmt.Errorf("add the room's first member: %w", err)
@@ -444,7 +444,10 @@ func DecodeCursor(value string) (Cursor, error) {
 }
 
 // memberColumns is the projection every membership read shares.
-const memberColumns = "application_id, room_id, user_id, created_at"
+const memberColumns = "application_id, room_id, user_id, created_at, moderator"
+
+// banColumns is what a ban holds, which is a membership's shape without a role.
+const banColumns = "application_id, room_id, user_id, created_at"
 
 /*
 AddMember gives somebody a place in a room, reporting whether this call gave it.
@@ -482,7 +485,7 @@ func (store *Store) AddMember(ctx context.Context, member Member, honorBans bool
 	}
 
 	const statement = `INSERT INTO room_members (` + memberColumns + `)
-	                   VALUES ($1, $2, $3, $4)
+	                   VALUES ($1, $2, $3, $4, false)
 	                   ON CONFLICT (room_id, user_id) DO NOTHING
 	                   RETURNING ` + memberColumns
 
@@ -737,7 +740,7 @@ func (store *Store) Ban(ctx context.Context, ban Ban) (banned bool, removed bool
 		return false, false, err
 	}
 
-	const statement = `INSERT INTO room_bans (` + memberColumns + `)
+	const statement = `INSERT INTO room_bans (` + banColumns + `)
 	                   VALUES ($1, $2, $3, $4)
 	                   ON CONFLICT (room_id, user_id) DO NOTHING`
 	tag, err := transaction.Exec(ctx, statement, ban.ApplicationID, ban.RoomID, ban.UserID, ban.CreatedAt)
@@ -791,7 +794,7 @@ func isBanned(ctx context.Context, target querier, applicationID, roomID, userID
 
 // Bans returns one page of the people kept out of a room, ordered by the person.
 func (store *Store) Bans(ctx context.Context, applicationID, roomID string, after string, limit int) ([]Ban, bool, error) {
-	statement := `SELECT ` + memberColumns + ` FROM room_bans
+	statement := `SELECT ` + banColumns + `, false FROM room_bans
 	              WHERE application_id = $1 AND room_id = $2`
 	arguments := []any{applicationID, roomID}
 
@@ -809,7 +812,8 @@ func (store *Store) Bans(ctx context.Context, applicationID, roomID string, afte
 
 	bans := make([]Ban, 0, len(page))
 	for _, member := range page {
-		bans = append(bans, Ban(member))
+		bans = append(bans, Ban{ApplicationID: member.ApplicationID, RoomID: member.RoomID,
+			UserID: member.UserID, CreatedAt: member.CreatedAt})
 	}
 	return bans, more, nil
 }
@@ -851,6 +855,10 @@ does: moderation stays with the people whose installation the room lives on. A
 suspended person could not use it. A room left with nobody who can hold it
 stays without an owner, and this runs again whenever somebody is added.
 
+A moderator is preferred to anybody else, longest-standing first: somebody the
+owner already trusted to moderate is the nearest thing to a choice the owner
+made. A moderator who becomes the owner stops being flagged a moderator.
+
 It reads the accounts table, which belongs to another package. This is the one
 place it does, because whether somebody signs in here is a fact about their
 account, and asking the accounts package about every member of a room inside
@@ -867,12 +875,131 @@ func settleOwner(ctx context.Context, target executor, roomIDs []string) error {
 	                       JOIN users ON users.id = member.user_id AND users.status = $2
 	                       JOIN accounts ON accounts.user_id = member.user_id
 	                       WHERE member.room_id = rooms.id
-	                       ORDER BY member.created_at, member.user_id
+	                       ORDER BY member.moderator DESC, member.created_at, member.user_id
 	                       LIMIT 1)
 	                   WHERE id = ANY($1) AND personal AND owner_user_id IS NULL`
 
 	if _, err := target.Exec(ctx, statement, roomIDs, users.StatusActive); err != nil {
 		return fmt.Errorf("settle the room's owner: %w", err)
+	}
+
+	const unflag = `UPDATE room_members SET moderator = false
+	                FROM rooms
+	                WHERE rooms.id = room_members.room_id AND rooms.id = ANY($1)
+	                  AND room_members.user_id = rooms.owner_user_id AND room_members.moderator`
+	if _, err := target.Exec(ctx, unflag, roomIDs); err != nil {
+		return fmt.Errorf("settle the room's moderators: %w", err)
+	}
+	return nil
+}
+
+/*
+canHold reports whether somebody could own or moderate a room: an active member
+of it who signs in here, by the rule settleOwner gives.
+*/
+func canHold(ctx context.Context, target querier, applicationID, roomID, userID string) (bool, error) {
+	const statement = `SELECT EXISTS (
+	                       SELECT 1
+	                       FROM room_members AS member
+	                       JOIN rooms ON rooms.id = member.room_id AND rooms.personal AND rooms.status <> $4
+	                       JOIN users ON users.id = member.user_id AND users.status = $5
+	                       JOIN accounts ON accounts.user_id = member.user_id
+	                       WHERE member.application_id = $1 AND member.room_id = $2 AND member.user_id = $3)`
+
+	var holds bool
+	if err := target.QueryRow(ctx, statement, applicationID, roomID, userID, StatusDeleted,
+		users.StatusActive).Scan(&holds); err != nil {
+		return false, fmt.Errorf("check who can hold the room: %w", err)
+	}
+	return holds, nil
+}
+
+/*
+SetModerator makes a member a moderator of a room, or stops them being one,
+reporting whether anything changed.
+
+Only somebody who could hold the room can moderate it, and the owner is never
+flagged: the owner already does everything a moderator does. Anybody else is
+ErrUserNotFound.
+*/
+func (store *Store) SetModerator(ctx context.Context, applicationID, roomID, userID string,
+	moderator bool) (bool, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin naming a moderator: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if err := lockRoom(ctx, transaction, applicationID, roomID); err != nil {
+		return false, err
+	}
+
+	holds, err := canHold(ctx, transaction, applicationID, roomID, userID)
+	if err != nil {
+		return false, err
+	}
+	if !holds {
+		return false, ErrUserNotFound
+	}
+
+	const statement = `UPDATE room_members SET moderator = $4
+	                   WHERE application_id = $1 AND room_id = $2 AND user_id = $3 AND moderator <> $4
+	                     AND user_id IS DISTINCT FROM (SELECT owner_user_id FROM rooms WHERE id = $2)`
+	tag, err := transaction.Exec(ctx, statement, applicationID, roomID, userID, moderator)
+	if err != nil {
+		return false, fmt.Errorf("name a moderator: %w", err)
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit the moderator: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+/*
+TransferOwner hands a room from its owner to another member who could hold it.
+The one who owned it stays in the room as a member; the one who owns it now
+stops being flagged a moderator.
+
+The owner is checked in the statement, under the room's lock, so two transfers
+at once cannot both succeed: the second finds the owner already changed and is
+ErrNotOwner.
+*/
+func (store *Store) TransferOwner(ctx context.Context, applicationID, roomID, from, to string) error {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin handing the room over: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+
+	if err := lockRoom(ctx, transaction, applicationID, roomID); err != nil {
+		return err
+	}
+
+	holds, err := canHold(ctx, transaction, applicationID, roomID, to)
+	if err != nil {
+		return err
+	}
+	if !holds {
+		return ErrUserNotFound
+	}
+
+	const statement = `UPDATE rooms SET owner_user_id = $4
+	                   WHERE application_id = $1 AND id = $2 AND owner_user_id = $3 AND personal`
+	tag, err := transaction.Exec(ctx, statement, applicationID, roomID, from, to)
+	if err != nil {
+		return fmt.Errorf("hand the room over: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotOwner
+	}
+
+	if err := settleOwner(ctx, transaction, []string{roomID}); err != nil {
+		return err
+	}
+
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit the handover: %w", err)
 	}
 	return nil
 }
@@ -883,6 +1010,7 @@ type memberRow struct {
 	RoomID        string
 	UserID        string
 	CreatedAt     time.Time
+	Moderator     bool
 }
 
 func (record memberRow) member() Member {
@@ -891,6 +1019,7 @@ func (record memberRow) member() Member {
 		RoomID:        record.RoomID,
 		UserID:        record.UserID,
 		CreatedAt:     record.CreatedAt.UTC(),
+		Moderator:     record.Moderator,
 	}
 }
 

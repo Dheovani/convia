@@ -16,21 +16,25 @@ A person presenting a session is the case that reasoning does not cover.
 
 It carries no lifecycle, because membership is current state rather than the
 record of an occasion. Whether a member owns the room is recorded on the room,
-which has at most one owner; see `00021`.
+which has at most one owner; see `00021`. Whether they moderate it is recorded
+here, because it ends with the place; see `00023`.
 */
 type Member struct {
 	ApplicationID string
 	RoomID        string
 	UserID        string
 	CreatedAt     time.Time
+	Moderator     bool
 }
 
 // Role is what a member is in a room a person opened.
 type Role string
 
 const (
-	// RoleOwner moderates the room: see Personal.
+	// RoleOwner moderates the room and decides about it: see Personal.
 	RoleOwner Role = "owner"
+	// RoleModerator moderates the people in the room, and not the room itself.
+	RoleModerator Role = "moderator"
 	// RoleMember takes part without moderating.
 	RoleMember Role = "member"
 )
@@ -62,6 +66,10 @@ not there, as on every route a person reaches, because a refusal naming the
 owner would confirm that the room exists.
 */
 var ErrNotOwner = errors.New("only the room's owner may do that")
+
+// ErrNotModerator reports somebody in a room trying to moderate it without being
+// its owner or one of its moderators. It is told only to a member, as ErrNotOwner is.
+var ErrNotModerator = errors.New("only the room's owner or a moderator may do that")
 
 // ErrBanned reports somebody the room's owner has kept out of it.
 var ErrBanned = errors.New("the person is banned from the room")

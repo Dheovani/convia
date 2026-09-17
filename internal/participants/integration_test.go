@@ -44,6 +44,7 @@ type fixture struct {
 	users        *users.Service
 	applications *applications.Service
 	broker       *events.Broker
+	pool         *pgxpool.Pool
 	first        string
 	second       string
 	logs         *bytes.Buffer
@@ -117,6 +118,7 @@ func newFixtureWith(t *testing.T, plane calls.MediaPlane) fixture {
 		users:        userService,
 		applications: applicationService,
 		broker:       broker,
+		pool:         pool,
 		first:        newApplication(t, applicationService, "First Tenant"),
 		second:       newApplication(t, applicationService, "Second Tenant"),
 		logs:         logs,

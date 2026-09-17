@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -91,7 +91,7 @@ describe('owning a room', () => {
     await screen.findByText('Off topic.')
     await person.click(screen.getByRole('button', { name: 'Remove' }))
 
-    expect(await screen.findByText("Removed by the room's owner.")).toBeInTheDocument()
+    expect(await screen.findByText("Removed by the room's owner or a moderator.")).toBeInTheDocument()
     expect(server.asked('POST', `/v1/me/messages/${saidByBruno.id}/delete`)).toBeDefined()
   })
 
@@ -118,5 +118,95 @@ describe('owning a room', () => {
 
     expect(await within(panel).findByText('Nobody is banned from this room.')).toBeInTheDocument()
     expect(server.asked('DELETE', banPath)).toBeDefined()
+  })
+})
+
+describe('moderating a room', () => {
+  const carla: Person = { user_id: 'usr_CARLAMENDES7QK4XMZP2VJH6TB', display_name: 'Carla Mendes', role: 'moderator' }
+  const theOwner: Person = { user_id: 'usr_DORAOWNS7QK4XMZP2VJH6TBWN', display_name: 'Dora Lima', role: 'owner' }
+
+  function moderated() {
+    return new FakeConvia()
+      .on('GET', '/v1/me/rooms', { body: { data: [room({ moderator: true })] } })
+      .on('GET', `${roomPath}/messages`, { body: { data: [saidByBruno] } })
+      .on('PUT', `${roomPath}/read_state`, {
+        body: { room_id: room().id, user_id: ana.user_id, sequence: 1, unread: 0 },
+      })
+      .on('GET', `${roomPath}/members`, {
+        body: { data: [theOwner, { ...owner, role: 'moderator' }, carla, bruno] },
+      })
+      .on('GET', `${roomPath}/bans`, { body: { data: [] } })
+  }
+
+  /*
+  A moderator acts on members and on nothing else: not the owner, not another
+  moderator, and not the room itself.
+  */
+  it('lets a moderator act on members only', async () => {
+    open(moderated())
+    const person = userEvent.setup()
+
+    await screen.findByText('Off topic.')
+    expect(screen.queryByRole('button', { name: 'Room' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument()
+
+    await person.click(screen.getByRole('button', { name: 'People' }))
+    const panel = await screen.findByRole('complementary', { name: 'People in Standup' })
+    expect(await within(panel).findByRole('button', { name: 'Ban Bruno Alves' })).toBeInTheDocument()
+    expect(within(panel).getByText('Banned')).toBeInTheDocument()
+    expect(within(panel).queryByRole('button', { name: 'Ban Dora Lima' })).toBeNull()
+    expect(within(panel).queryByRole('button', { name: 'Ban Carla Mendes' })).toBeNull()
+    expect(within(panel).queryByRole('button', { name: 'Make Bruno Alves a moderator' })).toBeNull()
+    expect(within(panel).queryByRole('button', { name: 'Make Bruno Alves the owner' })).toBeNull()
+    expect(within(panel).getAllByText('· moderator')).toHaveLength(2)
+  })
+
+  it('lets the owner name a moderator', async () => {
+    const moderatorPath = `${roomPath}/moderators/${bruno.user_id}`
+    const server = standup({ owned: true }).on('PUT', moderatorPath, { status: 204 })
+    open(server)
+    const person = userEvent.setup()
+
+    await person.click(await screen.findByRole('button', { name: 'People' }))
+    const panel = await screen.findByRole('complementary', { name: 'People in Standup' })
+
+    server.on('GET', `${roomPath}/members`, { body: { data: [owner, { ...bruno, role: 'moderator' }] } })
+    await person.click(await within(panel).findByRole('button', { name: 'Make Bruno Alves a moderator' }))
+
+    expect(server.asked('PUT', moderatorPath)).toBeDefined()
+    expect(await within(panel).findByText('· moderator')).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Stop Bruno Alves moderating' })).toBeInTheDocument()
+  })
+
+  /*
+  Handing a room over cannot be undone by the person who did it, so it asks
+  first, and afterwards the page stops offering what only an owner may do.
+  */
+  it('lets the owner hand the room over, after asking', async () => {
+    const server = standup({ owned: true }).on('PUT', `${roomPath}/owner`, {
+      body: { id: room().id, name: 'Standup', status: 'open', owned: false, created_at: '2026-09-13T10:02:41Z' },
+    })
+    open(server)
+    const person = userEvent.setup()
+
+    await person.click(await screen.findByRole('button', { name: 'People' }))
+    const panel = await screen.findByRole('complementary', { name: 'People in Standup' })
+    await person.click(await within(panel).findByRole('button', { name: 'Make Bruno Alves the owner' }))
+
+    expect(
+      within(panel).getByText(
+        'Make Bruno Alves the owner of Standup? You stay in it as a member, and only Bruno Alves can give it back.',
+      ),
+    ).toBeInTheDocument()
+    expect(server.asked('PUT', `${roomPath}/owner`)).toBeUndefined()
+
+    server
+      .on('GET', '/v1/me/rooms', { body: { data: [room()] } })
+      .on('GET', `${roomPath}/members`, { body: { data: [{ ...owner, role: 'member' }, { ...bruno, role: 'owner' }] } })
+    await person.click(within(panel).getByRole('button', { name: 'Make owner' }))
+
+    expect(server.asked('PUT', `${roomPath}/owner`)?.body).toEqual({ user_id: bruno.user_id })
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Room' })).toBeNull())
+    expect(within(panel).queryByRole('button', { name: 'Ban Bruno Alves' })).toBeNull()
   })
 })

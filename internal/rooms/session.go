@@ -33,6 +33,9 @@ type personalService interface {
 	Bans(ctx context.Context, applicationID, roomID string, options MembershipOptions) (Bans, error)
 	SharesRoom(ctx context.Context, applicationID, userID, otherID string) (bool, error)
 	Acquaintances(ctx context.Context, applicationID, userID string, options MembershipOptions) (Acquaintances, error)
+	Moderating(ctx context.Context, applicationID, roomID, userID string) (bool, error)
+	SetModerator(ctx context.Context, applicationID, roomID, userID string, moderator bool) (bool, error)
+	TransferOwner(ctx context.Context, applicationID, roomID, from, to string) error
 }
 
 /*
@@ -51,9 +54,12 @@ Personal is the rooms service acting as one signed-in person.
 
 **Any person may open a room**, and they own the room they open. **Any member
 may** add somebody they already share a room with, see who is in the room and
-who they could add, and leave. **The owner may also** remove somebody, ban
-somebody so that nobody can bring them back until the ban is lifted, and rename,
-close, reopen or delete the room. docs/adr/0013 records why a room has an owner.
+who they could add, and leave. **A moderator may also** remove somebody, ban
+somebody so that nobody can bring them back until the ban is lifted, and lift a
+ban — but not act on the owner or another moderator. **The owner may** do all of
+that to anybody, rename, close, reopen or delete the room, name and unname
+moderators, and hand the room to somebody else. docs/adr/0013 records why a room
+has an owner, and docs/adr/0015 why it may have moderators.
 
 What is not here is deliberate.
 
@@ -68,8 +74,8 @@ be an enumeration oracle, which the sign-in surface already refuses to be
 people belong in one place.
 
 **No moderating from outside.** Everything the owner may do is refused to a
-member as ErrNotOwner, and to somebody outside the room as a room that is not
-there.
+member as ErrNotOwner, what a moderator may do as ErrNotModerator, and both to
+somebody outside the room as a room that is not there.
 */
 type Personal struct {
 	service   personalService
@@ -95,11 +101,18 @@ type Person struct {
 	Role        Role
 }
 
-// errOwnerActsOnSelf refuses an owner removing or banning themselves, which is
-// leaving by another name.
+// errOwnerActsOnSelf refuses an owner or a moderator removing or banning
+// themselves, which is leaving by another name.
 var errOwnerActsOnSelf = ValidationError{
 	Field:   "user_id",
-	Message: "An owner leaves a room rather than removing or banning themselves.",
+	Message: "Leave the room rather than removing or banning yourself.",
+}
+
+// errOwnerNamesSelf refuses an owner making themselves a moderator or handing the
+// room to themselves, which would change nothing.
+var errOwnerNamesSelf = ValidationError{
+	Field:   "user_id",
+	Message: "The owner already does everything a moderator does.",
 }
 
 // People is one page of people.
@@ -148,10 +161,18 @@ func (personal *Personal) Members(ctx context.Context, roomID string, options Me
 	if err != nil {
 		return People{}, err
 	}
+	moderators := make(map[string]bool, len(membership.Members))
+	for _, member := range membership.Members {
+		moderators[member.UserID] = member.Moderator
+	}
 	for index := range page.People {
-		page.People[index].Role = RoleMember
-		if page.People[index].UserID == room.OwnerUserID {
+		switch person := page.People[index]; {
+		case person.UserID == room.OwnerUserID:
 			page.People[index].Role = RoleOwner
+		case moderators[person.UserID]:
+			page.People[index].Role = RoleModerator
+		default:
+			page.People[index].Role = RoleMember
 		}
 	}
 	return page, nil
@@ -213,12 +234,9 @@ Remove takes somebody else's place in a room this person owns.
 It is not a ban: anybody in the room may add them back. What they said stays.
 */
 func (personal *Personal) Remove(ctx context.Context, roomID, userID string) error {
-	room, err := personal.requireOwner(ctx, roomID)
+	room, err := personal.requireActingOn(ctx, roomID, userID)
 	if err != nil {
 		return err
-	}
-	if userID == personal.principal.UserID {
-		return errOwnerActsOnSelf
 	}
 
 	_, err = personal.service.RemoveMember(ctx, personal.principal.ApplicationID, room.ID, userID)
@@ -235,12 +253,9 @@ already banned from it, or somebody the owner shares another room with. Anybody
 else is the one answer Add gives, for the reason it gives it.
 */
 func (personal *Personal) Ban(ctx context.Context, roomID, userID string) error {
-	room, err := personal.requireOwner(ctx, roomID)
+	room, err := personal.requireActingOn(ctx, roomID, userID)
 	if err != nil {
 		return err
-	}
-	if userID == personal.principal.UserID {
-		return errOwnerActsOnSelf
 	}
 
 	nameable, err := personal.nameable(ctx, room.ID, userID)
@@ -255,9 +270,9 @@ func (personal *Personal) Ban(ctx context.Context, roomID, userID string) error 
 	return err
 }
 
-// Unban lifts a ban on a room this person owns. It gives no place back.
+// Unban lifts a ban on a room this person moderates. It gives no place back.
 func (personal *Personal) Unban(ctx context.Context, roomID, userID string) error {
-	room, err := personal.requireOwner(ctx, roomID)
+	room, _, err := personal.requireModerator(ctx, roomID)
 	if err != nil {
 		return err
 	}
@@ -266,9 +281,9 @@ func (personal *Personal) Unban(ctx context.Context, roomID, userID string) erro
 	return err
 }
 
-// Bans returns one page of the people kept out of a room this person owns.
+// Bans returns one page of the people kept out of a room this person moderates.
 func (personal *Personal) Bans(ctx context.Context, roomID string, options MembershipOptions) (People, error) {
-	room, err := personal.requireOwner(ctx, roomID)
+	room, _, err := personal.requireModerator(ctx, roomID)
 	if err != nil {
 		return People{}, err
 	}
@@ -329,6 +344,97 @@ func (personal *Personal) Delete(ctx context.Context, roomID string) error {
 		return err
 	}
 	return personal.service.Delete(ctx, personal.principal.ApplicationID, room.ID)
+}
+
+/*
+NameModerator makes a member of a room this person owns one of its moderators,
+or, with moderator false, stops them being one. Somebody who could not hold the
+room — a visitor, or somebody not in it — is ErrUserNotFound.
+*/
+func (personal *Personal) NameModerator(ctx context.Context, roomID, userID string, moderator bool) error {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if userID == personal.principal.UserID {
+		return errOwnerNamesSelf
+	}
+	_, err = personal.service.SetModerator(ctx, personal.principal.ApplicationID, room.ID, userID, moderator)
+	return err
+}
+
+/*
+Transfer hands a room this person owns to another member who could hold it. They
+stay in the room, as a member.
+*/
+func (personal *Personal) Transfer(ctx context.Context, roomID, userID string) (Room, error) {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if userID == personal.principal.UserID {
+		return Room{}, errOwnerNamesSelf
+	}
+	if err := personal.service.TransferOwner(ctx, personal.principal.ApplicationID, room.ID,
+		personal.principal.UserID, userID); err != nil {
+		return Room{}, err
+	}
+	return personal.service.Get(ctx, personal.principal.ApplicationID, room.ID)
+}
+
+/*
+requireModerator refuses anybody who neither owns nor moderates a room, and says
+which of the two this person is.
+*/
+func (personal *Personal) requireModerator(ctx context.Context, roomID string) (Room, bool, error) {
+	room, err := personal.requireOwner(ctx, roomID)
+	if err == nil {
+		return room, true, nil
+	}
+	if !errors.Is(err, ErrNotOwner) {
+		return Room{}, false, err
+	}
+
+	moderating, err := personal.service.Moderating(ctx, personal.principal.ApplicationID, roomID,
+		personal.principal.UserID)
+	if err != nil {
+		return Room{}, false, err
+	}
+	if !moderating {
+		return Room{}, false, ErrNotModerator
+	}
+	room, err = personal.service.Get(ctx, personal.principal.ApplicationID, roomID)
+	return room, false, err
+}
+
+/*
+requireActingOn refuses anybody who may not remove or ban somebody in a room: an
+owner may act on anybody but themselves, and a moderator only on a member who is
+neither the owner nor another moderator.
+*/
+func (personal *Personal) requireActingOn(ctx context.Context, roomID, userID string) (Room, error) {
+	room, owner, err := personal.requireModerator(ctx, roomID)
+	if err != nil {
+		return Room{}, err
+	}
+	if userID == personal.principal.UserID {
+		return Room{}, errOwnerActsOnSelf
+	}
+	if owner {
+		return room, nil
+	}
+
+	if userID == room.OwnerUserID {
+		return Room{}, ErrNotOwner
+	}
+	moderating, err := personal.service.Moderating(ctx, personal.principal.ApplicationID, roomID, userID)
+	if err != nil {
+		return Room{}, err
+	}
+	if moderating {
+		return Room{}, ErrNotOwner
+	}
+	return room, nil
 }
 
 // nameable reports whether an owner could name somebody in a ban.

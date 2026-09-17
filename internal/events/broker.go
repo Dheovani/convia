@@ -405,7 +405,7 @@ path, which is the answer that fails closed when a type is added.
 */
 func roomOf(event Event) (string, bool) {
 	switch event.Type {
-	case MemberAdded, MemberRemoved, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
+	case MemberAdded, MemberRemoved, MemberRoleChanged, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
 		return event.Subject.ID, event.Subject.ID != ""
 	case MessagePosted, MessageEdited, MessageDeleted,
 		CallStarted, CallEnded,

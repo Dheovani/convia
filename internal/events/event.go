@@ -153,6 +153,15 @@ const (
 	*/
 	MemberRemoved Type = "room.member_removed"
 	/*
+		MemberRoleChanged reports that what somebody may do in a room changed:
+		they were made its owner or a moderator, or stopped being one.
+
+		It is somebody else's act, as a membership change is: the owner decides,
+		and the person it is about learns it here. `data.role` says what they
+		are now.
+	*/
+	MemberRoleChanged Type = "room.member_role_changed"
+	/*
 		RoomUpdated reports that a room now reads differently: its name, or
 		anything else an application may change about it.
 
@@ -205,7 +214,7 @@ func Types() []Type {
 		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
 		InvitationDeclined,
 		MessagePosted, MessageEdited, MessageDeleted,
-		MemberAdded, MemberRemoved,
+		MemberAdded, MemberRemoved, MemberRoleChanged,
 		RoomUpdated, RoomClosed, RoomReopened, RoomDeleted,
 		PresenceChanged,
 	}
@@ -287,7 +296,7 @@ func subjectOf(kind Type) (SubjectType, bool) {
 		return SubjectInvitation, true
 	case MessagePosted, MessageEdited, MessageDeleted:
 		return SubjectMessage, true
-	case MemberAdded, MemberRemoved, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
+	case MemberAdded, MemberRemoved, MemberRoleChanged, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
 		return SubjectRoom, true
 	case PresenceChanged:
 		return SubjectUser, true

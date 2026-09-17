@@ -138,7 +138,7 @@ func TestAnOwnerWhoGoesPassesTheRoomOn(t *testing.T) {
 
 /*
 TestOnlyTheOwnerModeratesARoom tries every act of an owner as a member, who is
-told it is the owner's, and as somebody outside the room, who is told the room
+told it is the owner's or a moderator's, and as somebody outside the room, who is told the room
 is not there. Then the owner does them.
 */
 func TestOnlyTheOwnerModeratesARoom(t *testing.T) {
@@ -152,7 +152,8 @@ func TestOnlyTheOwnerModeratesARoom(t *testing.T) {
 	room := setup.opens(t, setup.first, ana, "Standup")
 	setup.join(t, setup.first, room.ID, bruno)
 
-	acts := map[string]func(*Personal) error{
+	// A moderator may do these too, so a member is told that instead.
+	moderating := map[string]func(*Personal) error{
 		"remove": func(person *Personal) error { return person.Remove(ctx, room.ID, ana) },
 		"ban":    func(person *Personal) error { return person.Ban(ctx, room.ID, ana) },
 		"unban":  func(person *Personal) error { return person.Unban(ctx, room.ID, ana) },
@@ -160,6 +161,17 @@ func TestOnlyTheOwnerModeratesARoom(t *testing.T) {
 			_, err := person.Bans(ctx, room.ID, MembershipOptions{Limit: 10})
 			return err
 		},
+	}
+	for name, act := range moderating {
+		if err := act(setup.asPerson(setup.first, bruno)); !errors.Is(err, ErrNotModerator) {
+			t.Errorf("%s by a member error = %v, want %v", name, err, ErrNotModerator)
+		}
+		if err := act(setup.asPerson(setup.first, carla)); !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s by somebody outside the room error = %v, want %v", name, err, ErrNotFound)
+		}
+	}
+
+	acts := map[string]func(*Personal) error{
 		"rename": func(person *Personal) error {
 			_, err := person.Rename(ctx, room.ID, "Taken over")
 			return err

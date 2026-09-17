@@ -55,6 +55,8 @@ type sidebarRoom struct {
 	Unread int64  `json:"unread"`
 	// Owned is whether the person asking owns the room.
 	Owned bool `json:"owned"`
+	// Moderator is whether the person asking moderates the room without owning it.
+	Moderator bool `json:"moderator"`
 }
 
 // sidebarResponse is one page of the rooms somebody is in.
@@ -65,12 +67,13 @@ type sidebarResponse struct {
 
 func representSidebarRoom(room Room, userID string) sidebarRoom {
 	return sidebarRoom{
-		ID:     room.Room.ID,
-		Alias:  room.Room.Alias,
-		Name:   room.Room.Name,
-		Status: string(room.Room.Status),
-		Unread: room.Unread,
-		Owned:  room.Room.OwnerUserID != "" && room.Room.OwnerUserID == userID,
+		ID:        room.Room.ID,
+		Alias:     room.Room.Alias,
+		Name:      room.Room.Name,
+		Status:    string(room.Room.Status),
+		Unread:    room.Unread,
+		Owned:     room.Room.OwnerUserID != "" && room.Room.OwnerUserID == userID,
+		Moderator: room.Moderator,
 	}
 }
 

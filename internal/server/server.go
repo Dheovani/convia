@@ -933,6 +933,14 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				surface: surfaceSession, handler: http.HandlerFunc(dependencies.PersonalRooms.Unban)},
 			route{method: http.MethodGet, path: api.Prefix + "/me/people", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.PersonalRooms.People)},
+
+			// Who else moderates, and who owns. See docs/adr/0015.
+			route{method: http.MethodPut, path: api.Prefix + "/me/rooms/{room_id}/moderators/{user_id}",
+				surface: surfaceSession, handler: http.HandlerFunc(dependencies.PersonalRooms.NameModerator)},
+			route{method: http.MethodDelete, path: api.Prefix + "/me/rooms/{room_id}/moderators/{user_id}",
+				surface: surfaceSession, handler: http.HandlerFunc(dependencies.PersonalRooms.UnnameModerator)},
+			route{method: http.MethodPut, path: api.Prefix + "/me/rooms/{room_id}/owner", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalRooms.Transfer)},
 		)
 	}
 

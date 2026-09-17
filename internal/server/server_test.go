@@ -963,6 +963,9 @@ type stubRooms struct {
 	// refuseAdd makes AddMember fail with this error and nothing else, which
 	// is how a test asks for somebody the domain will not give a place.
 	refuseAdd error
+	// moderator is who Moderating answers true for, which is how a test asks
+	// for a moderator of the room.
+	moderator string
 	page      rooms.Page
 	err       error
 }
@@ -1267,7 +1270,20 @@ func (stub stubRooms) Bans(context.Context, string, string, rooms.MembershipOpti
 	if stub.err != nil {
 		return rooms.Bans{}, stub.err
 	}
-	return rooms.Bans{Bans: []rooms.Ban{rooms.Ban(stub.member)}}, nil
+	return rooms.Bans{Bans: []rooms.Ban{{ApplicationID: stub.member.ApplicationID, RoomID: stub.member.RoomID,
+		UserID: stub.member.UserID, CreatedAt: stub.member.CreatedAt}}}, nil
+}
+
+func (stub stubRooms) Moderating(_ context.Context, _, _, userID string) (bool, error) {
+	return stub.moderator != "" && userID == stub.moderator, stub.err
+}
+
+func (stub stubRooms) SetModerator(context.Context, string, string, string, bool) (bool, error) {
+	return true, stub.err
+}
+
+func (stub stubRooms) TransferOwner(context.Context, string, string, string, string) error {
+	return stub.err
 }
 
 func (stub stubRooms) Members(context.Context, string, string, rooms.MembershipOptions) (rooms.Membership, error) {
