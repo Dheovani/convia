@@ -55,11 +55,9 @@ them rather than about the rooms, which is the line `docs/users.md` already
 draws — Convia erases everything in its own tables and cannot erase the
 application's copy of the same person.
 
-**Nothing calls this yet, and that is the honest state.** M06 named the missing
-piece: there is no job that acts at the end of a retention window, so deletion
-stays soft everywhere in Convia and erasure is a capability rather than a
-schedule. This is the messages half of the work that job will do, built so that
-the job has something correct to call rather than the other way round.
+A person deleting their own account calls it; see internal/departure. Nothing
+else does yet: M06 named the missing piece, a job that acts at the end of a
+retention window, so a user an application deletes stays soft-deleted.
 */
 func (service *Service) Erase(ctx context.Context, applicationID, userID string) (Erasure, error) {
 	if err := service.requireApplication(ctx, applicationID); err != nil {

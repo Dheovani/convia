@@ -173,6 +173,56 @@ describe('the account', () => {
     await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
     expect(server.asked('DELETE', '/v1/sessions')).toBeDefined()
   })
+
+  /*
+  Nothing can bring an account back, so what deleting it does is said before the
+  password is asked for, and a wrong password leaves the person signed in.
+  */
+  it('deletes the account only with its password, after saying what that does', async () => {
+    const onSignedOut = vi.fn()
+    const server = convia().on('POST', '/v1/me/delete', {
+      status: 403,
+      failure: { code: 'wrong_password', message: 'The password is not right.' },
+    })
+    open(server, onSignedOut)
+    const person = userEvent.setup()
+    const page = await settings(person)
+
+    expect(within(page).queryByLabelText('Your password')).toBeNull()
+    await person.click(within(page).getByRole('button', { name: 'Delete account…' }))
+    expect(within(page).getByText('Your username is free for somebody else to take.')).toBeInTheDocument()
+    const confirm = within(page).getByRole('button', { name: 'Delete my account' })
+    expect(confirm).toBeDisabled()
+
+    await person.type(within(page).getByLabelText('Your password'), 'a guess')
+    await person.click(confirm)
+
+    expect(await within(page).findByText('That is not your password. Nothing was deleted.')).toBeInTheDocument()
+    expect(onSignedOut).not.toHaveBeenCalled()
+
+    server.on('POST', '/v1/me/delete', { status: 204 })
+    const field = within(page).getByLabelText('Your password')
+    await person.clear(field)
+    await person.type(field, password)
+    await person.click(within(page).getByRole('button', { name: 'Delete my account' }))
+
+    await waitFor(() => expect(onSignedOut).toHaveBeenCalled())
+    expect(server.calls.filter((call) => call.path === '/v1/me/delete').at(-1)?.body).toEqual({ password })
+  })
+
+  it('keeps the account when the person changes their mind', async () => {
+    const server = convia()
+    open(server)
+    const person = userEvent.setup()
+    const page = await settings(person)
+
+    await person.click(within(page).getByRole('button', { name: 'Delete account…' }))
+    await person.type(within(page).getByLabelText('Your password'), password)
+    await person.click(within(page).getByRole('button', { name: 'Keep my account' }))
+
+    expect(within(page).queryByLabelText('Your password')).toBeNull()
+    expect(server.asked('POST', '/v1/me/delete')).toBeUndefined()
+  })
 })
 
 describe('what this browser keeps', () => {

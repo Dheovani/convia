@@ -383,6 +383,19 @@ func (store *Store) Delete(ctx context.Context, applicationID, id string, update
 	return true, nil
 }
 
+// Retire deletes a user and forgets the name they were shown by.
+func (store *Store) Retire(ctx context.Context, applicationID, id string, updatedAt time.Time) (bool, error) {
+	_, err := store.update(ctx, `UPDATE users SET status = $1, display_name = NULL, updated_at = $2`,
+		[]any{StatusDeleted, updatedAt}, applicationID, id, nil)
+	if errors.Is(err, ErrNotFound) {
+		return false, store.confirmAlreadyDeleted(ctx, applicationID, id)
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // confirmAlreadyDeleted distinguishes a repeated delete from an unknown user.
 func (store *Store) confirmAlreadyDeleted(ctx context.Context, applicationID, id string) error {
 	var exists bool

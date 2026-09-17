@@ -18,6 +18,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/credentials"
 	"convia/internal/database"
+	"convia/internal/departure"
 	"convia/internal/events"
 	"convia/internal/events/redis"
 	"convia/internal/idempotency"
@@ -270,6 +271,11 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		surface names the tenant in the path and proves the authority to reach
 		it with an operator key, which no application can hold.
 	*/
+	// Deleting an account reaches every domain a person acts in. See docs/adr/0016.
+	departures := departure.NewHandler(logger,
+		departure.NewService(accountService, peerService, roomService, messageService, userService, logger),
+		sessionService)
+
 	dependencies := server.Dependencies{
 		Database:       pool,
 		TrustedProxies: cfg.TrustedProxies,
@@ -305,6 +311,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
+		Departures:           departures,
 		PersonalEvents:       events.NewPersonHandler(logger, broker, sessionService, roomService),
 
 		PeerAuthenticator: peerService,

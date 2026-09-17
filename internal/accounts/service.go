@@ -351,6 +351,50 @@ func (service *Service) ChangePassword(ctx context.Context, id string, current, 
 	return identity, nil
 }
 
+/*
+ConfirmPassword checks that a password is the account's, for an act that must
+not rest on a session alone. A wrong one is ErrWrongPassword, as when changing
+it.
+*/
+func (service *Service) ConfirmPassword(ctx context.Context, id string, password Password) error {
+	account, err := service.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	_, digest, _, err := service.store.Credentials(ctx, account.Username)
+	if err != nil {
+		return err
+	}
+
+	matches, err := service.verify(ctx, digest, password)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		service.refused(ctx, id, "password")
+		return ErrWrongPassword
+	}
+	return nil
+}
+
+/*
+Delete removes an account for good. Its username is free from then on, and the
+key it was named by is gone: nobody can sign in as it again.
+*/
+func (service *Service) Delete(ctx context.Context, id string) error {
+	account, err := service.store.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := service.store.Delete(ctx, id); err != nil {
+		return err
+	}
+
+	service.audit(ctx, "account.deleted", account)
+	return nil
+}
+
 // Get returns one account.
 func (service *Service) Get(ctx context.Context, id string) (Account, error) {
 	return service.store.Get(ctx, id)

@@ -7530,6 +7530,57 @@ paths:
         "503":
           $ref: "#/components/responses/HashingBusy"
 
+  /v1/me/delete:
+    post:
+      operationId: deleteAccount
+      tags: [Sessions]
+      summary: Delete your account
+      description: |
+        Deletes the signed-in person's account, having checked its password. It cannot be undone. See docs/adr/0016.
+
+        - **Rooms on other installations** are left at their homes. A home that does not confirm is forgotten here instead, and the person may stay a member there.
+        - **Invitations** the person made that nobody accepted are withdrawn.
+        - **Rooms here** are left, and the people still in them are told as of any departure. A room the person owned passes on as it does when an owner leaves; one left empty is deleted.
+        - **What they wrote** is redacted: each message keeps its place and loses its body and its author. Where they had read is forgotten.
+        - **The account** goes, with every session it had. Its username is free for somebody else to register, and its identifier, being a key that no longer exists, is never anybody's again.
+
+        The response clears the cookie. A wrong password is `403 wrong_password` and changes nothing, and it is charged to the same per-address budget as a failed sign-in.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountDeletionRequest"
+      responses:
+        "204":
+          description: The account is gone, and the browser is signed out.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+            Set-Cookie:
+              $ref: "#/components/headers/ClearedSessionCookie"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongPassword"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/HashingBusy"
+
   /v1/presence:
     get:
       operationId: listPresence
@@ -9455,6 +9506,18 @@ components:
             requirements — a capital, a digit, a symbol — make passwords more
             predictable rather than less, because people satisfy them in the
             same few ways.
+
+    AccountDeletionRequest:
+      type: object
+      description: The account's password, which confirms deleting it.
+      required: [password]
+      additionalProperties: false
+      properties:
+        password:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Required. A session that was stolen must not be enough to delete the account.
 
     Me:
       type: object

@@ -13,6 +13,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/departure"
 	"convia/internal/events"
 	"convia/internal/invitations"
 	"convia/internal/messages"
@@ -204,6 +205,8 @@ type Dependencies struct {
 	*/
 	SessionAuthenticator sessionAuthenticator
 	Sessions             *sessions.Handler
+	// Departures serves a person deleting their own account. See docs/adr/0016.
+	Departures *departure.Handler
 
 	/*
 		Rooms shared between installations.
@@ -857,6 +860,13 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Sessions.Me)},
 			route{method: http.MethodPatch, path: api.Prefix + "/me/password", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.Sessions.ChangePassword), guessable: true},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.Departures != nil {
+		table = append(table,
+			route{method: http.MethodPost, path: api.Prefix + "/me/delete", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.Departures.Delete), guessable: true},
 		)
 	}
 

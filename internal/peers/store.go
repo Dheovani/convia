@@ -142,6 +142,20 @@ func (store *Store) RevokeInvitation(
 	return tag.RowsAffected() == 1, nil
 }
 
+// RevokeInvitationsFrom withdraws every pending invitation one person made.
+func (store *Store) RevokeInvitationsFrom(ctx context.Context, applicationID, inviterUserID string,
+	at time.Time) (int64, error) {
+	const statement = `
+		UPDATE room_invitations SET revoked_at = $3
+		WHERE application_id = $1 AND inviter_user_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL`
+
+	tag, err := store.pool.Exec(ctx, statement, applicationID, inviterUserID, at)
+	if err != nil {
+		return 0, fmt.Errorf("revoke a person's invitations: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 /*
 PendingInvitations lists the invitations one person made into one room that can
 still be accepted, newest first.
