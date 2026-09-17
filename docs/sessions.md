@@ -154,6 +154,17 @@ The current password is required. A stolen session must not be enough to lock th
 
 A wrong current password is **`403 wrong_password`**, not the `401` a failed sign-in gets. The caller is already the account, so there is nothing to enumerate, and the session is still good: a page told `401` would believe it had ended and sign the person out over a typo. Each wrong password is **charged to the per-address budget failed sign-ins spend**, because a stolen session is not the password, and without the charge it would be a way to guess it. That budget is also the one every session request is checked against, so an address that spends it waits out the minute on this surface as a whole.
 
+## Deleting an account
+
+```
+POST /v1/me/delete
+{ "password": "..." }
+```
+
+The password is required, for the reason it is when changing it. Then, in order: every room on another installation is left at its home, or forgotten here if its home does not confirm; the invitations the person made that nobody accepted are withdrawn; every room here is left, as any departure is, and a room they opened that nobody is left in is deleted; what they wrote is redacted as `M31-011` defines; their user is deleted and its name cleared; and the account is deleted, with its sessions and its key. **The username is free from then on.** The answer clears the cookie.
+
+The account goes last, so a deletion interrupted halfway leaves somebody who can sign in and ask again. A wrong password is `403 wrong_password`, changes nothing, and is charged to the sign-in budget. [ADR 0016](adr/0016-a-person-deletes-their-own-account.md) records the decisions.
+
 ## Why a password is hashed differently from every other secret
 
 `M07-004` stores application keys as a plain SHA-256 digest: 130 bits of randomness cannot be searched, so a slow hash buys nothing and costs latency on every request.

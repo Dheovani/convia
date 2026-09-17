@@ -578,6 +578,57 @@ func (service *Service) Forget(ctx context.Context, remote RemoteRoom) error {
 }
 
 /*
+Farewell is what a person deleting their account did at other installations.
+*/
+type Farewell struct {
+	// Left is how many remote rooms confirmed the person left.
+	Left int
+	// Forgotten is how many were dropped here without their home confirming.
+	Forgotten int
+	// Withdrawn is how many pending invitations the person had made.
+	Withdrawn int64
+}
+
+/*
+Depart takes a person deleting their account out of every remote room, and
+withdraws the invitations they made that nobody accepted yet.
+
+Each remote room is left at its home first. A home that does not confirm is
+forgotten instead: the person asked to be gone from here, and a home that will
+not answer cannot keep them. They may stay a member there, which the interface
+says before the account is deleted.
+*/
+func (service *Service) Depart(ctx context.Context, principal sessions.Principal,
+	identity accounts.Identity) (Farewell, error) {
+	remotes, err := service.RemoteRooms(ctx, principal.AccountID)
+	if err != nil {
+		return Farewell{}, err
+	}
+
+	var farewell Farewell
+	for _, remote := range remotes {
+		if err := service.Leave(ctx, identity, remote); err == nil {
+			farewell.Left++
+			continue
+		} else if ctx.Err() != nil {
+			return farewell, err
+		}
+		if err := service.Forget(ctx, remote); err != nil {
+			return farewell, err
+		}
+		farewell.Forgotten++
+	}
+
+	withdrawn, err := service.store.RevokeInvitationsFrom(ctx, principal.ApplicationID, principal.UserID,
+		service.now())
+	if err != nil {
+		return farewell, err
+	}
+	farewell.Withdrawn = withdrawn
+	return farewell, nil
+}
+
+/*
 refusal turns what a home answered into this package's errors.
 
 A home that refuses a signed request is not saying anything about this

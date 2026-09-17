@@ -18,6 +18,7 @@ import (
 	"convia/internal/applications"
 	"convia/internal/calls"
 	"convia/internal/credentials"
+	"convia/internal/departure"
 	"convia/internal/events"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -308,6 +309,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 
 		SessionAuthenticator: stubSessionAuthenticator{principal: samplePerson()},
 		Sessions:             sessions.NewHandler(logger, stubSessions{account: sampleAccount()}),
+		Departures:           departure.NewHandler(logger, stubDeparture{}, stubIdentities{}),
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),

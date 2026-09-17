@@ -255,6 +255,15 @@ export const api = {
     })
   },
 
+  /*
+  deleteAccount deletes the account for good, having checked its password.
+  Convia clears the cookie in the same answer; a wrong password is
+  `wrong_password`, and changes nothing.
+  */
+  deleteAccount(password: string): Promise<void> {
+    return call<void>('/me/delete', { method: 'POST', body: { password } })
+  },
+
   me(signal?: AbortSignal): Promise<Account> {
     return call<Account>('/me', signal ? { signal } : {})
   },

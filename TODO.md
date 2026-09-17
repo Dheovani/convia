@@ -23,8 +23,8 @@ This document is the operational development plan for Convia. It tracks what exi
 ## Current Status
 
 - **What Convia is.** Two things built on one control plane. It is **an installable communication product**: each installation holds its own accounts, identified by the fingerprint of a key the password seals, and people on different installations share rooms by invitation. And it is **a real-time communication provider for other applications**, which its owner will also run as a hosted service. The owner's own applications, Orbit and Workspace Town, are meant to consume it; their integrations are built in their own projects, not in this one.
-- **Current milestone:** M18 — Standalone Web Application. A person registers, signs in, opens and moderates rooms, holds conversations that update as they happen, and shares rooms with people on other installations. A person starts and joins calls in their rooms, with audio and video, and the room's owner and moderators moderate them. They get ready to join with a preview and their chosen devices, a call says how it is going and offers audio alone when the connection stays weak, the interface works on a phone and from the keyboard, and the critical call journeys run end to end in CI. What remains is the interface's own gap, `M18-031`.
-- **Next implementation milestone:** the remaining `M18` gap, `M18-031`.
+- **Current milestone:** M18 — Standalone Web Application. A person registers, signs in, opens and moderates rooms, holds conversations that update as they happen, and shares rooms with people on other installations. A person starts and joins calls in their rooms, with audio and video, and the room's owner and moderators moderate them. They get ready to join with a preview and their chosen devices, a call says how it is going and offers audio alone when the connection stays weak, the interface works on a phone and from the keyboard, and the critical call journeys run end to end in CI. A person can also delete their own account. Every item is complete.
+- **Next implementation milestone:** M19 — TypeScript Client SDK, the next in order. Which comes next is the product owner's to decide.
 - **Grown past one item:** sharing rooms between installations is now `M33`, and running an installation somebody else built is `M34`.
 - **Deferred for one reason in several places:** metrics (`M14-013`, `M16-010`, `M17-011`) wait for `M22`; a resume cursor for streams (`M14-006`) waits for a durable event log; the transactional outbox is `M15-016`; a general per-tenant rate limit is `M13-008` and `M23-013`.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
@@ -530,7 +530,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M18 — Standalone Web Application
 
 **Priority:** P1
-**Status:** In progress
+**Status:** Complete
 **Depends on:** M07, M08, M09, M10, and M13
 **Goal:** Deliver Convia's own user interface on top of the same public platform concepts offered to external consumers.
 
@@ -564,7 +564,7 @@ This document is the operational development plan for Convia. It tracks what exi
 - [x] **M18-028:** Withdraw a room invitation from the interface. `DELETE /v1/me/room-invitations/{invitation_id}` exists; the People panel forgets a link once it is shown.
 - [x] **M18-029:** Announce the changes a room's owner makes to the room itself — renamed, closed, reopened, deleted — to the streams of the people in it, and decide whether they also reach applications' streams and webhooks. Today other members see them on their next read.
 - [x] **M18-030:** Decide ownership beyond one person: handing a room over deliberately, and whether a room may have more than one moderator. `M18-025` gives a room exactly one owner and changes it only by succession.
-- [ ] **M18-031:** Let a person delete their own account. Decide what stays: messages are redacted as `M31-011` defines, rooms they own pass on as `M18-025` defines, and rooms elsewhere must be left at their homes first or forgotten. It is the person's half of `M23-017`.
+- [x] **M18-031:** Let a person delete their own account. Decide what stays: messages are redacted as `M31-011` defines, rooms they own pass on as `M18-025` defines, and rooms elsewhere must be left at their homes first or forgotten. It is the person's half of `M23-017`.
 
 **Exit criteria:** A user can complete the supported room and call journey accessibly through Convia's standalone product.
 

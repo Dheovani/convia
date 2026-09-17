@@ -284,11 +284,11 @@ This follows the boundary [`users.md`](users.md) already draws: Convia erases
 everything in its own tables, and cannot erase the application's copy of the
 same person.
 
-**Nothing calls erasure yet, and that is the honest state.** M06 named the
-missing piece — there is no job that acts at the end of a retention window — so
-deletion stays soft everywhere in Convia and erasure is a capability rather than
-a schedule. This is the messages half of the work that job will do, built so the
-job has something correct to call.
+**A person deleting their own account is what calls erasure** (see
+[ADR 0016](adr/0016-a-person-deletes-their-own-account.md)). Nothing else does
+yet: M06 named the missing piece — there is no job that acts at the end of a
+retention window — so a user an application deletes stays soft-deleted, and
+erasure is a capability rather than a schedule for them.
 
 ## Bounds
 

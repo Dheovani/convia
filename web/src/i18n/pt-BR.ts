@@ -167,6 +167,23 @@ export const ptBR: Words = {
     signingOut: 'Saindo…',
     stay: 'Continuar conectado',
 
+    deleteHeading: 'Excluir sua conta',
+    deleteHint: 'Remove esta conta para sempre. Ninguém consegue recuperá-la, nem quem administra esta Convia.',
+    deleteAccount: 'Excluir conta…',
+    deleteConsequences: [
+      'Você sai de todas as salas. Uma sala sua passa para alguém que ainda está nela, e uma que ficar vazia é excluída.',
+      'O que você disse continua no lugar, sem as palavras e sem o seu nome.',
+      'Você sai das salas em outras Convias. Se alguma não responder, ela só é esquecida aqui, e você pode continuar membro lá.',
+      'Seu nome de usuário fica livre para outra pessoa.',
+    ],
+    deletePassword: 'Sua senha',
+    deleteForGood: 'Excluir minha conta',
+    deleting: 'Excluindo…',
+    keepAccount: 'Manter minha conta',
+    deleteWrongPassword: 'Essa não é a sua senha. Nada foi excluído.',
+    deletePasswordMissing: 'Digite sua senha para excluir a conta.',
+    deleteFailed: 'Não foi possível excluir a conta. Tente de novo.',
+
     theme: 'Tema',
     system: 'Seguir o sistema',
     dark: 'Escuro',

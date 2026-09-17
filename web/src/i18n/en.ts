@@ -162,6 +162,23 @@ export const en = {
     signingOut: 'Signing out…',
     stay: 'Stay signed in',
 
+    deleteHeading: 'Delete your account',
+    deleteHint: 'Removes this account for good. Nobody can bring it back, not even whoever runs this Convia.',
+    deleteAccount: 'Delete account…',
+    deleteConsequences: [
+      'You leave every room. A room you own passes to somebody still in it, and one nobody is left in is deleted.',
+      'What you said stays in its place, without its words or your name.',
+      'Rooms on other Convias are left there. If one does not answer, it is only forgotten here, and you may still be a member there.',
+      'Your username is free for somebody else to take.',
+    ] as readonly string[],
+    deletePassword: 'Your password',
+    deleteForGood: 'Delete my account',
+    deleting: 'Deleting…',
+    keepAccount: 'Keep my account',
+    deleteWrongPassword: 'That is not your password. Nothing was deleted.',
+    deletePasswordMissing: 'Enter your password to delete the account.',
+    deleteFailed: 'The account could not be deleted. Try again.',
+
     theme: 'Theme',
     system: 'Match the system',
     dark: 'Dark',

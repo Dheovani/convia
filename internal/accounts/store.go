@@ -196,6 +196,21 @@ func (store *Store) SetStatus(ctx context.Context, id string, status Status, at 
 }
 
 /*
+Delete removes an account, which frees its username. Its sessions and its
+pointers to rooms elsewhere go with it, by the foreign keys.
+*/
+func (store *Store) Delete(ctx context.Context, id string) error {
+	tag, err := store.pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id)
+	switch {
+	case err != nil:
+		return fmt.Errorf("delete account: %w", err)
+	case tag.RowsAffected() == 0:
+		return ErrNotFound
+	}
+	return nil
+}
+
+/*
 isUsernameTaken reports the unique index on usernames.
 
 Both the SQLSTATE and the index name are checked, the way internal/rooms

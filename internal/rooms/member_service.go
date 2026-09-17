@@ -110,6 +110,72 @@ func (service *Service) RemoveMember(ctx context.Context, applicationID, roomID,
 }
 
 /*
+Departure is what leaving every room did to them.
+*/
+type Departure struct {
+	// Left is how many rooms the person left.
+	Left int
+	// Deleted is how many of those were left empty and deleted with them.
+	Deleted int
+}
+
+/*
+LeaveAll takes one person out of every room, for a person deleting their account.
+
+It is leaving rather than ForgetMemberships, one room at a time, because the
+people still in each room are told as they would be told of any departure, and a
+call the person is in lets them go. A room a person opened and is now left empty
+is deleted, since nobody could ever reach it again. What is left afterwards —
+bans naming them, a place in a room deleted meanwhile — goes with
+ForgetMemberships.
+*/
+func (service *Service) LeaveAll(ctx context.Context, applicationID, userID string) (Departure, error) {
+	roomIDs, err := service.RoomIDsOf(ctx, applicationID, userID)
+	if err != nil {
+		return Departure{}, err
+	}
+
+	var departure Departure
+	for _, roomID := range roomIDs {
+		removed, err := service.RemoveMember(ctx, applicationID, roomID, userID)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return departure, err
+		}
+		if !removed {
+			continue
+		}
+		departure.Left++
+
+		room, err := service.Get(ctx, applicationID, roomID)
+		if err != nil {
+			return departure, err
+		}
+		if !room.Personal {
+			continue
+		}
+		remaining, _, err := service.store.Members(ctx, applicationID, roomID, "", 1)
+		if err != nil {
+			return departure, err
+		}
+		if len(remaining) > 0 {
+			continue
+		}
+		if err := service.Delete(ctx, applicationID, roomID); err != nil {
+			return departure, err
+		}
+		departure.Deleted++
+	}
+
+	if _, err := service.ForgetMemberships(ctx, applicationID, userID); err != nil {
+		return departure, err
+	}
+	return departure, nil
+}
+
+/*
 memberGone tells the call a room is holding that somebody no longer has a place
 in the room. What that means for the call is the call's to decide; see
 conversations.

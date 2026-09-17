@@ -299,6 +299,110 @@ function Everywhere({ onSignedOut }: { onSignedOut: () => void }) {
   )
 }
 
+// explainDeletion says why an account was not deleted.
+function explainDeletion(words: Words, error: unknown): string {
+  const said = words.settings
+  if (error instanceof NetworkError) {
+    return words.common.unreachable
+  }
+  if (error instanceof ApiError) {
+    switch (error.status) {
+      case 400:
+        return said.deletePasswordMissing
+      case 403:
+        return error.code === 'wrong_password' ? said.deleteWrongPassword : words.signIn.foreignPage
+      case 429:
+        return said.tooManyAttempts
+      case 503:
+        return words.signIn.busy
+    }
+  }
+  return refused(words, error, said.deleteFailed)
+}
+
+/*
+DeleteAccount deletes the account for good.
+
+Everything it does is said before the password is asked for, because nothing
+can bring any of it back. Rooms elsewhere are named in particular: a home that
+does not answer keeps the person as a member, and nothing here can change that
+afterwards.
+*/
+function DeleteAccount({ onSignedOut }: { onSignedOut: () => void }) {
+  const words = useWords()
+  const said = words.settings
+  const [confirming, setConfirming] = useState(false)
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    if (busy) {
+      return
+    }
+    setBusy(true)
+    setFailure(null)
+    try {
+      await api.deleteAccount(password)
+      onSignedOut()
+    } catch (error) {
+      if (error instanceof ApiError && error.unauthenticated) {
+        onSignedOut()
+        return
+      }
+      setFailure(explainDeletion(words, error))
+      setBusy(false)
+    }
+  }
+
+  function keep() {
+    setConfirming(false)
+    setPassword('')
+    setFailure(null)
+  }
+
+  return (
+    <Part title={said.deleteHeading}>
+      <p className={hint}>{said.deleteHint}</p>
+      {confirming ? (
+        <form className="flex flex-col gap-3" onSubmit={submit} noValidate>
+          <ul className="m-0 flex list-disc flex-col gap-1 pl-5 text-[0.82rem] leading-relaxed text-ink-dim">
+            {said.deleteConsequences.map((consequence) => (
+              <li key={consequence}>{consequence}</li>
+            ))}
+          </ul>
+          <Field
+            label={said.deletePassword}
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          {failure !== null && (
+            <p className="m-0 text-[0.82rem] text-danger" role="alert">
+              {failure}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button tone="primary" size="small" type="submit" disabled={busy || password === ''}>
+              {busy ? said.deleting : said.deleteForGood}
+            </Button>
+            <Button size="small" disabled={busy} onClick={keep}>
+              {said.keepAccount}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <Button size="small" className="self-start" onClick={() => setConfirming(true)}>
+          {said.deleteAccount}
+        </Button>
+      )}
+    </Part>
+  )
+}
+
 // Choices is a group of mutually exclusive options, named by its legend.
 function Choices<Value extends string>({
   legend,
@@ -498,6 +602,7 @@ export function SettingsPage({
             <Handle handle={account.handle} />
             <PasswordChange onExpired={onSignedOut} />
             <Everywhere onSignedOut={onSignedOut} />
+            <DeleteAccount onSignedOut={onSignedOut} />
           </>
         )}
         {section === 'appearance' && <Appearance />}

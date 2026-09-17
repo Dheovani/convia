@@ -246,6 +246,32 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 	return nil
 }
 
+/*
+Retire deletes the user of a person who deleted their own account, and forgets
+the name they were shown by.
+
+The name was their username, which is free for somebody else to take from now
+on, so keeping it would let a newcomer be mistaken for them in whatever still
+names this user.
+*/
+func (service *Service) Retire(ctx context.Context, applicationID, id string) error {
+	if err := service.requireApplication(ctx, applicationID); err != nil {
+		return err
+	}
+	if !ValidID(id) {
+		return ErrNotFound
+	}
+
+	retired, err := service.store.Retire(ctx, applicationID, id, now())
+	if err != nil {
+		return wrapUpdate(err)
+	}
+	if retired {
+		service.audit(ctx, "user.deleted", User{ID: id, ApplicationID: applicationID, Status: StatusDeleted})
+	}
+	return nil
+}
+
 // transition moves a user to a lifecycle state, or leaves it unchanged.
 func (service *Service) transition(ctx context.Context, applicationID, id string,
 	status Status, event string) (User, error) {
