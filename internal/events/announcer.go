@@ -3,16 +3,16 @@ package events
 import (
 	"context"
 	"log/slog"
+
+	"convia/internal/transaction"
 )
 
 /*
-Sink is a durable destination for events, written to while the request that
-caused them is still running.
+Sink is a durable destination for events, written to inside the transaction
+that caused them.
 
 It is an interface because the package that implements it — webhooks — imports
-this one for the envelope, and the dependency has to run one way. It is also
-the honest shape: a durable write can fail, and saying so is what lets the
-failure be handled here rather than pretended away.
+this one for the envelope, and the dependency has to run one way.
 */
 type Sink interface {
 	Enqueue(ctx context.Context, event Event) error
@@ -21,74 +21,83 @@ type Sink interface {
 /*
 Announcer is everything that happens when Convia announces something.
 
-There are two of those and they promise different things, which is the whole
-reason this type exists rather than the domains calling both:
+An event that must not be lost is written, inside the transaction that made it
+happen, to the journal and to the webhook queue, so either the change and its
+announcement both happen or neither does. Streams learn it from the journal once
+the transaction commits. See docs/adr/0017, which replaces the queueing half of
+docs/adr/0004.
 
-  - **The live stream** reaches whoever is connected right now. It cannot
-    block, cannot fail, and holds nothing. A subscriber that stopped reading
-    loses its stream; the request that produced the event never notices.
-  - **The durable sink** records what is owed to destinations an application
-    registered. It is one statement, it runs before the request returns, and it
-    can fail.
+Presence is the exception. It is advisory and is never recorded, so it goes
+straight to the live streams, and across instances through the relay.
 
-Publish takes a context and returns nothing, and both halves of that are
-deliberate. The context is there because a durable write is real work with a
-deadline. Nothing is returned because a webhook that could not be queued must
-not also undo the thing that happened: the call has already succeeded, the row
-is already committed, and failing the response now would tell the caller that
-nothing happened when something did.
-
-What that costs is stated rather than hidden. A queue write that fails is an
-event no destination will ever receive, and the only trace is the error logged
-here — which names the event, so it can be matched with the audit entry for the
-same occurrence.
+Publish returns an error because a recorded announcement is part of the change:
+a caller that cannot record it must not commit the change either.
 */
 type Announcer struct {
 	broker  *Broker
+	journal Journal
 	durable Sink
 	logger  *slog.Logger
+
+	// recorded is told after a transaction that recorded an event commits.
+	recorded func()
 }
 
 /*
-NewAnnouncer composes the live stream with a durable sink.
+NewAnnouncer composes the live stream with a durable sink, without a journal.
 
-The sink may be nil, which is a Convia that streams events and delivers no
-webhooks. That is a supported configuration rather than a degraded one, and it
-is what every test that only cares about the stream uses.
+Without a journal an event reaches the live streams of this instance once its
+transaction commits, and nothing can resume from it. It is what tests that only
+watch a stream use. The sink may be nil, which is a Convia that delivers no
+webhooks.
 */
 func NewAnnouncer(broker *Broker, durable Sink, logger *slog.Logger) *Announcer {
 	return &Announcer{broker: broker, durable: durable, logger: logger}
 }
 
-// Publish delivers an event to the live stream and records what is owed.
-func (announcer *Announcer) Publish(ctx context.Context, event Event) {
-	announcer.broker.Publish(event)
+/*
+NewJournaledAnnouncer records events in journal, and calls recorded after each
+transaction that did commits, so that whatever follows the journal can look now
+rather than at its next poll.
+*/
+func NewJournaledAnnouncer(
+	broker *Broker,
+	journal Journal,
+	durable Sink,
+	recorded func(),
+	logger *slog.Logger,
+) *Announcer {
+	return &Announcer{broker: broker, journal: journal, durable: durable, recorded: recorded, logger: logger}
+}
 
+// Publish announces an event as part of the change in the context's transaction.
+func (announcer *Announcer) Publish(ctx context.Context, event Event) error {
 	/*
-		Not every event has a durable half. One type is advisory by
-		construction, and queueing it would promise a redelivery that arrives
-		after it stopped being true — [Durable] says which and why. Asking here
-		rather than at the sink keeps the answer in one place: an endpoint
-		cannot subscribe to it either, and both refusals read the same rule.
+		Not every event is recorded. One type is advisory by construction, and
+		recording it would promise a replay or a redelivery that arrives after
+		it stopped being true — [Durable] says which and why.
 	*/
-	if announcer.durable == nil || !Durable(event.Type) {
-		return
+	if !Durable(event.Type) {
+		announcer.broker.Publish(event)
+		return nil
 	}
 
-	if err := announcer.durable.Enqueue(ctx, event); err != nil {
-		/*
-			Logged at error and named precisely, because this is the one way an
-			event that should have reached a destination never will. The event
-			identifier is here so that the line can be matched with the audit
-			entry for the same occurrence, which is what an operator needs to
-			say what was missed.
-		*/
-		announcer.logger.Error("an event could not be queued for delivery",
-			"error", err,
-			"event_id", event.ID,
-			"event", string(event.Type),
-			"application_id", event.ApplicationID,
-			"subject_id", event.Subject.ID,
-		)
+	if announcer.journal == nil {
+		transaction.AfterCommit(ctx, func(context.Context) { announcer.broker.Publish(event) })
+	} else {
+		recorded, err := announcer.journal.Record(ctx, event)
+		if err != nil {
+			return err
+		}
+
+		event = recorded
+		if announcer.recorded != nil {
+			transaction.AfterCommit(ctx, func(context.Context) { announcer.recorded() })
+		}
 	}
+
+	if announcer.durable == nil {
+		return nil
+	}
+	return announcer.durable.Enqueue(ctx, event)
 }

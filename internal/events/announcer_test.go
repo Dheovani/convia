@@ -1,12 +1,10 @@
 package events
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"testing"
 )
 
@@ -82,20 +80,52 @@ func TestAnnouncingReachesBothHalves(t *testing.T) {
 }
 
 /*
-TestAQueueThatFailsDoesNotUndoWhatHappened is the decision ADR 0004 records,
-made checkable.
+TestAQueueThatFailsFailsTheChange is the decision docs/adr/0017 records, made
+checkable.
 
-The domain change has already committed by the time this runs. Failing here
-would tell the caller that nothing happened when something did, and a caller
-that retried would produce a second call, a second participant, or a second
-invitation — which is worse than a missed notification.
+The announcement is written in the transaction that made the change, so a queue
+that cannot take it must fail the change too: otherwise a destination would
+never hear of something that happened.
 */
-func TestAQueueThatFailsDoesNotUndoWhatHappened(t *testing.T) {
-	logs := &bytes.Buffer{}
+func TestAQueueThatFailsFailsTheChange(t *testing.T) {
 	broker := NewBroker()
-	sink := &refusingSink{err: errors.New("the database is unreachable")}
+	refusal := errors.New("the database is unreachable")
+	sink := &refusingSink{err: refusal}
+	announcer := NewAnnouncer(broker, sink, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	announcer := NewAnnouncer(broker, sink, slog.New(slog.NewJSONHandler(logs, nil)))
+	err := announcer.Publish(context.Background(), New(ParticipantJoined, "app_1", "part_1", "req_1", nil))
+	if !errors.Is(err, refusal) {
+		t.Errorf("Publish() error = %v, want the queue's", err)
+	}
+}
+
+// fakeJournal records events, and can refuse to.
+type fakeJournal struct {
+	err      error
+	recorded []Event
+}
+
+func (journal *fakeJournal) Record(_ context.Context, event Event) (Event, error) {
+	if journal.err != nil {
+		return Event{}, journal.err
+	}
+	event.Cursor = Cursor{Transaction: 7, Position: int64(len(journal.recorded) + 1)}.String()
+	journal.recorded = append(journal.recorded, event)
+	return event, nil
+}
+
+/*
+TestAJournaledEventReachesStreamsThroughTheJournal: the announcer records the
+event, queues it with its cursor, and leaves the live streams to whatever follows
+the journal, which it wakes.
+*/
+func TestAJournaledEventReachesStreamsThroughTheJournal(t *testing.T) {
+	broker := NewBroker()
+	journal := &fakeJournal{}
+	sink := &refusingSink{}
+	woken := 0
+	announcer := NewJournaledAnnouncer(broker, journal, sink, func() { woken++ },
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	stream, err := broker.Subscribe("app_1", Types())
 	if err != nil {
@@ -103,35 +133,32 @@ func TestAQueueThatFailsDoesNotUndoWhatHappened(t *testing.T) {
 	}
 	defer stream.Close()
 
-	event := New(ParticipantJoined, "app_1", "part_1", "req_1", nil)
-
-	// Publish returns nothing, so the only thing that could go wrong here is a
-	// panic. The assertion is that the caller carries on.
-	announcer.Publish(context.Background(), event)
-
-	/*
-		The live stream is unaffected. One half failing must not cost the other,
-		or a database problem would also take down every open connection.
-	*/
-	if got := receive(t, stream).ID; got != event.ID {
-		t.Errorf("a failed queue write cost the live stream its event: %q", got)
+	event := New(CallStarted, "app_1", "call_1", "req_1", nil)
+	if err := announcer.Publish(context.Background(), event); err != nil {
+		t.Fatalf("Publish() error = %v", err)
 	}
 
-	/*
-		And the loss is recorded precisely. This log line is the only trace of
-		an event no destination will ever receive, so it has to name the event —
-		that is what lets an operator match it with the audit entry for the same
-		occurrence and say what was missed.
-	*/
-	recorded := logs.String()
-	if !strings.Contains(recorded, event.ID) {
-		t.Errorf("the failure does not name the event: %s", recorded)
+	if len(journal.recorded) != 1 || journal.recorded[0].ID != event.ID {
+		t.Fatalf("the journal recorded %v", journal.recorded)
 	}
-	if !strings.Contains(recorded, `"level":"ERROR"`) {
-		t.Errorf("an undeliverable event was not reported as an error: %s", recorded)
+	if len(sink.received) != 1 || sink.received[0].Cursor != "7-1" {
+		t.Errorf("the queue received %v, want the event with its cursor", sink.received)
 	}
-	if !strings.Contains(recorded, "app_1") {
-		t.Errorf("the failure does not name the tenant: %s", recorded)
+	if woken != 1 {
+		t.Errorf("the follower was woken %d times, want once", woken)
+	}
+	select {
+	case received := <-stream.Events():
+		t.Errorf("the announcer delivered %v itself, want the journal's follower to", received)
+	default:
+	}
+
+	journal.err = errors.New("the journal is full")
+	if err := announcer.Publish(context.Background(), New(CallEnded, "app_1", "call_1", "", nil)); err == nil {
+		t.Error("Publish() succeeded although the journal refused the event")
+	}
+	if len(sink.received) != 1 {
+		t.Error("an event the journal refused was queued anyway")
 	}
 }
 

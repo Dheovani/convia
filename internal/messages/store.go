@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares.
@@ -41,6 +43,19 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+/*
+Atomically runs work in one transaction, together with the events it announces.
+See package transaction.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -130,7 +145,7 @@ takes the same row lock, so a message cannot land in a room that was open when
 the service checked and closed before the insert.
 */
 func (store *Store) Append(ctx context.Context, message Message) (Message, error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return Message{}, fmt.Errorf("begin append: %w", err)
 	}
@@ -218,7 +233,7 @@ func lockRoom(ctx context.Context, transaction pgx.Tx, applicationID, roomID str
 func (store *Store) Get(ctx context.Context, applicationID, id string) (Message, error) {
 	const statement = `SELECT ` + columns + ` FROM messages WHERE application_id = $1 AND id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id)
 	if err != nil {
 		return Message{}, fmt.Errorf("query message: %w", err)
 	}
@@ -264,7 +279,7 @@ func (store *Store) Page(ctx context.Context, applicationID, roomID string,
 	}
 	statement += ` ORDER BY sequence` + order + ` LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query messages: %w", err)
 	}
@@ -341,7 +356,7 @@ statement.
 */
 func (store *Store) write(ctx context.Context, statement string, arguments []any,
 	applicationID, id string) (Message, error) {
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return Message{}, fmt.Errorf("write message: %w", err)
 	}

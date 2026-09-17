@@ -329,4 +329,33 @@ describe('a stream that ends', () => {
     await waitFor(() => expect(FakeSocket.opened.length).toBe(2), { timeout: 2_000 })
     expect(server.asked('GET', '/v1/me')).toBeUndefined()
   })
+
+  /*
+  What happened while the connection was down is asked for by the cursor of the
+  last event received, and a cursor Convia no longer keeps is dropped.
+  */
+  it('resumes after the last event it received, unless that is too old', async () => {
+    const server = new FakeConvia().on('GET', '/v1/me/rooms', { body: { data: [] } })
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    const first = await connected()
+    expect(first.url).not.toContain('after=')
+    act(() => {
+      first.deliver({ ...event('room.updated', { type: 'room', id: room().id }, {}), cursor: '42-7' })
+      first.deliver({ ...event('room.updated', { type: 'room', id: room().id }, {}), cursor: '42-9' })
+      first.deliver(event('presence.changed', { type: 'user', id: ana.user_id }, {}))
+    })
+    act(() => first.close(1006))
+
+    await waitFor(() => expect(FakeSocket.opened.length).toBe(2), { timeout: 2_000 })
+    const second = FakeSocket.latest()!
+    expect(second.url).toMatch(/\/v1\/me\/events\?after=42-9$/)
+
+    act(() => second.open())
+    act(() => second.close(4002))
+
+    await waitFor(() => expect(FakeSocket.opened.length).toBe(3), { timeout: 4_000 })
+    expect(FakeSocket.latest()!.url).not.toContain('after=')
+  })
 })

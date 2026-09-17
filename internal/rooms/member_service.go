@@ -8,6 +8,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/events"
+	"convia/internal/transaction"
 	"convia/internal/users"
 )
 
@@ -58,21 +59,28 @@ func (service *Service) addMember(
 		return Member{}, false, err
 	}
 
-	member, added, err := service.store.AddMember(ctx, Member{
-		ApplicationID: applicationID,
-		RoomID:        room.ID,
-		UserID:        userID,
-		CreatedAt:     service.now(),
-	}, honorBans)
+	var (
+		member Member
+		added  bool
+	)
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		member, added, err = service.store.AddMember(ctx, Member{
+			ApplicationID: applicationID,
+			RoomID:        room.ID,
+			UserID:        userID,
+			CreatedAt:     service.now(),
+		}, honorBans)
+		// Only a change is recorded. An application reconciling its own list against
+		// Convia's would otherwise fill the audit trail with events where nothing
+		// happened, which is how a trail stops being read.
+		if err != nil || !added {
+			return err
+		}
+		return service.announceMembership(ctx, events.MemberAdded, member)
+	})
 	if err != nil {
 		return Member{}, false, err
-	}
-
-	// Only a change is recorded. An application reconciling its own list against
-	// Convia's would otherwise fill the audit trail with events where nothing
-	// happened, which is how a trail stops being read.
-	if added {
-		service.announceMembership(ctx, events.MemberAdded, member)
 	}
 
 	return member, added, nil
@@ -96,17 +104,16 @@ func (service *Service) RemoveMember(ctx context.Context, applicationID, roomID,
 		return false, err
 	}
 
-	removed, err := service.store.RemoveMember(ctx, applicationID, room.ID, userID)
-	if err != nil {
-		return false, err
-	}
-
-	if removed {
-		service.announceMembership(ctx, events.MemberRemoved, Member{
-			ApplicationID: applicationID, RoomID: room.ID, UserID: userID})
-		service.memberGone(ctx, applicationID, room.ID, userID)
-	}
-	return removed, nil
+	var removed bool
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		removed, err = service.store.RemoveMember(ctx, applicationID, room.ID, userID)
+		if err != nil || !removed {
+			return err
+		}
+		return service.departed(ctx, applicationID, room.ID, userID)
+	})
+	return removed, err
 }
 
 /*
@@ -176,6 +183,18 @@ func (service *Service) LeaveAll(ctx context.Context, applicationID, userID stri
 }
 
 /*
+departed announces that somebody lost their place, and tells the room's call
+once that has committed.
+*/
+func (service *Service) departed(ctx context.Context, applicationID, roomID, userID string) error {
+	transaction.AfterCommit(ctx, func(ctx context.Context) {
+		service.memberGone(ctx, applicationID, roomID, userID)
+	})
+	return service.announceMembership(ctx, events.MemberRemoved, Member{
+		ApplicationID: applicationID, RoomID: roomID, UserID: userID})
+}
+
+/*
 memberGone tells the call a room is holding that somebody no longer has a place
 in the room. What that means for the call is the call's to decide; see
 conversations.
@@ -232,11 +251,19 @@ func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID s
 		return false, fmt.Errorf("read the person: %w", err)
 	}
 
-	banned, removed, err := service.store.Ban(ctx, Ban{
-		ApplicationID: applicationID,
-		RoomID:        room.ID,
-		UserID:        userID,
-		CreatedAt:     service.now(),
+	var banned, removed bool
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		banned, removed, err = service.store.Ban(ctx, Ban{
+			ApplicationID: applicationID,
+			RoomID:        room.ID,
+			UserID:        userID,
+			CreatedAt:     service.now(),
+		})
+		if err != nil || !removed {
+			return err
+		}
+		return service.departed(ctx, applicationID, room.ID, userID)
 	})
 	if err != nil {
 		return false, err
@@ -249,11 +276,6 @@ func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID s
 			"user_id", userID,
 			"request_id", api.RequestIDFromContext(ctx),
 		)
-	}
-	if removed {
-		service.announceMembership(ctx, events.MemberRemoved, Member{
-			ApplicationID: applicationID, RoomID: room.ID, UserID: userID})
-		service.memberGone(ctx, applicationID, room.ID, userID)
 	}
 	return removed, nil
 }
@@ -459,22 +481,31 @@ func (service *Service) requirePerson(ctx context.Context, applicationID, userID
 SetModerator makes a member of a room a moderator, or stops them being one, and
 announces it when it changed. The rules are the store's; see Store.SetModerator.
 */
-func (service *Service) SetModerator(ctx context.Context, applicationID, roomID, userID string,
-	moderator bool) (bool, error) {
+func (service *Service) SetModerator(
+	ctx context.Context,
+	applicationID,
+	roomID,
+	userID string,
+	moderator bool,
+) (bool, error) {
 	if _, err := service.requireRoomForMembership(ctx, applicationID, roomID); err != nil {
 		return false, err
 	}
-	changed, err := service.store.SetModerator(ctx, applicationID, roomID, userID, moderator)
-	if err != nil || !changed {
-		return changed, err
-	}
+	var changed bool
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		changed, err = service.store.SetModerator(ctx, applicationID, roomID, userID, moderator)
+		if err != nil || !changed {
+			return err
+		}
 
-	role := RoleMember
-	if moderator {
-		role = RoleModerator
-	}
-	service.announceRole(ctx, applicationID, roomID, userID, role)
-	return true, nil
+		role := RoleMember
+		if moderator {
+			role = RoleModerator
+		}
+		return service.announceRole(ctx, applicationID, roomID, userID, role)
+	})
+	return changed, err
 }
 
 /*
@@ -485,7 +516,18 @@ func (service *Service) TransferOwner(ctx context.Context, applicationID, roomID
 	if _, err := service.requireRoomForMembership(ctx, applicationID, roomID); err != nil {
 		return err
 	}
-	if err := service.store.TransferOwner(ctx, applicationID, roomID, from, to); err != nil {
+
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.TransferOwner(ctx, applicationID, roomID, from, to); err != nil {
+			return err
+		}
+		if err := service.announceRole(ctx, applicationID, roomID, to, RoleOwner); err != nil {
+			return err
+		}
+		return service.announceRole(ctx, applicationID, roomID, from, RoleMember)
+	})
+
+	if err != nil {
 		return err
 	}
 
@@ -498,8 +540,6 @@ func (service *Service) TransferOwner(ctx context.Context, applicationID, roomID
 		"to_user_id", toForLog,
 		"request_id", api.RequestIDFromContext(ctx),
 	)
-	service.announceRole(ctx, applicationID, roomID, to, RoleOwner)
-	service.announceRole(ctx, applicationID, roomID, from, RoleMember)
 	return nil
 }
 
@@ -516,8 +556,8 @@ func (service *Service) Moderating(ctx context.Context, applicationID, roomID, u
 }
 
 // announceRole tells whoever is listening what somebody now is in a room.
-func (service *Service) announceRole(ctx context.Context, applicationID, roomID, userID string, role Role) {
-	service.stream.Publish(ctx, events.New(events.MemberRoleChanged, applicationID, roomID,
+func (service *Service) announceRole(ctx context.Context, applicationID, roomID, userID string, role Role) error {
+	return service.stream.Publish(ctx, events.New(events.MemberRoleChanged, applicationID, roomID,
 		api.RequestIDFromContext(ctx), events.Data{"user_id": userID, "role": string(role)}))
 }
 
@@ -534,7 +574,7 @@ room's name is the application's label rather than a value Convia assigned.
 person was ever anywhere, and announcing each room they had been in would
 broadcast exactly the record erasure exists to remove.
 */
-func (service *Service) announceMembership(ctx context.Context, kind events.Type, member Member) {
+func (service *Service) announceMembership(ctx context.Context, kind events.Type, member Member) error {
 	service.logger.InfoContext(ctx, string(kind),
 		"application_id", member.ApplicationID,
 		"room_id", member.RoomID,
@@ -542,7 +582,7 @@ func (service *Service) announceMembership(ctx context.Context, kind events.Type
 		"request_id", api.RequestIDFromContext(ctx),
 	)
 
-	service.stream.Publish(ctx, events.New(kind, member.ApplicationID, member.RoomID,
+	return service.stream.Publish(ctx, events.New(kind, member.ApplicationID, member.RoomID,
 		api.RequestIDFromContext(ctx), events.Data{"user_id": member.UserID}))
 }
 

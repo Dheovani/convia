@@ -25,7 +25,7 @@ func servingPeople(t *testing.T, broker *events.Broker) *httptest.Server {
 
 	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
 	dependencies := testDependencies()
-	dependencies.PersonalEvents = events.NewPersonHandler(discard, broker,
+	dependencies.PersonalEvents = events.NewPersonHandler(discard, broker, nil,
 		stubSessionAuthenticator{principal: samplePerson()},
 		stubRooms{room: sampleRoom(), member: sampleMember()})
 

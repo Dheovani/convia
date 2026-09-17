@@ -108,10 +108,9 @@ const (
 		EndedBehind means the subscriber fell further behind than the queue
 		allows and events were dropped.
 
-		It is a distinct ending because it is the one case where reconnecting
-		is not enough: the subscriber's view has a gap in it, and until M14-006
-		adds a resume cursor the only way to close that gap is to re-read the
-		affected calls over REST.
+		It is a distinct ending because the subscriber's view has a gap in it.
+		Reconnecting with the cursor of the last event it received fills the
+		gap from the journal.
 	*/
 	EndedBehind
 	// EndedByShutdown means this instance is stopping.
@@ -327,6 +326,32 @@ func (stream *Stream) outgoing(event Event) Event {
 		event.CorrelationID = ""
 	}
 	return event
+}
+
+/*
+replays reports whether a stream is replayed an event it missed.
+
+A person is replayed what happened in the rooms they are in now, and every
+change to their own place. That withholds what happened in a room they have
+since left, which they could no longer read anyway, and never shows them a room
+they were not in.
+*/
+func (stream *Stream) replays(event Event) bool {
+	if event.ApplicationID != stream.applicationID || !stream.Wants(event.Type) {
+		return false
+	}
+	if stream.person == nil {
+		return true
+	}
+
+	roomID, scoped := roomOf(event)
+	if !scoped {
+		return false
+	}
+	stream.broker.mutex.Lock()
+	defer stream.broker.mutex.Unlock()
+	_, in := stream.person.rooms[roomID]
+	return in || about(event, stream.person.userID)
 }
 
 /*

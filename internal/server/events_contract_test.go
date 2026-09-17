@@ -66,7 +66,7 @@ func serving(t *testing.T, broker *events.Broker, logs io.Writer) *httptest.Serv
 
 	dependencies := testDependencies()
 	dependencies.TenantEvents = events.NewTenantHandler(
-		slog.New(slog.NewTextHandler(io.Discard, nil)), broker)
+		slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil)
 
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
 	server := httptest.NewServer(New("127.0.0.1:0", logger, dependencies).Handler)
@@ -169,7 +169,7 @@ func TestAStreamOutlivesTheServerWriteTimeout(t *testing.T) {
 
 	dependencies := testDependencies()
 	dependencies.TenantEvents = events.NewTenantHandler(
-		slog.New(slog.NewTextHandler(io.Discard, nil)), broker)
+		slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil)
 
 	server := httptest.NewUnstartedServer(
 		New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)), dependencies).Handler)

@@ -49,11 +49,11 @@ type userLookup interface {
 /*
 announcer is the behavior this package needs to say what changed.
 
-It returns no error, for the reason internal/events/announcer.go gives: telling
-somebody that presence moved must not be able to undo the move.
+Presence is never recorded, so announcing it cannot fail; the error is the
+shared interface's, and it is ignored here for that reason.
 */
 type announcer interface {
-	Publish(ctx context.Context, event events.Event)
+	Publish(ctx context.Context, event events.Event) error
 }
 
 /*
@@ -233,7 +233,7 @@ func (service *Service) announce(ctx context.Context, change Change) {
 		return
 	}
 
-	service.stream.Publish(ctx, events.New(events.PresenceChanged, change.ApplicationID, change.UserID,
+	_ = service.stream.Publish(ctx, events.New(events.PresenceChanged, change.ApplicationID, change.UserID,
 		api.RequestIDFromContext(ctx), events.Data{
 			"state":    string(change.After.State),
 			"previous": string(change.Before.State),

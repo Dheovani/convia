@@ -69,13 +69,12 @@ type participation interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It returns no error, so that announcing a decision cannot undo recording it.
-The context is there because announcing also records what is owed to the
-destinations an application registered, which is a write with a deadline.
-events.Announcer satisfies it.
+It is called inside the transaction that made the change, and records the
+event there: an error means the change must not commit either. See
+docs/adr/0017. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(ctx context.Context, event events.Event)
+	Publish(ctx context.Context, event events.Event) error
 }
 
 // Service applies Convia's rules for invitations.
@@ -436,12 +435,17 @@ func (service *Service) Decline(ctx context.Context, invitation Invitation) (Inv
 		return Invitation{}, ErrAlreadyRedeemed
 	}
 
-	declined, err := service.store.Decline(ctx, invitation.ID, now())
+	var declined Invitation
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		if declined, err = service.store.Decline(ctx, invitation.ID, now()); err != nil {
+			return err
+		}
+		return service.audit(ctx, events.InvitationDeclined, declined)
+	})
 	if err != nil {
 		return Invitation{}, err
 	}
-
-	service.audit(ctx, events.InvitationDeclined, declined)
 	return declined, nil
 }
 
@@ -529,7 +533,7 @@ through [Service.record] instead, and the package documentation of
 internal/events says why none of the three streams — two are the application's
 own acts, and the third already arrives as a participant joining.
 */
-func (service *Service) audit(ctx context.Context, kind events.Type, invitation Invitation) {
+func (service *Service) audit(ctx context.Context, kind events.Type, invitation Invitation) error {
 	service.record(ctx, string(kind), invitation)
 
 	data := events.Data{
@@ -543,7 +547,7 @@ func (service *Service) audit(ctx context.Context, kind events.Type, invitation 
 		data["user_id"] = invitation.UserID
 	}
 
-	service.stream.Publish(ctx, events.New(kind, invitation.ApplicationID, invitation.ID,
+	return service.stream.Publish(ctx, events.New(kind, invitation.ApplicationID, invitation.ID,
 		api.RequestIDFromContext(ctx), data))
 }
 

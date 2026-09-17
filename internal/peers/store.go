@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // maxRemoteRooms bounds how many remote rooms one listing returns.
@@ -25,6 +27,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 func scanInvitation(row pgx.Row) (Invitation, error) {
@@ -58,7 +65,7 @@ func (store *Store) CreateInvitation(ctx context.Context, invitation Invitation)
 		                              invitee_username, created_at, expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
-	_, err := store.pool.Exec(ctx, statement, invitation.ID, invitation.ApplicationID, invitation.RoomID,
+	_, err := store.db(ctx).Exec(ctx, statement, invitation.ID, invitation.ApplicationID, invitation.RoomID,
 		invitation.InviterUserID, invitation.InviteeAccountID, invitation.InviteeUsername,
 		invitation.CreatedAt, invitation.ExpiresAt)
 	if err != nil {
@@ -69,7 +76,7 @@ func (store *Store) CreateInvitation(ctx context.Context, invitation Invitation)
 
 // Invitation returns one invitation by identifier, whatever its state.
 func (store *Store) Invitation(ctx context.Context, id string) (Invitation, error) {
-	row := store.pool.QueryRow(ctx, `SELECT `+invitationColumns+` FROM room_invitations WHERE id = $1`, id)
+	row := store.db(ctx).QueryRow(ctx, `SELECT `+invitationColumns+` FROM room_invitations WHERE id = $1`, id)
 
 	invitation, err := scanInvitation(row)
 	switch {
@@ -101,7 +108,7 @@ func (store *Store) ClaimInvitation(
 		WHERE id = $1 AND invitee_account_id = $2 AND invitee_username = $3
 		  AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > $5`
 
-	tag, err := store.pool.Exec(ctx, statement, id, accountID, username, userID, at)
+	tag, err := store.db(ctx).Exec(ctx, statement, id, accountID, username, userID, at)
 	if err != nil {
 		return false, fmt.Errorf("claim invitation: %w", err)
 	}
@@ -112,7 +119,7 @@ func (store *Store) ClaimInvitation(
 func (store *Store) ReleaseInvitation(ctx context.Context, id string) error {
 	const statement = `UPDATE room_invitations SET accepted_at = NULL, accepted_user_id = NULL WHERE id = $1`
 
-	if _, err := store.pool.Exec(ctx, statement, id); err != nil {
+	if _, err := store.db(ctx).Exec(ctx, statement, id); err != nil {
 		return fmt.Errorf("release invitation: %w", err)
 	}
 	return nil
@@ -135,7 +142,7 @@ func (store *Store) RevokeInvitation(
 		UPDATE room_invitations SET revoked_at = COALESCE(revoked_at, $4)
 		WHERE application_id = $1 AND id = $2 AND inviter_user_id = $3 AND accepted_at IS NULL`
 
-	tag, err := store.pool.Exec(ctx, statement, applicationID, id, inviterUserID, at)
+	tag, err := store.db(ctx).Exec(ctx, statement, applicationID, id, inviterUserID, at)
 	if err != nil {
 		return false, fmt.Errorf("revoke invitation: %w", err)
 	}
@@ -149,7 +156,7 @@ func (store *Store) RevokeInvitationsFrom(ctx context.Context, applicationID, in
 		UPDATE room_invitations SET revoked_at = $3
 		WHERE application_id = $1 AND inviter_user_id = $2 AND accepted_at IS NULL AND revoked_at IS NULL`
 
-	tag, err := store.pool.Exec(ctx, statement, applicationID, inviterUserID, at)
+	tag, err := store.db(ctx).Exec(ctx, statement, applicationID, inviterUserID, at)
 	if err != nil {
 		return 0, fmt.Errorf("revoke a person's invitations: %w", err)
 	}
@@ -177,7 +184,7 @@ func (store *Store) PendingInvitations(
 		ORDER BY created_at DESC, id DESC
 		LIMIT $5`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, roomID, inviterUserID, at, limit)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, roomID, inviterUserID, at, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list pending invitations: %w", err)
 	}
@@ -209,7 +216,7 @@ func (store *Store) ClaimNonce(ctx context.Context, accountID, nonce string, exp
 		INSERT INTO peer_nonces (account_id, nonce, expires_at) VALUES ($1, $2, $3)
 		ON CONFLICT (account_id, nonce) DO NOTHING`
 
-	tag, err := store.pool.Exec(ctx, statement, accountID, nonce, expires)
+	tag, err := store.db(ctx).Exec(ctx, statement, accountID, nonce, expires)
 	if err != nil {
 		return false, fmt.Errorf("claim nonce: %w", err)
 	}
@@ -218,7 +225,7 @@ func (store *Store) ClaimNonce(ctx context.Context, accountID, nonce string, exp
 
 // PruneNonces forgets nonces whose requests could no longer be accepted anyway.
 func (store *Store) PruneNonces(ctx context.Context, at time.Time) (int, error) {
-	tag, err := store.pool.Exec(ctx, `DELETE FROM peer_nonces WHERE expires_at < $1`, at)
+	tag, err := store.db(ctx).Exec(ctx, `DELETE FROM peer_nonces WHERE expires_at < $1`, at)
 	if err != nil {
 		return 0, fmt.Errorf("prune nonces: %w", err)
 	}
@@ -248,7 +255,7 @@ func (store *Store) SaveRemoteRoom(ctx context.Context, room RemoteRoom) (Remote
 		ON CONFLICT (account_id, home, room_id) DO UPDATE SET user_id = EXCLUDED.user_id, name = EXCLUDED.name
 		RETURNING ` + remoteRoomColumns
 
-	saved, err := scanRemoteRoom(store.pool.QueryRow(ctx, statement, room.ID, room.AccountID, room.Home,
+	saved, err := scanRemoteRoom(store.db(ctx).QueryRow(ctx, statement, room.ID, room.AccountID, room.Home,
 		room.RoomID, room.UserID, room.Name, room.CreatedAt))
 	if err != nil {
 		return RemoteRoom{}, fmt.Errorf("save remote room: %w", err)
@@ -258,7 +265,7 @@ func (store *Store) SaveRemoteRoom(ctx context.Context, room RemoteRoom) (Remote
 
 // RemoteRooms lists the remote rooms an account holds pointers to, oldest first.
 func (store *Store) RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error) {
-	rows, err := store.pool.Query(ctx, `SELECT `+remoteRoomColumns+` FROM remote_rooms
+	rows, err := store.db(ctx).Query(ctx, `SELECT `+remoteRoomColumns+` FROM remote_rooms
 		WHERE account_id = $1 ORDER BY created_at, id LIMIT $2`, accountID, maxRemoteRooms)
 	if err != nil {
 		return nil, fmt.Errorf("query remote rooms: %w", err)
@@ -281,7 +288,7 @@ func (store *Store) RemoteRooms(ctx context.Context, accountID string) ([]Remote
 
 // RemoteRoom returns one of an account's remote rooms.
 func (store *Store) RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error) {
-	room, err := scanRemoteRoom(store.pool.QueryRow(ctx, `SELECT `+remoteRoomColumns+` FROM remote_rooms
+	room, err := scanRemoteRoom(store.db(ctx).QueryRow(ctx, `SELECT `+remoteRoomColumns+` FROM remote_rooms
 		WHERE account_id = $1 AND id = $2`, accountID, id))
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -294,7 +301,7 @@ func (store *Store) RemoteRoom(ctx context.Context, accountID, id string) (Remot
 
 // DeleteRemoteRoom forgets a pointer. Forgetting one already gone succeeds.
 func (store *Store) DeleteRemoteRoom(ctx context.Context, accountID, id string) error {
-	if _, err := store.pool.Exec(ctx, `DELETE FROM remote_rooms WHERE account_id = $1 AND id = $2`,
+	if _, err := store.db(ctx).Exec(ctx, `DELETE FROM remote_rooms WHERE account_id = $1 AND id = $2`,
 		accountID, id); err != nil {
 		return fmt.Errorf("delete remote room: %w", err)
 	}

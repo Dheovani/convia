@@ -20,6 +20,7 @@ import (
 	"convia/internal/database"
 	"convia/internal/departure"
 	"convia/internal/events"
+	"convia/internal/events/journal"
 	"convia/internal/events/redis"
 	"convia/internal/idempotency"
 	"convia/internal/invitations"
@@ -190,12 +191,17 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	dispatcher := webhooks.NewDispatcher(webhookStore, destinations, logger)
 
 	/*
-		One announcer, two promises. The broker reaches whoever is connected now
-		and cannot fail; the dispatcher records what is owed to registered
-		destinations and can. internal/events/announcer.go says what happens
-		when the second one does.
+		Events that must not be lost are recorded in the journal and queued for
+		webhooks by the transaction that made them happen. This instance follows
+		the journal to feed its own streams, and replays it to a stream that
+		resumes. See docs/adr/0017.
 	*/
-	announcer := events.NewAnnouncer(broker, dispatcher, logger)
+	eventJournal := journal.New(pool)
+	follower, err := journal.NewFollower(signalContext, eventJournal, broker, logger)
+	if err != nil {
+		return fmt.Errorf("start following the event journal: %w", err)
+	}
+	announcer := events.NewJournaledAnnouncer(broker, eventJournal, dispatcher, follower.Wake, logger)
 
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
 
@@ -299,7 +305,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantMessages:     messages.NewTenantHandler(logger, messageService),
 		PersonalMessages:   messages.NewSessionHandler(logger, messageService, roomService),
 		PersonalRooms:      rooms.NewSessionHandler(logger, roomService, userService),
-		TenantEvents:       events.NewTenantHandler(logger, broker),
+		TenantEvents:       events.NewTenantHandler(logger, broker, follower),
 		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
 		TenantPresence:     presence.NewTenantHandler(logger, presenceService),
 		PersonalPresence:   presence.NewPersonalHandler(logger, presenceService, roomService),
@@ -312,7 +318,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
-		PersonalEvents:       events.NewPersonHandler(logger, broker, sessionService, roomService),
+		PersonalEvents:       events.NewPersonHandler(logger, broker, follower, sessionService, roomService),
 
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),
@@ -396,6 +402,9 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		defer close(delivered)
 		dispatcher.Run(delivering)
 	}()
+
+	// The journal is followed for as long as deliveries run.
+	go follower.Run(delivering)
 
 	httpServer := server.New(cfg.Address(), logger, dependencies)
 	serverErrors := make(chan error, 1)
@@ -501,11 +510,12 @@ func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlan
 }
 
 /*
-openRelay builds whatever carries events to the other instances, if any.
+openRelay builds whatever carries presence to the other instances, if any.
+Recorded events need no relay: every instance follows the journal.
 
 A nil relay is a supported deployment and the ordinary one: a single instance
 needs nothing carried anywhere, and every subscriber is served by the instance
-that produced the event. That is reported at info rather than as a warning, for
+that produced the change. That is reported at info rather than as a warning, for
 the same reason a missing media plane is — an operator running one instance
 should not be told at every start-up that something is wrong.
 
@@ -516,12 +526,12 @@ here is what an operator compares against what they deployed.
 
 Reaching the channel is checked once and does not stop the process. An instance
 that refused to start because Redis was unreachable would take a working API
-offline over a stream that degrades to what it was before M16 — so the failure
+offline over presence that degrades to what it was before M16 — so the failure
 is reported loudly and serving continues.
 */
 func openRelay(settings config.Redis, logger *slog.Logger) (*redis.Relay, error) {
 	if !settings.Configured() {
-		logger.Info("no shared channel is configured, so event streams are served by this instance alone",
+		logger.Info("no shared channel is configured, so presence changes reach this instance's streams alone",
 			"remedy", "set CONVIA_REDIS_URL when running more than one instance")
 		return nil, nil
 	}
@@ -553,7 +563,7 @@ func openRelay(settings config.Redis, logger *slog.Logger) (*redis.Relay, error)
 	defer cancel()
 
 	if err := relay.Ping(probe); err != nil {
-		logger.Error("the shared channel could not be reached, so event streams are served by this instance alone until it comes back",
+		logger.Error("the shared channel could not be reached, so presence changes reach this instance's streams alone until it comes back",
 			"error", err, "address", redis.Redacted(settings.URL))
 	}
 	return relay, nil

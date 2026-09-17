@@ -9,6 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // uniqueViolation is the SQLSTATE PostgreSQL reports for a violated unique
@@ -35,6 +37,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 // row mirrors the projection above.
@@ -73,7 +80,7 @@ func (store *Store) Create(ctx context.Context, account Account, digest Digest, 
 		                      user_id, status, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		account.ID, account.Username, string(digest), []byte(account.PublicKey), string(sealed),
 		account.UserID, string(account.Status), account.CreatedAt, account.UpdatedAt)
 	switch {
@@ -96,7 +103,7 @@ func (store *Store) UsernameTaken(ctx context.Context, username string) (bool, e
 	const statement = `SELECT EXISTS (SELECT 1 FROM accounts WHERE username = $1)`
 
 	var taken bool
-	if err := store.pool.QueryRow(ctx, statement, username).Scan(&taken); err != nil {
+	if err := store.db(ctx).QueryRow(ctx, statement, username).Scan(&taken); err != nil {
 		return false, fmt.Errorf("check username: %w", err)
 	}
 	return taken, nil
@@ -121,7 +128,7 @@ func (store *Store) Credentials(ctx context.Context, username string) (Account, 
 		digest string
 		sealed string
 	)
-	err := store.pool.QueryRow(ctx, statement, username).Scan(&record.ID, &record.Username,
+	err := store.db(ctx).QueryRow(ctx, statement, username).Scan(&record.ID, &record.Username,
 		&record.PublicKey, &record.UserID, &record.Status, &record.CreatedAt, &record.UpdatedAt,
 		&digest, &sealed)
 	switch {
@@ -138,7 +145,7 @@ func (store *Store) Credentials(ctx context.Context, username string) (Account, 
 func (store *Store) Get(ctx context.Context, id string) (Account, error) {
 	const statement = `SELECT ` + columns + ` FROM accounts WHERE id = $1`
 
-	rows, err := store.pool.Query(ctx, statement, id)
+	rows, err := store.db(ctx).Query(ctx, statement, id)
 	if err != nil {
 		return Account{}, fmt.Errorf("query account: %w", err)
 	}
@@ -166,7 +173,7 @@ func (store *Store) SetSecrets(ctx context.Context, id string, digest Digest, se
 	const statement = `UPDATE accounts SET password_digest = $2, sealed_private_key = $3, updated_at = $4
 	                   WHERE id = $1`
 
-	tag, err := store.pool.Exec(ctx, statement, id, string(digest), string(sealed), at)
+	tag, err := store.db(ctx).Exec(ctx, statement, id, string(digest), string(sealed), at)
 	switch {
 	case err != nil:
 		return fmt.Errorf("update secrets: %w", err)
@@ -180,7 +187,7 @@ func (store *Store) SetSecrets(ctx context.Context, id string, digest Digest, se
 func (store *Store) SetStatus(ctx context.Context, id string, status Status, at time.Time) (Account, error) {
 	const statement = `UPDATE accounts SET status = $2, updated_at = $3 WHERE id = $1 RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, id, string(status), at)
+	rows, err := store.db(ctx).Query(ctx, statement, id, string(status), at)
 	if err != nil {
 		return Account{}, fmt.Errorf("update account: %w", err)
 	}
@@ -200,7 +207,7 @@ Delete removes an account, which frees its username. Its sessions and its
 pointers to rooms elsewhere go with it, by the foreign keys.
 */
 func (store *Store) Delete(ctx context.Context, id string) error {
-	tag, err := store.pool.Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id)
+	tag, err := store.db(ctx).Exec(ctx, `DELETE FROM accounts WHERE id = $1`, id)
 	switch {
 	case err != nil:
 		return fmt.Errorf("delete account: %w", err)

@@ -53,6 +53,7 @@ var mayReach = map[string]string{
 	"convia/internal/api":         "the request identifier and the one public error shape",
 	"convia/internal/credentials": "the scopes that decide what a subscriber is entitled to",
 	"convia/internal/sessions":    "the signed-in person a person's stream is for, and whether they still are",
+	"convia/internal/transaction": "the transaction an announcement belongs to, which knows no domain",
 }
 
 /*

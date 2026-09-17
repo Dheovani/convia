@@ -104,14 +104,80 @@ still be said.
 */
 const statusSessionEnded websocket.StatusCode = 4001
 
-// TenantHandler serves an application its own live control events.
-type TenantHandler struct {
-	logger *slog.Logger
-	broker *Broker
+/*
+statusTooOld tells a subscriber the cursor it resumed from is further back than
+Convia keeps events, so what it missed cannot be replayed. It re-reads over REST
+and connects again without a cursor, as after falling behind.
+*/
+const statusTooOld websocket.StatusCode = 4002
+
+// resumeParameter names the cursor a reconnecting client hands back.
+const resumeParameter = "after"
+
+/*
+resumption reads the cursor a request resumes from, if it names one. A cursor
+Convia did not write is refused before anything else, as a malformed request.
+*/
+func resumption(request *http.Request) (Cursor, bool, error) {
+	text := request.URL.Query().Get(resumeParameter)
+	if text == "" {
+		return Cursor{}, false, nil
+	}
+	cursor, err := ParseCursor(text)
+	if err != nil {
+		return Cursor{}, false, err
+	}
+	return cursor, true, nil
 }
 
-func NewTenantHandler(logger *slog.Logger, broker *Broker) *TenantHandler {
-	return &TenantHandler{logger: logger, broker: broker}
+/*
+resume is how a stream catches up before it goes live.
+
+The stream has already subscribed, so asking for the position afterwards leaves
+no gap: everything up to the position is replayed from the journal, everything
+after it arrives live, and anything that arrives both ways is written once.
+*/
+type resume struct {
+	after    Cursor
+	replayer Replayer
+}
+
+// run replays what the stream missed and returns the cursor live delivery continues from.
+func (from *resume) run(ctx context.Context, connection *websocket.Conn, stream *Stream) (Cursor, error) {
+	if from.replayer == nil {
+		return Cursor{}, ErrCursorTooOld
+	}
+
+	until := from.replayer.Position()
+	if !from.after.Before(until) {
+		return from.after, nil
+	}
+
+	err := from.replayer.Replay(ctx, stream.applicationID, from.after, until, func(event Event) error {
+		if !stream.replays(event) {
+			return nil
+		}
+		writing, cancel := context.WithTimeout(ctx, writeTimeout)
+		defer cancel()
+		if err := wsjson.Write(writing, connection, stream.outgoing(event)); err != nil {
+			return err
+		}
+		stream.delivered.Add(1)
+		return nil
+	})
+	return until, err
+}
+
+// TenantHandler serves an application its own live control events.
+type TenantHandler struct {
+	logger   *slog.Logger
+	broker   *Broker
+	replayer Replayer
+}
+
+// NewTenantHandler serves streams that can resume from replayer, which may be nil when nothing is recorded.
+func NewTenantHandler(logger *slog.Logger, broker *Broker, replayer Replayer) *TenantHandler {
+	return &TenantHandler{logger: logger, broker: broker, replayer: replayer}
 }
 
 /*
@@ -135,12 +201,24 @@ func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http
 		return
 	}
 
+	after, resuming, err := resumption(request)
+	if err != nil {
+		handler.fail(response, request, api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest,
+			"The after parameter is not a cursor Convia gave out."))
+		return
+	}
+
 	stream, err := Authorize(handler.broker, principal).Subscribe()
 	if err != nil {
 		handler.refuse(response, request, principal, err)
 		return
 	}
 	defer stream.Close()
+
+	var from *resume
+	if resuming {
+		from = &resume{after: after, replayer: handler.replayer}
+	}
 
 	connection, ok := accept(handler.logger, response, request, "application_id", principal.ApplicationID)
 	if !ok {
@@ -154,7 +232,7 @@ func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http
 		"active_streams", handler.broker.Active(),
 	)
 
-	status, reason := deliver(request.Context(), connection, stream, nil)
+	status, reason := deliver(request.Context(), connection, stream, nil, from)
 
 	handler.logger.Info("event stream closed",
 		"application_id", principal.ApplicationID,
@@ -233,6 +311,7 @@ func deliver(
 	connection *websocket.Conn,
 	stream *Stream,
 	again *recheck,
+	from *resume,
 ) (websocket.StatusCode, string) {
 	listening, stopListening := context.WithCancel(ctx)
 	defer stopListening()
@@ -244,7 +323,7 @@ func deliver(
 		refuseClientMessages(listening, connection)
 	}()
 
-	status, reason := pump(listening, connection, stream, again)
+	status, reason := pump(listening, connection, stream, again, from)
 
 	/*
 		The close frame goes first and the reader is waited for second. Closing
@@ -271,7 +350,20 @@ func pump(
 	connection *websocket.Conn,
 	stream *Stream,
 	again *recheck,
+	from *resume,
 ) (websocket.StatusCode, string) {
+	var last Cursor
+	if from != nil {
+		var err error
+		last, err = from.run(ctx, connection, stream)
+		if errors.Is(err, ErrCursorTooOld) {
+			return statusTooOld, "the cursor is older than the events Convia keeps"
+		}
+		if err != nil {
+			return closeStatusFor(err), "the missed events could not be delivered"
+		}
+	}
+
 	ticker := time.NewTicker(heartbeat)
 	defer ticker.Stop()
 
@@ -293,6 +385,11 @@ func pump(
 			return closeFor(stream.Ending())
 
 		case event := <-stream.Events():
+			// Already written by the replay.
+			if cursor, recorded := cursorOf(event); recorded && !last.Before(cursor) {
+				continue
+			}
+
 			writing, cancel := context.WithTimeout(ctx, writeTimeout)
 			err := wsjson.Write(writing, connection, stream.outgoing(event))
 			cancel()
@@ -458,6 +555,7 @@ and read again on an interval along with the session.
 type PersonHandler struct {
 	logger   *slog.Logger
 	broker   *Broker
+	replayer Replayer
 	sessions sessionAuthenticator
 	rooms    memberships
 
@@ -469,10 +567,12 @@ type PersonHandler struct {
 func NewPersonHandler(
 	logger *slog.Logger,
 	broker *Broker,
+	replayer Replayer,
 	sessions sessionAuthenticator,
 	rooms memberships,
 ) *PersonHandler {
-	return &PersonHandler{logger: logger, broker: broker, sessions: sessions, rooms: rooms, every: recheckInterval}
+	return &PersonHandler{logger: logger, broker: broker, replayer: replayer, sessions: sessions, rooms: rooms,
+		every: recheckInterval}
 }
 
 /*
@@ -498,6 +598,13 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 		return
 	}
 
+	after, resuming, err := resumption(request)
+	if err != nil {
+		handler.fail(response, request, api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest,
+			"The after parameter is not a cursor Convia gave out."))
+		return
+	}
+
 	stream, err := AsPerson(handler.broker, principal).Subscribe()
 	if err != nil {
 		handler.refuse(response, request, principal, err)
@@ -514,6 +621,11 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
 		return
+	}
+
+	var from *resume
+	if resuming {
+		from = &resume{after: after, replayer: handler.replayer}
 	}
 
 	connection, ok := accept(handler.logger, response, request, "session_id", principal.SessionID)
@@ -533,7 +645,7 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 		run: func(ctx context.Context) (websocket.StatusCode, string, bool) {
 			return handler.recheck(ctx, token, principal, stream)
 		},
-	})
+	}, from)
 
 	handler.logger.Info("person event stream closed",
 		"session_id", principal.SessionID,

@@ -54,10 +54,13 @@ and is why every delivery carries an identifier a consumer can recognize.
 Nothing here can promise otherwise: a destination that received a body and
 failed to answer is indistinguishable from one that never received it.
 */
-func (store *Store) Claim(ctx context.Context, limit int, lease time.Duration,
-	at time.Time) ([]Work, error) {
-
-	rows, err := store.pool.Query(ctx, `
+func (store *Store) Claim(
+	ctx context.Context,
+	limit int,
+	lease time.Duration,
+	at time.Time,
+) ([]Work, error) {
+	rows, err := store.db(ctx).Query(ctx, `
         WITH due AS (
             SELECT id FROM webhook_deliveries
             WHERE status = 'pending' AND next_attempt_at <= $1
@@ -101,7 +104,7 @@ statement about an endpoint that has stopped working rather than about one that
 had a bad afternoon.
 */
 func (store *Store) Succeed(ctx context.Context, work Work, statusCode int, at time.Time) error {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -136,10 +139,15 @@ The status code is kept when there was one and the error when there was not,
 because the two describe different failures: a destination that answered `500`
 is there and unhappy, while one that timed out may not be there at all.
 */
-func (store *Store) Retry(ctx context.Context, work Work, statusCode int, reason string,
-	due time.Time, at time.Time) error {
-
-	_, err := store.pool.Exec(ctx, `
+func (store *Store) Retry(
+	ctx context.Context,
+	work Work,
+	statusCode int,
+	reason string,
+	due time.Time,
+	at time.Time,
+) error {
+	_, err := store.db(ctx).Exec(ctx, `
         UPDATE webhook_deliveries
         SET attempts = $2, last_status_code = $3, last_error = $4,
             next_attempt_at = $5, updated_at = $6
@@ -152,17 +160,20 @@ func (store *Store) Retry(ctx context.Context, work Work, statusCode int, reason
 }
 
 /*
-GiveUp records a delivery Convia has stopped trying, and counts it against the
-endpoint.
+GiveUp records a delivery Convia has stopped trying, and counts it against the endpoint.
 
 The count is what [Store.ExhaustedEndpoints] later reads to disable a
 destination that has stopped working, so giving up on one delivery and giving
 up on an endpoint stay separate decisions.
 */
-func (store *Store) GiveUp(ctx context.Context, work Work, statusCode int, reason string,
-	at time.Time) error {
-
-	transaction, err := store.pool.Begin(ctx)
+func (store *Store) GiveUp(
+	ctx context.Context,
+	work Work,
+	statusCode int,
+	reason string,
+	at time.Time,
+) error {
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
 	}
@@ -202,7 +213,7 @@ had ended. A webhook that late is worse than none, because a consumer would act
 on it.
 */
 func (store *Store) Expire(ctx context.Context, before time.Time, at time.Time) (int, error) {
-	tag, err := store.pool.Exec(ctx, `
+	tag, err := store.db(ctx).Exec(ctx, `
         UPDATE webhook_deliveries
         SET status = 'failed', next_attempt_at = NULL, updated_at = $2,
             attempts = GREATEST(attempts, 1),
@@ -225,10 +236,13 @@ application nothing but a growing list of failures. Disabling stops the
 deliveries and says why, and the application re-enables it once the destination
 is fixed.
 */
-func (store *Store) ExhaustedEndpoints(ctx context.Context, threshold int, reason string,
-	at time.Time) ([]Endpoint, error) {
-
-	rows, err := store.pool.Query(ctx, `
+func (store *Store) ExhaustedEndpoints(
+	ctx context.Context,
+	threshold int,
+	reason string,
+	at time.Time,
+) ([]Endpoint, error) {
+	rows, err := store.db(ctx).Query(ctx, `
         UPDATE webhook_endpoints
         SET status = 'disabled', disabled_reason = $2, updated_at = $3
         WHERE status = 'enabled' AND consecutive_failures >= $1
@@ -244,7 +258,7 @@ func (store *Store) ExhaustedEndpoints(ctx context.Context, threshold int, reaso
 	}
 
 	for _, endpoint := range disabled {
-		if _, err := store.pool.Exec(ctx, `
+		if _, err := store.db(ctx).Exec(ctx, `
             UPDATE webhook_deliveries
             SET status = 'failed', next_attempt_at = NULL, updated_at = $2,
                 attempts = GREATEST(attempts, 1), last_error = $3
@@ -258,7 +272,7 @@ func (store *Store) ExhaustedEndpoints(ctx context.Context, threshold int, reaso
 
 // GetDelivery returns one of an application's deliveries.
 func (store *Store) GetDelivery(ctx context.Context, applicationID, id string) (Delivery, error) {
-	rows, err := store.pool.Query(ctx,
+	rows, err := store.db(ctx).Query(ctx,
 		`SELECT `+deliveryColumns+` FROM webhook_deliveries WHERE application_id = $1 AND id = $2`,
 		applicationID, id)
 	if err != nil {
@@ -280,9 +294,13 @@ This is the audit `M15-006` asks for, and it is the reason a delivery is a row
 rather than a log line: an application can ask what happened without anybody
 having to have kept the answer somewhere else.
 */
-func (store *Store) ListDeliveries(ctx context.Context, applicationID, endpointID string,
-	cursor *Cursor, limit int) ([]Delivery, bool, error) {
-
+func (store *Store) ListDeliveries(
+	ctx context.Context,
+	applicationID,
+	endpointID string,
+	cursor *Cursor,
+	limit int,
+) ([]Delivery, bool, error) {
 	query := `SELECT ` + deliveryColumns + ` FROM webhook_deliveries WHERE application_id = $1`
 	arguments := []any{applicationID}
 
@@ -298,7 +316,7 @@ func (store *Store) ListDeliveries(ctx context.Context, applicationID, endpointI
 	arguments = append(arguments, limit+1)
 	query += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT $%d`, len(arguments))
 
-	rows, err := store.pool.Query(ctx, query, arguments...)
+	rows, err := store.db(ctx).Query(ctx, query, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("list webhook deliveries: %w", err)
 	}

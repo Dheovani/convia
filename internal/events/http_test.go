@@ -28,7 +28,7 @@ what it does once it has.
 func listening(t *testing.T, broker *Broker, principal credentials.Principal) *httptest.Server {
 	t.Helper()
 
-	handler := NewTenantHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker)
+	handler := NewTenantHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil)
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		handler.Stream(response, request.WithContext(
 			credentials.ContextWithPrincipal(request.Context(), principal)))

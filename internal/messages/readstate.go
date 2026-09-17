@@ -63,7 +63,7 @@ func (store *Store) MarkRead(ctx context.Context, state ReadState) (ReadState, e
 		sequence  int64
 		updatedAt time.Time
 	)
-	err := store.pool.QueryRow(ctx, statement,
+	err := store.db(ctx).QueryRow(ctx, statement,
 		state.ApplicationID, state.RoomID, state.UserID, state.Sequence, state.UpdatedAt).
 		Scan(&sequence, &updatedAt)
 	if err != nil {
@@ -102,7 +102,7 @@ func (store *Store) ReadStateOf(ctx context.Context, applicationID, roomID, user
 	state := ReadState{ApplicationID: applicationID, RoomID: roomID, UserID: userID}
 
 	var updatedAt time.Time
-	err := store.pool.QueryRow(ctx, statement, applicationID, roomID, userID).
+	err := store.db(ctx).QueryRow(ctx, statement, applicationID, roomID, userID).
 		Scan(&state.Sequence, &updatedAt, &state.Unread)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return state, nil
@@ -128,7 +128,7 @@ which is a fact about them, so it goes when they do.
 func (store *Store) ForgetReader(ctx context.Context, applicationID, userID string) (int64, error) {
 	const statement = `DELETE FROM room_read_state WHERE application_id = $1 AND user_id = $2`
 
-	tag, err := store.pool.Exec(ctx, statement, applicationID, userID)
+	tag, err := store.db(ctx).Exec(ctx, statement, applicationID, userID)
 	if err != nil {
 		return 0, fmt.Errorf("forget a reader: %w", err)
 	}
@@ -146,7 +146,7 @@ func (store *Store) LastSequence(ctx context.Context, roomID string) (int64, err
 	const statement = `SELECT coalesce(max(sequence), 0) FROM messages WHERE room_id = $1`
 
 	var sequence int64
-	if err := store.pool.QueryRow(ctx, statement, roomID).Scan(&sequence); err != nil {
+	if err := store.db(ctx).QueryRow(ctx, statement, roomID).Scan(&sequence); err != nil {
 		return 0, fmt.Errorf("read the last sequence: %w", err)
 	}
 	return sequence, nil
@@ -184,7 +184,7 @@ func (store *Store) UnreadByRoom(ctx context.Context, applicationID, userID stri
 	                     AND messages.sequence > coalesce(state.sequence, 0)
 	                   GROUP BY messages.room_id`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, userID, roomIDs)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, userID, roomIDs)
 	if err != nil {
 		return nil, fmt.Errorf("count unread messages: %w", err)
 	}

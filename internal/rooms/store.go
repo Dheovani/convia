@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"convia/internal/transaction"
 	"convia/internal/users"
 )
 
@@ -39,6 +40,19 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+/*
+Atomically runs work in one transaction, together with the events it announces.
+See package transaction.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -103,7 +117,7 @@ func optionalAlias(alias string) *string {
 
 // Create inserts a room, refusing an alias another room already holds.
 func (store *Store) Create(ctx context.Context, room Room) error {
-	return insertRoom(ctx, store.pool, room)
+	return insertRoom(ctx, store.db(ctx), room)
 }
 
 /*
@@ -115,7 +129,7 @@ in — and on the session surface, where reaching a room requires being in it,
 nobody who can see that room could ever reach it again.
 */
 func (store *Store) CreateWithMember(ctx context.Context, room Room, member Member) error {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin creating a room: %w", err)
 	}
@@ -192,7 +206,7 @@ func violatesAlias(err error) bool {
 func (store *Store) Get(ctx context.Context, applicationID, id string) (Room, error) {
 	const statement = `SELECT ` + columns + ` FROM rooms WHERE application_id = $1 AND id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id)
 	if err != nil {
 		return Room{}, fmt.Errorf("query room: %w", err)
 	}
@@ -218,7 +232,7 @@ believing it is free.
 func (store *Store) GetByAlias(ctx context.Context, applicationID, alias string) (Room, error) {
 	const statement = `SELECT ` + columns + ` FROM rooms WHERE application_id = $1 AND alias = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, alias)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, alias)
 	if err != nil {
 		return Room{}, fmt.Errorf("query room by alias: %w", err)
 	}
@@ -260,7 +274,7 @@ func (store *Store) List(ctx context.Context, applicationID string, filter *Stat
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query rooms: %w", err)
 	}
@@ -341,7 +355,7 @@ func (store *Store) write(ctx context.Context, statement string, arguments []any
 	}
 	statement += ` RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		if violatesAlias(err) {
 			return Room{}, ErrAliasTaken
@@ -394,7 +408,7 @@ func (store *Store) Delete(ctx context.Context, applicationID, id string, at tim
 	const statement = `UPDATE rooms SET status = $1, updated_at = $2
 	                   WHERE application_id = $3 AND id = $4 AND status <> $1`
 
-	tag, err := store.pool.Exec(ctx, statement, StatusDeleted, at, applicationID, id)
+	tag, err := store.db(ctx).Exec(ctx, statement, StatusDeleted, at, applicationID, id)
 	if err != nil {
 		return false, fmt.Errorf("delete room: %w", err)
 	}
@@ -463,7 +477,7 @@ both succeed. A newcomer to a room left without an owner may become its owner:
 see settleOwner.
 */
 func (store *Store) AddMember(ctx context.Context, member Member, honorBans bool) (Member, bool, error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return Member{}, false, fmt.Errorf("begin adding a member: %w", err)
 	}
@@ -527,7 +541,7 @@ func (store *Store) Member(ctx context.Context, applicationID, roomID, userID st
 	const statement = `SELECT ` + memberColumns + ` FROM room_members
 	                   WHERE application_id = $1 AND room_id = $2 AND user_id = $3`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, roomID, userID)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, roomID, userID)
 	if err != nil {
 		return Member{}, fmt.Errorf("query a member: %w", err)
 	}
@@ -556,7 +570,7 @@ An owner who goes leaves the room to its next owner, in the same transaction:
 see settleOwner.
 */
 func (store *Store) RemoveMember(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin removing a member: %w", err)
 	}
@@ -637,7 +651,7 @@ func (store *Store) RoomsOf(ctx context.Context, applicationID, userID string, a
 func (store *Store) RoomIDsOf(ctx context.Context, applicationID, userID string) ([]string, error) {
 	const statement = `SELECT room_id FROM room_members WHERE application_id = $1 AND user_id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, userID)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("query a person's rooms: %w", err)
 	}
@@ -650,7 +664,7 @@ func (store *Store) RoomIDsOf(ctx context.Context, applicationID, userID string)
 }
 
 func (store *Store) pageMembers(ctx context.Context, statement string, arguments []any, limit int) ([]Member, bool, error) {
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query members: %w", err)
 	}
@@ -683,7 +697,7 @@ The rooms are locked in identifier order before anything is removed, which is
 the order every other writer that holds more than one room's lock would take.
 */
 func (store *Store) ForgetMemberships(ctx context.Context, applicationID, userID string) (int64, error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin forgetting memberships: %w", err)
 	}
@@ -730,7 +744,7 @@ an addition racing the ban either lands before it and is removed by it, or
 lands after it and is refused.
 */
 func (store *Store) Ban(ctx context.Context, ban Ban) (banned bool, removed bool, err error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return false, false, fmt.Errorf("begin banning: %w", err)
 	}
@@ -768,7 +782,7 @@ func (store *Store) Ban(ctx context.Context, ban Ban) (banned bool, removed bool
 func (store *Store) Unban(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
 	const statement = `DELETE FROM room_bans WHERE application_id = $1 AND room_id = $2 AND user_id = $3`
 
-	tag, err := store.pool.Exec(ctx, statement, applicationID, roomID, userID)
+	tag, err := store.db(ctx).Exec(ctx, statement, applicationID, roomID, userID)
 	if err != nil {
 		return false, fmt.Errorf("lift a ban: %w", err)
 	}
@@ -777,7 +791,7 @@ func (store *Store) Unban(ctx context.Context, applicationID, roomID, userID str
 
 // Banned reports whether somebody is kept out of a room.
 func (store *Store) Banned(ctx context.Context, applicationID, roomID, userID string) (bool, error) {
-	return isBanned(ctx, store.pool, applicationID, roomID, userID)
+	return isBanned(ctx, store.db(ctx), applicationID, roomID, userID)
 }
 
 func isBanned(ctx context.Context, target querier, applicationID, roomID, userID string) (bool, error) {
@@ -922,9 +936,14 @@ Only somebody who could hold the room can moderate it, and the owner is never
 flagged: the owner already does everything a moderator does. Anybody else is
 ErrUserNotFound.
 */
-func (store *Store) SetModerator(ctx context.Context, applicationID, roomID, userID string,
-	moderator bool) (bool, error) {
-	transaction, err := store.pool.Begin(ctx)
+func (store *Store) SetModerator(
+	ctx context.Context,
+	applicationID,
+	roomID,
+	userID string,
+	moderator bool,
+) (bool, error) {
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("begin naming a moderator: %w", err)
 	}
@@ -966,7 +985,7 @@ at once cannot both succeed: the second finds the owner already changed and is
 ErrNotOwner.
 */
 func (store *Store) TransferOwner(ctx context.Context, applicationID, roomID, from, to string) error {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin handing the room over: %w", err)
 	}
@@ -1043,7 +1062,7 @@ func (store *Store) Many(ctx context.Context, applicationID string, ids []string
 	const statement = `SELECT ` + columns + ` FROM rooms
 	                   WHERE application_id = $1 AND id = ANY($2)`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, ids)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, ids)
 	if err != nil {
 		return nil, fmt.Errorf("query rooms: %w", err)
 	}
@@ -1079,7 +1098,7 @@ func (store *Store) SharesRoom(ctx context.Context, applicationID, userID, other
 	                         AND rooms.status <> $4)`
 
 	var shares bool
-	if err := store.pool.QueryRow(ctx, statement, applicationID, userID, otherID,
+	if err := store.db(ctx).QueryRow(ctx, statement, applicationID, userID, otherID,
 		StatusDeleted).Scan(&shares); err != nil {
 		return false, fmt.Errorf("check for a shared room: %w", err)
 	}
@@ -1116,7 +1135,7 @@ func (store *Store) LocalNeighbours(
 	                             AND theirs.user_id = users.id
 	                             AND rooms.status <> $4))`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, userID, candidates, StatusDeleted)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, userID, candidates, StatusDeleted)
 	if err != nil {
 		return nil, fmt.Errorf("query neighbours: %w", err)
 	}
@@ -1163,7 +1182,7 @@ func (store *Store) Acquaintances(ctx context.Context, applicationID, userID str
 	}
 	statement += ` ORDER BY theirs.user_id LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query acquaintances: %w", err)
 	}

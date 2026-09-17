@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"convia/internal/events"
+	"convia/internal/transaction"
 )
 
 const (
@@ -193,9 +194,9 @@ func NewDispatcher(store *Store, guard Destinations, logger *slog.Logger) *Dispa
 Enqueue records what an event owes to this application's endpoints.
 
 It satisfies the durable sink [convia/internal/events.Announcer] writes to, and
-it is the one part of webhooks that runs inside a request. That is not an
-oversight: a delivery that is only in memory is a delivery a restart loses, and
-"reliably" is the word this milestone's goal uses.
+it is the one part of webhooks that runs inside a request, in the transaction
+that made the event happen: a delivery is owed exactly when the change it
+reports committed. See docs/adr/0017.
 
 It costs nothing for a tenant with no endpoints, which is every tenant until one
 registers: the first statement returns no rows and the second never runs.
@@ -214,7 +215,7 @@ func (dispatcher *Dispatcher) Enqueue(ctx context.Context, event events.Event) e
 		return nil
 	}
 
-	dispatcher.wake()
+	transaction.AfterCommit(ctx, func(context.Context) { dispatcher.wake() })
 	return nil
 }
 

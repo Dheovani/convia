@@ -1,6 +1,6 @@
 # ADR 0003 — A one-directional, in-process control-event stream
 
-**Status:** Accepted
+**Status:** Accepted; streams are fed from a journal and resume since [ADR 0017](0017-events-are-recorded-with-the-change-that-caused-them.md)
 **Date:** 2026-09-10
 **Milestone:** M14 — Real-Time Control Events
 

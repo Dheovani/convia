@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares.
@@ -25,11 +27,16 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
+}
+
 // Create inserts a new application.
 func (store *Store) Create(ctx context.Context, application Application) error {
 	const statement = `INSERT INTO applications (` + columns + `) VALUES ($1, $2, $3, $4, $5)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		application.ID,
 		application.Name,
 		application.Status,
@@ -53,7 +60,7 @@ func (store *Store) CreateIfAbsent(ctx context.Context, application Application)
 	const statement = `INSERT INTO applications (` + columns + `) VALUES ($1, $2, $3, $4, $5)
 	                   ON CONFLICT (id) DO NOTHING`
 
-	tag, err := store.pool.Exec(ctx, statement,
+	tag, err := store.db(ctx).Exec(ctx, statement,
 		application.ID,
 		application.Name,
 		application.Status,
@@ -75,7 +82,7 @@ from the API surface even while its row is retained for the erasure window.
 func (store *Store) Get(ctx context.Context, id string) (Application, error) {
 	const statement = `SELECT ` + columns + ` FROM applications WHERE id = $1 AND status <> $2`
 
-	rows, err := store.pool.Query(ctx, statement, id, StatusDeleted)
+	rows, err := store.db(ctx).Query(ctx, statement, id, StatusDeleted)
 	if err != nil {
 		return Application{}, fmt.Errorf("query application: %w", err)
 	}
@@ -120,7 +127,7 @@ func (store *Store) List(ctx context.Context, cursor *Cursor, limit int) ([]Appl
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query applications: %w", err)
 	}
@@ -174,7 +181,7 @@ func (store *Store) update(ctx context.Context, statement string, arguments []an
 	}
 	statement += ` RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return Application{}, fmt.Errorf("update application: %w", err)
 	}
@@ -228,7 +235,7 @@ func (store *Store) Delete(ctx context.Context, id string, updatedAt time.Time) 
 // confirmAlreadyDeleted distinguishes a repeated delete from an unknown application.
 func (store *Store) confirmAlreadyDeleted(ctx context.Context, id string) error {
 	var exists bool
-	err := store.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM applications WHERE id = $1)`, id).Scan(&exists)
+	err := store.db(ctx).QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM applications WHERE id = $1)`, id).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("check application existence: %w", err)
 	}

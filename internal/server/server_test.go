@@ -285,14 +285,14 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		PersonalMessages: messages.NewSessionHandler(logger, stubMessages{message: sampleMessage()},
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
-		PersonalEvents: events.NewPersonHandler(logger, events.NewBroker(),
+		PersonalEvents: events.NewPersonHandler(logger, events.NewBroker(), nil,
 			stubSessionAuthenticator{principal: samplePerson()}, stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
 			what these tests want to open and close.
 		*/
-		TenantEvents: events.NewTenantHandler(logger, events.NewBroker()),
+		TenantEvents: events.NewTenantHandler(logger, events.NewBroker(), nil),
 		TenantWebhooks: webhooks.NewTenantHandler(logger, stubWebhooks{
 			endpoint: sampleWebhookEndpoint(), delivery: sampleWebhookDelivery()}),
 		/*

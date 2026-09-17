@@ -39,7 +39,7 @@ func (store *Store) EraseAuthor(ctx context.Context, applicationID, userID strin
 	                       deleted_at = coalesce(deleted_at, $1)
 	                   WHERE application_id = $2 AND author_user_id = $3`
 
-	tag, err := store.pool.Exec(ctx, statement, at, applicationID, userID)
+	tag, err := store.db(ctx).Exec(ctx, statement, at, applicationID, userID)
 	if err != nil {
 		return 0, fmt.Errorf("erase an author: %w", err)
 	}

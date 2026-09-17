@@ -86,13 +86,12 @@ type userLookup interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It returns no error: telling somebody a roster changed must not be able to undo
-the change, which has already committed. The context is there because
-announcing also records what is owed to the destinations an application
-registered, which is a write with a deadline. events.Announcer satisfies it.
+It is called inside the transaction that made the change, and records the
+event there: an error means the change must not commit either. See
+docs/adr/0017. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(ctx context.Context, event events.Event)
+	Publish(ctx context.Context, event events.Event) error
 }
 
 // Service applies Convia's rules for who is in a call.
@@ -181,24 +180,22 @@ func (service *Service) Join(ctx context.Context, applicationID, callID string,
 	}
 
 	joined := now()
-	participant, admitted, err := service.store.Join(ctx, Participant{
-		ID:            NewID(),
-		ApplicationID: applicationID,
-		CallID:        call.ID,
-		UserID:        admission.UserID,
-		Role:          role,
-		CreatedAt:     joined,
-		UpdatedAt:     joined,
-	}, capacity)
+	participant, admitted, err := service.changed(ctx, events.ParticipantJoined, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			return service.store.Join(ctx, Participant{
+				ID:            NewID(),
+				ApplicationID: applicationID,
+				CallID:        call.ID,
+				UserID:        admission.UserID,
+				Role:          role,
+				CreatedAt:     joined,
+				UpdatedAt:     joined,
+			}, capacity)
+		})
 	if err != nil {
 		return Participant{}, false, err
 	}
-	if !admitted {
-		return participant, false, nil
-	}
-
-	service.audit(ctx, events.ParticipantJoined, participant, call.RoomID)
-	return participant, true, nil
+	return participant, admitted, nil
 }
 
 /*
@@ -249,26 +246,22 @@ func (service *Service) AdmitGuest(ctx context.Context, applicationID, callID,
 	}
 
 	joined := now()
-	participant, admitted, err := service.store.Join(ctx, Participant{
-		ID:            NewID(),
-		ApplicationID: applicationID,
-		CallID:        call.ID,
-		InvitationID:  invitationID,
-		Role:          parsed,
-		CreatedAt:     joined,
-		UpdatedAt:     joined,
-	}, capacity)
-
+	participant, admitted, err := service.changed(ctx, events.ParticipantJoined, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			return service.store.Join(ctx, Participant{
+				ID:            NewID(),
+				ApplicationID: applicationID,
+				CallID:        call.ID,
+				InvitationID:  invitationID,
+				Role:          parsed,
+				CreatedAt:     joined,
+				UpdatedAt:     joined,
+			}, capacity)
+		})
 	if err != nil {
 		return Participant{}, false, err
 	}
-
-	if !admitted {
-		return participant, false, nil
-	}
-
-	service.audit(ctx, events.ParticipantJoined, participant, call.RoomID)
-	return participant, true, nil
+	return participant, admitted, nil
 }
 
 // Get returns one participant of an application.
@@ -352,16 +345,16 @@ func (service *Service) Leave(ctx context.Context, applicationID, id string) (Pa
 		return Participant{}, err
 	}
 
-	departed, left, err := service.store.Leave(ctx, applicationID, participant.ID, now())
+	departed, left, err := service.changed(ctx, events.ParticipantLeft, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			return service.store.Leave(ctx, applicationID, participant.ID, now())
+		})
 	if err != nil {
 		return Participant{}, err
 	}
-	if !left {
-		return departed, nil
+	if left {
+		service.calls.Disconnect(ctx, call, departed.ID)
 	}
-
-	service.audit(ctx, events.ParticipantLeft, departed, call.RoomID)
-	service.calls.Disconnect(ctx, call, departed.ID)
 	return departed, nil
 }
 
@@ -404,17 +397,16 @@ func (service *Service) Remove(ctx context.Context, applicationID, id string,
 		authority = RemoverParticipant
 	}
 
-	removed, changed, err := service.store.Remove(ctx, applicationID, participant.ID,
-		authority, actingID, normalized, now())
+	removed, changed, err := service.changed(ctx, events.ParticipantRemoved, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			return service.store.Remove(ctx, applicationID, participant.ID, authority, actingID, normalized, now())
+		})
 	if err != nil {
 		return Participant{}, err
 	}
-	if !changed {
-		return removed, nil
+	if changed {
+		service.calls.Disconnect(ctx, call, removed.ID)
 	}
-
-	service.audit(ctx, events.ParticipantRemoved, removed, call.RoomID)
-	service.calls.Disconnect(ctx, call, removed.ID)
 	return removed, nil
 }
 
@@ -460,12 +452,14 @@ func (service *Service) SetRole(ctx context.Context, applicationID, id, role, ac
 		return Participant{}, err
 	}
 
-	changed, err := service.store.SetRole(ctx, applicationID, participant.ID, parsed, now())
+	changed, _, err := service.changed(ctx, events.ParticipantRoleChanged, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			changed, err := service.store.SetRole(ctx, applicationID, participant.ID, parsed, now())
+			return changed, err == nil, err
+		})
 	if err != nil {
 		return Participant{}, err
 	}
-
-	service.audit(ctx, events.ParticipantRoleChanged, changed, call.RoomID)
 	return changed, nil
 }
 
@@ -704,7 +698,7 @@ The room is named alongside the call because a person's stream admits an event b
 the room it happened in. Without it, the people in a room would never hear who
 joined its call.
 */
-func (service *Service) audit(ctx context.Context, kind events.Type, participant Participant, roomID string) {
+func (service *Service) audit(ctx context.Context, kind events.Type, participant Participant, roomID string) error {
 	service.record(ctx, string(kind), participant)
 
 	data := events.Data{
@@ -729,8 +723,35 @@ func (service *Service) audit(ctx context.Context, kind events.Type, participant
 		data["removed_by_participant_id"] = participant.RemovedByID
 	}
 
-	service.stream.Publish(ctx, events.New(kind, participant.ApplicationID, participant.ID,
+	return service.stream.Publish(ctx, events.New(kind, participant.ApplicationID, participant.ID,
 		api.RequestIDFromContext(ctx), data))
+}
+
+/*
+changed runs a write to a roster and, when it changed something, announces it in
+the same transaction.
+*/
+func (service *Service) changed(
+	ctx context.Context,
+	kind events.Type,
+	roomID string,
+	write func(ctx context.Context) (Participant, bool, error),
+) (Participant, bool, error) {
+	var (
+		participant Participant
+		did         bool
+	)
+
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		participant, did, err = write(ctx)
+		if err != nil || !did {
+			return err
+		}
+		return service.audit(ctx, kind, participant, roomID)
+	})
+
+	return participant, did, err
 }
 
 /*
