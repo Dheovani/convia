@@ -8,6 +8,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/events"
+	"convia/internal/transaction"
 	"convia/internal/users"
 )
 
@@ -46,11 +47,12 @@ type people interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It returns no error: telling somebody a membership changed must not be able to
-undo the change, which has already committed. events.Announcer satisfies it.
+It is called inside the transaction that made the change, and records the
+event there: an error means the change must not commit either. See
+docs/adr/0017. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(ctx context.Context, event events.Event)
+	Publish(ctx context.Context, event events.Event) error
 }
 
 // Service applies Convia's rules for rooms.
@@ -209,12 +211,19 @@ func (service *Service) CreateFor(ctx context.Context, applicationID, userID str
 		UserID:        userID,
 		CreatedAt:     room.CreatedAt,
 	}
-	if err := service.store.CreateWithMember(ctx, room, member); err != nil {
+
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.CreateWithMember(ctx, room, member); err != nil {
+			return err
+		}
+		return service.announceMembership(ctx, events.MemberAdded, member)
+	})
+
+	if err != nil {
 		return Room{}, err
 	}
 
 	service.audit(ctx, "room.created", room)
-	service.announceMembership(ctx, events.MemberAdded, member)
 	return room, nil
 }
 
@@ -365,13 +374,21 @@ func (service *Service) Update(ctx context.Context, applicationID, id string,
 		return Room{}, err
 	}
 
-	room, err := service.store.Update(ctx, applicationID, id, normalized, now(), guard)
+	var room Room
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		room, err = service.store.Update(ctx, applicationID, id, normalized, now(), guard)
+		if err != nil {
+			return err
+		}
+		return service.announceRoom(ctx, events.RoomUpdated, room.ApplicationID, room.ID)
+	})
+
 	if err != nil {
 		return Room{}, err
 	}
 
 	service.audit(ctx, "room.updated", room)
-	service.announceRoom(ctx, events.RoomUpdated, room.ApplicationID, room.ID)
 	return room, nil
 }
 
@@ -433,11 +450,17 @@ transition moves a room between lifecycle states.
 
 Repeating a transition succeeds and announces nothing further, so a client that
 retries after a timeout is never punished for it, and nobody is told twice.
-Whether it changed is read just before the write; two transitions racing each
-other may both announce, which costs a subscriber one extra read.
+Whether it changed is read just before the write, in the same transaction; two
+transitions racing each other may both announce, which costs a subscriber one
+extra read.
 */
-func (service *Service) transition(ctx context.Context, applicationID, id string,
-	status Status, event events.Type) (Room, error) {
+func (service *Service) transition(
+	ctx context.Context,
+	applicationID,
+	id string,
+	status Status,
+	event events.Type,
+) (Room, error) {
 	if err := service.requireApplication(ctx, applicationID); err != nil {
 		return Room{}, err
 	}
@@ -445,20 +468,30 @@ func (service *Service) transition(ctx context.Context, applicationID, id string
 		return Room{}, ErrNotFound
 	}
 
-	before, err := service.store.Get(ctx, applicationID, id)
-	if err != nil {
-		return Room{}, err
-	}
+	var room Room
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		before, err := service.store.Get(ctx, applicationID, id)
+		if err != nil {
+			return err
+		}
 
-	room, err := service.store.SetStatus(ctx, applicationID, id, status, now())
+		room, err = service.store.SetStatus(ctx, applicationID, id, status, now())
+		if err != nil {
+			return err
+		}
+
+		if before.Status == status {
+			return nil
+		}
+
+		return service.announceRoom(ctx, event, room.ApplicationID, room.ID)
+	})
+
 	if err != nil {
 		return Room{}, err
 	}
 
 	service.audit(ctx, string(event), room)
-	if before.Status != status {
-		service.announceRoom(ctx, event, room.ApplicationID, room.ID)
-	}
 	return room, nil
 }
 
@@ -467,8 +500,8 @@ announceRoom tells whoever is listening that a room changed. It names the room
 and nothing else: its name is a label somebody chose, and whoever may read it
 reads it back.
 */
-func (service *Service) announceRoom(ctx context.Context, kind events.Type, applicationID, roomID string) {
-	service.stream.Publish(ctx, events.New(kind, applicationID, roomID, api.RequestIDFromContext(ctx), nil))
+func (service *Service) announceRoom(ctx context.Context, kind events.Type, applicationID, roomID string) error {
+	return service.stream.Publish(ctx, events.New(kind, applicationID, roomID, api.RequestIDFromContext(ctx), nil))
 }
 
 /*
@@ -486,21 +519,28 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 		return ErrNotFound
 	}
 
-	deleted, err := service.store.Delete(ctx, applicationID, id, now())
-	if err != nil {
+	var deleted bool
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		deleted, err = service.store.Delete(ctx, applicationID, id, now())
+		if err != nil || !deleted {
+			return err
+		}
+
+		// Nobody can find a call in a room that is gone, so the call ends with it.
+		if service.calls != nil {
+			transaction.AfterCommit(ctx, func(ctx context.Context) {
+				service.calls.RoomDeleted(ctx, applicationID, id)
+			})
+		}
+		return service.announceRoom(ctx, events.RoomDeleted, applicationID, id)
+	})
+
+	if err != nil || !deleted {
 		return err
-	}
-	if !deleted {
-		return nil
 	}
 
 	service.audit(ctx, "room.deleted", Room{ID: id, ApplicationID: applicationID})
-	service.announceRoom(ctx, events.RoomDeleted, applicationID, id)
-
-	// Nobody can find a call in a room that is gone, so the call ends with it.
-	if service.calls != nil {
-		service.calls.RoomDeleted(ctx, applicationID, id)
-	}
 	return nil
 }
 

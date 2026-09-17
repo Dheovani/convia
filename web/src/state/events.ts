@@ -34,6 +34,9 @@ export function useEvents(): Events {
 // stream stops authenticating anybody. docs/events.md lists it.
 const sessionEnded = 4001
 
+// tooOld is the close code for a cursor older than the events Convia keeps.
+const tooOld = 4002
+
 /*
 The wait before reconnecting starts at a second and doubles to half a minute.
 
@@ -44,11 +47,15 @@ into a Convia that is still down would be a load it does not need.
 const firstRetry = 1_000
 const lastRetry = 30_000
 
-// streamAddress is the person's stream on the origin this page came from, which
-// is the only origin Convia accepts a handshake from.
-export function streamAddress(location: Location): string {
+/*
+streamAddress is the person's stream on the origin this page came from, which is
+the only origin Convia accepts a handshake from, resuming after a cursor when
+there is one.
+*/
+export function streamAddress(location: Location, after?: string): string {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${scheme}//${location.host}/v1/me/events`
+  const resume = after === undefined ? '' : `?after=${encodeURIComponent(after)}`
+  return `${scheme}//${location.host}/v1/me/events${resume}`
 }
 
 /*
@@ -65,6 +72,12 @@ an unreachable server. Nothing here guesses: the stream retries, the screen fall
 back to asking on a timer, and the next ordinary request is what notices a
 session that is gone. The one reason Convia can still give is the close code
 sent on a stream that was open, and that one is acted on.
+
+**A reconnect resumes.** The cursor of the last event received is handed back,
+so what happened while the connection was down arrives before anything new. A
+cursor Convia no longer keeps closes the stream with its own code; the next
+connection starts afresh, and the screens re-read as they do whenever the
+stream comes back.
 */
 export function useEventStream(onExpired: () => void): Events {
   const [live, setLive] = useState(false)
@@ -78,9 +91,10 @@ export function useEventStream(onExpired: () => void): Events {
     let retry: number | undefined
     let delay = firstRetry
     let stopped = false
+    let cursor: string | undefined
 
     function connect() {
-      const opening = new WebSocket(streamAddress(window.location))
+      const opening = new WebSocket(streamAddress(window.location, cursor))
       socket = opening
 
       opening.onopen = () => {
@@ -95,6 +109,11 @@ export function useEventStream(onExpired: () => void): Events {
         } catch {
           return
         }
+
+        if (event.cursor !== undefined) {
+          cursor = event.cursor
+        }
+
         for (const listener of listeners.current) {
           listener(event)
         }
@@ -105,6 +124,10 @@ export function useEventStream(onExpired: () => void): Events {
         setLive(false)
         if (stopped) {
           return
+        }
+
+        if (closed.code === tooOld) {
+          cursor = undefined
         }
 
         if (closed.code === sessionEnded) {

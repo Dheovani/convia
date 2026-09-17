@@ -25,6 +25,7 @@ import (
 	"convia/internal/media"
 	"convia/internal/participants"
 	"convia/internal/rooms"
+	"convia/internal/transaction"
 	"convia/internal/users"
 )
 
@@ -593,10 +594,14 @@ type recorder struct {
 	events []events.Event
 }
 
-func (record *recorder) Publish(_ context.Context, event events.Event) {
-	record.mutex.Lock()
-	defer record.mutex.Unlock()
-	record.events = append(record.events, event)
+func (record *recorder) Publish(ctx context.Context, event events.Event) error {
+	// Only what committed was announced.
+	transaction.AfterCommit(ctx, func(context.Context) {
+		record.mutex.Lock()
+		defer record.mutex.Unlock()
+		record.events = append(record.events, event)
+	})
+	return nil
 }
 
 func (record *recorder) all() []events.Event {

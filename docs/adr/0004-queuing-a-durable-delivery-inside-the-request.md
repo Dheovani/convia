@@ -1,6 +1,6 @@
 # ADR 0004 — Queuing a durable delivery inside the request
 
-**Status:** Accepted
+**Status:** Accepted; its queueing outside the domain transaction is superseded by [ADR 0017](0017-events-are-recorded-with-the-change-that-caused-them.md)
 **Date:** 2026-09-10
 **Milestone:** M15 — Webhooks for External Applications
 

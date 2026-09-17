@@ -2,7 +2,7 @@
  
 A **webhook** is Convia reaching out to tell an application something it must not miss.
 
-The domain lives in [`internal/webhooks`](../internal/webhooks), its schema in [`internal/database/migrations`](../internal/database/migrations), and its contract in [`api/openapi.yaml`](../api/openapi.yaml). The design decisions are in [ADR 0004](adr/0004-queuing-a-durable-delivery-inside-the-request.md).
+The domain lives in [`internal/webhooks`](../internal/webhooks), its schema in [`internal/database/migrations`](../internal/database/migrations), and its contract in [`api/openapi.yaml`](../api/openapi.yaml). The design decisions are in [ADR 0004](adr/0004-queuing-a-durable-delivery-inside-the-request.md) and [ADR 0017](adr/0017-events-are-recorded-with-the-change-that-caused-them.md).
 
 ## Webhook or stream?
 
@@ -11,7 +11,7 @@ Both carry the same events, described in [`events.md`](events.md). They are for 
 | | Event stream | Webhook |
 | --- | --- | --- |
 | Reaches | whoever is connected right now | wherever you registered |
-| If you are not there | the event is gone | it waits, and is retried |
+| If you are not there | it is replayed when you reconnect, for 24 hours | it waits, and is retried |
 | Duplicates | never | possible, by design |
 | Needs | an open connection | a public HTTPS endpoint |
 | Ordering | as produced | not guaranteed |
@@ -175,11 +175,11 @@ Deleting an endpoint deletes its deliveries with it. An application that wants t
 
 They are separate from `events:read`, which grants a live stream. Holding a connection open and asking Convia to make requests to an address of your choosing are different powers, and only the second turns Convia into a client of somewhere else.
 
-## What happens when Convia cannot queue a delivery
+## A delivery is owed exactly when its change happened
 
-A delivery is recorded in the same request that produced the event, before the response is returned. If that write fails — the database is unreachable in the instant between the domain change committing and the delivery being queued — the event is **not** delivered and never will be.
+A delivery is queued by the transaction that made the change it reports. If the change is undone, nothing is owed; if it commits, the delivery is already in the queue, and no crash afterwards can lose it. When the queue cannot be written, the change is refused with it, and the caller is told the request failed.
 
-That is stated rather than hidden. It is logged at error level, naming the event identifier, so it can be matched with the audit entry for the same occurrence. The alternative would be to fail the request that already succeeded, which would tell the caller that nothing happened when something did. [ADR 0004](adr/0004-queuing-a-durable-delivery-inside-the-request.md) records the trade and what would close it.
+The body carries the event's `cursor` too, which a webhook consumer may ignore.
 
 ## Running more than one instance
 

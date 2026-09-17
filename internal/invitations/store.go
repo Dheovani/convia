@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 /*
@@ -38,6 +40,19 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+/*
+Atomically runs work in one transaction, together with the events it announces.
+See package transaction.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -108,7 +123,7 @@ func (store *Store) Create(ctx context.Context, invitation Invitation, digest []
 	                    expires_at, created_at, updated_at)
 	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		invitation.ID, invitation.ApplicationID, invitation.CallID, optional(invitation.UserID),
 		invitation.Role, digest, invitation.ExpiresAt, invitation.CreatedAt, invitation.UpdatedAt)
 	if err != nil {
@@ -122,7 +137,7 @@ func (store *Store) Get(ctx context.Context, applicationID, id string) (Invitati
 	const statement = `SELECT ` + columns + ` FROM invitations
 	                   WHERE application_id = $1 AND id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id)
 	if err != nil {
 		return Invitation{}, fmt.Errorf("query invitation: %w", err)
 	}
@@ -154,7 +169,7 @@ func (store *Store) ForVerification(ctx context.Context, id string) (Invitation,
 	var record row
 	var digest []byte
 
-	err := store.pool.QueryRow(ctx, statement, id).Scan(
+	err := store.db(ctx).QueryRow(ctx, statement, id).Scan(
 		&record.ID, &record.ApplicationID, &record.CallID, &record.UserID, &record.Role,
 		&record.ExpiresAt, &record.RedeemedAt, &record.ParticipantID, &record.DeclinedAt,
 		&record.RevokedAt, &record.CreatedAt, &record.UpdatedAt, &digest)
@@ -217,7 +232,7 @@ func (store *Store) Revoke(ctx context.Context, applicationID, id string, at tim
 	                   WHERE application_id = $1 AND id = $2
 	                   RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id, at)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id, at)
 	if err != nil {
 		return Invitation{}, fmt.Errorf("revoke invitation: %w", err)
 	}
@@ -238,7 +253,7 @@ func (store *Store) Revoke(ctx context.Context, applicationID, id string, at tim
 func (store *Store) mutate(ctx context.Context, statement, id string,
 	arguments ...any) (Invitation, error) {
 
-	rows, err := store.pool.Query(ctx, statement, append([]any{id}, arguments...)...)
+	rows, err := store.db(ctx).Query(ctx, statement, append([]any{id}, arguments...)...)
 	if err != nil {
 		return Invitation{}, fmt.Errorf("update invitation: %w", err)
 	}
@@ -281,7 +296,7 @@ func (store *Store) List(ctx context.Context, applicationID, callID string,
 	arguments = append(arguments, limit+1)
 	statement += fmt.Sprintf(" ORDER BY created_at DESC, id DESC LIMIT $%d", len(arguments))
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query invitations: %w", err)
 	}

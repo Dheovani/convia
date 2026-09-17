@@ -11,6 +11,7 @@ import (
 	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/rooms"
+	"convia/internal/transaction"
 )
 
 const (
@@ -68,17 +69,12 @@ type MediaPlane interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It returns no error, and that is the whole of its contract: telling somebody a
-call started must not be able to undo starting it. The call has already
-committed by the time this runs, so a failure to announce is something to
-record rather than something to report back.
-
-The context is there because announcing is no longer only a fan-out to whoever
-is listening: it also records what is owed to the destinations an application
-registered, which is a write with a deadline. events.Announcer satisfies it.
+It is called inside the transaction that made the change, and records the
+event there: an error means the change must not commit either. See
+docs/adr/0017. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(ctx context.Context, event events.Event)
+	Publish(ctx context.Context, event events.Event) error
 }
 
 // Service applies Convia's rules for calls.
@@ -175,10 +171,15 @@ func (service *Service) Start(ctx context.Context, applicationID, roomID string,
 		UpdatedAt:     started,
 	}
 
-	if err := service.store.Create(ctx, call); err != nil {
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, call); err != nil {
+			return err
+		}
+		return service.audit(ctx, events.CallStarted, call)
+	})
+	if err != nil {
 		return Call{}, err
 	}
-	service.audit(ctx, events.CallStarted, call)
 
 	/*
 		The call record is the control-plane truth and the media session is
@@ -360,13 +361,21 @@ over — never inside a call that ended around them.
 */
 func (service *Service) EndIfEmpty(ctx context.Context, applicationID, id string,
 	by Actor, reason string) (Call, bool, error) {
-	call, ended, err := service.store.EndIfEmpty(ctx, applicationID, id, by, reason, now())
+	var (
+		call  Call
+		ended bool
+	)
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		call, ended, err = service.store.EndIfEmpty(ctx, applicationID, id, by, reason, now())
+		if err != nil || !ended {
+			return err
+		}
+		return service.ended(ctx, call)
+	})
 	if err != nil || !ended {
 		return call, false, err
 	}
-
-	service.releaseSessionOf(ctx, call)
-	service.audit(ctx, events.CallEnded, call)
 	return call, true, nil
 }
 
@@ -482,8 +491,14 @@ that never happened is reported loudly rather than hidden, because a
 reconciliation job is what fixes it.
 */
 func (service *Service) abandon(ctx context.Context, call Call) {
-	ended, changed, err := service.store.End(ctx, call.ApplicationID, call.ID,
-		call.StartedBy, unrealizedReason, now())
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		ended, changed, err := service.store.End(ctx, call.ApplicationID, call.ID,
+			call.StartedBy, unrealizedReason, now())
+		if err != nil || !changed {
+			return err
+		}
+		return service.audit(ctx, events.CallEnded, ended)
+	})
 	if err != nil {
 		service.logger.Error("a room is held by a call whose media session failed",
 			"error", err,
@@ -492,10 +507,6 @@ func (service *Service) abandon(ctx context.Context, call Call) {
 			"application_id", call.ApplicationID,
 			"request_id", api.RequestIDFromContext(ctx),
 		)
-		return
-	}
-	if changed {
-		service.audit(ctx, events.CallEnded, ended)
 	}
 }
 
@@ -617,17 +628,32 @@ func (service *Service) End(ctx context.Context, applicationID, id string,
 		return Call{}, ErrNotFound
 	}
 
-	call, ended, err := service.store.End(ctx, applicationID, id, by, normalized, now())
+	var call Call
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		var (
+			ended bool
+			err   error
+		)
+		call, ended, err = service.store.End(ctx, applicationID, id, by, normalized, now())
+		if err != nil || !ended {
+			return err
+		}
+		return service.ended(ctx, call)
+	})
 	if err != nil {
 		return Call{}, err
 	}
-	if !ended {
-		return call, nil
-	}
-
-	service.releaseSessionOf(ctx, call)
-	service.audit(ctx, events.CallEnded, call)
 	return call, nil
+}
+
+/*
+ended announces a call that ended, and lets its media session go once that has
+committed: the media plane is a network away, and nothing waits on it inside a
+transaction.
+*/
+func (service *Service) ended(ctx context.Context, call Call) error {
+	transaction.AfterCommit(ctx, func(ctx context.Context) { service.releaseSessionOf(ctx, call) })
+	return service.audit(ctx, events.CallEnded, call)
 }
 
 /*
@@ -722,7 +748,7 @@ Recording and announcing happen together on purpose. They describe one
 occurrence, and separating them would let the audit trail and the live stream
 drift into two accounts of the same conversation.
 */
-func (service *Service) audit(ctx context.Context, kind events.Type, call Call) {
+func (service *Service) audit(ctx context.Context, kind events.Type, call Call) error {
 	// The actor is whoever caused the event being recorded, which is the one
 	// who ended the call once there is one, and otherwise the one who started it.
 	actor := call.StartedBy
@@ -740,7 +766,7 @@ func (service *Service) audit(ctx context.Context, kind events.Type, call Call) 
 		"request_id", api.RequestIDFromContext(ctx),
 	)
 
-	service.stream.Publish(ctx, events.New(kind, call.ApplicationID, call.ID,
+	return service.stream.Publish(ctx, events.New(kind, call.ApplicationID, call.ID,
 		api.RequestIDFromContext(ctx), events.Data{
 			"room_id": call.RoomID,
 			"status":  string(call.Status),

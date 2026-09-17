@@ -125,6 +125,8 @@ export interface ConviaEvent {
   application_id: string
   subject: { type: string; id: string }
   data?: Record<string, unknown>
+  // cursor is where the event sits in what Convia kept; handing it back resumes the stream.
+  cursor?: string
 }
 
 // RoomInvitation is an invitation into a room here, and the link to send.

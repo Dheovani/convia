@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/events"
+	"convia/internal/transaction"
 )
 
 /*
@@ -47,10 +48,15 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
+}
+
 // Create records a new endpoint together with the key its deliveries are
 // signed with.
 func (store *Store) Create(ctx context.Context, endpoint Endpoint, signing Secret) error {
-	_, err := store.pool.Exec(ctx, `
+	_, err := store.db(ctx).Exec(ctx, `
         INSERT INTO webhook_endpoints (id, application_id, name, url, secret, event_types,
                                        status, consecutive_failures, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9)`,
@@ -67,7 +73,7 @@ func (store *Store) Create(ctx context.Context, endpoint Endpoint, signing Secre
 
 // Get returns one of an application's endpoints.
 func (store *Store) Get(ctx context.Context, applicationID, id string) (Endpoint, error) {
-	rows, err := store.pool.Query(ctx,
+	rows, err := store.db(ctx).Query(ctx,
 		`SELECT `+endpointColumns+` FROM webhook_endpoints WHERE application_id = $1 AND id = $2`,
 		applicationID, id)
 	if err != nil {
@@ -83,9 +89,12 @@ func (store *Store) Get(ctx context.Context, applicationID, id string) (Endpoint
 }
 
 // List returns one page of an application's endpoints, newest first.
-func (store *Store) List(ctx context.Context, applicationID string,
-	cursor *Cursor, limit int) ([]Endpoint, bool, error) {
-
+func (store *Store) List(
+	ctx context.Context,
+	applicationID string,
+	cursor *Cursor,
+	limit int,
+) ([]Endpoint, bool, error) {
 	query := `SELECT ` + endpointColumns + ` FROM webhook_endpoints WHERE application_id = $1`
 	arguments := []any{applicationID}
 
@@ -97,7 +106,7 @@ func (store *Store) List(ctx context.Context, applicationID string,
 	query += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT $%d`, len(arguments)+1)
 	arguments = append(arguments, limit+1)
 
-	rows, err := store.pool.Query(ctx, query, arguments...)
+	rows, err := store.db(ctx).Query(ctx, query, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("list webhook endpoints: %w", err)
 	}
@@ -121,10 +130,16 @@ Only what an application decides is here. The failure count, the disabled
 reason, and everything else Convia discovered are changed by the worker and are
 not fields a request can set.
 */
-func (store *Store) Update(ctx context.Context, applicationID, id, name, address string,
-	types []events.Type, at time.Time) (Endpoint, error) {
-
-	rows, err := store.pool.Query(ctx, `
+func (store *Store) Update(
+	ctx context.Context,
+	applicationID,
+	id,
+	name,
+	address string,
+	types []events.Type,
+	at time.Time,
+) (Endpoint, error) {
+	rows, err := store.db(ctx).Query(ctx, `
         UPDATE webhook_endpoints
         SET name = $3, url = $4, event_types = $5, updated_at = $6
         WHERE application_id = $1 AND id = $2
@@ -143,10 +158,14 @@ func (store *Store) Update(ctx context.Context, applicationID, id, name, address
 }
 
 // Rotate replaces the key an endpoint's deliveries are signed with.
-func (store *Store) Rotate(ctx context.Context, applicationID, id string,
-	signing Secret, at time.Time) (Endpoint, error) {
-
-	rows, err := store.pool.Query(ctx, `
+func (store *Store) Rotate(
+	ctx context.Context,
+	applicationID,
+	id string,
+	signing Secret,
+	at time.Time,
+) (Endpoint, error) {
+	rows, err := store.db(ctx).Query(ctx, `
         UPDATE webhook_endpoints SET secret = $3, updated_at = $4
         WHERE application_id = $1 AND id = $2
         RETURNING `+endpointColumns,
@@ -171,10 +190,15 @@ an endpoint Convia has stopped delivering to would sit in the worker's index
 forever, and an application reading its deliveries would see work that was never
 going to happen described as outstanding.
 */
-func (store *Store) SetStatus(ctx context.Context, applicationID, id string, status Status,
-	reason string, at time.Time) (Endpoint, error) {
-
-	transaction, err := store.pool.Begin(ctx)
+func (store *Store) SetStatus(
+	ctx context.Context,
+	applicationID,
+	id string,
+	status Status,
+	reason string,
+	at time.Time,
+) (Endpoint, error) {
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return Endpoint{}, fmt.Errorf("begin: %w", err)
 	}
@@ -225,7 +249,7 @@ func (store *Store) SetStatus(ctx context.Context, applicationID, id string, sta
 // Delete removes an endpoint. Its deliveries go with it, by the schema's own
 // cascade: they describe an obligation to a destination that no longer exists.
 func (store *Store) Delete(ctx context.Context, applicationID, id string) error {
-	tag, err := store.pool.Exec(ctx,
+	tag, err := store.db(ctx).Exec(ctx,
 		`DELETE FROM webhook_endpoints WHERE application_id = $1 AND id = $2`, applicationID, id)
 	if err != nil {
 		return fmt.Errorf("delete webhook endpoint: %w", err)
@@ -250,10 +274,13 @@ lookup that returns no rows.
 The payload is written once, here, and never regenerated. A signature is over
 bytes, and an envelope rebuilt later would not be the same bytes.
 */
-func (store *Store) Enqueue(ctx context.Context, event events.Event, payload []byte,
-	at time.Time) (int, error) {
-
-	rows, err := store.pool.Query(ctx, `
+func (store *Store) Enqueue(
+	ctx context.Context,
+	event events.Event,
+	payload []byte,
+	at time.Time,
+) (int, error) {
+	rows, err := store.db(ctx).Query(ctx, `
         SELECT id FROM webhook_endpoints
         WHERE application_id = $1 AND status = 'enabled' AND $2 = ANY (event_types)`,
 		event.ApplicationID, string(event.Type))
@@ -280,7 +307,7 @@ func (store *Store) Enqueue(ctx context.Context, event events.Event, payload []b
 		deliveryIDs[index] = NewDeliveryID()
 	}
 
-	tag, err := store.pool.Exec(ctx, `
+	tag, err := store.db(ctx).Exec(ctx, `
         INSERT INTO webhook_deliveries (id, endpoint_id, application_id, event_id, event_type,
                                         payload, status, attempts, next_attempt_at,
                                         created_at, updated_at)

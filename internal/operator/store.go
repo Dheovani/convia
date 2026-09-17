@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares. The digest is never among them.
@@ -30,6 +32,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 // row mirrors the projection. Scopes are read as plain strings and converted
@@ -89,7 +96,7 @@ func (store *Store) Create(ctx context.Context, credential Credential, digest []
 	const statement = `INSERT INTO operator_credentials (id, name, secret_hash, scopes, created_at, expires_at)
 	                   VALUES ($1, $2, $3, $4, $5, $6)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		credential.ID,
 		credential.Name,
 		digest,
@@ -107,7 +114,7 @@ func (store *Store) Create(ctx context.Context, credential Credential, digest []
 func (store *Store) Get(ctx context.Context, id string) (Credential, error) {
 	const statement = `SELECT ` + columns + ` FROM operator_credentials WHERE id = $1`
 
-	rows, err := store.pool.Query(ctx, statement, id)
+	rows, err := store.db(ctx).Query(ctx, statement, id)
 	if err != nil {
 		return Credential{}, fmt.Errorf("query operator credential: %w", err)
 	}
@@ -137,7 +144,7 @@ func (store *Store) ForAuthentication(ctx context.Context, id string) (Credentia
 		SecretHash []byte
 	}
 
-	rows, err := store.pool.Query(ctx, statement, id)
+	rows, err := store.db(ctx).Query(ctx, statement, id)
 	if err != nil {
 		return Credential{}, nil, fmt.Errorf("query operator credential for authentication: %w", err)
 	}
@@ -169,7 +176,7 @@ func (store *Store) List(ctx context.Context, cursor *Cursor, limit int) ([]Cred
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query operator credentials: %w", err)
 	}
@@ -201,7 +208,7 @@ func (store *Store) Revoke(ctx context.Context, id string, at time.Time) (bool, 
 	const statement = `UPDATE operator_credentials SET revoked_at = $1
 	                   WHERE id = $2 AND revoked_at IS NULL`
 
-	tag, err := store.pool.Exec(ctx, statement, at, id)
+	tag, err := store.db(ctx).Exec(ctx, statement, at, id)
 	if err != nil {
 		return false, fmt.Errorf("revoke operator credential: %w", err)
 	}
@@ -229,7 +236,7 @@ func (store *Store) CountActive(ctx context.Context, at time.Time) (int, error) 
 	                   WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $1)`
 
 	var count int
-	if err := store.pool.QueryRow(ctx, statement, at).Scan(&count); err != nil {
+	if err := store.db(ctx).QueryRow(ctx, statement, at).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count active operator credentials: %w", err)
 	}
 	return count, nil

@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares.
@@ -31,6 +33,19 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+/*
+Atomically runs work in one transaction, together with the events it announces.
+See package transaction.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -119,7 +134,7 @@ reconnection case, and it returns the participant that is already there rather
 than creating a second.
 */
 func (store *Store) Join(ctx context.Context, candidate Participant, capacity *int) (Participant, bool, error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return Participant{}, false, fmt.Errorf("begin join: %w", err)
 	}
@@ -273,7 +288,7 @@ func (store *Store) Get(ctx context.Context, applicationID, id string) (Particip
 	const statement = `SELECT ` + columns + ` FROM participants
 	                   WHERE application_id = $1 AND id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id)
 	if err != nil {
 		return Participant{}, fmt.Errorf("query participant: %w", err)
 	}
@@ -312,7 +327,7 @@ func (store *Store) List(ctx context.Context, applicationID, callID string,
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query participants: %w", err)
 	}
@@ -360,7 +375,7 @@ func (store *Store) PresentIn(ctx context.Context, applicationID, callID, userID
 	const statement = `SELECT ` + columns + ` FROM participants
 	                   WHERE application_id = $1 AND call_id = $2 AND user_id = $3 AND status = $4`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, callID, userID, StatusJoined)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, callID, userID, StatusJoined)
 	if err != nil {
 		return Participant{}, fmt.Errorf("query presence: %w", err)
 	}
@@ -395,7 +410,7 @@ func (store *Store) LeaveEveryone(
 	                   WHERE application_id = $3 AND call_id = $4 AND status = $5
 	                   RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, StatusLeft, at, applicationID, callID, StatusJoined)
+	rows, err := store.db(ctx).Query(ctx, statement, StatusLeft, at, applicationID, callID, StatusJoined)
 	if err != nil {
 		return nil, fmt.Errorf("record everybody leaving: %w", err)
 	}
@@ -440,7 +455,7 @@ the participant as it stands rather than with an error.
 */
 func (store *Store) depart(ctx context.Context, applicationID, id, statement string,
 	arguments []any) (Participant, bool, error) {
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return Participant{}, false, fmt.Errorf("record departure: %w", err)
 	}
@@ -471,7 +486,7 @@ func (store *Store) SetRole(ctx context.Context, applicationID, id string,
 	                   WHERE application_id = $3 AND id = $4 AND status = $5
 	                   RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, role, at, applicationID, id, StatusJoined)
+	rows, err := store.db(ctx).Query(ctx, statement, role, at, applicationID, id, StatusJoined)
 	if err != nil {
 		return Participant{}, fmt.Errorf("set role: %w", err)
 	}

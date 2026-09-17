@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares. The digest is never among them.
@@ -29,6 +31,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -94,7 +101,7 @@ func (store *Store) Create(ctx context.Context, credential Credential, digest []
 	const statement = `INSERT INTO credentials (id, application_id, name, secret_hash, scopes, created_at, expires_at)
 	                   VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		credential.ID,
 		credential.ApplicationID,
 		credential.Name,
@@ -113,7 +120,7 @@ func (store *Store) Create(ctx context.Context, credential Credential, digest []
 func (store *Store) Get(ctx context.Context, applicationID, id string) (Credential, error) {
 	const statement = `SELECT ` + columns + ` FROM credentials WHERE application_id = $1 AND id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id)
 	if err != nil {
 		return Credential{}, fmt.Errorf("query credential: %w", err)
 	}
@@ -150,7 +157,7 @@ func (store *Store) ForAuthentication(ctx context.Context, id string) (Credentia
 		SecretHash []byte
 	}
 
-	rows, err := store.pool.Query(ctx, statement, id)
+	rows, err := store.db(ctx).Query(ctx, statement, id)
 	if err != nil {
 		return Credential{}, nil, fmt.Errorf("query credential for authentication: %w", err)
 	}
@@ -182,7 +189,7 @@ func (store *Store) List(ctx context.Context, applicationID string, cursor *Curs
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query credentials: %w", err)
 	}
@@ -214,7 +221,7 @@ func (store *Store) Revoke(ctx context.Context, applicationID, id string, at tim
 	const statement = `UPDATE credentials SET revoked_at = $1
 	                   WHERE application_id = $2 AND id = $3 AND revoked_at IS NULL`
 
-	tag, err := store.pool.Exec(ctx, statement, at, applicationID, id)
+	tag, err := store.db(ctx).Exec(ctx, statement, at, applicationID, id)
 	if err != nil {
 		return false, fmt.Errorf("revoke credential: %w", err)
 	}

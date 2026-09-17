@@ -69,11 +69,12 @@ type invitationLookup interface {
 /*
 announcer is the behavior this package needs to publish what happened.
 
-It returns no error: telling somebody a message exists must not be able to
-undo the message, which has already committed. events.Announcer satisfies it.
+It is called inside the transaction that made the change, and records the
+event there: an error means the change must not commit either. See
+docs/adr/0017. events.Announcer satisfies it.
 */
 type announcer interface {
-	Publish(ctx context.Context, event events.Event)
+	Publish(ctx context.Context, event events.Event) error
 }
 
 /*
@@ -161,21 +162,16 @@ func (service *Service) Post(ctx context.Context, applicationID, roomID string,
 		return Message{}, ErrRoomClosed
 	}
 
-	message, err := service.store.Append(ctx, Message{
-		ID:            NewID(),
-		ApplicationID: applicationID,
-		RoomID:        room.ID,
-		Author:        author,
-		Body:          normalized,
-		CreatedAt:     service.now(),
+	return service.written(ctx, events.MessagePosted, func(ctx context.Context) (Message, error) {
+		return service.store.Append(ctx, Message{
+			ID:            NewID(),
+			ApplicationID: applicationID,
+			RoomID:        room.ID,
+			Author:        author,
+			Body:          normalized,
+			CreatedAt:     service.now(),
+		})
 	})
-
-	if err != nil {
-		return Message{}, err
-	}
-
-	service.audit(ctx, events.MessagePosted, message)
-	return message, nil
 }
 
 // Get returns one message within its application.
@@ -358,13 +354,9 @@ func (service *Service) Edit(ctx context.Context, applicationID, id string,
 		return Message{}, ErrNotAuthor
 	}
 
-	message, err := service.store.Edit(ctx, applicationID, id, normalized, service.now())
-	if err != nil {
-		return Message{}, err
-	}
-
-	service.audit(ctx, events.MessageEdited, message)
-	return message, nil
+	return service.written(ctx, events.MessageEdited, func(ctx context.Context) (Message, error) {
+		return service.store.Edit(ctx, applicationID, id, normalized, service.now())
+	})
 }
 
 /*
@@ -389,13 +381,9 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string,
 		return existing, nil
 	}
 
-	message, err := service.store.Delete(ctx, applicationID, id, service.now(), RemovedByAuthor)
-	if err != nil {
-		return Message{}, err
-	}
-
-	service.audit(ctx, events.MessageDeleted, message)
-	return message, nil
+	return service.written(ctx, events.MessageDeleted, func(ctx context.Context) (Message, error) {
+		return service.store.Delete(ctx, applicationID, id, service.now(), RemovedByAuthor)
+	})
 }
 
 /*
@@ -417,13 +405,9 @@ func (service *Service) Remove(ctx context.Context, applicationID, id string) (M
 		return existing, nil
 	}
 
-	message, err := service.store.Delete(ctx, applicationID, id, service.now(), RemovedByOwner)
-	if err != nil {
-		return Message{}, err
-	}
-
-	service.audit(ctx, events.MessageDeleted, message)
-	return message, nil
+	return service.written(ctx, events.MessageDeleted, func(ctx context.Context) (Message, error) {
+		return service.store.Delete(ctx, applicationID, id, service.now(), RemovedByOwner)
+	})
 }
 
 /*
@@ -560,9 +544,7 @@ message exists and reads it back through the API, where the scope it holds is
 checked -- which is also what keeps a late webhook retry from writing an older
 text over a newer one.
 */
-func (service *Service) audit(ctx context.Context, kind events.Type, message Message) {
-	service.record(ctx, string(kind), message)
-
+func (service *Service) announce(ctx context.Context, kind events.Type, message Message) error {
 	data := events.Data{
 		"room_id":  message.RoomID,
 		"sequence": message.Sequence,
@@ -577,8 +559,34 @@ func (service *Service) audit(ctx context.Context, kind events.Type, message Mes
 		data["user_id"] = message.Author.UserID
 	}
 
-	service.stream.Publish(ctx, events.New(kind, message.ApplicationID, message.ID,
+	return service.stream.Publish(ctx, events.New(kind, message.ApplicationID, message.ID,
 		api.RequestIDFromContext(ctx), data))
+}
+
+/*
+written runs a write and announces what it did, in one transaction, and records
+the audit line once it has committed.
+*/
+func (service *Service) written(
+	ctx context.Context,
+	kind events.Type,
+	write func(ctx context.Context) (Message, error),
+) (Message, error) {
+	var message Message
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		if message, err = write(ctx); err != nil {
+			return err
+		}
+		return service.announce(ctx, kind, message)
+	})
+
+	if err != nil {
+		return Message{}, err
+	}
+
+	service.record(ctx, string(kind), message)
+	return message, nil
 }
 
 /*

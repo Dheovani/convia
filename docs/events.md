@@ -2,7 +2,7 @@
 
 A **control event** is one thing Convia recorded, delivered to an application while it is still news.
 
-The domain lives in [`internal/events`](../internal/events), the endpoint and the envelope are in [`api/openapi.yaml`](../api/openapi.yaml), and the design decisions are in [ADR 0003](adr/0003-a-one-directional-in-process-control-event-stream.md).
+The domain lives in [`internal/events`](../internal/events), the endpoint and the envelope are in [`api/openapi.yaml`](../api/openapi.yaml), and the design decisions are in [ADR 0003](adr/0003-a-one-directional-in-process-control-event-stream.md) and [ADR 0017](adr/0017-events-are-recorded-with-the-change-that-caused-them.md).
 
 ## What streams, and what does not
 
@@ -152,17 +152,27 @@ Stated rather than hidden: **within that minute**, a stream may still carry even
 
 **The handshake must come from Convia's own page**, though it is a GET. It opens a connection that goes on carrying whatever the cookie is entitled to, so a page on a sibling subdomain that could open one would be reading somebody's conversations as they happen — cross-site WebSocket hijacking, which `SameSite` does not see for the reason it does not see a sibling's POST. The exact-match `Origin` check every state-changing request on the session surface passes is applied to it too, and an `Origin` other than this instance's is refused with `403`.
 
-## Nothing is stored
+## Resuming
 
-An event goes to the streams open at the moment it is published, and is then gone.
+Every event except `presence.changed` is recorded in the **event journal** by the transaction that made it happen, and carries a `cursor`. Streams are fed from the journal, in the order the events were recorded.
 
-- An event produced while a client is disconnected is **not** waiting for it when it returns.
-- There is no cursor and no replay.
-- A client that reconnects should re-read whatever it cares about over REST, and then keep listening.
+```
+GET /v1/events?after=48213-9120
+```
 
-Which instance a client reaches does not matter, as long as the deployment is configured for more than one — see *Running more than one instance* below.
+A client that reconnects passes the `cursor` of the last event it received as `after`. Before the stream goes live it is sent every event since that it is entitled to, in order, and nothing is sent twice.
 
-This is the honest summary of what an in-process fan-out can promise, and it is why anything a consumer must not miss belongs in a REST read or in a [webhook](webhooks.md), which is a delivery with attempts behind it.
+- **Keep the latest cursor, and nothing else about it.** It is opaque. Cursors increase in the order events arrive, but not by one, and not in the order of `occurred_at`.
+- **Events are kept for 24 hours.** A cursor older than that opens the stream and closes it at once with `4002`: re-read what you care about over REST, then connect again without `after`.
+- **Presence is never replayed.** It is advisory and is not kept; read it again after reconnecting.
+- **A person's stream** is replayed what happened in the rooms the person is in now, and every change to their own place. What happened in a room they have since left is not replayed; they could not read it any more.
+- A cursor Convia did not write is refused with `400` before the upgrade.
+
+Without `after`, a stream starts with what happens from now on, as before.
+
+Live events reach a stream up to about 200 milliseconds after they commit, because the instance serving it reads them from the journal rather than being handed them. An event produced on the same instance is read at once. **A transaction left open anywhere on the database server holds every newer event back until it ends**, because an event is delivered only once nothing still running could commit ahead of it.
+
+One event type goes the other way: **`presence.changed` streams and can never be a webhook.** An endpoint that asks for it is refused at registration. A presence report that failed once would arrive after it stopped being true, and after the newer one that replaced it, which is a roster that never settles — advisory and durable-with-retries are contradictory promises. See [`presence.md`](presence.md).
 
 One event type goes the other way: **`presence.changed` streams and can never be a webhook.** An endpoint that asks for it is refused at registration. A presence report that failed once would arrive after it stopped being true, and after the newer one that replaced it, which is a roster that never settles — advisory and durable-with-retries are contradictory promises. See [`presence.md`](presence.md).
 
@@ -172,7 +182,7 @@ Each stream has a queue of 256 events. It absorbs a garbage-collection pause or 
 
 A subscriber that fills it is **disconnected with close code `4000`**, reason `events were dropped because this stream fell behind`.
 
-That is deliberately louder than dropping an event and carrying on. A subscriber that kept receiving events after losing one would have no way to know its picture had a hole in it. The close says: your view is incomplete, re-read over REST, then reconnect.
+That is deliberately louder than dropping an event and carrying on. A subscriber that kept receiving events after losing one would have no way to know its picture had a hole in it. The close says: your view is incomplete. Reconnect with the cursor of the last event you received, and the gap is filled from the journal.
 
 ## Close codes
 
@@ -181,8 +191,9 @@ That is deliberately louder than dropping an event and carrying on. A subscriber
 | `1000` | The stream ended normally. | Reconnect if you still want events. |
 | `1001` | This instance is shutting down. | Reconnect; you will reach another instance. |
 | `1003` | You sent a message. The stream is one direction. | Fix the client; do not retry blindly. |
-| `4000` | You fell behind and events were dropped. | Re-read over REST, then reconnect. |
+| `4000` | You fell behind and events were dropped. | Reconnect with `after` set to the last cursor you received. |
 | `4001` | A person's stream only: the session that opened it no longer authenticates. | Sign in again; a reconnect will be refused. |
+| `4002` | The cursor you resumed from is older than the events Convia keeps. | Re-read over REST, then reconnect without `after`. |
 
 `4000` is in the range RFC 6455 reserves for applications, because falling behind is not a transport condition and borrowing a protocol code for it would say something untrue.
 
@@ -207,7 +218,7 @@ Both ceilings are answered with the same `429`, so a tenant is never told anythi
 
 ## Running more than one instance
 
-The broker is in-process, so on its own an instance serves only the subscribers connected to it. **Set `CONVIA_REDIS_URL` on every instance and that stops being true**: events are carried between them over one publish/subscribe channel, and a subscriber sees what happened wherever it happened. The same setting decides where [presence](presence.md) lives, and for the same reason.
+Every instance reads the journal on its own, so recorded events reach every subscriber whichever instance produced them, and in the same order everywhere. **Presence is the exception**: it is not recorded, so it travels between instances over Redis. **Set `CONVIA_REDIS_URL` on every instance**, or presence changes reach only the subscribers of the instance that produced them. The same setting decides where [presence](presence.md) lives, and for the same reason.
 
 ```bash
 CONVIA_REDIS_URL=rediss://redis.internal:6379/0
@@ -216,17 +227,18 @@ CONVIA_REDIS_URL=rediss://redis.internal:6379/0
 **This is an operational requirement, not a tuning option.** Several instances with it unset is the one configuration that is quietly wrong: each serves only its own subscribers, no request fails, nothing is logged as an error, and it looks like it works. Convia cannot detect it from inside one process — an instance has no way to know how many others exist — so the check is yours. Each one says at startup which of the two it is:
 
 ```
-no shared channel is configured, so event streams are served by this instance alone
+no shared channel is configured, so presence changes reach this instance's streams alone
 shared channel configured  address=redis.internal:6379  origin=ins_...
 ```
 
+The relay carries presence and nothing else.
 What the relay does **not** change:
 
 - **Who receives what.** The broker decides that from the credential that opened the stream, and decides it the same way whether the event was produced here or elsewhere.
-- **What a stream promises.** Nothing is stored, in Redis or anywhere else. An event produced while a subscriber is away is still gone, and a subscriber that falls behind is still disconnected.
-- **Whether Convia works.** An unreachable Redis narrows the stream back to one instance and is reported loudly; it does not fail requests, and readiness deliberately ignores it. Anything a consumer must not miss belongs in a [webhook](webhooks.md), which was safe across instances from the first commit.
+- **What a stream promises.** Nothing is stored in Redis. A presence change produced while a subscriber is away is gone, and a subscriber that falls behind is still disconnected.
+- **Whether Convia works.** An unreachable Redis narrows presence back to one instance and is reported loudly; it does not fail requests, and readiness deliberately ignores it.
 
-Ordering is per-instance rather than global. Two events produced on different instances arrive in whatever order the network delivered them, so use `occurred_at` rather than arrival order — the same rule webhooks already ask for.
+Presence changes produced on different instances arrive in whatever order the network delivered them.
 
 The channel is `convia:v1:events`: a namespace, so Convia's traffic is recognizable on a Redis somebody else is also using, and a version, so a future envelope can run beside this one during a rolling deployment. It is one channel for the whole deployment rather than one per tenant, which is a choice about traffic between machines that already share a database, not about isolation. [ADR 0005](adr/0005-redis-for-what-instances-tell-each-other.md) records why, and what would justify changing it.
 

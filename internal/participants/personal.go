@@ -165,13 +165,14 @@ func (service *Service) LeaveRoom(
 		return err
 	}
 
-	departed, left, err := service.store.Leave(ctx, applicationID, participant.ID, now())
+	departed, left, err := service.changed(ctx, events.ParticipantLeft, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			return service.store.Leave(ctx, applicationID, participant.ID, now())
+		})
 	if err != nil {
 		return err
 	}
-
 	if left {
-		service.audit(ctx, events.ParticipantLeft, departed, call.RoomID)
 		service.calls.Disconnect(ctx, call, departed.ID)
 	}
 

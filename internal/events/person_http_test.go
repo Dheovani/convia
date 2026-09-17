@@ -75,7 +75,7 @@ func listeningAsPerson(t *testing.T, handler *PersonHandler) *httptest.Server {
 }
 
 func personHandler(broker *Broker, session sessionAuthenticator, known memberships) *PersonHandler {
-	return NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, session, known)
+	return NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil, session, known)
 }
 
 // dialAsPerson opens the stream the way a browser holding a session would.

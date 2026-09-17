@@ -6065,7 +6065,7 @@ paths:
 
         Like every state-changing request on this surface, and unlike every other `GET`, the handshake must come from Convia's own page: an `Origin` other than this one is refused with `403 forbidden`, because the connection would go on carrying whatever the cookie is entitled to.
 
-        The stream is one direction and stores nothing, exactly as `GET /v1/events` describes. A client that reconnects, or is closed with `4000`, re-reads what it shows. `docs/events.md` has the close codes in full.
+        A client that reconnects passes the `cursor` of the last event it received as `after`, and is sent what it missed before the stream goes live, exactly as `GET /v1/events` describes. A client closed with `4002` re-reads what it shows and connects again without `after`. `docs/events.md` has the close codes in full.
       x-lifecycle: experimental
       security:
         - SessionCookie: []
@@ -6094,6 +6094,7 @@ paths:
           description: The client's handshake nonce, as RFC 6455 requires.
           schema:
             type: string
+        - $ref: "#/components/parameters/EventCursor"
       responses:
         "101":
           description: |
@@ -7970,11 +7971,16 @@ paths:
         one direction. A client that sends any message has its connection
         closed with `1003`.
 
-        **Events are not stored.** One produced while a client is disconnected
-        is not waiting for it when it returns. A client that reconnects, and
-        any client told its stream fell behind, should re-read the calls it
-        cares about over REST. `docs/events.md` states this and the close codes
-        in full.
+        **A stream can resume.** Every event except `presence.changed` carries
+        a `cursor`. A client that reconnects — after a dropped connection, or
+        after being closed with `4000` for falling behind — passes the last
+        cursor it received as `after`, and is sent every event it would have
+        received since, in order and once, before the stream goes live.
+        Events are kept for 24 hours; a cursor older than that closes the
+        stream with `4002`, and the client re-reads what it cares about over
+        REST and connects again without `after`. Presence is not kept and is
+        never replayed. `docs/events.md` states this and the close codes in
+        full.
       x-lifecycle: experimental
       security:
         - ApplicationKey: ["events:read"]
@@ -8003,6 +8009,7 @@ paths:
           description: The client's handshake nonce, as RFC 6455 requires.
           schema:
             type: string
+        - $ref: "#/components/parameters/EventCursor"
       responses:
         "101":
           description: |
@@ -10671,6 +10678,19 @@ components:
             when the cause was not a request.
         data:
           $ref: "#/components/schemas/EventData"
+        cursor:
+          $ref: "#/components/schemas/EventCursor"
+
+    EventCursor:
+      type: string
+      description: |
+        Where an event sits in the order Convia recorded it. It is opaque:
+        keep the latest one received and pass it back as `after` to resume.
+        Cursors increase in the order events are delivered, but not by one,
+        and not in the order of `occurred_at`. Absent on `presence.changed`,
+        which is not kept.
+      pattern: "^[0-9]+-[1-9][0-9]*$"
+      example: "48213-9120"
 
     EventData:
       type: object
@@ -10906,6 +10926,19 @@ components:
                 `X-Request-ID` response header. Quote it in support requests.
 
   parameters:
+    EventCursor:
+      name: after
+      in: query
+      required: false
+      description: |
+        The `cursor` of the last event this client received. The stream first
+        sends every event after it that the caller is entitled to, in order,
+        and then goes live; nothing is sent twice. A cursor Convia did not
+        write is `400 invalid_request`. One older than the 24 hours Convia
+        keeps events opens the stream and closes it at once with `4002`.
+      schema:
+        $ref: "#/components/schemas/EventCursor"
+
     ApplicationID:
       name: application_id
       in: path

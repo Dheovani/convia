@@ -37,8 +37,9 @@ func (people knownPeople) Get(context.Context, string, string) (users.User, erro
 // tests are actually about.
 type heard struct{ events []events.Event }
 
-func (sink *heard) Publish(_ context.Context, event events.Event) {
+func (sink *heard) Publish(_ context.Context, event events.Event) error {
 	sink.events = append(sink.events, event)
+	return nil
 }
 
 // unreachable is a store that cannot be reached, which is the one failure

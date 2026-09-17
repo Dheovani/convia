@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares.
@@ -29,6 +31,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -136,7 +143,7 @@ func (store *Store) resolve(ctx context.Context, candidate User) (User, bool, er
 		SELECT ` + columns + `, FALSE AS created FROM users
 		WHERE application_id = $2 AND external_subject = $3 AND NOT EXISTS (SELECT 1 FROM inserted)`
 
-	rows, err := store.pool.Query(ctx, statement,
+	rows, err := store.db(ctx).Query(ctx, statement,
 		candidate.ID,
 		candidate.ApplicationID,
 		candidate.ExternalSubject,
@@ -176,7 +183,7 @@ func (store *Store) BySubject(ctx context.Context, applicationID, subject string
 	const statement = `SELECT ` + columns + ` FROM users
 	                   WHERE application_id = $1 AND external_subject = $2 AND status <> $3`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, subject, StatusDeleted)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, subject, StatusDeleted)
 	if err != nil {
 		return User{}, fmt.Errorf("query user: %w", err)
 	}
@@ -198,7 +205,7 @@ func (store *Store) Get(ctx context.Context, applicationID, id string) (User, er
 	const statement = `SELECT ` + columns + ` FROM users
 	                   WHERE application_id = $1 AND id = $2 AND status <> $3`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id, StatusDeleted)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id, StatusDeleted)
 	if err != nil {
 		return User{}, fmt.Errorf("query user: %w", err)
 	}
@@ -232,7 +239,7 @@ func (store *Store) Many(ctx context.Context, applicationID string, ids []string
 	const statement = `SELECT ` + columns + ` FROM users
 	                   WHERE application_id = $1 AND id = ANY($2) AND status <> $3`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, ids, StatusDeleted)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, ids, StatusDeleted)
 	if err != nil {
 		return nil, fmt.Errorf("query users: %w", err)
 	}
@@ -266,7 +273,7 @@ func (store *Store) List(ctx context.Context, applicationID string, cursor *Curs
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query users: %w", err)
 	}
@@ -332,7 +339,7 @@ func (store *Store) update(ctx context.Context, statement string, arguments []an
 	}
 	statement += ` RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return User{}, fmt.Errorf("update user: %w", err)
 	}
@@ -399,7 +406,7 @@ func (store *Store) Retire(ctx context.Context, applicationID, id string, update
 // confirmAlreadyDeleted distinguishes a repeated delete from an unknown user.
 func (store *Store) confirmAlreadyDeleted(ctx context.Context, applicationID, id string) error {
 	var exists bool
-	err := store.pool.QueryRow(ctx,
+	err := store.db(ctx).QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM users WHERE application_id = $1 AND id = $2)`,
 		applicationID, id).Scan(&exists)
 	if err != nil {

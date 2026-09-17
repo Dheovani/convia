@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // columns is the projection every read shares. The digest is never among them.
@@ -20,6 +22,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 // row mirrors the projection above.
@@ -66,7 +73,7 @@ func (store *Store) Create(ctx context.Context, session Session, digest, wrapped
 		                      absolute_expires_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)`
 
-	_, err := store.pool.Exec(ctx, statement, session.ID, session.AccountID, digest, wrappedIdentity,
+	_, err := store.db(ctx).Exec(ctx, statement, session.ID, session.AccountID, digest, wrappedIdentity,
 		session.CreatedAt, session.LastSeenAt, session.AbsoluteExpiresAt)
 	if err != nil {
 		return fmt.Errorf("insert session: %w", err)
@@ -82,7 +89,7 @@ touches sessions ever carries one.
 */
 func (store *Store) WrappedIdentity(ctx context.Context, id string) ([]byte, error) {
 	var wrapped []byte
-	err := store.pool.QueryRow(ctx, `SELECT wrapped_identity FROM sessions WHERE id = $1`, id).Scan(&wrapped)
+	err := store.db(ctx).QueryRow(ctx, `SELECT wrapped_identity FROM sessions WHERE id = $1`, id).Scan(&wrapped)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return nil, ErrNotFound
@@ -108,7 +115,7 @@ func (store *Store) Credentials(ctx context.Context, id string) (Session, []byte
 		record row
 		digest []byte
 	)
-	err := store.pool.QueryRow(ctx, statement, id).Scan(&record.ID, &record.AccountID,
+	err := store.db(ctx).QueryRow(ctx, statement, id).Scan(&record.ID, &record.AccountID,
 		&record.CreatedAt, &record.LastSeenAt, &record.AbsoluteExpiresAt, &record.RevokedAt, &digest)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -134,7 +141,7 @@ func (store *Store) Touch(ctx context.Context, id string, at time.Time) error {
 		UPDATE sessions SET last_seen_at = $2
 		WHERE id = $1 AND last_seen_at < $3`
 
-	if _, err := store.pool.Exec(ctx, statement, id, at, at.Add(-RefreshInterval)); err != nil {
+	if _, err := store.db(ctx).Exec(ctx, statement, id, at, at.Add(-RefreshInterval)); err != nil {
 		return fmt.Errorf("touch session: %w", err)
 	}
 	return nil
@@ -150,7 +157,7 @@ must not be told that their own tidying-up failed.
 func (store *Store) Revoke(ctx context.Context, id string, at time.Time) error {
 	const statement = `UPDATE sessions SET revoked_at = $2 WHERE id = $1 AND revoked_at IS NULL`
 
-	if _, err := store.pool.Exec(ctx, statement, id, at); err != nil {
+	if _, err := store.db(ctx).Exec(ctx, statement, id, at); err != nil {
 		return fmt.Errorf("revoke session: %w", err)
 	}
 	return nil
@@ -168,7 +175,7 @@ func (store *Store) RevokeAllFor(ctx context.Context, accountID string, at time.
 		UPDATE sessions SET revoked_at = $2
 		WHERE account_id = $1 AND revoked_at IS NULL AND id <> $3`
 
-	tag, err := store.pool.Exec(ctx, statement, accountID, at, except)
+	tag, err := store.db(ctx).Exec(ctx, statement, accountID, at, except)
 	if err != nil {
 		return 0, fmt.Errorf("revoke sessions: %w", err)
 	}
@@ -187,7 +194,7 @@ func (store *Store) Live(ctx context.Context, accountID string, at time.Time) ([
 		WHERE account_id = $1 AND revoked_at IS NULL AND absolute_expires_at > $2
 		ORDER BY last_seen_at ASC`
 
-	rows, err := store.pool.Query(ctx, statement, accountID, at)
+	rows, err := store.db(ctx).Query(ctx, statement, accountID, at)
 	if err != nil {
 		return nil, fmt.Errorf("query sessions: %w", err)
 	}
@@ -224,7 +231,7 @@ func (store *Store) Prune(ctx context.Context, before time.Time) (int, error) {
 		   OR (revoked_at IS NOT NULL AND revoked_at < $1)
 		   OR last_seen_at < $2`
 
-	tag, err := store.pool.Exec(ctx, statement, before, before.Add(-IdleLifetime))
+	tag, err := store.db(ctx).Exec(ctx, statement, before, before.Add(-IdleLifetime))
 	if err != nil {
 		return 0, fmt.Errorf("prune sessions: %w", err)
 	}

@@ -8,6 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // Store persists idempotency keys in PostgreSQL.
@@ -17,6 +19,11 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 // errNoRecord reports a key nothing is stored under.
@@ -61,7 +68,7 @@ func (store *Store) Reserve(ctx context.Context, attempt Attempt, at time.Time) 
 	                       completed_at = NULL
 	                   WHERE idempotency_keys.expires_at <= EXCLUDED.created_at`
 
-	tag, err := store.pool.Exec(ctx, statement,
+	tag, err := store.db(ctx).Exec(ctx, statement,
 		attempt.Scope, attempt.Key, attempt.digest(), at, at.Add(Retention))
 	if err != nil {
 		return false, fmt.Errorf("reserve idempotency key: %w", err)
@@ -74,7 +81,7 @@ func (store *Store) get(ctx context.Context, scope, key string) (record, error) 
 	const statement = `SELECT request_digest, response_status, response_headers, response_body, completed_at
 	                   FROM idempotency_keys WHERE scope = $1 AND key = $2`
 
-	rows, err := store.pool.Query(ctx, statement, scope, key)
+	rows, err := store.db(ctx).Query(ctx, statement, scope, key)
 	if err != nil {
 		return record{}, fmt.Errorf("query idempotency key: %w", err)
 	}
@@ -104,7 +111,7 @@ func (store *Store) Complete(ctx context.Context, scope, key string, result Resu
 	                   SET response_status = $3, response_headers = $4, response_body = $5, completed_at = $6
 	                   WHERE scope = $1 AND key = $2 AND completed_at IS NULL`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		scope, key, result.Status, headers(result.Headers), result.Body, at)
 	if err != nil {
 		return fmt.Errorf("complete idempotency key: %w", err)
@@ -123,7 +130,7 @@ func (store *Store) Release(ctx context.Context, scope, key string) error {
 	const statement = `DELETE FROM idempotency_keys
 	                   WHERE scope = $1 AND key = $2 AND completed_at IS NULL`
 
-	if _, err := store.pool.Exec(ctx, statement, scope, key); err != nil {
+	if _, err := store.db(ctx).Exec(ctx, statement, scope, key); err != nil {
 		return fmt.Errorf("release idempotency key: %w", err)
 	}
 	return nil

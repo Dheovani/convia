@@ -111,13 +111,12 @@ func (service *Service) disconnected(ctx context.Context, call calls.Call, parti
 		return nil
 	}
 
-	departed, left, err := service.store.Leave(ctx, call.ApplicationID, participant.ID, now())
+	_, _, err = service.changed(ctx, events.ParticipantLeft, call.RoomID,
+		func(ctx context.Context) (Participant, bool, error) {
+			return service.store.Leave(ctx, call.ApplicationID, participant.ID, now())
+		})
 	if err != nil {
 		return err
-	}
-
-	if left {
-		service.audit(ctx, events.ParticipantLeft, departed, call.RoomID)
 	}
 
 	service.settle(ctx, call, calls.ActorSystem)
@@ -151,13 +150,20 @@ func (service *Service) finished(ctx context.Context, call calls.Call) error {
 		return nil
 	}
 
-	departed, err := service.store.LeaveEveryone(ctx, call.ApplicationID, call.ID, now())
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		departed, err := service.store.LeaveEveryone(ctx, call.ApplicationID, call.ID, now())
+		if err != nil {
+			return err
+		}
+		for _, participant := range departed {
+			if err := service.audit(ctx, events.ParticipantLeft, participant, call.RoomID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return err
-	}
-
-	for _, participant := range departed {
-		service.audit(ctx, events.ParticipantLeft, participant, call.RoomID)
 	}
 
 	service.settle(ctx, call, calls.ActorSystem)

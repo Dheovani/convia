@@ -331,6 +331,8 @@ type Event struct {
 	Subject       Subject   `json:"subject"`
 	CorrelationID string    `json:"correlation_id,omitempty"`
 	Data          Data      `json:"data,omitempty"`
+	// Cursor is where the event sits in the journal, absent on presence, which is not recorded.
+	Cursor string `json:"cursor,omitempty"`
 }
 
 /*

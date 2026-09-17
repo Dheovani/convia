@@ -12,6 +12,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"convia/internal/transaction"
 )
 
 // uniqueViolation is the SQLSTATE PostgreSQL reports for a violated unique
@@ -38,6 +40,19 @@ type Store struct {
 
 func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
+}
+
+/*
+Atomically runs work in one transaction, together with the events it announces.
+See package transaction.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
+// db is the transaction the context carries, or the pool; see package transaction.
+func (store *Store) db(ctx context.Context) transaction.Querier {
+	return transaction.On(ctx, store.pool)
 }
 
 /*
@@ -110,7 +125,7 @@ func (store *Store) Create(ctx context.Context, call Call) error {
 	                   (id, application_id, room_id, status, metadata, started_by, created_at, updated_at)
 	                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
-	_, err := store.pool.Exec(ctx, statement,
+	_, err := store.db(ctx).Exec(ctx, statement,
 		call.ID,
 		call.ApplicationID,
 		call.RoomID,
@@ -147,7 +162,7 @@ func violatesActiveCall(err error) bool {
 func (store *Store) Get(ctx context.Context, applicationID, id string) (Call, error) {
 	const statement = `SELECT ` + columns + ` FROM calls WHERE application_id = $1 AND id = $2`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, id)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, id)
 	if err != nil {
 		return Call{}, fmt.Errorf("query call: %w", err)
 	}
@@ -190,7 +205,7 @@ func (store *Store) List(ctx context.Context, applicationID string, roomID strin
 	}
 	statement += ` ORDER BY created_at DESC, id DESC LIMIT ` + strconv.Itoa(limit+1)
 
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return nil, false, fmt.Errorf("query calls: %w", err)
 	}
@@ -226,7 +241,7 @@ func (store *Store) End(ctx context.Context, applicationID, id string,
 	                   WHERE application_id = $5 AND id = $6 AND status = $7
 	                   RETURNING ` + columns
 
-	rows, err := store.pool.Query(ctx, statement,
+	rows, err := store.db(ctx).Query(ctx, statement,
 		StatusEnded, at, by, optionalReason(reason), applicationID, id, StatusActive)
 	if err != nil {
 		return Call{}, false, fmt.Errorf("end call: %w", err)
@@ -266,7 +281,7 @@ func (store *Store) ActiveIn(ctx context.Context, applicationID string, roomIDs 
 	                   WHERE application_id = $1 AND room_id = ANY($2) AND status = $3
 	                   ORDER BY created_at DESC, id DESC`
 
-	rows, err := store.pool.Query(ctx, statement, applicationID, roomIDs, StatusActive)
+	rows, err := store.db(ctx).Query(ctx, statement, applicationID, roomIDs, StatusActive)
 	if err != nil {
 		return nil, fmt.Errorf("query calls in rooms: %w", err)
 	}
@@ -295,7 +310,7 @@ func (store *Store) BySession(ctx context.Context, reference string) (Call, erro
 
 // one reads a single call, reporting ErrNotFound when the statement matched none.
 func (store *Store) one(ctx context.Context, statement string, arguments ...any) (Call, error) {
-	rows, err := store.pool.Query(ctx, statement, arguments...)
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
 	if err != nil {
 		return Call{}, fmt.Errorf("query call: %w", err)
 	}
@@ -343,7 +358,7 @@ func (store *Store) EndIfEmpty(
 	reason string,
 	at time.Time,
 ) (Call, bool, error) {
-	transaction, err := store.pool.Begin(ctx)
+	transaction, err := store.db(ctx).Begin(ctx)
 	if err != nil {
 		return Call{}, false, fmt.Errorf("begin ending an empty call: %w", err)
 	}
@@ -412,7 +427,7 @@ func (store *Store) AttachSession(ctx context.Context, applicationID, id, refere
 	const statement = `UPDATE calls SET media_session = $1
 	                   WHERE application_id = $2 AND id = $3`
 
-	if _, err := store.pool.Exec(ctx, statement, reference, applicationID, id); err != nil {
+	if _, err := store.db(ctx).Exec(ctx, statement, reference, applicationID, id); err != nil {
 		return fmt.Errorf("attach media session: %w", err)
 	}
 	return nil
@@ -430,7 +445,7 @@ func (store *Store) Session(ctx context.Context, applicationID, id string) (stri
 	                   WHERE application_id = $1 AND id = $2`
 
 	var reference string
-	err := store.pool.QueryRow(ctx, statement, applicationID, id).Scan(&reference)
+	err := store.db(ctx).QueryRow(ctx, statement, applicationID, id).Scan(&reference)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}
