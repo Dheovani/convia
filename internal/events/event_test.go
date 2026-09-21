@@ -2,11 +2,8 @@ package events
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 	"testing"
-
-	"convia/internal/credentials"
 )
 
 /*
@@ -108,7 +105,7 @@ that it is one.
 
 A webhook is a delivery with attempts behind it. A presence report that failed
 once arrives after it stopped being true, and after the newer one that replaced
-it — so an application subscribing to it by webhook would end up with a roster
+it â€” so an application subscribing to it by webhook would end up with a roster
 that never settles. Every other type is a record of something that happened,
 and a late delivery of one of those is still true.
 
@@ -143,29 +140,6 @@ func TestBuildingAnEventConviaDoesNotPublishIsRefused(t *testing.T) {
 	}()
 
 	New(Type("call.rescheduled"), "app_1", "call_1", "", nil)
-}
-
-/*
-TestEveryTypeIsDeliverableToSomebody is the test the default branch in
-readingScopeFor exists for.
-
-Adding a type to the vocabulary without deciding which scope may see it would
-otherwise produce an event delivered to nobody, silently, and the first sign of
-it would be a client asking why an event it was promised never arrives.
-*/
-func TestEveryTypeIsDeliverableToSomebody(t *testing.T) {
-	granted := credentials.Scopes()
-
-	for _, kind := range Types() {
-		scope := readingScopeFor(kind)
-		if scope == "" {
-			t.Errorf("%q has no scope that may read it", kind)
-			continue
-		}
-		if !slices.Contains(granted, scope) {
-			t.Errorf("%q requires %q, which is not a scope Convia recognizes", kind, scope)
-		}
-	}
 }
 
 /*

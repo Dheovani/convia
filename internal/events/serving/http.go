@@ -1,4 +1,4 @@
-package events
+package serving
 
 import (
 	"context"
@@ -14,14 +14,16 @@ import (
 	"convia/internal/api"
 	"convia/internal/credentials"
 	"convia/internal/sessions"
+
+	"convia/internal/events"
 )
 
 const (
 	/*
 		heartbeat is how often Convia proves the connection is still there.
 
-		A control stream can be silent for hours — a tenant with no calls
-		running produces nothing — so silence cannot be read as failure. A ping
+		A control stream can be silent for hours â€” a tenant with no calls
+		running produces nothing â€” so silence cannot be read as failure. A ping
 		is what separates the two, and it also keeps intermediaries from
 		reclaiming a connection they believe is idle.
 	*/
@@ -64,8 +66,8 @@ const (
 		should still be open, and which rooms it covers.
 
 		A session is verified when a stream opens and a socket outlives any
-		request, so without asking again a person who signed out everywhere —
-		or was suspended — would keep receiving events on a connection opened
+		request, so without asking again a person who signed out everywhere â€”
+		or was suspended â€” would keep receiving events on a connection opened
 		before. Their rooms are read again at the same moment, which bounds
 		what a membership event lost between instances can cost.
 
@@ -118,14 +120,14 @@ const resumeParameter = "after"
 resumption reads the cursor a request resumes from, if it names one. A cursor
 Convia did not write is refused before anything else, as a malformed request.
 */
-func resumption(request *http.Request) (Cursor, bool, error) {
+func resumption(request *http.Request) (events.Cursor, bool, error) {
 	text := request.URL.Query().Get(resumeParameter)
 	if text == "" {
-		return Cursor{}, false, nil
+		return events.Cursor{}, false, nil
 	}
-	cursor, err := ParseCursor(text)
+	cursor, err := events.ParseCursor(text)
 	if err != nil {
-		return Cursor{}, false, err
+		return events.Cursor{}, false, err
 	}
 	return cursor, true, nil
 }
@@ -138,14 +140,14 @@ no gap: everything up to the position is replayed from the journal, everything
 after it arrives live, and anything that arrives both ways is written once.
 */
 type resume struct {
-	after    Cursor
-	replayer Replayer
+	after    events.Cursor
+	replayer events.Replayer
 }
 
 // run replays what the stream missed and returns the cursor live delivery continues from.
-func (from *resume) run(ctx context.Context, connection *websocket.Conn, stream *Stream) (Cursor, error) {
+func (from *resume) run(ctx context.Context, connection *websocket.Conn, stream *events.Stream) (events.Cursor, error) {
 	if from.replayer == nil {
-		return Cursor{}, ErrCursorTooOld
+		return events.Cursor{}, events.ErrCursorTooOld
 	}
 
 	until := from.replayer.Position()
@@ -153,16 +155,16 @@ func (from *resume) run(ctx context.Context, connection *websocket.Conn, stream 
 		return from.after, nil
 	}
 
-	err := from.replayer.Replay(ctx, stream.applicationID, from.after, until, func(event Event) error {
-		if !stream.replays(event) {
+	err := from.replayer.Replay(ctx, stream.ApplicationID(), from.after, until, func(event events.Event) error {
+		if !stream.Replays(event) {
 			return nil
 		}
 		writing, cancel := context.WithTimeout(ctx, writeTimeout)
 		defer cancel()
-		if err := wsjson.Write(writing, connection, stream.outgoing(event)); err != nil {
+		if err := wsjson.Write(writing, connection, stream.Outgoing(event)); err != nil {
 			return err
 		}
-		stream.delivered.Add(1)
+		stream.Replayed()
 		return nil
 	})
 	return until, err
@@ -171,19 +173,19 @@ func (from *resume) run(ctx context.Context, connection *websocket.Conn, stream 
 // TenantHandler serves an application its own live control events.
 type TenantHandler struct {
 	logger   *slog.Logger
-	broker   *Broker
-	replayer Replayer
+	broker   *events.Broker
+	replayer events.Replayer
 }
 
 // NewTenantHandler serves streams that can resume from replayer, which may be nil when nothing is recorded.
-func NewTenantHandler(logger *slog.Logger, broker *Broker, replayer Replayer) *TenantHandler {
+func NewTenantHandler(logger *slog.Logger, broker *events.Broker, replayer events.Replayer) *TenantHandler {
 	return &TenantHandler{logger: logger, broker: broker, replayer: replayer}
 }
 
 /*
 Stream upgrades the request and delivers events until one side stops.
 
-Everything that decides what the subscriber may receive happens before the
+Everything that decides what the subscriber may events.receive happens before the
 upgrade, while the exchange is still an ordinary HTTP request that can be
 refused with an ordinary JSON error. Once the connection is a socket there is
 no way left to refuse anything, so nothing is left to decide there.
@@ -249,7 +251,7 @@ accept upgrades a request whose subscription has already been decided.
 Nothing clears the server's read and write deadlines here, and nothing needs
 to: net/http clears them itself when a handler hijacks the connection. What
 bounds a stream instead is the deadline on each individual write, plus the
-heartbeat — both of which bound an operation rather than the connection, which
+heartbeat â€” both of which bound an operation rather than the connection, which
 is the difference between a stream that can last hours and one the server
 closes after thirty seconds. A test pins that, because it is a property of the
 standard library that this package depends on rather than one it enforces.
@@ -309,7 +311,7 @@ returning.
 func deliver(
 	ctx context.Context,
 	connection *websocket.Conn,
-	stream *Stream,
+	stream *events.Stream,
 	again *recheck,
 	from *resume,
 ) (websocket.StatusCode, string) {
@@ -328,7 +330,7 @@ func deliver(
 	/*
 		The close frame goes first and the reader is waited for second. Closing
 		is what makes the pending Read return, so waiting first would be
-		waiting for something this function is holding up — the same ordering
+		waiting for something this function is holding up â€” the same ordering
 		mistake as releasing a resource before the thing using it has stopped.
 	*/
 	_ = connection.Close(status, reason)
@@ -348,15 +350,15 @@ for the same reason.
 func pump(
 	ctx context.Context,
 	connection *websocket.Conn,
-	stream *Stream,
+	stream *events.Stream,
 	again *recheck,
 	from *resume,
 ) (websocket.StatusCode, string) {
-	var last Cursor
+	var last events.Cursor
 	if from != nil {
 		var err error
 		last, err = from.run(ctx, connection, stream)
-		if errors.Is(err, ErrCursorTooOld) {
+		if errors.Is(err, events.ErrCursorTooOld) {
 			return statusTooOld, "the cursor is older than the events Convia keeps"
 		}
 		if err != nil {
@@ -386,12 +388,12 @@ func pump(
 
 		case event := <-stream.Events():
 			// Already written by the replay.
-			if cursor, recorded := cursorOf(event); recorded && !last.Before(cursor) {
+			if cursor, recorded := events.CursorOf(event); recorded && !last.Before(cursor) {
 				continue
 			}
 
 			writing, cancel := context.WithTimeout(ctx, writeTimeout)
-			err := wsjson.Write(writing, connection, stream.outgoing(event))
+			err := wsjson.Write(writing, connection, stream.Outgoing(event))
 			cancel()
 
 			if err != nil {
@@ -423,11 +425,11 @@ frame is the only place left to say it: one is orderly, one says to reconnect
 somewhere else, and one says the subscriber's picture now has a gap that
 reconnecting will not fill.
 */
-func closeFor(ending Ending) (websocket.StatusCode, string) {
+func closeFor(ending events.Ending) (websocket.StatusCode, string) {
 	switch ending {
-	case EndedBehind:
+	case events.EndedBehind:
 		return statusBehind, "events were dropped because this stream fell behind"
-	case EndedByShutdown:
+	case events.EndedByShutdown:
 		return websocket.StatusGoingAway, "this instance is shutting down"
 	default:
 		return websocket.StatusNormalClosure, "the stream was closed"
@@ -463,8 +465,8 @@ func refuseClientMessages(ctx context.Context, connection *websocket.Conn) {
 /*
 closeStatusFor maps a write or heartbeat failure onto a close status.
 
-A connection that has already gone needs no status at all — the frame has
-nowhere to arrive — so what this really decides is what an operator reads in
+A connection that has already gone needs no status at all â€” the frame has
+nowhere to arrive â€” so what this really decides is what an operator reads in
 the summary, and what a still-present client is told when the fault was
 Convia's.
 */
@@ -489,7 +491,7 @@ func (handler *TenantHandler) refuse(response http.ResponseWriter, request *http
 		handler.fail(response, request, api.NewFailure(http.StatusForbidden, api.CodeForbidden,
 			"The credential does not carry the scopes an event stream requires."))
 
-	case errors.Is(err, ErrTooManyStreams):
+	case errors.Is(err, events.ErrTooManyStreams):
 		handler.logger.Warn("event stream refused because a ceiling was reached",
 			"application_id", principal.ApplicationID,
 			"active_streams", handler.broker.Active(),
@@ -499,7 +501,7 @@ func (handler *TenantHandler) refuse(response http.ResponseWriter, request *http
 		handler.fail(response, request, api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
 			"Too many event streams are open. Close one or retry later."))
 
-	case errors.Is(err, ErrStopped):
+	case errors.Is(err, events.ErrStopped):
 		handler.fail(response, request, api.NewFailure(http.StatusServiceUnavailable,
 			api.CodeUnavailable, "This instance is shutting down and is not accepting event streams."))
 
@@ -554,8 +556,8 @@ and read again on an interval along with the session.
 */
 type PersonHandler struct {
 	logger   *slog.Logger
-	broker   *Broker
-	replayer Replayer
+	broker   *events.Broker
+	replayer events.Replayer
 	sessions sessionAuthenticator
 	rooms    memberships
 
@@ -566,8 +568,8 @@ type PersonHandler struct {
 
 func NewPersonHandler(
 	logger *slog.Logger,
-	broker *Broker,
-	replayer Replayer,
+	broker *events.Broker,
+	replayer events.Replayer,
 	sessions sessionAuthenticator,
 	rooms memberships,
 ) *PersonHandler {
@@ -672,7 +674,7 @@ func (handler *PersonHandler) recheck(
 	ctx context.Context,
 	token string,
 	principal sessions.Principal,
-	stream *Stream,
+	stream *events.Stream,
 ) (websocket.StatusCode, string, bool) {
 	checking, cancel := context.WithTimeout(ctx, recheckTimeout)
 	defer cancel()
@@ -709,7 +711,7 @@ func (handler *PersonHandler) refuse(
 	err error,
 ) {
 	switch {
-	case errors.Is(err, ErrTooManyStreams):
+	case errors.Is(err, events.ErrTooManyStreams):
 		handler.logger.Warn("person event stream refused because a ceiling was reached",
 			"session_id", principal.SessionID,
 			"active_streams", handler.broker.Active(),
@@ -719,7 +721,7 @@ func (handler *PersonHandler) refuse(
 		handler.fail(response, request, api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
 			"Too many event streams are open. Close one or retry later."))
 
-	case errors.Is(err, ErrStopped):
+	case errors.Is(err, events.ErrStopped):
 		handler.fail(response, request, api.NewFailure(http.StatusServiceUnavailable,
 			api.CodeUnavailable, "This instance is shutting down and is not accepting event streams."))
 

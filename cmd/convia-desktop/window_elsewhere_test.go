@@ -15,7 +15,7 @@ do is appear to work: a person on macOS or Linux is told this version is for
 Windows, and told that the service is not.
 */
 func TestTheApplicationRefusesOnSystemsItWasNotBuiltFor(t *testing.T) {
-	err := open(quiet(), nil)
+	err := open(quiet(), nil, nil)
 	if err == nil {
 		t.Fatal("open() succeeded on a system with no window to open")
 	}

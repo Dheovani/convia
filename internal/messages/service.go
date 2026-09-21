@@ -37,7 +37,7 @@ roomLookup is the behavior this package needs from the room domain.
 
 Only reading is needed. A message never changes a room, which keeps the
 dependency one-directional and leaves the room the authority on its own
-lifecycle — including whether it is still open to being added to.
+lifecycle â€” including whether it is still open to being added to.
 */
 type roomLookup interface {
 	Get(ctx context.Context, applicationID, id string) (rooms.Room, error)
@@ -71,7 +71,7 @@ announcer is the behavior this package needs to publish what happened.
 
 It is called inside the transaction that made the change, and records the
 event there: an error means the change must not commit either. See
-docs/adr/0017. events.Announcer satisfies it.
+docs/adr/0017. [convia/internal/events/serving.Announcer] satisfies it.
 */
 type announcer interface {
 	Publish(ctx context.Context, event events.Event) error
@@ -120,7 +120,7 @@ type Page struct {
 HistoryOptions selects a window of a room's history.
 
 An absent cursor means the end the direction starts from, so the common request
-— "open this room" — carries no cursor at all.
+â€” "open this room" â€” carries no cursor at all.
 */
 type HistoryOptions struct {
 	Direction Direction
@@ -133,7 +133,7 @@ Post records something somebody said in a room.
 
 The author is checked before the room, so a message that cannot be truthfully
 attributed never reaches a transaction. The room is then read to answer plainly
-— a missing room should not cost a lock — but that read is **not** what the
+â€” a missing room should not cost a lock â€” but that read is **not** what the
 append relies on: the store takes the room's row lock and re-reads its state
 inside the transaction, so a room closed between this check and the insert is
 still refused.
@@ -415,12 +415,12 @@ requireAuthor checks that a message can be truthfully attributed.
 
 A user must be one of this application's and must not be suspended or deleted.
 A guest must be an invitation this application issued, and must be one that
-names nobody — an invitation issued *for* a user is that user's, and accepting
+names nobody â€” an invitation issued *for* a user is that user's, and accepting
 it as a guest identity would let the same person appear in one room under two
 different names.
 
-Whether the author may still write — a guest whose call has ended, somebody
-removed from a room — is per-person authorization and is not decided here.
+Whether the author may still write â€” a guest whose call has ended, somebody
+removed from a room â€” is per-person authorization and is not decided here.
 */
 func (service *Service) requireAuthor(ctx context.Context, applicationID string, author Author) error {
 	if !author.Valid() {

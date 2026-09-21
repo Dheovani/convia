@@ -38,14 +38,35 @@ The application is a second binary in this module, `cmd/convia-desktop`. Its win
 
 ```bash
 cd web && npm ci && npm run build   # writes into internal/web/assets/dist
-cd .. && go build ./cmd/convia-desktop
+cd .. && go build -tags desktop,production ./cmd/convia-desktop
 ```
 
-There is no `wails build` yet. A plain `go build` produces a working application, and what the Wails CLI adds — an icon, a manifest, an installer — is `M35-011`.
+**The tags are not optional.** Wails compiles two different applications from the same source: without `production` it compiles one whose window never opens and which says the tags are missing instead. `desktop` selects nothing in v2.16 and is passed because Wails' own CLI passes it, so that what this repository builds and what Wails documents stay the same string. A build that left them out says so on startup, naming the command above, rather than leaving somebody with a dialog about a project built with a CLI this one does not use.
+
+There is no `wails build` yet. A `go build` with those tags produces a working application, and what the CLI adds — an icon, a manifest, `-ldflags "-w -s -H windowsgui"` so there is no console behind the window, and an installer — is `M35-011`. The scripts below deliberately leave the console, because in development that is where the log goes.
 
 The interface is compiled into the application out of the same embed the service serves it from: one build of `web/`, one copy, whichever binary shows it. A test asserts that the page the application renders and the page the service serves are byte for byte the same file, because two embeds would eventually be two builds, and the difference would look like a bug in whichever one somebody happened to be looking at.
 
 Nothing is served over HTTP. Wails reads the bundle out of the binary and the window renders it, so the application opens no port and the interface it is showing is not reachable from anywhere else on the machine.
+
+### Running it while working on it
+
+```sh
+./scripts/app.sh     # Git Bash
+./scripts/app.ps1    # Windows PowerShell
+```
+
+It starts the containers, applies the migrations, builds the interface into the application, starts Convia, and opens the window. Closing the window stops Convia. `--skip-interface`, or `-SkipInterface`, reuses the last build of `web/`, which is the slow step and the one nothing about a Go change touches.
+
+For working on the interface itself, `./scripts/dev.sh` and `./scripts/dev.ps1` are still the ones to use: they serve `web/` with hot reloading in a browser, so a change is on the screen when it is saved. Here a change needs the interface rebuilt and the window reopened.
+
+The two pairs share what they have in common — reading `.env`, starting the containers, waiting for Convia — in `scripts/common.sh` and `scripts/common.ps1`.
+
+### What it does not carry
+
+The application links the vocabulary of Convia's events, the shape of its errors, and nothing else of the service. No database driver, no migration runner, no media plane, no password hashing. A test asserts it, from both sides: the application does not carry the service, and the service does not carry a window.
+
+That is not tidiness. Convia is a call service and the service is the part with a commercial future; the application is the interface an ordinary person opens, and it reaches the service the same way any other client does. Two binaries whose dependencies are separate are two binaries whose licences, vulnerabilities and audits are separate too, and the day that stops being true will be a day somebody imported something convenient. [ADR 0020](adr/0020-the-event-vocabulary-is-separate-from-its-delivery.md) is what it cost to make it true in the first place.
 
 ### What a machine needs to run it
 

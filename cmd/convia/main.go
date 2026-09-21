@@ -22,6 +22,7 @@ import (
 	"convia/internal/events"
 	"convia/internal/events/journal"
 	"convia/internal/events/redis"
+	"convia/internal/events/serving"
 	"convia/internal/idempotency"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -201,7 +202,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("start following the event journal: %w", err)
 	}
-	announcer := events.NewJournaledAnnouncer(broker, eventJournal, dispatcher, follower.Wake, logger)
+	announcer := serving.NewJournaledAnnouncer(broker, eventJournal, dispatcher, follower.Wake, logger)
 
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
 
@@ -305,7 +306,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		TenantMessages:     messages.NewTenantHandler(logger, messageService),
 		PersonalMessages:   messages.NewSessionHandler(logger, messageService, roomService),
 		PersonalRooms:      rooms.NewSessionHandler(logger, roomService, userService),
-		TenantEvents:       events.NewTenantHandler(logger, broker, follower),
+		TenantEvents:       serving.NewTenantHandler(logger, broker, follower),
 		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
 		TenantPresence:     presence.NewTenantHandler(logger, presenceService),
 		PersonalPresence:   presence.NewPersonalHandler(logger, presenceService, roomService),
@@ -318,7 +319,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
-		PersonalEvents:       events.NewPersonHandler(logger, broker, follower, sessionService, roomService),
+		PersonalEvents:       serving.NewPersonHandler(logger, broker, follower, sessionService, roomService),
 
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),
@@ -358,7 +359,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		The delivery worker. Its owner is this function, its lifetime is the
 		process, and cancelling delivering is how it stops. A delivery
 		interrupted by that is not lost: its lease expires and the next worker
-		to look — this one after a restart, or another instance — takes it
+		to look â€” this one after a restart, or another instance â€” takes it
 		again.
 	*/
 	if relay != nil {
@@ -392,7 +393,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		The presence sweeper. Expiry is a timer, and a timer tells nobody: this
 		is what turns a claim lapsing into an event a subscriber can see.
 		Cancelling is how it stops, and a pass that does not happen costs an
-		announcement rather than an answer — every read already ignores a claim
+		announcement rather than an answer â€” every read already ignores a claim
 		past its deadline.
 	*/
 	go presence.NewSweeper(presenceService, logger).Run(delivering)
@@ -516,7 +517,7 @@ Recorded events need no relay: every instance follows the journal.
 A nil relay is a supported deployment and the ordinary one: a single instance
 needs nothing carried anywhere, and every subscriber is served by the instance
 that produced the change. That is reported at info rather than as a warning, for
-the same reason a missing media plane is — an operator running one instance
+the same reason a missing media plane is â€” an operator running one instance
 should not be told at every start-up that something is wrong.
 
 What Convia cannot tell from inside one process is whether *several* instances
@@ -526,7 +527,7 @@ here is what an operator compares against what they deployed.
 
 Reaching the channel is checked once and does not stop the process. An instance
 that refused to start because Redis was unreachable would take a working API
-offline over presence that degrades to what it was before M16 — so the failure
+offline over presence that degrades to what it was before M16 â€” so the failure
 is reported loudly and serving continues.
 */
 func openRelay(settings config.Redis, logger *slog.Logger) (*redis.Relay, error) {
@@ -540,7 +541,7 @@ func openRelay(settings config.Redis, logger *slog.Logger) (*redis.Relay, error)
 		The origin is generated per process rather than configured. Its only job
 		is to let this instance recognize its own messages coming back on the
 		channel it published to, so it has to be unique per process and means
-		nothing beyond that — a value an operator had to set would be one they
+		nothing beyond that â€” a value an operator had to set would be one they
 		could set the same on two machines.
 	*/
 	origin := "ins_" + rand.Text()
@@ -574,7 +575,7 @@ openPresence builds the store presence lives in, and returns how to close it.
 
 There is no nil case here, unlike the relay. Presence always has somewhere to
 live: with one instance that is this process, and the in-process store is the
-whole implementation rather than a fallback — there is nowhere else for it to
+whole implementation rather than a fallback â€” there is nowhere else for it to
 be, and a network round trip to answer a question this process already knows
 would be worse in every respect.
 

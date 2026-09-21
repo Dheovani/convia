@@ -1,4 +1,4 @@
-package events
+package serving
 
 import (
 	"context"
@@ -16,6 +16,8 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/credentials"
+
+	"convia/internal/events"
 )
 
 /*
@@ -25,7 +27,7 @@ Authentication is not repeated here: the middleware that verifies a key is the
 server package's, and putting a principal in the context directly is exactly
 what it does once it has.
 */
-func listening(t *testing.T, broker *Broker, principal credentials.Principal) *httptest.Server {
+func listening(t *testing.T, broker *events.Broker, principal credentials.Principal) *httptest.Server {
 	t.Helper()
 
 	handler := NewTenantHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil)
@@ -72,7 +74,7 @@ exists for, over a real socket.
 Everything below tests a way it can go wrong; this tests that it goes right.
 */
 func TestAClientReceivesEventsAsTheyHappen(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	connection := subscriber(t, listening(t, broker, everything()))
 
 	/*
@@ -83,7 +85,7 @@ func TestAClientReceivesEventsAsTheyHappen(t *testing.T) {
 	*/
 	waitUntilSubscribed(t, broker)
 
-	broker.Publish(New(ParticipantJoined, "app_1", "part_1", "req_1", Data{
+	broker.Publish(events.New(events.ParticipantJoined, "app_1", "part_1", "req_1", events.Data{
 		"call_id": "call_1",
 		"role":    "moderator",
 		"guest":   false,
@@ -93,15 +95,15 @@ func TestAClientReceivesEventsAsTheyHappen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
 	defer cancel()
 
-	var received Event
+	var received events.Event
 	if err := wsjson.Read(ctx, connection, &received); err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
 
-	if received.Type != ParticipantJoined {
+	if received.Type != events.ParticipantJoined {
 		t.Errorf("the client received %q", received.Type)
 	}
-	if received.Subject.ID != "part_1" || received.Subject.Type != SubjectParticipant {
+	if received.Subject.ID != "part_1" || received.Subject.Type != events.SubjectParticipant {
 		t.Errorf("the client received an event about %+v", received.Subject)
 	}
 	if received.CorrelationID != "req_1" {
@@ -117,12 +119,12 @@ TestAClientThatSendsAnythingIsDisconnected is M14-010 as behavior rather than
 as a promise.
 
 The stream is one direction, so there is no message a client could send that
-Convia would act on — including one carrying audio. Refusing outright is what
+Convia would act on â€” including one carrying audio. Refusing outright is what
 tells a client its protocol is wrong instead of letting it believe Convia
 received something.
 */
 func TestAClientThatSendsAnythingIsDisconnected(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	connection := subscriber(t, listening(t, broker, everything()))
 
 	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
@@ -147,7 +149,7 @@ A binary frame is what a client trying to push media would send, and it must
 meet the same answer as a text one rather than a decoding error.
 */
 func TestABinaryMessageIsRefusedToo(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	connection := subscriber(t, listening(t, broker, everything()))
 
 	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
@@ -171,7 +173,7 @@ A subscriber whose instance is going away should read a reason and reconnect,
 not watch a socket vanish and guess.
 */
 func TestShutdownTellsSubscribersWhy(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	connection := subscriber(t, listening(t, broker, everything()))
 	waitUntilSubscribed(t, broker)
 
@@ -217,10 +219,10 @@ publishes them, and a client that reconnects blindly after falling behind would
 keep a gap in its view forever.
 */
 func TestEveryEndingSaysSomethingDifferent(t *testing.T) {
-	cases := map[Ending]websocket.StatusCode{
-		EndedByReader:   websocket.StatusNormalClosure,
-		EndedBehind:     statusBehind,
-		EndedByShutdown: websocket.StatusGoingAway,
+	cases := map[events.Ending]websocket.StatusCode{
+		events.EndedByReader:   websocket.StatusNormalClosure,
+		events.EndedBehind:     statusBehind,
+		events.EndedByShutdown: websocket.StatusGoingAway,
 	}
 
 	seen := make(map[websocket.StatusCode]bool, len(cases))
@@ -253,11 +255,11 @@ TestACredentialThatMayNotSubscribeNeverReachesASocket keeps every refusal on
 the side of the exchange that can still explain itself.
 
 Once the connection is a WebSocket there is no status code and no error body
-left, so a client refused after the upgrade would receive a close frame where
+left, so a client refused after the upgrade would events.receive a close frame where
 it expected an HTTP answer.
 */
 func TestACredentialThatMayNotSubscribeNeverReachesASocket(t *testing.T) {
-	server := listening(t, NewBroker(), holding(credentials.ScopeCallsRead))
+	server := listening(t, events.NewBroker(), holding(credentials.ScopeCallsRead))
 
 	response := attempt(t, server)
 	defer response.Body.Close()
@@ -276,13 +278,13 @@ A client is told to retry, in the ordinary error shape, before anything has
 been upgraded.
 */
 func TestReachingTheCeilingIsAnHTTPRefusal(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	server := listening(t, broker, everything())
 
-	for range MaxStreamsPerApplication {
+	for range events.MaxStreamsPerApplication {
 		subscriber(t, server)
 	}
-	waitUntilOpen(t, broker, MaxStreamsPerApplication)
+	waitUntilOpen(t, broker, events.MaxStreamsPerApplication)
 
 	response := attempt(t, server)
 	defer response.Body.Close()
@@ -302,7 +304,7 @@ TestAStoppedInstanceRefusesNewStreams keeps a shutting-down instance from
 accepting work it is about to abandon.
 */
 func TestAStoppedInstanceRefusesNewStreams(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	server := listening(t, broker, everything())
 
 	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
@@ -363,13 +365,13 @@ func assertFailureCode(t *testing.T, response *http.Response, code api.ErrorCode
 }
 
 // waitUntilSubscribed waits for the handler to have registered its stream.
-func waitUntilSubscribed(t *testing.T, broker *Broker) {
+func waitUntilSubscribed(t *testing.T, broker *events.Broker) {
 	t.Helper()
 	waitUntilOpen(t, broker, 1)
 }
 
 // waitUntilOpen waits until the broker holds the expected number of streams.
-func waitUntilOpen(t *testing.T, broker *Broker, expected int) {
+func waitUntilOpen(t *testing.T, broker *events.Broker, expected int) {
 	t.Helper()
 
 	deadline := time.Now().Add(waitFor)

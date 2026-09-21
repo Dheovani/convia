@@ -1,4 +1,4 @@
-package events
+package serving
 
 import (
 	"context"
@@ -16,6 +16,8 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"convia/internal/sessions"
+
+	"convia/internal/events"
 )
 
 // sessionToken is what the test browser holds. The stub below accepts it
@@ -74,7 +76,7 @@ func listeningAsPerson(t *testing.T, handler *PersonHandler) *httptest.Server {
 	return server
 }
 
-func personHandler(broker *Broker, session sessionAuthenticator, known memberships) *PersonHandler {
+func personHandler(broker *events.Broker, session sessionAuthenticator, known memberships) *PersonHandler {
 	return NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil, session, known)
 }
 
@@ -102,13 +104,13 @@ A read with a deadline is not an option here: coder/websocket closes the
 connection when a read's context ends, so a test that waited a bounded time for
 an event that had not arrived yet would have closed the stream it was testing.
 */
-func incoming(connection *websocket.Conn) (<-chan Event, <-chan error) {
-	arrived := make(chan Event, QueueDepth)
+func incoming(connection *websocket.Conn) (<-chan events.Event, <-chan error) {
+	arrived := make(chan events.Event, events.QueueDepth)
 	ended := make(chan error, 1)
 
 	go func() {
 		for {
-			var event Event
+			var event events.Event
 			if err := wsjson.Read(context.Background(), connection, &event); err != nil {
 				ended <- err
 				return
@@ -122,7 +124,7 @@ func incoming(connection *websocket.Conn) (<-chan Event, <-chan error) {
 // TestAPersonReceivesEventsAboutTheirRoomsOverASocket is the handler doing the
 // one thing it exists for.
 func TestAPersonReceivesEventsAboutTheirRoomsOverASocket(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	server := listeningAsPerson(t, personHandler(broker, &switchableSession{}, &rooms{ids: []string{"room_a"}}))
 
 	connection, _, err := dialAsPerson(t, server)
@@ -162,7 +164,7 @@ wanted.
 */
 func TestASessionThatEndsClosesTheStream(t *testing.T) {
 	session := &switchableSession{}
-	handler := personHandler(NewBroker(), session, &rooms{ids: []string{"room_a"}})
+	handler := personHandler(events.NewBroker(), session, &rooms{ids: []string{"room_a"}})
 	handler.every = 10 * time.Millisecond
 	server := listeningAsPerson(t, handler)
 
@@ -190,7 +192,7 @@ Convia rather than the person. A database that did not answer once says nothing
 about whether somebody is still signed in.
 */
 func TestACheckThatCannotBeMadeKeepsTheStreamOpen(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	session := &switchableSession{}
 	handler := personHandler(broker, session, &rooms{ids: []string{"room_a"}})
 	handler.every = 5 * time.Millisecond
@@ -224,7 +226,7 @@ relays. If the relay dropped it, the stream would never cover the room; reading
 the rooms again is what makes that a delay rather than a permanent silence.
 */
 func TestARecheckReadsTheRoomsAgain(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	known := &rooms{}
 	handler := personHandler(broker, &switchableSession{}, known)
 	handler.every = 5 * time.Millisecond
@@ -255,7 +257,7 @@ func TestARecheckReadsTheRoomsAgain(t *testing.T) {
 // TestRoomsThatCannotBeReadAreRefusedBeforeTheUpgrade keeps a failed read an
 // HTTP answer rather than a socket that would stay silent forever.
 func TestRoomsThatCannotBeReadAreRefusedBeforeTheUpgrade(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	handler := personHandler(broker, &switchableSession{}, &rooms{err: errors.New("the database is unreachable")})
 	server := listeningAsPerson(t, handler)
 

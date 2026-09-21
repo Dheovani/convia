@@ -116,7 +116,7 @@ func TestAStreamCarriesOnlyTheTypesItAskedFor(t *testing.T) {
 /*
 TestASubscriberThatFallsBehindLosesItsStreamRatherThanEvents is M14-008.
 
-The alternative — dropping an event and carrying on — is worse than it sounds:
+The alternative â€” dropping an event and carrying on â€” is worse than it sounds:
 the subscriber would keep receiving events and would have no way to know its
 picture had a hole in it. Ending the stream is the only honest signal available
 until M14-006 adds a resume cursor, and it is what tells the subscriber to
@@ -402,5 +402,49 @@ func TestPublishingWithNobodyListeningIsHarmless(t *testing.T) {
 
 	if broker.Active() != 0 {
 		t.Errorf("publishing to nobody opened %d streams", broker.Active())
+	}
+}
+
+/*
+TestPeopleDoNotSpendAnApplicationsStreams keeps Convia's own product from
+crowding out the backends of the application it is.
+
+The first-party application is an application like any other, with eight
+streams for its backend. Were a person's tab counted against those, the eighth
+browser tab would refuse the backend its stream.
+*/
+func TestPeopleDoNotSpendAnApplicationsStreams(t *testing.T) {
+	broker := NewBroker()
+
+	for range MaxStreamsPerPerson {
+		opened, err := broker.SubscribePerson("app_1", "usr_ana", Types())
+		if err != nil {
+			t.Fatalf("SubscribePerson() error = %v", err)
+		}
+		t.Cleanup(opened.Close)
+	}
+
+	if _, err := broker.SubscribePerson("app_1", "usr_ana", Types()); !errors.Is(err, ErrTooManyStreams) {
+		t.Errorf("one person opened more than %d streams: error = %v", MaxStreamsPerPerson, err)
+	}
+
+	other, err := broker.SubscribePerson("app_1", "usr_bea", Types())
+	if err != nil {
+		t.Fatalf("SubscribePerson() error = %v", err)
+	}
+	backend, err := broker.Subscribe("app_1", Types())
+	if err != nil {
+		t.Fatalf("an application was refused its stream by its people's: %v", err)
+	}
+	defer backend.Close()
+
+	/*
+		Ending a person's stream frees a place for that person, and only that
+		count moves, which is what a leak between the two would break.
+	*/
+	other.Close()
+	if broker.people != MaxStreamsPerPerson || broker.applications != 1 {
+		t.Errorf("counts are %d people and %d applications, want %d and 1",
+			broker.people, broker.applications, MaxStreamsPerPerson)
 	}
 }

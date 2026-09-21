@@ -15,6 +15,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/events"
+	"convia/internal/events/serving"
 	"convia/internal/sessions"
 )
 
@@ -25,7 +26,7 @@ func servingPeople(t *testing.T, broker *events.Broker) *httptest.Server {
 
 	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
 	dependencies := testDependencies()
-	dependencies.PersonalEvents = events.NewPersonHandler(discard, broker, nil,
+	dependencies.PersonalEvents = serving.NewPersonHandler(discard, broker, nil,
 		stubSessionAuthenticator{principal: samplePerson()},
 		stubRooms{room: sampleRoom(), member: sampleMember()})
 

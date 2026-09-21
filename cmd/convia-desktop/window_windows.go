@@ -16,6 +16,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	winoptions "github.com/wailsapp/wails/v2/pkg/options/windows"
 	"golang.org/x/sys/windows"
+
+	"convia/internal/desktop/app"
 )
 
 const (
@@ -51,7 +53,12 @@ Nothing is served over HTTP. Wails reads the bundle straight out of the binary
 and the window renders it, so there is no port, no origin, and nothing else on
 the machine can reach the interface this process is showing.
 */
-func open(log *slog.Logger, ui fs.FS) error {
+func open(log *slog.Logger, ui fs.FS, application *app.App) error {
+	if !builtWithWailsTags {
+		announce(windowTitle, missingTags)
+		return errors.New(missingTags)
+	}
+
 	version, err := webviewloader.GetAvailableCoreWebView2BrowserVersionString("")
 	if problem := webviewProblem(version, err); problem != nil {
 		log.Debug("look for the webview runtime", "version", version, "error", err)
@@ -68,8 +75,17 @@ func open(log *slog.Logger, ui fs.FS) error {
 		MinHeight:        minHeight,
 		BackgroundColour: firstPaint,
 		AssetServer:      &assetserver.Options{Assets: ui},
-		Logger:           relay{log},
-		LogLevel:         logger.INFO,
+
+		/*
+			What the interface may call, and the context it is called under.
+			Everything that crosses here is chosen in internal/desktop/app;
+			the session is not among it.
+		*/
+		OnStartup: application.Start,
+		Bind:      []any{application},
+
+		Logger:   relay{log},
+		LogLevel: logger.INFO,
 
 		Windows: &winoptions.Options{
 			// The window follows the system, and so does the interface inside
@@ -87,11 +103,21 @@ func open(log *slog.Logger, ui fs.FS) error {
 }
 
 /*
+missingTags is what a build without Wails' build tags is told.
+
+Wails says this too, in a dialog of its own, and says it in terms of a project
+built with its CLI — which this one is not. What is wanted is the command that
+works here, so it is said first and in those words.
+*/
+const missingTags = "this build of Convia's application is missing Wails' build tags. " +
+	"Build it with: go build -tags desktop,production ./cmd/convia-desktop"
+
+/*
 webviewProblem reports that the runtime the window is made of is missing.
 
 Windows 11 and current Windows 10 carry it. A machine that does not is usually
 an older or a managed one, and what such a machine shows without this check is
-a window that never appears and a process that exits — which reads as Convia
+a window that never appears and a process that exits â€” which reads as Convia
 being broken rather than as something being absent.
 
 A version that cannot be read is treated as no version. The only thing that

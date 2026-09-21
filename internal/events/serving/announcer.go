@@ -1,21 +1,23 @@
-package events
+package serving
 
 import (
 	"context"
 	"log/slog"
 
 	"convia/internal/transaction"
+
+	"convia/internal/events"
 )
 
 /*
 Sink is a durable destination for events, written to inside the transaction
 that caused them.
 
-It is an interface because the package that implements it — webhooks — imports
+It is an interface because the package that implements it â€” webhooks â€” imports
 this one for the envelope, and the dependency has to run one way.
 */
 type Sink interface {
-	Enqueue(ctx context.Context, event Event) error
+	Enqueue(ctx context.Context, event events.Event) error
 }
 
 /*
@@ -34,8 +36,8 @@ Publish returns an error because a recorded announcement is part of the change:
 a caller that cannot record it must not commit the change either.
 */
 type Announcer struct {
-	broker  *Broker
-	journal Journal
+	broker  *events.Broker
+	journal events.Journal
 	durable Sink
 	logger  *slog.Logger
 
@@ -51,7 +53,7 @@ transaction commits, and nothing can resume from it. It is what tests that only
 watch a stream use. The sink may be nil, which is a Convia that delivers no
 webhooks.
 */
-func NewAnnouncer(broker *Broker, durable Sink, logger *slog.Logger) *Announcer {
+func NewAnnouncer(broker *events.Broker, durable Sink, logger *slog.Logger) *Announcer {
 	return &Announcer{broker: broker, durable: durable, logger: logger}
 }
 
@@ -61,8 +63,8 @@ transaction that did commits, so that whatever follows the journal can look now
 rather than at its next poll.
 */
 func NewJournaledAnnouncer(
-	broker *Broker,
-	journal Journal,
+	broker *events.Broker,
+	journal events.Journal,
 	durable Sink,
 	recorded func(),
 	logger *slog.Logger,
@@ -71,13 +73,13 @@ func NewJournaledAnnouncer(
 }
 
 // Publish announces an event as part of the change in the context's transaction.
-func (announcer *Announcer) Publish(ctx context.Context, event Event) error {
+func (announcer *Announcer) Publish(ctx context.Context, event events.Event) error {
 	/*
 		Not every event is recorded. One type is advisory by construction, and
 		recording it would promise a replay or a redelivery that arrives after
-		it stopped being true — [Durable] says which and why.
+		it stopped being true â€” [events.Durable] says which and why.
 	*/
-	if !Durable(event.Type) {
+	if !events.Durable(event.Type) {
 		announcer.broker.Publish(event)
 		return nil
 	}

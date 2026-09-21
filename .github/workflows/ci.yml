@@ -375,5 +375,7 @@ jobs:
       - name: Run the application's tests
         run: go test -count=1 -shuffle=on ./cmd/convia-desktop/... ./internal/desktop/... ./internal/web/...
 
+      # Without `production` Wails compiles a stub that opens no window, and a
+      # job that built one would report success for something nobody can run.
       - name: Build the application
-        run: go build ./cmd/convia-desktop
+        run: go build -tags desktop,production ./cmd/convia-desktop

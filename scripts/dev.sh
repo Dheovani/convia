@@ -38,21 +38,11 @@ done
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-if [[ ! -f .env ]]; then
-  echo "error: .env does not exist. Create it from the template with: cp .env.example .env" >&2
-  exit 1
-fi
-set -a
-# shellcheck disable=SC1091
-. ./.env
-set +a
+# shellcheck source=scripts/common.sh
+. "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-for tool in docker go node npm curl; do
-  if ! command -v "$tool" >/dev/null 2>&1; then
-    echo "error: $tool is not installed or is not on PATH." >&2
-    exit 1
-  fi
-done
+require_tools docker go node npm curl
+load_environment
 
 api_port="${CONVIA_HTTP_PORT:-$proxied_api_port}"
 if [[ "$api_port" != "$proxied_api_port" ]]; then
@@ -61,39 +51,19 @@ if [[ "$api_port" != "$proxied_api_port" ]]; then
 fi
 
 for port in "$api_port" "$interface_port"; do
-  if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
-    echo "error: port $port is already in use. Stop whatever holds it - possibly an earlier Convia - and run this again." >&2
-    exit 1
-  fi
+  refuse_held_port "$port"
 done
 
-profiles=()
-if [[ -n "${CONVIA_LIVEKIT_URL:-}" ]]; then
-  profiles+=(--profile media)
-fi
-if [[ -n "${CONVIA_REDIS_URL:-}" ]]; then
-  profiles+=(--profile shared)
-fi
-
-echo "Starting the dependencies..."
-docker compose "${profiles[@]}" up --detach --wait
+start_dependencies
 
 if [[ "$skip_migrations" == false ]]; then
   echo "Applying migrations..."
   go run ./cmd/convia migrate up
 fi
 
-# The interface's dependencies are installed when they are missing, or when the
-# lockfile changed since they were.
-installed=web/node_modules/.package-lock.json
-if [[ ! -f "$installed" || web/package-lock.json -nt "$installed" ]]; then
-  echo "Installing the interface dependencies..."
-  (cd web && npm ci)
-fi
+install_interface_dependencies
 
-if [[ -z "${CONVIA_LIVEKIT_URL:-}" ]]; then
-  echo "warning: no media plane is configured in .env, so calls cannot be started. See docs/media.md." >&2
-fi
+warn_without_media
 
 binary="${TMPDIR:-/tmp}/convia-dev/convia$(go env GOEXE)"
 echo "Building Convia..."
@@ -105,22 +75,7 @@ api=$!
 # here instead, with the signal it already shuts down gracefully on.
 trap 'kill "$api" 2>/dev/null || true' EXIT
 
-ready=false
-for _ in $(seq 1 60); do
-  if ! kill -0 "$api" 2>/dev/null; then
-    echo "error: Convia exited before it was ready. Its output is above." >&2
-    exit 1
-  fi
-  if curl --silent --fail --output /dev/null "http://127.0.0.1:$api_port/health"; then
-    ready=true
-    break
-  fi
-  sleep 0.5
-done
-if [[ "$ready" == false ]]; then
-  echo "error: Convia did not answer on port $api_port within 30 seconds." >&2
-  exit 1
-fi
+wait_for_convia "$api" "$api_port"
 
 echo
 echo "  Interface  http://localhost:$interface_port"

@@ -1,4 +1,4 @@
-package events
+package serving
 
 import (
 	"context"
@@ -17,29 +17,31 @@ import (
 
 	"convia/internal/credentials"
 	"convia/internal/sessions"
+
+	"convia/internal/events"
 )
 
 // fakeReplayer is a journal held in memory.
 type fakeReplayer struct {
 	mutex    sync.Mutex
-	floor    Cursor
-	position Cursor
-	kept     []Event
+	floor    events.Cursor
+	position events.Cursor
+	kept     []events.Event
 }
 
-func (replayer *fakeReplayer) Position() Cursor {
+func (replayer *fakeReplayer) Position() events.Cursor {
 	replayer.mutex.Lock()
 	defer replayer.mutex.Unlock()
 	return replayer.position
 }
 
-func (replayer *fakeReplayer) Replay(_ context.Context, applicationID string, after, until Cursor,
-	each func(Event) error) error {
+func (replayer *fakeReplayer) Replay(_ context.Context, applicationID string, after, until events.Cursor,
+	each func(events.Event) error) error {
 	if after.Before(replayer.floor) {
-		return ErrCursorTooOld
+		return events.ErrCursorTooOld
 	}
 	for _, event := range replayer.kept {
-		cursor, _ := ParseCursor(event.Cursor)
+		cursor, _ := events.ParseCursor(event.Cursor)
 		if event.ApplicationID != applicationID || !after.Before(cursor) || until.Before(cursor) {
 			continue
 		}
@@ -51,13 +53,13 @@ func (replayer *fakeReplayer) Replay(_ context.Context, applicationID string, af
 }
 
 // recorded is an event as the journal returns it.
-func recorded(kind Type, subjectID string, position int64, data Data) Event {
-	event := New(kind, "app_1", subjectID, "", data)
-	event.Cursor = Cursor{Transaction: 10, Position: position}.String()
+func recorded(kind events.Type, subjectID string, position int64, data events.Data) events.Event {
+	event := events.New(kind, "app_1", subjectID, "", data)
+	event.Cursor = events.Cursor{Transaction: 10, Position: position}.String()
 	return event
 }
 
-func resuming(t *testing.T, broker *Broker, replayer Replayer, query string) (*websocket.Conn, *http.Response, error) {
+func resuming(t *testing.T, broker *events.Broker, replayer events.Replayer, query string) (*websocket.Conn, *http.Response, error) {
 	t.Helper()
 
 	principal := holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead, credentials.ScopePresenceRead)
@@ -78,12 +80,12 @@ func resuming(t *testing.T, broker *Broker, replayer Replayer, query string) (*w
 	return connection, response, err
 }
 
-func read(t *testing.T, connection *websocket.Conn) Event {
+func read(t *testing.T, connection *websocket.Conn) events.Event {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
 	defer cancel()
-	var event Event
+	var event events.Event
 	if err := wsjson.Read(ctx, connection, &event); err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
@@ -96,15 +98,15 @@ after the cursor is replayed, the live stream takes over where the replay ends,
 and an event that arrives both ways is written once.
 */
 func TestAResumedStreamIsToldWhatItMissedOnceAndInOrder(t *testing.T) {
-	broker := NewBroker()
-	missed := []Event{
-		recorded(CallStarted, "call_1", 2, Data{"room_id": "room_1"}),
-		recorded(CallEnded, "call_1", 3, Data{"room_id": "room_1"}),
+	broker := events.NewBroker()
+	missed := []events.Event{
+		recorded(events.CallStarted, "call_1", 2, events.Data{"room_id": "room_1"}),
+		recorded(events.CallEnded, "call_1", 3, events.Data{"room_id": "room_1"}),
 	}
 	replayer := &fakeReplayer{
-		position: Cursor{Transaction: 10, Position: 3},
-		kept: append([]Event{
-			recorded(CallStarted, "call_0", 1, Data{"room_id": "room_1"}),
+		position: events.Cursor{Transaction: 10, Position: 3},
+		kept: append([]events.Event{
+			recorded(events.CallStarted, "call_0", 1, events.Data{"room_id": "room_1"}),
 		}, missed...),
 	}
 
@@ -116,7 +118,7 @@ func TestAResumedStreamIsToldWhatItMissedOnceAndInOrder(t *testing.T) {
 
 	// The last replayed event arrives live too, and a new one after it.
 	broker.Receive(missed[1])
-	live := recorded(CallStarted, "call_2", 4, Data{"room_id": "room_1"})
+	live := recorded(events.CallStarted, "call_2", 4, events.Data{"room_id": "room_1"})
 	broker.Receive(live)
 
 	for _, want := range append(missed, live) {
@@ -128,8 +130,8 @@ func TestAResumedStreamIsToldWhatItMissedOnceAndInOrder(t *testing.T) {
 
 // TestAResumedStreamStillCarriesPresence: presence has no cursor and is never skipped.
 func TestAResumedStreamStillCarriesPresence(t *testing.T) {
-	broker := NewBroker()
-	replayer := &fakeReplayer{position: Cursor{Transaction: 10, Position: 5}}
+	broker := events.NewBroker()
+	replayer := &fakeReplayer{position: events.Cursor{Transaction: 10, Position: 5}}
 
 	connection, _, err := resuming(t, broker, replayer, "?after=10-5")
 	if err != nil {
@@ -137,7 +139,7 @@ func TestAResumedStreamStillCarriesPresence(t *testing.T) {
 	}
 	waitUntilSubscribed(t, broker)
 
-	presence := New(PresenceChanged, "app_1", "usr_1", "", Data{"state": "online"})
+	presence := events.New(events.PresenceChanged, "app_1", "usr_1", "", events.Data{"state": "online"})
 	broker.Publish(presence)
 	if got := read(t, connection); got.ID != presence.ID {
 		t.Errorf("received %s, want the presence change", got.Type)
@@ -146,15 +148,15 @@ func TestAResumedStreamStillCarriesPresence(t *testing.T) {
 
 // TestACursorTooOldIsSaidWithItsOwnCode tells the client to re-read rather than trust a gap.
 func TestACursorTooOldIsSaidWithItsOwnCode(t *testing.T) {
-	for name, replayer := range map[string]Replayer{
+	for name, replayer := range map[string]events.Replayer{
 		"a cursor before what is kept": &fakeReplayer{
-			floor:    Cursor{Transaction: 10, Position: 50},
-			position: Cursor{Transaction: 10, Position: 60},
+			floor:    events.Cursor{Transaction: 10, Position: 50},
+			position: events.Cursor{Transaction: 10, Position: 60},
 		},
 		"nothing recorded to resume from": nil,
 	} {
 		t.Run(name, func(t *testing.T) {
-			connection, _, err := resuming(t, NewBroker(), replayer, "?after=10-1")
+			connection, _, err := resuming(t, events.NewBroker(), replayer, "?after=10-1")
 			if err != nil {
 				t.Fatalf("Dial() error = %v", err)
 			}
@@ -173,7 +175,7 @@ func TestACursorTooOldIsSaidWithItsOwnCode(t *testing.T) {
 func TestACursorConviaDidNotWriteIsRefused(t *testing.T) {
 	for _, cursor := range []string{"banana", "10", "10-0", "-1-2", "10-01", "10-2-3"} {
 		t.Run(cursor, func(t *testing.T) {
-			broker := NewBroker()
+			broker := events.NewBroker()
 			_, response, err := resuming(t, broker, &fakeReplayer{}, "?after="+cursor)
 			if err == nil {
 				t.Fatal("Dial() succeeded")
@@ -190,8 +192,8 @@ func TestACursorConviaDidNotWriteIsRefused(t *testing.T) {
 
 // TestCursorsCompareByTransactionFirst is the order docs/adr/0017 relies on.
 func TestCursorsCompareByTransactionFirst(t *testing.T) {
-	earlier := Cursor{Transaction: 9, Position: 100}
-	later := Cursor{Transaction: 10, Position: 1}
+	earlier := events.Cursor{Transaction: 9, Position: 100}
+	later := events.Cursor{Transaction: 10, Position: 1}
 	if !earlier.Before(later) || later.Before(earlier) {
 		t.Error("a cursor from an older transaction does not come first")
 	}
@@ -199,11 +201,11 @@ func TestCursorsCompareByTransactionFirst(t *testing.T) {
 		t.Error("a cursor comes before itself")
 	}
 
-	parsed, err := ParseCursor(later.String())
+	parsed, err := events.ParseCursor(later.String())
 	if err != nil || parsed != later {
 		t.Errorf("ParseCursor(%q) = %v, %v", later.String(), parsed, err)
 	}
-	if _, err := ParseCursor("18446744073709551616-1"); !errors.Is(err, ErrInvalidCursor) {
+	if _, err := events.ParseCursor("18446744073709551616-1"); !errors.Is(err, events.ErrInvalidCursor) {
 		t.Errorf("an overflowing transaction error = %v", err)
 	}
 }
@@ -213,23 +215,23 @@ TestAPersonIsReplayedOnlyTheirRoomsAndTheirOwnPlace: what happened in the rooms
 they are in now, and every change to their own place, and nothing else.
 */
 func TestAPersonIsReplayedOnlyTheirRoomsAndTheirOwnPlace(t *testing.T) {
-	inRoom := recorded(MessagePosted, "msg_1", 2, Data{"room_id": "room_a"})
+	inRoom := recorded(events.MessagePosted, "msg_1", 2, events.Data{"room_id": "room_a"})
 	inRoom.CorrelationID = "req_1"
-	leftElsewhere := recorded(MemberRemoved, "room_c", 4, Data{"user_id": "usr_ana"})
-	otherTenant := recorded(MessagePosted, "msg_3", 6, Data{"room_id": "room_a"})
+	leftElsewhere := recorded(events.MemberRemoved, "room_c", 4, events.Data{"user_id": "usr_ana"})
+	otherTenant := recorded(events.MessagePosted, "msg_3", 6, events.Data{"room_id": "room_a"})
 	otherTenant.ApplicationID = "app_2"
 	replayer := &fakeReplayer{
-		position: Cursor{Transaction: 10, Position: 6},
-		kept: []Event{
+		position: events.Cursor{Transaction: 10, Position: 6},
+		kept: []events.Event{
 			inRoom,
-			recorded(MessagePosted, "msg_2", 3, Data{"room_id": "room_b"}),
+			recorded(events.MessagePosted, "msg_2", 3, events.Data{"room_id": "room_b"}),
 			leftElsewhere,
-			recorded(MemberAdded, "room_c", 5, Data{"user_id": "usr_bea"}),
+			recorded(events.MemberAdded, "room_c", 5, events.Data{"user_id": "usr_bea"}),
 			otherTenant,
 		},
 	}
 
-	broker := NewBroker()
+	broker := events.NewBroker()
 	handler := NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, replayer,
 		&switchableSession{}, &rooms{ids: []string{"room_a"}})
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -246,10 +248,10 @@ func TestAPersonIsReplayedOnlyTheirRoomsAndTheirOwnPlace(t *testing.T) {
 	arrived, _ := incoming(connection)
 	waitUntilSubscribed(t, broker)
 
-	live := recorded(MessagePosted, "msg_4", 7, Data{"room_id": "room_a"})
+	live := recorded(events.MessagePosted, "msg_4", 7, events.Data{"room_id": "room_a"})
 	broker.Receive(live)
 
-	for _, want := range []Event{inRoom, leftElsewhere, live} {
+	for _, want := range []events.Event{inRoom, leftElsewhere, live} {
 		select {
 		case got := <-arrived:
 			if got.ID != want.ID {

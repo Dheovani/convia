@@ -52,7 +52,7 @@ narrow: a call begins, so a place for it must be realized; a call ends, so that
 place must be released; someone Convia has admitted needs a credential to
 connect with; someone Convia put out must stop being connected; and a report
 that somebody left has to be checked against whether they still are. Nothing
-here decides *whether* anyone may connect — that is settled before the boundary
+here decides *whether* anyone may connect â€” that is settled before the boundary
 is reached.
 
 media.Absent satisfies it, and is what a Convia with no media plane configured
@@ -71,7 +71,7 @@ announcer is the behavior this package needs to publish what happened.
 
 It is called inside the transaction that made the change, and records the
 event there: an error means the change must not commit either. See
-docs/adr/0017. events.Announcer satisfies it.
+docs/adr/0017. [convia/internal/events/serving.Announcer] satisfies it.
 */
 type announcer interface {
 	Publish(ctx context.Context, event events.Event) error
@@ -209,8 +209,8 @@ the call and deliberately absent from the domain type, so an admission has to
 come through here to find out which room it is for.
 
 An un-issued credential is returned without an error when the deployment has no
-media plane. That is not a failure — it is a Convia running exactly as
-configured — and explaining it to a caller belongs to the layer that knows what
+media plane. That is not a failure â€” it is a Convia running exactly as
+configured â€” and explaining it to a caller belongs to the layer that knows what
 was asked for.
 */
 func (service *Service) Admit(ctx context.Context, call Call, participantID string,
@@ -357,7 +357,7 @@ It is how a call in Convia's own product ends: nobody ends it for everybody, and
 it is over when its last participant has gone. Whether anybody is still there is
 decided under the call's lock, which joining takes too, so a person arriving at
 the moment the last one leaves either finds the call still running or finds it
-over — never inside a call that ended around them.
+over â€” never inside a call that ended around them.
 */
 func (service *Service) EndIfEmpty(ctx context.Context, applicationID, id string,
 	by Actor, reason string) (Call, bool, error) {
@@ -385,7 +385,7 @@ can be asked to.
 
 It is best-effort, like releasing a session, and for the same reason: Convia's
 record of who is in the call has already changed, and an outage must not undo
-that. What it closes is the gap docs/media.md used to name — a person put out of
+that. What it closes is the gap docs/media.md used to name â€” a person put out of
 a call staying connected until they chose to go. A failure is logged, and the
 person still cannot come back: a participation that is over is refused a
 credential, and one that connects anyway is reported and disconnected again.

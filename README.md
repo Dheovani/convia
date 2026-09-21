@@ -78,6 +78,13 @@ For testing locally, one script does all of that together — starts the contain
 ./scripts/dev.ps1    # Windows PowerShell
 ```
 
+To run Convia's own client — the desktop application, which is what people install — one script builds the interface into it, starts Convia, and opens the window. Closing the window stops Convia. It runs on Windows only, because the application does; see [`docs/interface.md`](docs/interface.md).
+
+```sh
+./scripts/app.sh     # Git Bash
+./scripts/app.ps1    # Windows PowerShell
+```
+
 A binary with no bundle serves the API normally and answers the page with 503 and the command above. `npm run dev` inside `web/` serves the interface with hot reloading and proxies `/v1` to a Convia on port 8080, so the browser still sees one origin.
 
 Both API surfaces require a credential, so a fresh instance needs one operator key before it can do anything. Issuing one over the API requires presenting one, so the first is minted against the database:

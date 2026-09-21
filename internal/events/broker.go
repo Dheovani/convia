@@ -14,8 +14,8 @@ const (
 		QueueDepth is how far behind one subscriber may fall before its stream
 		is ended.
 
-		A queue is what keeps a momentary hesitation — a garbage collection
-		pause, a slow network — from costing a subscriber its connection, and
+		A queue is what keeps a momentary hesitation â€” a garbage collection
+		pause, a slow network â€” from costing a subscriber its connection, and
 		what stops a subscriber that has genuinely stopped reading from
 		consuming memory without limit. Two hundred and fifty-six events is
 		well beyond any burst a single call produces and is a few tens of
@@ -122,7 +122,7 @@ Broker fans control events out to whoever is listening right now.
 
 It holds nothing: an event is delivered to the streams open at the moment it is
 published, and is then gone. That is the whole design, and its consequence is
-stated rather than hidden — an event produced while a subscriber is
+stated rather than hidden â€” an event produced while a subscriber is
 disconnected is not waiting for them when they return.
 
 Which streams "open" means depends on how the deployment is put together. On
@@ -240,6 +240,18 @@ func (stream *Stream) Ending() Ending { return Ending(stream.ending.Load()) }
 // operator sees when a stream closes.
 func (stream *Stream) Delivered() int64 { return stream.delivered.Load() }
 
+/*
+Replayed counts one event written to this stream by a replay.
+
+The broker counts what it delivers. What a stream missed is written to it by
+whoever is resuming it, outside the broker entirely, and without this that part
+of what a subscriber received would not be counted at all.
+*/
+func (stream *Stream) Replayed() { stream.delivered.Add(1) }
+
+// ApplicationID is the tenant whose events this stream carries.
+func (stream *Stream) ApplicationID() string { return stream.applicationID }
+
 // Wants reports whether this stream carries a type of event.
 func (stream *Stream) Wants(kind Type) bool {
 	_, wanted := stream.wanted[kind]
@@ -266,7 +278,7 @@ membership can change while it runs. So the changes about this person that
 arrive meanwhile are kept and applied on top of what was read. Each one states
 whether the person is in a room, rather than a difference, so applying them in
 order onto a read taken at any moment in between gives the state after the
-last of them — whichever side of the read each one actually committed on.
+last of them â€” whichever side of the read each one actually committed on.
 
 A read that fails leaves what the stream already covered in place and reports
 the error. The previous answer is stale by at most one interval, and a stream
@@ -314,14 +326,14 @@ func (stream *Stream) Reconcile(read func() ([]string, error)) error {
 }
 
 /*
-outgoing is an event as this subscriber receives it.
+Outgoing is an event as this subscriber receives it.
 
 A person is not told which request caused something. The correlation
 identifier is another person's request, and it exists to be matched against an
-access log only an operator reads — so it is of no use to a person, and it is
+access log only an operator reads â€” so it is of no use to a person, and it is
 not Convia's to hand one person about another.
 */
-func (stream *Stream) outgoing(event Event) Event {
+func (stream *Stream) Outgoing(event Event) Event {
 	if stream.person != nil {
 		event.CorrelationID = ""
 	}
@@ -329,14 +341,14 @@ func (stream *Stream) outgoing(event Event) Event {
 }
 
 /*
-replays reports whether a stream is replayed an event it missed.
+Replays reports whether a stream is replayed an event it missed.
 
 A person is replayed what happened in the rooms they are in now, and every
 change to their own place. That withholds what happened in a room they have
 since left, which they could no longer read anyway, and never shows them a room
 they were not in.
 */
-func (stream *Stream) replays(event Event) bool {
+func (stream *Stream) Replays(event Event) bool {
 	if event.ApplicationID != stream.applicationID || !stream.Wants(event.Type) {
 		return false
 	}
@@ -344,7 +356,7 @@ func (stream *Stream) replays(event Event) bool {
 		return true
 	}
 
-	roomID, scoped := roomOf(event)
+	roomID, scoped := RoomOf(event)
 	if !scoped {
 		return false
 	}
@@ -361,7 +373,7 @@ It is what makes a person's stream authorized per room rather than per tenant:
 an event reaches it only when it names a room the person is in. The rooms are
 held here rather than asked about per event, because an event is delivered
 under the broker's lock to every stream at once, and a query there would put
-the database inside publishing — which must not be able to block.
+the database inside publishing â€” which must not be able to block.
 */
 type audience struct {
 	userID string
@@ -391,7 +403,7 @@ either by one side alone would withhold exactly the event the person needs.
 It is called with the broker's lock held.
 */
 func (person *audience) admits(event Event) bool {
-	roomID, scoped := roomOf(event)
+	roomID, scoped := RoomOf(event)
 	if !scoped {
 		return false
 	}
@@ -428,7 +440,7 @@ Only the types a person's stream carries are named here. Anything else is not
 about a room as far as a person is concerned, so it reaches nobody through this
 path, which is the answer that fails closed when a type is added.
 */
-func roomOf(event Event) (string, bool) {
+func RoomOf(event Event) (string, bool) {
 	switch event.Type {
 	case MemberAdded, MemberRemoved, MemberRoleChanged, RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
 		return event.Subject.ID, event.Subject.ID != ""
@@ -464,12 +476,16 @@ func (broker *Broker) Subscribe(applicationID string, types []Type) (*Stream, er
 }
 
 /*
-subscribePerson opens a stream for one of an application's people.
+SubscribePerson opens a stream for one of an application's people.
 
 It covers no rooms until [Stream.Reconcile] says which, so a stream that is
 opened and never reconciled carries nothing rather than everything.
+
+Callers reach it through internal/events/serving, where a person's authority is
+established first. Nothing here checks that, because nothing here knows what a
+session is: a broker delivers, and who may receive is decided before this.
 */
-func (broker *Broker) subscribePerson(applicationID, userID string, types []Type) (*Stream, error) {
+func (broker *Broker) SubscribePerson(applicationID, userID string, types []Type) (*Stream, error) {
 	return broker.open(applicationID, types, &audience{userID: userID, rooms: make(map[string]struct{})})
 }
 
@@ -668,7 +684,7 @@ endLocked releases a stream while the broker's lock is held.
 
 The event channel is never closed. A subscriber learns the stream finished from
 Done, and leaving the channel open means a publish racing with an ending cannot
-send on a closed channel — the stream is out of the map before this returns,
+send on a closed channel â€” the stream is out of the map before this returns,
 and every send happens under the same lock.
 */
 func (broker *Broker) endLocked(stream *Stream, ending Ending) {

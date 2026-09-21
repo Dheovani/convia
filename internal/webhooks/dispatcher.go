@@ -193,7 +193,7 @@ func NewDispatcher(store *Store, guard Destinations, logger *slog.Logger) *Dispa
 /*
 Enqueue records what an event owes to this application's endpoints.
 
-It satisfies the durable sink [convia/internal/events.Announcer] writes to, and
+It satisfies the durable sink [convia/internal/events/serving.Announcer] writes to, and
 it is the one part of webhooks that runs inside a request, in the transaction
 that made the event happen: a delivery is owed exactly when the change it
 reports committed. See docs/adr/0017.
@@ -237,7 +237,7 @@ func (dispatcher *Dispatcher) wake() {
 Run delivers until its context is cancelled.
 
 The goroutine's owner is the composition root, its lifetime is the process, and
-cancelling the context is how it stops — including in the middle of a pass,
+cancelling the context is how it stops â€” including in the middle of a pass,
 since every attempt is made with a context derived from this one. A delivery
 interrupted that way is not lost: its lease expires and another worker, or this
 one after a restart, takes it again.

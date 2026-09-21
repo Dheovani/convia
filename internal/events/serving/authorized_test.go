@@ -1,4 +1,4 @@
-package events
+package serving
 
 import (
 	"errors"
@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"convia/internal/credentials"
+
+	"convia/internal/events"
 )
 
 // holding builds a principal carrying exactly the named scopes.
@@ -23,34 +25,34 @@ M14-005.
 
 The stream is not a second way to be granted something. Every event describes
 something the API already exposes, so a credential that could not read the
-resource is not told about it either — which is what stops `events:read` from
+resource is not told about it either â€” which is what stops `events:read` from
 becoming a way around the read scopes.
 */
 func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 	cases := map[string]struct {
 		principal credentials.Principal
-		expected  []Type
+		expected  []events.Type
 	}{
 		"calls only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead),
-			expected:  []Type{CallStarted, CallEnded},
+			expected:  []events.Type{events.CallStarted, events.CallEnded},
 		},
 		"rosters only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeParticipantsRead),
-			expected: []Type{ParticipantJoined, ParticipantLeft,
-				ParticipantRemoved, ParticipantRoleChanged},
+			expected: []events.Type{events.ParticipantJoined, events.ParticipantLeft,
+				events.ParticipantRemoved, events.ParticipantRoleChanged},
 		},
 		"invitations only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeInvitationsRead),
-			expected:  []Type{InvitationDeclined},
+			expected:  []events.Type{events.InvitationDeclined},
 		},
 		"presence only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopePresenceRead),
-			expected:  []Type{PresenceChanged},
+			expected:  []events.Type{events.PresenceChanged},
 		},
 		"messages only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeMessagesRead),
-			expected:  []Type{MessagePosted, MessageEdited, MessageDeleted},
+			expected:  []events.Type{events.MessagePosted, events.MessageEdited, events.MessageDeleted},
 		},
 		/*
 			members:read rather than rooms:read, for the reason messages have
@@ -59,18 +61,18 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 		*/
 		"membership only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeMembersRead),
-			expected:  []Type{MemberAdded, MemberRemoved, MemberRoleChanged},
+			expected:  []events.Type{events.MemberAdded, events.MemberRemoved, events.MemberRoleChanged},
 		},
 		"rooms only": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeRoomsRead),
-			expected:  []Type{RoomUpdated, RoomClosed, RoomReopened, RoomDeleted},
+			expected:  []events.Type{events.RoomUpdated, events.RoomClosed, events.RoomReopened, events.RoomDeleted},
 		},
 		"everything": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead,
 				credentials.ScopeParticipantsRead, credentials.ScopeInvitationsRead,
 				credentials.ScopeMessagesRead, credentials.ScopeMembersRead, credentials.ScopeRoomsRead,
 				credentials.ScopePresenceRead),
-			expected: Types(),
+			expected: events.Types(),
 		},
 		/*
 			A write scope is not a read scope. An integration allowed to change
@@ -79,19 +81,19 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 		"writing is not reading": {
 			principal: holding(credentials.ScopeEventsRead, credentials.ScopeCallsRead,
 				credentials.ScopeParticipantsWrite),
-			expected: []Type{CallStarted, CallEnded},
+			expected: []events.Type{events.CallStarted, events.CallEnded},
 		},
 	}
 
 	for name, test := range cases {
 		t.Run(name, func(t *testing.T) {
-			stream, err := Authorize(NewBroker(), test.principal).Subscribe()
+			stream, err := Authorize(events.NewBroker(), test.principal).Subscribe()
 			if err != nil {
 				t.Fatalf("Subscribe() error = %v", err)
 			}
 			defer stream.Close()
 
-			for _, kind := range Types() {
+			for _, kind := range events.Types() {
 				permitted := slices.Contains(test.expected, kind)
 				if stream.Wants(kind) != permitted {
 					t.Errorf("%q is carried = %v, want %v", kind, stream.Wants(kind), permitted)
@@ -106,7 +108,7 @@ func TestTheStreamCarriesOnlyWhatTheCredentialCouldAlreadyRead(t *testing.T) {
 func TestACredentialWithoutTheStreamScopeIsRefused(t *testing.T) {
 	principal := holding(credentials.ScopeCallsRead, credentials.ScopeParticipantsRead)
 
-	if _, err := Authorize(NewBroker(), principal).Subscribe(); !errors.Is(err, ErrForbidden) {
+	if _, err := Authorize(events.NewBroker(), principal).Subscribe(); !errors.Is(err, ErrForbidden) {
 		t.Errorf("Subscribe() without events:read error = %v, want %v", err, ErrForbidden)
 	}
 }
@@ -121,11 +123,11 @@ were never going to come. Refusing says so at the moment it can still be
 answered with an error.
 */
 func TestACredentialWithNothingToReceiveIsRefusedRatherThanConnected(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	principal := holding(credentials.ScopeEventsRead, credentials.ScopeUsersRead)
 
 	if _, err := Authorize(broker, principal).Subscribe(); !errors.Is(err, ErrForbidden) {
-		t.Errorf("Subscribe() with nothing to receive error = %v, want %v", err, ErrForbidden)
+		t.Errorf("Subscribe() with nothing to events.receive error = %v, want %v", err, ErrForbidden)
 	}
 	if broker.Active() != 0 {
 		t.Errorf("a refused subscription opened %d streams", broker.Active())
@@ -141,7 +143,7 @@ an application, and this is why: the stream belongs to whoever the key proved
 to be.
 */
 func TestTheTenantComesFromTheCredential(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 
 	stream, err := Authorize(broker, holding(credentials.ScopeEventsRead,
 		credentials.ScopeCallsRead)).Subscribe()
@@ -150,11 +152,34 @@ func TestTheTenantComesFromTheCredential(t *testing.T) {
 	}
 	defer stream.Close()
 
-	broker.Publish(New(CallStarted, "app_2", "call_2", "", nil))
+	broker.Publish(events.New(events.CallStarted, "app_2", "call_2", "", nil))
 	quiet(t, stream)
 
-	broker.Publish(New(CallStarted, "app_1", "call_1", "", nil))
+	broker.Publish(events.New(events.CallStarted, "app_1", "call_1", "", nil))
 	if got := receive(t, stream).Subject.ID; got != "call_1" {
 		t.Errorf("the stream delivered an event about %q", got)
+	}
+}
+
+/*
+TestEveryTypeIsDeliverableToSomebody is the test the default branch in
+readingScopeFor exists for.
+
+Adding a type to the vocabulary without deciding which scope may see it would
+otherwise produce an event delivered to nobody, silently, and the first sign of
+it would be a client asking why an event it was promised never arrives.
+*/
+func TestEveryTypeIsDeliverableToSomebody(t *testing.T) {
+	granted := credentials.Scopes()
+
+	for _, kind := range events.Types() {
+		scope := readingScopeFor(kind)
+		if scope == "" {
+			t.Errorf("%q has no scope that may read it", kind)
+			continue
+		}
+		if !slices.Contains(granted, scope) {
+			t.Errorf("%q requires %q, which is not a scope Convia recognizes", kind, scope)
+		}
 	}
 }

@@ -79,10 +79,10 @@ func ParseCursor(text string) (Cursor, error) {
 }
 
 /*
-cursorOf reads the cursor an event carries. An event that carries none, such as
+CursorOf reads the cursor an event carries. An event that carries none, such as
 presence, is never part of a replay and never skipped for being one.
 */
-func cursorOf(event Event) (Cursor, bool) {
+func CursorOf(event Event) (Cursor, bool) {
 	if event.Cursor == "" {
 		return Cursor{}, false
 	}

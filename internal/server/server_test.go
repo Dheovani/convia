@@ -20,6 +20,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/departure"
 	"convia/internal/events"
+	"convia/internal/events/serving"
 	"convia/internal/invitations"
 	"convia/internal/media"
 	"convia/internal/messages"
@@ -249,7 +250,7 @@ func newEveryDependency(application stubApplications, user stubUsers, credential
 dependencyLogger is where the stub handlers in these fixtures write.
 
 It is a variable rather than a local so that a test which needs to see what a
-*handler* logged can swap it — which one does, because the difference between
+*handler* logged can swap it â€” which one does, because the difference between
 "the middleware refused this" and "the handler had to refuse it itself" is
 visible in the log and nowhere else. Tests in this package do not run in
 parallel, and the test that swaps it restores it.
@@ -285,14 +286,14 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		PersonalMessages: messages.NewSessionHandler(logger, stubMessages{message: sampleMessage()},
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
-		PersonalEvents: events.NewPersonHandler(logger, events.NewBroker(), nil,
+		PersonalEvents: serving.NewPersonHandler(logger, events.NewBroker(), nil,
 			stubSessionAuthenticator{principal: samplePerson()}, stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
 			what these tests want to open and close.
 		*/
-		TenantEvents: events.NewTenantHandler(logger, events.NewBroker(), nil),
+		TenantEvents: serving.NewTenantHandler(logger, events.NewBroker(), nil),
 		TenantWebhooks: webhooks.NewTenantHandler(logger, stubWebhooks{
 			endpoint: sampleWebhookEndpoint(), delivery: sampleWebhookDelivery()}),
 		/*
@@ -303,9 +304,9 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 			does.
 		*/
 		TenantPresence: presence.NewTenantHandler(logger, presence.NewService(presence.NewMemory(),
-			servedTenant{}, user, events.NewAnnouncer(events.NewBroker(), nil, logger), logger)),
+			servedTenant{}, user, serving.NewAnnouncer(events.NewBroker(), nil, logger), logger)),
 		PersonalPresence: presence.NewPersonalHandler(logger, presence.NewService(presence.NewMemory(),
-			servedTenant{}, user, events.NewAnnouncer(events.NewBroker(), nil, logger), logger), everybodyNear{}),
+			servedTenant{}, user, serving.NewAnnouncer(events.NewBroker(), nil, logger), logger), everybodyNear{}),
 
 		SessionAuthenticator: stubSessionAuthenticator{principal: samplePerson()},
 		Sessions:             sessions.NewHandler(logger, stubSessions{account: sampleAccount()}),
@@ -341,7 +342,7 @@ func (servedTenant) Active(context.Context, string) (bool, error) { return true,
 samplePerson is a verified browser session.
 
 It carries no scopes, and there is nothing here that could be turned into a
-credentials.Principal — which is the property the session surface exists to
+credentials.Principal â€” which is the property the session surface exists to
 preserve.
 */
 func samplePerson() sessions.Principal {

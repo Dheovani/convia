@@ -6,7 +6,7 @@ Convia's own interface, and that interface asks this package for what it needs
 rather than reaching the network itself. Two things follow, and both are the
 reason for the arrangement: the session never enters the webview, and the
 person's event stream is opened here, where a header can be set on the
-handshake — which a page cannot do. See docs/adr/0019 and `M35`.
+handshake â€” which a page cannot do. See docs/adr/0019 and `M35`.
 
 Nothing here knows what is on the screen, and nothing here holds a window.
 */
@@ -43,7 +43,7 @@ const requestTimeout = 30 * time.Second
 /*
 Refusal is something the installation refused, explained.
 
-The code is what to branch on — it is part of Convia's public contract — while
+The code is what to branch on â€” it is part of Convia's public contract â€” while
 the message is prose the installation may reword. The status is kept beside it
 because the two answer different questions.
 */
@@ -177,9 +177,20 @@ func (client *Client) Forget() {
 Do performs one request against the installation and decodes what it answered.
 
 The session is attached when there is one, and is attached as a header rather
-than as a cookie — see docs/adr/0019. A `204` leaves out untouched.
+than as a cookie â€” see docs/adr/0019. A `204` leaves out untouched.
 */
 func (client *Client) Do(ctx context.Context, method, path string, in, out any) error {
+	return client.request(ctx, method, client.address+prefix+path, in, out)
+}
+
+/*
+request performs one request against a whole address.
+
+Do names a path within the API, which is everything the application asks for
+but one: an installation is checked at /health, which is outside the version
+the rest of this speaks.
+*/
+func (client *Client) request(ctx context.Context, method, address string, in, out any) error {
 	var body io.Reader
 	if in != nil {
 		rendered, err := json.Marshal(in)
@@ -189,7 +200,7 @@ func (client *Client) Do(ctx context.Context, method, path string, in, out any) 
 		body = bytes.NewReader(rendered)
 	}
 
-	request, err := http.NewRequestWithContext(ctx, method, client.address+prefix+path, body)
+	request, err := http.NewRequestWithContext(ctx, method, address, body)
 	if err != nil {
 		return fmt.Errorf("build the request: %w", err)
 	}
@@ -242,7 +253,7 @@ func read(response *http.Response, out any) error {
 /*
 refusalFrom reads Convia's error body, and invents nothing.
 
-A body that is not one — a proxy's, a gateway's — is reported with no code, so
+A body that is not one â€” a proxy's, a gateway's â€” is reported with no code, so
 that nothing branching on codes ever matches something the installation did not
 say.
 */

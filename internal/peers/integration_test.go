@@ -24,6 +24,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
+	"convia/internal/events/serving"
 	"convia/internal/rooms"
 	"convia/internal/sessions"
 	"convia/internal/users"
@@ -102,7 +103,7 @@ func newFixture(t *testing.T) fixture {
 	}
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService,
-		events.NewAnnouncer(events.NewBroker(), nil, logger), logger)
+		serving.NewAnnouncer(events.NewBroker(), nil, logger), logger)
 	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
 
 	ana, _, err := accountService.Register(ctx, "ana", "correct horse battery staple")

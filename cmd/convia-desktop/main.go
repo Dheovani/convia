@@ -19,6 +19,9 @@ import (
 	"log/slog"
 	"os"
 
+	"convia/internal/desktop/app"
+	"convia/internal/desktop/installations"
+	"convia/internal/desktop/secrets"
 	"convia/internal/web"
 )
 
@@ -50,5 +53,10 @@ func run(logger *slog.Logger, ui fs.FS, built bool) error {
 		return errors.New("this build carries no interface: run `npm run build` in web/ and build again")
 	}
 
-	return open(logger, ui)
+	book, err := installations.Default()
+	if err != nil {
+		return err
+	}
+
+	return open(logger, ui, app.New(logger, book, secrets.NewKeeper(), nil))
 }

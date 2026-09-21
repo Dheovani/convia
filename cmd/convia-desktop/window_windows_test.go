@@ -12,7 +12,7 @@ import (
 TestAMachineWithoutTheWebviewRuntimeIsToldSo.
 
 Without this the application opens nothing and exits, which on the machines
-where it happens — older or administered by somebody else — looks like Convia
+where it happens â€” older or administered by somebody else â€” looks like Convia
 being broken. The message has to name the runtime, because that is the word
 whoever can install it will search for.
 */
@@ -41,6 +41,21 @@ func TestWhatIsShownNamesTheRuntimeAndWhereItComesFrom(t *testing.T) {
 	for _, required := range []string{"WebView2", "developer.microsoft.com"} {
 		if !strings.Contains(missingWebview, required) {
 			t.Errorf("what is shown does not mention %q", required)
+		}
+	}
+}
+
+/*
+TestABuildWithoutWailsTagsSaysHowToBuildIt.
+
+Wails compiles a stub without them, and the stub opens no window. It says so
+itself, in terms of a project built with its CLI; this says it in terms of this
+repository, because the command somebody needs is the one that works here.
+*/
+func TestABuildWithoutWailsTagsSaysHowToBuildIt(t *testing.T) {
+	for _, required := range []string{"-tags desktop,production", "./cmd/convia-desktop"} {
+		if !strings.Contains(missingTags, required) {
+			t.Errorf("what is shown does not contain %q, which is what somebody has to type", required)
 		}
 	}
 }
