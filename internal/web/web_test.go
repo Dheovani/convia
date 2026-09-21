@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -8,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func quiet() *slog.Logger {
@@ -235,4 +237,58 @@ func findAsset(t *testing.T, site *Site) string {
 		t.Fatalf("the bundle has no %s directory: %v", hashed, err)
 	}
 	return hashed + entries[0].Name()
+}
+
+/*
+TestTheApplicationIsShownTheSameBundleThatIsServed is the one thing Bundle has
+to guarantee: not that the files are right, but that they are the same files.
+
+The application renders the interface and the service serves it. Two embeds
+would be two builds, and the version skew would appear as a bug in whichever of
+the two somebody happened to be looking at.
+*/
+func TestTheApplicationIsShownTheSameBundleThatIsServed(t *testing.T) {
+	site := New(quiet(), "")
+	requireBundle(t, site)
+
+	tree, built := Bundle()
+	if !built {
+		t.Fatal("Bundle() found nothing although a bundle is compiled in")
+	}
+
+	shown, err := fs.ReadFile(tree, indexFile)
+	if err != nil {
+		t.Fatalf("read the page the application shows: %v", err)
+	}
+	if !bytes.Equal(shown, site.index) {
+		t.Error("the application and the service carry different builds of the interface")
+	}
+}
+
+/*
+TestAnApplicationIsNeverHandedABundleThatIsNotThere.
+
+The service can answer a missing bundle with a page saying so. The application
+cannot: what it would show is a window with nothing in it, which looks like
+Convia being broken rather than like a build that skipped a step. So the answer
+has to be no before a window is opened, and a directory that exists but is
+empty has to count as no.
+*/
+func TestAnApplicationIsNeverHandedABundleThatIsNotThere(t *testing.T) {
+	page := &fstest.MapFile{Data: []byte("<!doctype html>")}
+
+	for name, tree := range map[string]fstest.MapFS{
+		"nothing at all":        {},
+		"an emptied build":      {bundle + "/.keep": page},
+		"assets but no page":    {bundle + "/assets/main-abc123.js": page},
+		"the notice on its own": {notice: page},
+	} {
+		if _, built := bundleIn(tree); built {
+			t.Errorf("%s was handed to the application as an interface", name)
+		}
+	}
+
+	if _, built := bundleIn(fstest.MapFS{bundle + "/" + indexFile: page}); !built {
+		t.Error("a real build was refused")
+	}
 }

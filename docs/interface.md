@@ -1,6 +1,6 @@
 # Convia's own interface
 
-Convia's standalone product: the page people open, sign in to, and talk in. It lives in `web/`, is built by Vite with React, TypeScript and Tailwind, and is compiled into the Convia binary and served from the same origin as the API.
+Convia's standalone product: the page people open, sign in to, and talk in. It lives in `web/`, is built by Vite with React, TypeScript and Tailwind, and is compiled into the binary that shows it. **That binary is Convia's desktop application** — see [The application](#the-application). The service still serves the same bundle from the same origin as the API, which is how the interface is worked on and how it was built; `M35-013` settles what that is for once the application carries it.
 
 It is built on the **public session surface and nothing else**. There is no privileged path from the page to the database, no internal endpoint it alone may call, and no shortcut where it acts with the first-party application's key. Everything on the screen came from a request any browser could have made with the same cookie. That is `M18-015`, and it is the only thing that makes this product evidence that the platform works.
 
@@ -19,6 +19,39 @@ Then open `http://127.0.0.1:8080`.
 For working on the interface itself, `npm run dev` serves it with hot reloading and **proxies `/v1` to a Convia on port 8080**, so the browser still sees one origin. That proxy is not a convenience: without it the session cookie would be cross-site in development and same-site in production, which is the one difference that would make every cookie and CSRF decision untestable until deployment.
 
 A binary built with `go build` alone has no interface, because the bundle needs Node. It says so at startup and answers **503** with a page naming the command that fixes it — not 404, because the page is not missing: this deployment does not have one.
+
+## The application
+
+Convia's client is a desktop application, and the interface described here is what it shows. `M35` is building it, and what follows is what exists today rather than what is planned.
+
+The application is a second binary in this module, `cmd/convia-desktop`. Its window is [Wails](https://wails.io) v2, pinned in `go.mod`: v3 has been in beta since August 2026, and a first version does not ride a beta. On Windows that window is WebView2, which is Chromium, so a call runs in the engine the interface was built against.
+
+**The first version is for Windows.** The command still compiles on macOS and Linux, and then refuses to run, naming the system it is for. That is deliberate: everything in this repository is checked on Linux, and a command excluded from that build is a command nobody checks. macOS is not refused on principle — WKWebView has no `getDisplayMedia`, so a call there could not share a screen, which is a decision with a date on it rather than a position.
+
+### What it is built with
+
+| Pinned | Where | Version |
+| --- | --- | --- |
+| Go | `go.mod` | 1.26.6 |
+| Node | `web/.nvmrc` | 24.11.1 |
+| Wails | `go.mod` | v2.16.0 |
+
+```bash
+cd web && npm ci && npm run build   # writes into internal/web/assets/dist
+cd .. && go build ./cmd/convia-desktop
+```
+
+There is no `wails build` yet. A plain `go build` produces a working application, and what the Wails CLI adds — an icon, a manifest, an installer — is `M35-011`.
+
+The interface is compiled into the application out of the same embed the service serves it from: one build of `web/`, one copy, whichever binary shows it. A test asserts that the page the application renders and the page the service serves are byte for byte the same file, because two embeds would eventually be two builds, and the difference would look like a bug in whichever one somebody happened to be looking at.
+
+Nothing is served over HTTP. Wails reads the bundle out of the binary and the window renders it, so the application opens no port and the interface it is showing is not reachable from anywhere else on the machine.
+
+### What a machine needs to run it
+
+The **Microsoft Edge WebView2 Runtime**. It ships with Windows 11 and with current Windows 10. Where it is absent the application says so in a message box and exits, naming Microsoft's Evergreen Standalone Installer — a machine started from an icon has no console to print to, and what it would otherwise show is a window that never appears.
+
+It does not install the runtime itself. Downloading and running an installer is something to ask an administrator for, and on the managed machines where the runtime is missing, that is exactly the request that would be refused.
 
 ## The three zones
 

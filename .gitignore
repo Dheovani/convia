@@ -1,6 +1,7 @@
 # Build output
 /convia
 /convia.exe
+/convia-desktop.exe
 *.test
 
 # Test and coverage output
