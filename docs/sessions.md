@@ -106,6 +106,23 @@ A username nobody has, a wrong password, a suspended account, a suspended person
 
 Registering already says whether a name is taken, so this is not what keeps usernames private — a username is half of a handle meant to be shared. What it keeps is the form's own promise: whatever went wrong, signing in answers alike.
 
+## Where the session travels
+
+A session is one credential presented two ways, and which way decides one thing only: whether the request's origin is checked.
+
+| | Cookie | Header |
+| --- | --- | --- |
+| Who holds it | the page Convia serves in development | Convia's own application, and anything else that is not a browser |
+| How it travels | `__Host-convia_session`, `HttpOnly`, `Secure`, `SameSite=Lax` | `Authorization: Bearer cvs_...` |
+| Origin checked | yes, exactly | no |
+| Where it is kept | by the browser, unreadable to the page | by the client, in the operating system's keychain |
+
+**The origin check guards the cookie rather than the surface.** CSRF happens to credentials the browser attaches by itself; nothing can make a browser add a header the page did not ask for, and Convia's application is not a browser. A request carrying both is guarded, because the cookie was sent either way.
+
+**Signing in and registering tell the two apart by what only a browser sends.** With `Origin`, the request is matched exactly against Convia's own origin and the answer is the cookie. Without it, the caller is not a browser: the answer carries the session in `token` and sets no cookie. Changing a password rotates it the same way — `204` and a new cookie for a browser, `200` and the new token for a client that holds one.
+
+**The token is a bearer credential, and is worth less protection than a cookie.** A copy taken from a keychain or a log works until the session expires or is revoked; `HttpOnly` has no equivalent here. Keep it where the system keeps secrets, and nowhere else. [ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md) records the decision, which reverses part of [ADR 0007](adr/0007-a-session-is-a-person-not-a-tenants-authority.md).
+
 ## The cookie
 
 `__Host-convia_session`, with `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, and no `Domain`. The same name in every environment, including development — `http://localhost` is a secure context, so the prefix works there, and a name that differed by environment would mean the production path was never exercised before production.

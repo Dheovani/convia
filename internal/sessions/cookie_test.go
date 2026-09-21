@@ -106,25 +106,48 @@ func TestClearingActuallyClears(t *testing.T) {
 }
 
 /*
-TestASessionIsReadFromTheCookieAndNowhereElse is half of what keeps the four
+TestASessionIsReadFromACookieOrItsOwnHeader is half of what keeps the four
 credential families apart.
 
-A token in an Authorization header is not looked for here and would not be
-found, so an application key offered to this surface costs nothing and proves
-nothing.
+The page Convia serves holds a cookie; Convia's own application holds the token
+and presents it here, because it can hold no cookie of Convia's origin. What is
+still never read is **another family**: an application's key offered to this
+surface is not refused so much as never looked at.
 */
-func TestASessionIsReadFromTheCookieAndNowhereElse(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
-	request.Header.Set("Authorization", "Bearer cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5")
+func TestASessionIsReadFromACookieOrItsOwnHeader(t *testing.T) {
+	const session = "cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5"
 
-	if token, found := Present(request); found {
-		t.Errorf("a session was read from an Authorization header: %q", token)
+	held := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	held.Header.Set("Authorization", "Bearer "+session)
+	token, found := Present(held)
+	if !found || token != session {
+		t.Errorf("Present() = %q, %v, want the header's session", token, found)
+	}
+	if _, carried := InCookie(held); carried {
+		t.Error("a session in a header was reported as a cookie, which decides the origin check")
 	}
 
-	request.AddCookie(&http.Cookie{Name: CookieName, Value: "cvs_token"})
-	token, found := Present(request)
-	if !found || token != "cvs_token" {
-		t.Errorf("Present() = %q, %v, want the cookie's value", token, found)
+	sent := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+	sent.AddCookie(&http.Cookie{Name: CookieName, Value: "cvs_token"})
+	token, found = Present(sent)
+	cookie, carried := InCookie(sent)
+	if !found || token != "cvs_token" || !carried || cookie != "cvs_token" {
+		t.Errorf("Present() = %q, %v and InCookie() = %q, %v, want the cookie's value", token, found, cookie, carried)
+	}
+
+	for what, header := range map[string]string{
+		"an application's key":   "Bearer cvk_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5",
+		"an operator's key":      "Bearer cvo_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5",
+		"an invitation":          "Bearer cvi_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5",
+		"a session, malformed":   "Bearer cvs_not-a-session",
+		"another scheme":         "Basic " + session,
+		"a token with no scheme": session,
+	} {
+		other := httptest.NewRequest(http.MethodGet, "/v1/me", nil)
+		other.Header.Set("Authorization", header)
+		if token, found := Present(other); found {
+			t.Errorf("%s was read as a session: %q", what, token)
+		}
 	}
 }
 

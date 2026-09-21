@@ -328,8 +328,11 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			the process down instead of serving its routes to anybody who
 			asks — which is what the omission used to do, silently.
 
-			The two browser surfaces are additionally wrapped by [sameOrigin],
-			inside authentication rather than outside it. A request carrying no
+			The two browser surfaces are additionally wrapped by an origin
+			guard, inside authentication rather than outside it. It guards the
+			cookie rather than the surface: Convia's own application presents
+			its session in a header, which no page can cause to be sent, so
+			there is nothing to forge. See docs/adr/0019. A request carrying no
 			session is answered as unauthenticated whatever page it came from,
 			which is both the more accurate answer and the cheaper one; the
 			origin question is only interesting once there is a session to
@@ -342,11 +345,11 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		case surfacePublic:
 			// Served as it is. Operational endpoints only.
 		case surfaceSignIn:
-			served = budgeted(logger, signingIn, resolve, sameOrigin(logger, served))
+			served = budgeted(logger, signingIn, resolve, guardEntry(logger, served))
 		case surfaceRegistration:
 			// The origin is checked first, so another page cannot spend the
 			// allowance of the person whose browser it is running in.
-			served = sameOrigin(logger, rationed(logger, registering, resolve, served))
+			served = guardEntry(logger, rationed(logger, registering, resolve, served))
 		case surfacePeer:
 			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
 		case surfaceVisitor:
@@ -368,7 +371,7 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 				served = budgeted(logger, signingIn, resolve, served)
 			}
 			served = authenticate(logger, sessionVerifier{service: dependencies.SessionAuthenticator},
-				signingIn, resolve, sameOrigin(logger, served))
+				signingIn, resolve, guardCookie(logger, served))
 		default:
 			panic(fmt.Sprintf("server: route %s %s is on surface %d, which nothing authenticates",
 				entry.method, entry.path, entry.surface))

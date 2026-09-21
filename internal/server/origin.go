@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"convia/internal/api"
+	"convia/internal/sessions"
 )
 
 /*
@@ -54,6 +55,49 @@ difference between a rule and a habit. Applied here it covers every route
 declared on a browser surface, including the ones nobody has written yet; a
 route added to the table cannot be served without it.
 */
+/*
+guardCookie checks the origin of a request that carries a session cookie, and
+lets every other one past.
+
+A cookie is attached by the browser rather than by the page, so it is the one
+credential here that another site could cause to be sent. A session presented in
+a header cannot be: no page can make a browser add it, and Convia's own
+application is not a browser. Checking it anyway would refuse the application for
+failing to be something it is not. See docs/adr/0019.
+*/
+func guardCookie(logger *slog.Logger, next http.Handler) http.Handler {
+	guarded := sameOrigin(logger, next)
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if _, carried := sessions.InCookie(request); !carried {
+			next.ServeHTTP(response, request)
+			return
+		}
+		guarded.ServeHTTP(response, request)
+	})
+}
+
+/*
+guardEntry checks the origin of signing in and registering, where there is no
+session yet to guard.
+
+A browser always sends `Origin` on these, and a present one is still matched
+exactly, so a page on another site cannot sign somebody in. **Absence is what
+tells a client that is not a browser apart**, and it is answered with a
+credential that client can hold rather than a cookie it cannot; see
+internal/sessions/http.go. `Sec-Fetch-Site` is read for the same purpose: a
+browser that sent it and no origin is still a browser.
+*/
+func guardEntry(logger *slog.Logger, next http.Handler) http.Handler {
+	guarded := sameOrigin(logger, next)
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Origin") == "" && request.Header.Get("Sec-Fetch-Site") == "" {
+			next.ServeHTTP(response, request)
+			return
+		}
+		guarded.ServeHTTP(response, request)
+	})
+}
+
 func sameOrigin(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if safeMethod(request.Method) && !upgrading(request) {

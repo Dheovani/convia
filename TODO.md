@@ -23,8 +23,9 @@ This document is the operational development plan for Convia. It tracks what exi
 ## Current Status
 
 - **What Convia is.** Two things built on one control plane. It is **an installable communication product**: each installation holds its own accounts, identified by the fingerprint of a key the password seals, and people on different installations share rooms by invitation. And it is **a real-time communication provider for other applications**, which its owner will also run as a hosted service. The owner's own applications, Orbit and Workspace Town, are meant to consume it; their integrations are built in their own projects, not in this one.
-- **Current milestone:** M18 — Standalone Web Application. A person registers, signs in, opens and moderates rooms, holds conversations that update as they happen, and shares rooms with people on other installations. A person starts and joins calls in their rooms, with audio and video, and the room's owner and moderators moderate them. They get ready to join with a preview and their chosen devices, a call says how it is going and offers audio alone when the connection stays weak, the interface works on a phone and from the keyboard, and the critical call journeys run end to end in CI. A person can also delete their own account. Every item is complete.
-- **Next implementation milestone:** M19 — TypeScript Client SDK, the next in order. Which comes next is the product owner's to decide.
+- **Current milestone:** M35 — Desktop Application. Convia's own client is an application people install, and the first version is for Windows: Go with Wails v2, the interface `M18` built embedded in it, and the app's Go process as the API client. `M18` delivered that interface and is complete; what it assumed about browsers — a session in a cookie, an origin shared with the API — is corrected here.
+- **Where M18 got to:** A person registers, signs in, opens and moderates rooms, holds conversations that update as they happen, and shares rooms with people on other installations. A person starts and joins calls in their rooms, with audio and video, and the room's owner and moderators moderate them. They get ready to join with a preview and their chosen devices, a call says how it is going and offers audio alone when the connection stays weak, the interface works on a phone and from the keyboard, and the critical call journeys run end to end in CI. A person can also delete their own account. Every item is complete.
+- **Next implementation milestone:** M35 — Desktop Application. `M19`, the client SDK, follows it, and its audience is applications and services rather than browsers.
 - **Grown past one item:** sharing rooms between installations is now `M33`, and running an installation somebody else built is `M34`.
 - **Deferred for one reason in several places:** metrics (`M14-013`, `M16-010`, `M17-011`) wait for `M22`; a general per-tenant rate limit is `M13-008` and `M23-013`.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
@@ -527,12 +528,14 @@ This document is the operational development plan for Convia. It tracks what exi
 
 ## Phase 3 — Product and Integration Surfaces
 
-### M18 — Standalone Web Application
+### M18 — Convia's Own Interface
 
 **Priority:** P1
 **Status:** Complete
 **Depends on:** M07, M08, M09, M10, and M13
 **Goal:** Deliver Convia's own user interface on top of the same public platform concepts offered to external consumers.
+
+**It was written here as a web application, and that was wrong.** Convia's client is a desktop application; the interface this milestone built is the one it embeds. `M35` corrects what followed from the mistake, and the items below are left as they were written, because that is what happened.
 
 - [x] **M18-001:** Choose the frontend stack based on team capability and long-term maintenance. **React, TypeScript, Tailwind, and Vite**, with Convia serving the built assets from its own origin. The stack is the boring choice on purpose — the largest hiring pool, and the TypeScript SDK `M19` delivers is what the application will consume. Same-origin is the part that mattered most and it was decided here rather than later: it is what makes the session cookie first-party, `SameSite=Lax` meaningful, and **CORS unnecessary entirely**. Tailwind was added once the interface existed, as a deliberate second decision rather than part of the first: it runs at build time and emits one static stylesheet, because the play CDN injects styles inline and would need `unsafe-inline` in the policy the page is served under. Its theme is the design tokens themselves, so there is no second place where a colour is defined.
 - [x] **M18-002:** Define first-party authentication and session management, which also closes `M07-009`. A fourth credential family, `cvs_`, in a `__Host-` cookie, with an idle window of fourteen days and an absolute one of ninety that nothing extends. What the session *authorizes* was the decision that mattered: **nothing**. It carries no scopes and cannot become a `credentials.Principal`, because a signed-in person holding a tenant's authority could mint a key that outlives every control in this milestone. Person-facing resource routes are therefore added deliberately, one at a time, rather than inherited. CSRF rests on an **exact-match `Origin` check that fails closed**, because `SameSite=Lax` does not see a sibling subdomain and the JSON content-type check does nothing for a bodyless POST; a test enforces the invariant that keeps Lax meaningful, that no route here changes state on a GET.
@@ -572,10 +575,10 @@ This document is the operational development plan for Convia. It tracks what exi
 
 **Priority:** P1
 **Status:** Not started
-**Depends on:** Stable M03 and M13 contracts
-**Goal:** Let browser applications integrate with Convia without directly implementing its HTTP and event protocols.
+**Depends on:** Stable M03 and M13 contracts, and `M35` for what a client that is not a browser holds
+**Goal:** Let applications and services integrate with Convia without directly implementing its HTTP and event protocols.
 
-- [ ] **M19-001:** Define supported browser and TypeScript versions.
+- [ ] **M19-001:** Define the environments the SDK supports and the TypeScript version it needs. An application's key belongs on a server; `/v1/events` is authenticated by one, so it is read where the key is.
 - [ ] **M19-002:** Decide generated versus handwritten REST client boundaries.
 - [ ] **M19-003:** Expose Convia-owned types and errors.
 - [ ] **M19-004:** Implement authenticated REST transport with cancellation.
@@ -956,3 +959,30 @@ The hosted Convia is `M26`'s to operate. This milestone is for everybody else wh
 - [ ] **M34-009:** Decide how the people running installations learn about security updates.
 
 **Exit criteria:** Somebody who did not build Convia can install it on a server of their own, reach it over HTTPS, decide who registers, administer accounts without reading conversations, upgrade it, and restore it from a backup.
+
+### M35 — Desktop Application
+
+**Priority:** P1
+**Status:** Not started
+**Depends on:** M18 for the interface, M13 for joining media, and M14 for the person's stream
+**Goal:** Deliver Convia to the people who use it as an application they install, not as a page they open.
+
+**Convia's own client is a desktop application.** That was the product owner's decision from the start and the roadmap recorded it wrongly: `M18` was written as a "standalone web application", and everything downstream — a session in a cookie, an interface served from Convia's own origin, an SDK aimed at browsers — followed from a premise nobody had agreed to. This milestone is where the product and the record are put right. The first version is **Windows**.
+
+**The shape, decided before anything is built.** The app is **Go with Wails v2**, which is the stack Convia already is; the interface is the React that `M18` built, embedded in the app rather than served to a browser; and **the app's Go process is the API client** — it holds the session, makes every request, and opens the person's event stream, while the interface talks to it through bindings rather than reaching the network itself. The session therefore never enters the webview, and the stream needs no header a webview cannot set.
+
+- [ ] **M35-001:** Pin Wails v2, the Go and Node versions the app is built with, and what a Windows machine needs to run it — WebView2 is present on current Windows and installable elsewhere, and an app that finds it missing has to say so rather than show nothing. v3 is in beta with a stable desktop API; the first version does not ride a beta.
+- [ ] **M35-002:** Decide where the app lives in this repository and how the interface reaches it: a second binary beside `cmd/convia`, building `web/` into the app rather than into the server. Convia keeps serving the page in development, because that is how the interface is worked on.
+- [ ] **M35-003:** Let a client that is not a browser hold a session. The `cvs_` credential travels in `Authorization` for the app, and stays in the `__Host-` cookie for the page in development. `Origin` and `SameSite` guard the cookie and nothing else, because CSRF is a thing that happens to ambient credentials. It reverses part of [ADR 0007](docs/adr/0007-a-session-is-a-person-not-a-tenants-authority.md) and needs an ADR of its own.
+- [ ] **M35-004:** Make the app's Go process the API client: sign in, read and write, and hold the person's event stream, reusing what `internal/sessions` and `internal/events` already do rather than writing a second client. The interface calls it through Wails bindings, and what crosses that boundary is Convia's own types.
+- [ ] **M35-005:** Keep the session where Windows keeps secrets, not in a file beside the executable. Signing out forgets it; a session Convia no longer accepts is noticed and cleared rather than retried forever.
+- [ ] **M35-006:** Ask which installation to connect to, check it answers as a Convia before signing in, and remember it. It is the first screen anybody sees, and it is a question a page never had to ask.
+- [ ] **M35-007:** Take the page's assumptions out of `web/`: the relative `/v1`, `credentials: 'same-origin'`, and the stream address built from `window.location`. What replaces them is what the app already knows.
+- [ ] **M35-008:** Make a call work inside WebView2: camera and microphone permission as Windows asks it, the device choice `M18` already offers, and an honest failure when the runtime or a device is missing.
+- [ ] **M35-009:** Let an invitation link open the app: register the scheme, keep one instance, and hand a link to the instance already running instead of starting a second.
+- [ ] **M35-010:** Decide how the app behaves as an application: the window, the tray, what closing it means, and what it says when something happens while nobody is looking at it.
+- [ ] **M35-011:** Build a Windows installer, decide what signing costs and whether the first version is signed, and decide how the app updates itself. An unsigned installer is a warning every person who installs it has to walk past.
+- [ ] **M35-012:** Decide what tests the app needs: the interface keeps its own suite, and the journeys `M18-019` drives in a browser have to either keep serving that purpose or be replaced by something that drives the packaged app.
+- [ ] **M35-013:** Put the written record right: `docs/interface.md` describes the app, [ADR 0009](docs/adr/0009-convia-serves-its-own-interface-from-its-own-origin.md) is superseded where it argued for serving a page to browsers, and the README stops presenting the page as the product.
+
+**Exit criteria:** A person installs Convia on Windows, chooses an installation, signs in, and holds conversations and calls without opening a browser.
