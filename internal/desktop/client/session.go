@@ -115,3 +115,30 @@ func (client *Client) ChangePassword(ctx context.Context, current, next string) 
 	client.Resume(rotated.Token)
 	return nil
 }
+
+/*
+SignOutEverywhere ends every session of the account, this one included.
+
+It is what somebody reaches for when they think a session of theirs is
+somewhere it should not be, so it forgets this one whatever the answer was, for
+the same reason SignOut does.
+*/
+func (client *Client) SignOutEverywhere(ctx context.Context) error {
+	defer client.Forget()
+	return client.Do(ctx, http.MethodDelete, "/sessions", nil, nil)
+}
+
+/*
+DeleteAccount removes the person's account, which ends every session it had.
+
+The password is asked for again because this is the one action nothing undoes.
+*/
+func (client *Client) DeleteAccount(ctx context.Context, password string) error {
+	defer client.Forget()
+
+	confirmation := struct {
+		Password string `json:"password"`
+	}{Password: password}
+
+	return client.Do(ctx, http.MethodPost, "/me/delete", confirmation, nil)
+}

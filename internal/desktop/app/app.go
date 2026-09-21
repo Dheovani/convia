@@ -18,6 +18,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
 	"sync"
 	"time"
 
@@ -72,6 +73,8 @@ type App struct {
 	book      *installations.Book
 	keeper    secrets.Keeper
 	transport *http.Client
+	emit      Emitter
+	carrier   *httputil.ReverseProxy
 
 	/*
 		lifetime is the window's, not a request's.
@@ -85,23 +88,67 @@ type App struct {
 
 	mutex  sync.Mutex
 	client *client.Client
+	// watching stops the person's stream, and is nil when none is open.
+	watching context.CancelFunc
 }
+
+/*
+Emitter is how the application tells the window something happened without
+being asked.
+
+The window supplies it, because only the window knows how to reach the
+interface inside it. Nothing here imports a window toolkit, which is what keeps
+this package testable on a system that has no windows at all.
+*/
+type Emitter func(name string, data any)
+
+// What the window is told. The interface subscribes to both by name.
+const (
+	// EventTopic carries one of the person's events, as Convia sent it.
+	EventTopic = "convia:event"
+	// StreamTopic carries whether the stream is open, and what it lost.
+	StreamTopic = "convia:stream"
+)
 
 // New assembles the application. Nothing is read and nothing is reached until
 // the interface asks.
 func New(logger *slog.Logger, book *installations.Book, keeper secrets.Keeper, transport *http.Client) *App {
-	return &App{logger: logger, book: book, keeper: keeper, transport: transport}
+	return &App{
+		logger:    logger,
+		book:      book,
+		keeper:    keeper,
+		transport: transport,
+		carrier:   carrier(),
+	}
+}
+
+// held is the installation this application is connected to, or nil.
+func (application *App) held() *client.Client {
+	application.mutex.Lock()
+	defer application.mutex.Unlock()
+	return application.client
+}
+
+// tell passes something to the window, and does nothing when there is no
+// window — which is every test in this package.
+func (application *App) tell(topic string, what any) {
+	if application.emit != nil {
+		application.emit(topic, what)
+	}
 }
 
 /*
-Start is called once, by the window, with the context that ends when it closes.
+Start is called once, by the window, as it opens.
 
-It is the application's lifetime rather than any request's, and it is what
-makes closing the window cancel whatever the interface last asked for instead
-of leaving it running in a process on its way out.
+The context is the application's lifetime rather than any request's, and it is
+what makes closing the window cancel whatever the interface last asked for
+instead of leaving it running in a process on its way out. The emitter arrives
+here rather than at construction because it is made from this same context:
+there is nothing to tell a window that has not opened.
 */
-func (application *App) Start(ctx context.Context) {
+func (application *App) Start(ctx context.Context, emit Emitter) {
 	application.lifetime = ctx
+	application.emit = emit
 }
 
 /*
@@ -144,6 +191,8 @@ func (application *App) Connect(typed string) (Connection, error) {
 	if err != nil {
 		return Connection{}, err
 	}
+
+	application.stopWatching()
 
 	if err := application.book.Remember(reached.Address()); err != nil {
 		return Connection{}, err
@@ -196,12 +245,9 @@ func (application *App) resume(ctx context.Context, reached *client.Client) *Sig
 
 	person, err := reached.Me(ctx)
 	if err == nil {
-		return &Signed{
-			AccountID: person.AccountID,
-			UserID:    person.UserID,
-			Username:  person.Username,
-			Handle:    person.Handle,
-		}
+		application.watch(reached)
+		was := signed(person)
+		return &was
 	}
 
 	reached.Forget()

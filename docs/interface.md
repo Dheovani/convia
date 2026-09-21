@@ -62,6 +62,20 @@ For working on the interface itself, `./scripts/dev.sh` and `./scripts/dev.ps1` 
 
 The two pairs share what they have in common — reading `.env`, starting the containers, waiting for Convia — in `scripts/common.sh` and `scripts/common.ps1`.
 
+### How it reaches Convia
+
+The interface asks for `/v1/...` and does not know where that goes. In a browser it goes to the origin the page came from, with the session in a cookie. In the application it goes to the application's own process, which makes the request against the installation with the session in a header.
+
+**Nothing is listening on a port.** Wails lets the window's asset server hand requests to an `http.Handler`, so the webview's request never leaves this process until it leaves it as a request to Convia. Nothing else on the machine can reach it.
+
+Three things happen on the way out, and each of them is the point:
+
+- **The session is attached.** The interface cannot set the header, cannot read it, and does not know it exists — the same position the page is in with the cookie, which is why [ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md) allows both forms.
+- **The browser is taken off.** A webview sends an origin, a site-context and cookies for the address it thinks it is at. Convia reads exactly those to decide whether it is talking to a browser, and left on they would make it answer by setting a cookie this process cannot keep instead of accepting the session it holds. `Origin`, `Cookie`, `Referer` and the `Sec-Fetch-*` headers are removed, and a `Set-Cookie` coming back is dropped.
+- **Six routes are refused.** Signing in, registering, signing out of one session or all of them, changing the password and deleting the account each answer with a session or end one, and the answer to a carried request is read by the webview. The interface reaches those through the application's own methods, which return who is signed in and never what signed them in.
+
+The person's event stream is opened by the application for the same reason — a page cannot set a header on a handshake — and what the interface receives is the events themselves, emitted to the window as they arrive.
+
 ### What it does not carry
 
 The application links the vocabulary of Convia's events, the shape of its errors, and nothing else of the service. No database driver, no migration runner, no media plane, no password hashing. A test asserts it, from both sides: the application does not carry the service, and the service does not carry a window.
@@ -102,8 +116,8 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 
 | | |
 | --- | --- |
-| `POST /v1/accounts` | create an account and sign in; the cookie comes back on the response |
-| `POST /v1/sessions` | sign in; the cookie comes back on the response |
+| `POST /v1/accounts` | create an account and sign in; the cookie comes back in a browser, and in the application the session does not come back to the interface at all |
+| `POST /v1/sessions` | sign in; as above |
 | `GET /v1/me` | who is signed in — asked **before the first paint** |
 | `GET /v1/me/rooms` | the sidebar: rooms and unread counts in one request |
 | `GET/POST /v1/me/rooms/{id}/messages` | read a room, say something |

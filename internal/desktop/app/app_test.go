@@ -110,12 +110,56 @@ func (installation *convia) start(t *testing.T) string {
 	return server.URL
 }
 
+/*
+emitted is what the window was told, read under the lock it is written behind.
+
+The stream runs on a goroutine of its own, so a test that reads this while it
+is running reads it through here.
+*/
+type emitted struct {
+	mutex  sync.Mutex
+	topics []string
+	values []any
+}
+
+func (told *emitted) record(topic string, what any) {
+	told.mutex.Lock()
+	defer told.mutex.Unlock()
+	told.topics = append(told.topics, topic)
+	told.values = append(told.values, what)
+}
+
+func (told *emitted) on(topic string) []any {
+	told.mutex.Lock()
+	defer told.mutex.Unlock()
+
+	var matching []any
+	for index, name := range told.topics {
+		if name == topic {
+			matching = append(matching, told.values[index])
+		}
+	}
+	return matching
+}
+
 func application(t *testing.T, held *kept) *App {
 	t.Helper()
 
-	made := New(slog.New(slog.NewTextHandler(io.Discard, nil)), installations.In(t.TempDir()), held, nil)
-	made.Start(context.Background())
+	made, _ := listening(t, held)
 	return made
+}
+
+func listening(t *testing.T, held *kept) (*App, *emitted) {
+	t.Helper()
+
+	told := &emitted{}
+	made := New(slog.New(slog.NewTextHandler(io.Discard, nil)), installations.In(t.TempDir()), held, nil)
+
+	ctx, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop)
+	made.Start(ctx, told.record)
+
+	return made, told
 }
 
 /*

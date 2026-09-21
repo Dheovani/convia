@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,8 +15,10 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/logger"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
-	winoptions "github.com/wailsapp/wails/v2/pkg/options/windows"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"golang.org/x/sys/windows"
+
+	winoptions "github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"convia/internal/desktop/app"
 )
@@ -74,15 +77,27 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 		MinWidth:         minWidth,
 		MinHeight:        minHeight,
 		BackgroundColour: firstPaint,
-		AssetServer:      &assetserver.Options{Assets: ui},
+		AssetServer: &assetserver.Options{
+			Assets: ui,
+			/*
+				What the interface asks for that is not a file in the bundle.
+				Convia's API is carried to the installation; everything else is
+				the page, because the interface routes within itself.
+			*/
+			Handler: routed(ui, application),
+		},
 
 		/*
 			What the interface may call, and the context it is called under.
-			Everything that crosses here is chosen in internal/desktop/app;
-			the session is not among it.
+			Everything that crosses here is chosen in internal/desktop/app; the
+			session is not among it.
 		*/
-		OnStartup: application.Start,
-		Bind:      []any{application},
+		OnStartup: func(ctx context.Context) {
+			application.Start(ctx, func(topic string, what any) {
+				runtime.EventsEmit(ctx, topic, what)
+			})
+		},
+		Bind: []any{application},
 
 		Logger:   relay{log},
 		LogLevel: logger.INFO,
