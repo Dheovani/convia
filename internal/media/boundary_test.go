@@ -69,6 +69,9 @@ var notMediaInfrastructure = map[string]string{
 	"github.com/sethvargo/go-retry": "pulled in by goose",
 	"go.uber.org/multierr":          "pulled in by goose",
 	"golang.org/x":                  "extended standard library",
+	"github.com/danieljoos/wincred": "keeps the desktop application's session in the Windows " +
+		"Credential Manager. It reads and writes one secret per installation and knows nothing " +
+		"about calls. See internal/desktop/secrets and docs/adr/0019",
 }
 
 /*

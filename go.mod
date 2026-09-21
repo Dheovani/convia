@@ -4,6 +4,7 @@ go 1.26.6
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/danieljoos/wincred v1.2.3
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.11.0
