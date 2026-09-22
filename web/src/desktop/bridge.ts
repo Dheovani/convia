@@ -62,6 +62,7 @@ interface Bound {
   Connect: (address: string) => Promise<Connection>
   ConnectHere: () => Promise<Connection>
   Forget: (address: string) => Promise<void>
+  PendingLink: () => Promise<string>
   SignIn: (username: string, password: string) => Promise<Signed>
   Register: (username: string, password: string) => Promise<Signed>
   SignOut: () => Promise<void>
@@ -232,6 +233,19 @@ export const desktop = {
     return asked(() => bound().ConnectHere())
   },
 
+  /*
+  pendingLink takes the invitation somebody clicked, and forgets it.
+
+  **It is the only place a link is read.** One that arrived is kept by the
+  application until it is taken, because clicking an invitation on a machine
+  where Convia is closed starts the application with it — before the window
+  exists, before an installation is chosen, and before anybody has signed in.
+  The event below is a nudge to come and take it, not the link itself.
+  */
+  pendingLink(): Promise<string> {
+    return asked(() => bound().PendingLink())
+  },
+
   // forget stops offering an installation, and drops the session kept for it.
   forget(address: string): Promise<void> {
     return asked(() => bound().Forget(address))
@@ -266,6 +280,7 @@ export const desktop = {
 // constants, and the two have to say the same thing.
 const eventTopic = 'convia:event'
 const streamTopic = 'convia:stream'
+const linkTopic = 'convia:link'
 
 /*
 listen subscribes to what the application sends without being asked: the
@@ -275,6 +290,21 @@ It answers with the function that stops listening, so that a component which
 mounts twice does not end up with two subscriptions writing the same events
 onto the screen.
 */
+/*
+whenLinked says when an invitation was clicked while this window was open.
+
+What it hands over is the fact rather than the link: the link is taken with
+`pendingLink`, so that one arriving before the window existed and one arriving
+after are the same thing to whoever is listening.
+*/
+export function whenLinked(onLink: () => void): () => void {
+  const runtime = host().runtime
+  if (runtime === undefined) {
+    return () => {}
+  }
+  return runtime.EventsOn(linkTopic, () => onLink())
+}
+
 export function listen(
   onEvent: (event: unknown) => void,
   onState: (state: StreamState) => void,

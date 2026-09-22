@@ -92,6 +92,27 @@ The address is checked before the next screen asks for a password, because a typ
 
 Signing out leads to the sign-in form with a way back to that screen, so that somebody who signed out of the wrong Convia is not stuck on it.
 
+### An invitation that opens the application
+
+An invitation is an ordinary `https://` link, because that is what survives being sent through anything anybody sends links with. Nothing but a browser may be opened from one, so a click reaches an installed application only through a scheme of its own — and it is the same link with one word changed:
+
+```
+https://convia.example/invitations/inv_X    what somebody sends
+convia://convia.example/invitations/inv_X   what opens the application
+```
+
+Which scheme Convia is then reached over is decided the way every other address in the application is: HTTPS everywhere, plain HTTP only for this machine. The `https://` link is unchanged and still pastes by hand, which is how every invitation was opened before this existed.
+
+**The application translates and does not judge.** Whether an invitation exists, has expired or was withdrawn is the installation's to answer; asking here first would be a second opinion with less to go on. What is refused here is only the shape — a link carrying credentials, a query or a fragment is refused rather than tidied, because anything on the machine can hand anything to a registered scheme.
+
+The scheme is registered under the current user, which needs no administrator, and it is read before it is written: there is nothing to change once it is right. A failure to register is not a reason to refuse to start — what it costs is that clicking does not open Convia, and pasting still works.
+
+**One Convia at a time.** Clicking an invitation while the application is open hands the link to the window that is already there and ends the second process. Two windows would be two event streams against the same person's ceiling, and the conversation somebody was in the middle of would be behind the new window rather than in it.
+
+Clicking on a machine where Convia is closed starts it *with* the link, which arrives before the window exists, before an installation is chosen and before anybody has signed in. It waits in the application until the interface comes for it, which is why a link that started the window and one that reached it are the same call. It is handed over once: twice would reopen the same invitation the next time anybody looked.
+
+What somebody sees is what the invitation leads to — the room, and who invited them — without being asked to look, because clicking it was the asking. **Joining still waits for a second, deliberate press**, whether the link was pasted or clicked. Nobody joins a stranger's room on the strength of a URL.
+
 ### Calls, and what the window is allowed to do
 
 The webview grants the camera and the microphone to the page without asking, because there is no third party here to protect anybody from: the page is Convia's own interface, compiled into the binary that shows it. What decides whether the application may use a camera at all is **Windows**, in Privacy & security, where desktop apps are allowed or refused as a class. So a refusal in the application names that setting, where the same refusal in a browser names the site settings beside the address bar. It is the same failure and a different remedy, and telling somebody to look beside an address bar they do not have is worse than saying nothing.

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/wailsapp/go-webview2/webviewloader"
 	"github.com/wailsapp/wails/v2"
@@ -59,6 +61,10 @@ and the window renders it, so there is no port, no origin, and nothing else on
 the machine can reach the interface this process is showing.
 */
 func open(log *slog.Logger, ui fs.FS, application *app.App) error {
+	// The window, once it exists. A second instance arrives on a goroutine of
+	// its own and asks for it there.
+	opened := &window{}
+
 	if !builtWithWailsTags {
 		announce(windowTitle, missingTags)
 		return errors.New(missingTags)
@@ -71,6 +77,8 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 		return problem
 	}
 	log.Info("the webview runtime is present", "version", version)
+
+	registerScheme(log)
 
 	return wails.Run(&options.App{
 		Title:            windowTitle,
@@ -98,9 +106,36 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 			session is not among it.
 		*/
 		OnStartup: func(ctx context.Context) {
+			opened.is(ctx)
 			application.Start(ctx, func(topic string, what any) {
 				runtime.EventsEmit(ctx, topic, what)
 			})
+			// Whatever this was opened with, which is an invitation when
+			// somebody clicked one on a machine where Convia was closed.
+			application.Arrived(os.Args[1:])
+		},
+
+		/*
+			One Convia at a time.
+
+			Clicking an invitation on a machine where the application is
+			already open must not start a second one: two windows would be two
+			event streams against the same person's ceiling, and the
+			conversation somebody was in the middle of would be behind the new
+			window rather than in it. The link is handed to the one that is
+			open, and the second process ends.
+		*/
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId: "convia-desktop",
+			OnSecondInstanceLaunch: func(second options.SecondInstanceData) {
+				if !application.Arrived(second.Args) {
+					return
+				}
+				if ctx := opened.context(); ctx != nil {
+					runtime.WindowUnminimise(ctx)
+					runtime.WindowShow(ctx)
+				}
+			},
 		},
 		Bind: []any{application},
 
@@ -246,4 +281,33 @@ func webviewData(log *slog.Logger) string {
 		return ""
 	}
 	return filepath.Join(folder, "webview")
+}
+
+/*
+window is the context Wails gives when the window opens.
+
+Every runtime call wants it back, and the one that matters here happens on
+another goroutine: a second instance launched from a clicked invitation, which
+has to raise the window this one is holding. So it is written once, by the
+window, and read there.
+
+It is a lifetime rather than a request, which is the one kind of context worth
+keeping.
+*/
+type window struct {
+	mutex sync.Mutex
+	ctx   context.Context
+}
+
+func (opened *window) is(ctx context.Context) {
+	opened.mutex.Lock()
+	defer opened.mutex.Unlock()
+	opened.ctx = ctx
+}
+
+// context answers the window's, or nil before there is one.
+func (opened *window) context() context.Context {
+	opened.mutex.Lock()
+	defer opened.mutex.Unlock()
+	return opened.ctx
 }

@@ -91,6 +91,9 @@ type App struct {
 	*/
 	lifetime context.Context
 
+	// waiting holds an invitation that arrived before there was a window.
+	waiting waiting
+
 	mutex  sync.Mutex
 	client *client.Client
 	// watching stops the person's stream, and is nil when none is open.
@@ -113,6 +116,8 @@ const (
 	EventTopic = "convia:event"
 	// StreamTopic carries whether the stream is open, and what it lost.
 	StreamTopic = "convia:stream"
+	// LinkTopic carries an invitation somebody clicked while this was open.
+	LinkTopic = "convia:link"
 )
 
 // New assembles the application. Nothing is read and nothing is reached until

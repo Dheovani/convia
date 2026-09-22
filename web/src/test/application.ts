@@ -37,6 +37,8 @@ export class FakeApplication {
   private remembered: string[] = []
   // running is whether there is a Convia on this computer to be found.
   private running = false
+  // pending is an invitation somebody clicked, waiting to be taken.
+  private pending = ''
   private connection: Connection | null = null
   private signed: Signed | null = null
   private readonly refusals = new Map<string, Error>()
@@ -53,6 +55,14 @@ export class FakeApplication {
   // ordinary person has when they installed the whole thing.
   runsHere(): this {
     this.running = true
+    return this
+  }
+
+  // clicked is an invitation somebody opened, which the application holds
+  // until the interface comes for it.
+  clicked(link: string): this {
+    this.pending = link
+    this.deliver('convia:link', link)
     return this
   }
 
@@ -126,6 +136,12 @@ export class FakeApplication {
             throw refused('unreachable', 'convia could not be reached')
           }
           return bound.Connect('http://localhost:8080')
+        }),
+      PendingLink: () =>
+        this.record('PendingLink', [], () => {
+          const link = this.pending
+          this.pending = ''
+          return link
         }),
       Forget: (address: string) =>
         this.record('Forget', [address], () => {

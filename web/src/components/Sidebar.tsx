@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { ApiError, NetworkError, sourceKey } from '../api/client'
 import type { InvitationLook, RemoteRoom, SidebarRoom } from '../api/types'
 import type { Words } from '../i18n/en'
 import { refused, useWords } from '../i18n/language'
+import type { Arrived } from '../desktop/useInvitation'
 import { Button, input } from './controls'
 
 interface SidebarProps {
@@ -15,6 +16,12 @@ interface SidebarProps {
   onCreate: (name: string) => Promise<void>
   onLook: (link: string) => Promise<InvitationLook>
   onJoin: (link: string) => Promise<void>
+  /*
+  invitation is a link somebody clicked outside this interface, which only
+  Convia's own application can hand over. A browser is opened by a link rather
+  than given one, so there it is never set.
+  */
+  invitation?: Arrived | undefined
 }
 
 function explain(words: Words, error: unknown): string {
@@ -140,36 +147,53 @@ the installation it names; joining without showing that first would be
 accepting a stranger's room on the strength of a URL.
 */
 function JoinByLink({
+  initial = '',
   onLook,
   onJoin,
   onDone,
 }: {
+  initial?: string | undefined
   onLook: (link: string) => Promise<InvitationLook>
   onJoin: (link: string) => Promise<void>
   onDone: () => void
 }) {
-  const [link, setLink] = useState('')
+  const [link, setLink] = useState(initial)
   const [look, setLook] = useState<InvitationLook | null>(null)
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const words = useWords()
   const said = words.sidebar
 
-  async function examine(event: React.FormEvent) {
-    event.preventDefault()
-    if (link.trim() === '' || busy) {
+  async function examine(raw: string) {
+    if (raw.trim() === '') {
       return
     }
     setBusy(true)
     setFailure(null)
     try {
-      setLook(await onLook(link.trim()))
+      setLook(await onLook(raw.trim()))
     } catch (error) {
       setFailure(explainLink(words, error))
     } finally {
       setBusy(false)
     }
   }
+
+  /*
+  A link that arrived from outside is looked at without being asked to.
+
+  Clicking an invitation *is* the asking — somebody who clicked one should be
+  shown what it leads to, not a form with their own link in it and a button
+  that says do the thing you just did. A pasted link still waits, because
+  pasting is not a decision. Joining still waits in both cases, which is the
+  part that matters: nobody joins a stranger's room on the strength of a URL.
+  */
+  useEffect(() => {
+    if (initial !== '') {
+      void examine(initial)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once, for the link it opened with.
+  }, [])
 
   async function accept() {
     setBusy(true)
@@ -186,7 +210,15 @@ function JoinByLink({
   return (
     <div className="mx-1 mb-3 flex flex-col gap-2">
       {look === null ? (
-        <form className="flex flex-col gap-2" onSubmit={examine}>
+        <form
+          className="flex flex-col gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!busy) {
+              void examine(link)
+            }
+          }}
+        >
           <label className="sr-only" htmlFor="invitation-link">
             {said.linkLabel}
           </label>
@@ -279,9 +311,24 @@ export function Sidebar({
   onCreate,
   onLook,
   onJoin,
+  invitation,
 }: SidebarProps) {
   const [creating, setCreating] = useState(false)
   const [joining, setJoining] = useState(false)
+
+  /*
+  An invitation somebody clicked opens this panel with the link already in it.
+
+  It is keyed by when it arrived rather than by the link, because the same
+  invitation clicked twice is two arrivals: the first opens the panel, somebody
+  closes it without joining, and the second has to open it again.
+  */
+  useEffect(() => {
+    if (invitation !== undefined) {
+      setCreating(false)
+      setJoining(true)
+    }
+  }, [invitation?.at])
   const words = useWords()
   const said = words.sidebar
 
@@ -319,7 +366,15 @@ export function Sidebar({
       </div>
 
       {creating && <NewRoom onCreate={onCreate} onDone={() => setCreating(false)} />}
-      {joining && <JoinByLink onLook={onLook} onJoin={onJoin} onDone={() => setJoining(false)} />}
+      {joining && (
+        <JoinByLink
+          key={invitation?.at}
+          initial={invitation?.link}
+          onLook={onLook}
+          onJoin={onJoin}
+          onDone={() => setJoining(false)}
+        />
+      )}
 
       {loading && rooms.length === 0 ? (
         <p className="mx-2 my-0 text-[0.82rem] text-ink-faint">{words.common.loading}</p>

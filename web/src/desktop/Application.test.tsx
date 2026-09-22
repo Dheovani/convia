@@ -328,6 +328,103 @@ describe('what the application refuses with', () => {
 })
 
 
+
+describe('an invitation somebody clicked', () => {
+  const link = 'https://elsewhere.example/invitations/inv_7QK4XMZP2VJH6TBWNDR3YAFC5'
+
+  // preview is what the home of the link says the invitation is for, which is
+  // shown before anybody joins anything.
+  function previewing(): FakeConvia {
+    return carried().on('POST', '/v1/me/invitation-previews', {
+      body: {
+        home: 'https://elsewhere.example',
+        room_name: 'Their room',
+        inviter: 'bruno#7KQZP4XN2VJH6TBWMDR3YAFC5EC',
+        invitee: ana.handle,
+        expires_at: '2026-12-15T14:04:56.000Z',
+      },
+    })
+  }
+
+  /*
+  Clicking an invitation on a machine where Convia is closed starts the
+  application with it: the link arrives before the window exists, before an
+  installation is chosen, and before anybody has signed in. It waits in the
+  application, and the interface comes for it once there is somewhere to put
+  it.
+  */
+  it('shows what the invitation is for, without being asked to look', async () => {
+    const server = previewing()
+    server.install()
+    const application = new FakeApplication().runsHere().holds(ana)
+    application.clicked(link)
+    application.install()
+
+    render(<App />)
+
+    /*
+    Clicking an invitation is the asking. What somebody sees is what it leads
+    to, not a form with their own link in it and a button that says do the
+    thing you just did.
+    */
+    expect(await screen.findByText('Their room')).toBeInTheDocument()
+    expect(application.asked('PendingLink')).not.toHaveLength(0)
+    expect(server.asked('POST', '/v1/me/invitation-previews')?.body).toEqual({ link })
+
+    /*
+    Joining still waits for a second, deliberate press.
+
+    Clicking a link is somebody saying show me; it is not somebody saying put
+    me in a room. Anybody can make a link and send it to anybody, so the room
+    and who invited them are shown first and joined after — the same as for a
+    link that was pasted.
+    */
+    expect(screen.getByRole('button', { name: 'Join' })).toBeInTheDocument()
+    expect(server.asked('POST', '/v1/me/remote-rooms')).toBeUndefined()
+  })
+
+  /*
+  The same invitation clicked twice is two arrivals. The first opens the panel,
+  somebody closes it without joining, and the second has to open it again —
+  which it would not if the link alone decided, because the two are one string.
+  */
+  it('opens again when the same invitation is clicked a second time', async () => {
+    previewing().install()
+    const application = new FakeApplication().runsHere().holds(ana)
+    application.install()
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Standup' })
+
+    await act(async () => {
+      application.clicked(link)
+      await Promise.resolve()
+    })
+    await screen.findByText('Their room')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByText('Their room')).toBeNull()
+
+    await act(async () => {
+      application.clicked(link)
+      await Promise.resolve()
+    })
+    await screen.findByText('Their room')
+  })
+
+  // A page in a browser is opened by a link rather than handed one, so nothing
+  // here is ever asked of it.
+  it('asks nothing of a browser', async () => {
+    previewing().install()
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Standup' })
+
+    expect(screen.queryByLabelText('Invitation link')).toBeNull()
+    expect(screen.queryByText('Their room')).toBeNull()
+  })
+})
+
 describe('a device the application is not allowed to use', () => {
   /*
   The same refusal, and a different remedy.
