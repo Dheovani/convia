@@ -99,6 +99,13 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 		},
 		Bind: []any{application},
 
+		/*
+			How a refusal reaches the interface. Without this, everything the
+			application refuses arrives as prose, and the code a screen decides
+			what to say from is gone.
+		*/
+		ErrorFormatter: app.Explain,
+
 		Logger:   relay{log},
 		LogLevel: logger.INFO,
 

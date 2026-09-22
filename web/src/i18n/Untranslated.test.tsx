@@ -6,6 +6,7 @@ import { App } from '../App'
 import type { CallPresence, JoinSession, Person } from '../api/types'
 import { ConnectionQuality, Room } from '../test/livekit'
 import { marked, markedLanguage, unmarked } from '../test/language'
+import { FakeApplication } from '../test/application'
 import { FakeConvia, ana, message, room, withdrawn } from '../test/server'
 import { LanguageContext } from './language'
 
@@ -62,6 +63,8 @@ const data = [
   'Archive',
   'Weekly sync',
   'convia.elsewhere.test',
+  'https://convia.elsewhere.test',
+  'http://convia.example',
   'Standup in five minutes.',
   'Off topic.',
   'Bruno Alves',
@@ -162,6 +165,31 @@ describe('every word on screen comes from the catalogue', () => {
     await person.click(screen.getByRole('button', { name: said.signIn.createAccount }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(said.signIn.badUsername)
+    expectAllMarked()
+  })
+
+  /*
+  The first screen of Convia's application, which a browser never reaches: it
+  asks where Convia is, and offers the ones this machine has used.
+  */
+  it('when the application asks which installation to connect to', async () => {
+    new FakeConvia()
+      .on('GET', '/v1/me', { status: 401, failure: { code: 'unauthenticated', message: 'no' } })
+      .install()
+    new FakeApplication().knows('https://convia.elsewhere.test').install()
+    speaking()
+    const person = userEvent.setup()
+
+    await screen.findByRole('button', { name: said.signIn.signIn })
+    await person.click(screen.getByRole('button', { name: said.installation.elsewhere }))
+
+    await screen.findByRole('heading', { name: said.installation.title })
+    expectAllMarked()
+
+    await person.type(screen.getByLabelText(said.installation.address), 'http://convia.example')
+    await person.click(screen.getByRole('button', { name: said.installation.connect }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(said.installation.insecure)
     expectAllMarked()
   })
 

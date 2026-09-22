@@ -115,6 +115,23 @@ export const ptBR: Words = {
     wantAccount: 'Criar uma conta',
   },
 
+  installation: {
+    title: 'Onde fica a sua Convia?',
+    lead: 'A Convia não é um lugar só. Este é o endereço da que você usa — a do seu time, a sua, ou uma que alguém te passou.',
+    address: 'Endereço',
+    addressRule: 'Por exemplo convia.example, ou localhost:8080 para uma rodando nesta máquina.',
+    connect: 'Conectar',
+    connecting: 'Conectando…',
+    remembered: 'Usadas recentemente',
+    forget: (address: string) => `Esquecer ${address}`,
+    needed: 'Falta o endereço.',
+    insecure: 'Uma instalação que não seja desta máquina precisa ser acessada por HTTPS.',
+    unreachable: 'Nada respondeu nesse endereço. Confira o endereço e a sua conexão, e tente de novo.',
+    notConvia: 'Alguma coisa respondeu ali, e não era uma Convia em que você possa entrar.',
+    failed: 'Não foi possível alcançar essa instalação. Tente de novo.',
+    elsewhere: 'Conectar em outra Convia',
+  },
+
   presence: {
     online: 'Disponível',
     busy: 'Ocupado',

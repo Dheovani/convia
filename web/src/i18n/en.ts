@@ -110,6 +110,23 @@ export const en = {
     wantAccount: 'Create an account',
   },
 
+  installation: {
+    title: 'Where is your Convia?',
+    lead: 'Convia is not one place. This is the address of the one you use — your team’s, your own, or one somebody gave you.',
+    address: 'Address',
+    addressRule: 'For example convia.example, or localhost:8080 for one running on this machine.',
+    connect: 'Connect',
+    connecting: 'Connecting…',
+    remembered: 'Used recently',
+    forget: (address: string) => `Forget ${address}`,
+    needed: 'An address is needed.',
+    insecure: 'An installation anywhere but this machine has to be reached over HTTPS.',
+    unreachable: 'Nothing answered at that address. Check it and your connection, and try again.',
+    notConvia: 'Something answered there, and it was not a Convia you can sign in to.',
+    failed: 'That installation could not be reached. Try again.',
+    elsewhere: 'Connect to another Convia',
+  },
+
   presence: {
     online: 'Available',
     busy: 'Busy',

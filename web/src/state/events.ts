@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { api, ApiError } from '../api/client'
 import type { ConviaEvent } from '../api/types'
+import { inApplication, listen as listenToApplication } from '../desktop/bridge'
 
 export type Listener = (event: ConviaEvent) => void
 
@@ -86,7 +87,51 @@ export function useEventStream(onExpired: () => void): Events {
   const expired = useRef(onExpired)
   expired.current = onExpired
 
+  const deliver = useCallback((event: ConviaEvent) => {
+    for (const listener of listeners.current) {
+      listener(event)
+    }
+  }, [])
+
+  /*
+  In Convia's own application the stream is not this page's to open.
+
+  The session travels in a header there, and a page cannot set one on a
+  handshake — so the application holds the connection and the events arrive
+  here already read. Everything downstream is the same: the same events, in the
+  same order, and the same `live` deciding whether a screen waits or asks.
+  */
   useEffect(() => {
+    if (!inApplication()) {
+      return
+    }
+
+    return listenToApplication(
+      (event) => deliver(event as ConviaEvent),
+      (state) => {
+        setLive(state.Live)
+        if (!state.Ended) {
+          return
+        }
+        /*
+        Asked rather than assumed, exactly as the close code is in a browser:
+        the answer to /me is what the rest of the interface treats as the
+        authority on whether a session is gone, so both paths agree.
+        */
+        void api.me().catch((error: unknown) => {
+          if (error instanceof ApiError && error.unauthenticated) {
+            expired.current()
+          }
+        })
+      },
+    )
+  }, [deliver])
+
+  useEffect(() => {
+    if (inApplication()) {
+      return
+    }
+
     let socket: WebSocket | null = null
     let retry: number | undefined
     let delay = firstRetry
@@ -114,9 +159,7 @@ export function useEventStream(onExpired: () => void): Events {
           cursor = event.cursor
         }
 
-        for (const listener of listeners.current) {
-          listener(event)
-        }
+        deliver(event)
       }
 
       opening.onclose = (closed: CloseEvent) => {
@@ -155,7 +198,7 @@ export function useEventStream(onExpired: () => void): Events {
       window.clearTimeout(retry)
       socket?.close()
     }
-  }, [])
+  }, [deliver])
 
   const listen = useCallback((listener: Listener) => {
     listeners.current.add(listener)

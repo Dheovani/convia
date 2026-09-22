@@ -76,6 +76,14 @@ Three things happen on the way out, and each of them is the point:
 
 The person's event stream is opened by the application for the same reason — a page cannot set a header on a handshake — and what the interface receives is the events themselves, emitted to the window as they arrive.
 
+### The screen a page never needed
+
+A browser knows where it is: the page came from somewhere, and that is the Convia it talks to. An installed application knows nothing until somebody says so, so the first screen asks for an address — and the application checks it answers as a Convia **before** the next screen asks for a password, because a typo that becomes a password sent to whatever answered is the failure this screen exists to prevent.
+
+It is not the screen most starts show. The installation used last is reconnected to without a word, and the session kept for it signs somebody straight back in. The ones used before that are offered as buttons; forgetting one drops the session kept for it too. Signing out leads to the sign-in form with a way back here, so that somebody who signed out of the wrong Convia is not stuck on it.
+
+Three ways of being wrong get three different sets of words. Nothing answered, which may be the network rather than the address. Something answered and was not a Convia anybody can sign in to, which is a typo. And plain HTTP to anywhere but this machine, which is refused in the interface before anything is asked of the address at all — a session travelling in a header over plain HTTP is a session anybody on the network holds.
+
 ### What it does not carry
 
 The application links the vocabulary of Convia's events, the shape of its errors, and nothing else of the service. No database driver, no migration runner, no media plane, no password hashing. A test asserts it, from both sides: the application does not carry the service, and the service does not carry a window.

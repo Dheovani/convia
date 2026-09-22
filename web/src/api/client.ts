@@ -20,6 +20,13 @@ import type {
   Sidebar,
 } from './types'
 
+import { ApiError, NetworkError } from './errors'
+import type { ApiFailure } from './errors'
+import { desktop, inApplication } from '../desktop/bridge'
+
+export { ApiError, NetworkError } from './errors'
+export type { ApiFailure } from './errors'
+
 const prefix = '/v1'
 
 /*
@@ -30,61 +37,6 @@ more than a hundred people would see the first hundred, which is a gap the
 interface will have to page through once there is a screen where it matters.
 */
 const pageLimit = 100
-
-/*
-ApiFailure is the error body every Convia route answers with.
-
-The code is the part to branch on: it is a documented, stable identifier, while
-the message is prose that may be reworded. Nothing in this interface decides
-anything from the message text.
-*/
-export interface ApiFailure {
-  code: string
-  message: string
-  request_id?: string
-}
-
-/*
-ApiError carries a refusal Convia explained.
-
-The status is kept alongside the code because the two answer different
-questions: the status decides whether the session survived, and the code
-decides what to tell the person.
-*/
-export class ApiError extends Error {
-  readonly status: number
-  readonly code: string
-  readonly requestId: string | undefined
-
-  constructor(status: number, failure: ApiFailure) {
-    super(failure.message)
-    this.name = 'ApiError'
-    this.status = status
-    this.code = failure.code
-    this.requestId = failure.request_id
-  }
-
-  // unauthenticated reports a session that is gone rather than a request that
-  // was wrong. It is the one failure that ends the signed-in state.
-  get unauthenticated(): boolean {
-    return this.status === 401
-  }
-}
-
-/*
-NetworkError is a request that never reached Convia.
-
-It is a separate type because the two need different words: a refusal has an
-explanation worth showing, and an unreachable server has none — telling somebody
-their password was wrong when the network was down would be a lie.
-*/
-export class NetworkError extends Error {
-  constructor(cause: unknown) {
-    super('Convia could not be reached.')
-    this.name = 'NetworkError'
-    this.cause = cause
-  }
-}
 
 interface RequestOptions {
   method?: string
@@ -224,22 +176,44 @@ export function roomApi(source: RoomSource): RoomApi {
   }
 }
 
+/*
+The six routes below answer with a session or end one, and in Convia's own
+application they are the application's rather than this interface's.
+
+The application refuses to carry them, because the answer to a carried request
+is read by this webview and the session must never be. What comes back from it
+instead is who is signed in, which is the same shape Convia answers a browser
+with. Everything else on `api` is the same call either way: the application
+carries it, with the session attached where this interface cannot see it.
+*/
 export const api = {
   signIn(username: string, password: string): Promise<Account> {
+    if (inApplication()) {
+      return desktop.signIn(username, password)
+    }
     return call<Account>('/sessions', { method: 'POST', body: { username, password } })
   },
 
   // register creates an account and signs its owner in, in one request.
   register(username: string, password: string): Promise<Account> {
+    if (inApplication()) {
+      return desktop.register(username, password)
+    }
     return call<Account>('/accounts', { method: 'POST', body: { username, password } })
   },
 
   signOut(): Promise<void> {
+    if (inApplication()) {
+      return desktop.signOut()
+    }
     return call<void>('/sessions/current', { method: 'DELETE' })
   },
 
   // signOutEverywhere ends every session of the account, this one included.
   signOutEverywhere(): Promise<void> {
+    if (inApplication()) {
+      return desktop.signOutEverywhere()
+    }
     return call<void>('/sessions', { method: 'DELETE' })
   },
 
@@ -249,6 +223,9 @@ export const api = {
   and the session survives it.
   */
   changePassword(current: string, next: string): Promise<void> {
+    if (inApplication()) {
+      return desktop.changePassword(current, next)
+    }
     return call<void>('/me/password', {
       method: 'PATCH',
       body: { current_password: current, new_password: next },
@@ -261,6 +238,9 @@ export const api = {
   `wrong_password`, and changes nothing.
   */
   deleteAccount(password: string): Promise<void> {
+    if (inApplication()) {
+      return desktop.deleteAccount(password)
+    }
     return call<void>('/me/delete', { method: 'POST', body: { password } })
   },
 
