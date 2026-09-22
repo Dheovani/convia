@@ -233,7 +233,7 @@ describe('every word on screen comes from the catalogue', () => {
     const ready = await screen.findByRole('region', { name: said.call.prepare })
     await person.click(within(ready).getByRole('button', { name: said.call.cameraOn }))
     await within(ready).findByRole('option', { name: said.call.numbered('audioinput', 2) })
-    await within(ready).findByText(said.call.refused('busy', 'videoinput'))
+    await within(ready).findByText(said.call.refused('busy', 'videoinput', false))
     expectAllMarked()
 
     Room.refusals = {}

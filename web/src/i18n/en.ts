@@ -111,10 +111,14 @@ export const en = {
   },
 
   installation: {
-    title: 'Where is your Convia?',
-    lead: 'Convia is not one place. This is the address of the one you use — your team’s, your own, or one somebody gave you.',
+    title: 'Connect to Convia',
+    lead: 'Convia runs on a computer: this one, or one your team keeps. If it is installed here, this is all you need.',
+    here: 'Use the Convia on this computer',
+    lookingHere: 'Looking on this computer…',
+    noneHere: 'There is no Convia running on this computer. If yours is somewhere else, put its address below.',
+    given: 'If somebody gave you an address',
     address: 'Address',
-    addressRule: 'For example convia.example, or localhost:8080 for one running on this machine.',
+    addressRule: 'Whoever set up your Convia can tell you this. For example convia.example.',
     connect: 'Connect',
     connecting: 'Connecting…',
     remembered: 'Used recently',
@@ -382,12 +386,20 @@ export const en = {
     cannotStart: 'A closed room does not start new calls.',
     dismiss: 'Dismiss',
 
-    // refused says why a device could not be had while getting ready to join.
-    refused: (refusal: Refusal, kind: 'audioinput' | 'videoinput') => {
+    /*
+    refused says why a device could not be had while getting ready to join.
+
+    `installed` is whether this is Convia's own application rather than a page.
+    It changes one of the four, and it has to: a person in an application has
+    no address bar to look beside, and the place that decides is Windows.
+    */
+    refused: (refusal: Refusal, kind: 'audioinput' | 'videoinput', installed: boolean) => {
       const device = devices[kind]
       switch (refusal) {
         case 'denied':
-          return `Convia is not allowed to use your ${device}. Allow it from the site settings beside the address bar, then try again.`
+          return installed
+            ? `Convia is not allowed to use your ${device}. Windows decides that: open Settings, then Privacy & security, then ${deviceNames[kind]}, and let desktop apps use it.`
+            : `Convia is not allowed to use your ${device}. Allow it from the site settings beside the address bar, then try again.`
         case 'missing':
           return `No ${device} was found.`
         case 'busy':

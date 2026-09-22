@@ -82,10 +82,15 @@ function Served() {
 Installed is the interface as an application.
 
 Two things have to be known rather than one, and in this order: which
-installation, and then who. The installation used last is reconnected to
-without asking, because asking every morning for an answer given yesterday is
-the chore this screen exists to avoid — and the session kept for it signs
-somebody straight back in.
+installation, and then who.
+
+**Neither of them is a question if it can be avoided.** The installation used
+last is reconnected to without asking, because asking every morning for an
+answer given yesterday is a chore. A machine that has connected nowhere is
+tried for a Convia of its own, because somebody who installed Convia on their
+computer should not have to learn what an address is to open it. Only when both
+come to nothing does anybody get asked anything — and the session kept for the
+installation signs them straight back in either way.
 */
 function Installed() {
   const [connection, setConnection] = useState<Connection | null | undefined>(undefined)
@@ -93,13 +98,13 @@ function Installed() {
   useEffect(() => {
     let showing = true
 
-    async function reconnect(): Promise<Connection | null> {
+    async function reconnect(): Promise<Connection> {
       const remembered = await desktop.installations()
       const last = remembered[0]
-      if (last === undefined) {
-        return null
+      if (last !== undefined) {
+        return await desktop.connect(last)
       }
-      return await desktop.connect(last)
+      return await desktop.connectHere()
     }
 
     reconnect()
@@ -110,9 +115,10 @@ function Installed() {
       })
       .catch(() => {
         /*
-        The one it used last is gone, moved, or unreachable. That is the screen
-        that asks for an address, with the failure to be shown when somebody
-        tries it again rather than before they have done anything.
+        Nothing was found: no Convia on this computer, or the one used last is
+        gone or unreachable. That is the screen that asks — where the Convia on
+        this computer is still the first thing offered, because it may have
+        been started in the meantime.
         */
         if (showing) {
           setConnection(null)

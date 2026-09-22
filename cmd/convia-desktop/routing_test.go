@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -64,5 +65,49 @@ func TestTheAPIGoesToTheInstallationRatherThanToThePage(t *testing.T) {
 	}
 	if body := response.Body.String(); body == "" || body[0] != '{' {
 		t.Errorf("the API was answered with %s", body)
+	}
+}
+
+/*
+TestThePageIsServedUnderAPolicy.
+
+The service serves the same interface under the same policy, and a flaw in this
+bundle is the thing it is for. Wails serves the page itself, so the policy is
+applied around its whole asset server rather than by the handler above — a
+policy that covered only what the bundle does not contain would cover nothing
+that matters.
+*/
+func TestThePageIsServedUnderAPolicy(t *testing.T) {
+	response := httptest.NewRecorder()
+	hardened(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write([]byte("<!doctype html>"))
+	})).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	given := response.Header().Get("Content-Security-Policy")
+	for _, required := range []string{
+		"default-src 'none'",
+		"script-src 'self'",
+		"base-uri 'none'",
+		"frame-ancestors 'none'",
+	} {
+		if !strings.Contains(given, required) {
+			t.Errorf("the policy is %q, which does not say %q", given, required)
+		}
+	}
+
+	// The one directive that has to admit what is not known yet: which
+	// installation somebody will name, and which media server it has.
+	if !strings.Contains(given, "connect-src 'self' https: wss:") {
+		t.Errorf("the policy is %q, and a call could not reach a media server under it", given)
+	}
+	if strings.Contains(given, "unsafe-inline") || strings.Contains(given, "unsafe-eval") {
+		t.Errorf("the policy is %q, which is the kind that is decorative", given)
+	}
+
+	if response.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Error("the page is served without nosniff")
+	}
+	if camera := response.Header().Get("Permissions-Policy"); !strings.Contains(camera, "camera=(self)") {
+		t.Errorf("Permissions-Policy is %q, and a call needs the camera", camera)
 	}
 }

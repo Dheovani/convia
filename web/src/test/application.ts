@@ -35,6 +35,8 @@ export class FakeApplication {
   readonly calls: { method: string; args: unknown[] }[] = []
 
   private remembered: string[] = []
+  // running is whether there is a Convia on this computer to be found.
+  private running = false
   private connection: Connection | null = null
   private signed: Signed | null = null
   private readonly refusals = new Map<string, Error>()
@@ -44,6 +46,13 @@ export class FakeApplication {
   // connected before would.
   knows(...addresses: string[]): this {
     this.remembered = addresses
+    return this
+  }
+
+  // runsHere makes this computer one with a Convia on it, which is what an
+  // ordinary person has when they installed the whole thing.
+  runsHere(): this {
+    this.running = true
     return this
   }
 
@@ -110,6 +119,13 @@ export class FakeApplication {
           }
           this.connection = { address, signed: this.signed }
           return this.connection
+        }),
+      ConnectHere: () =>
+        this.record('ConnectHere', [], () => {
+          if (!this.running) {
+            throw refused('unreachable', 'convia could not be reached')
+          }
+          return bound.Connect('http://localhost:8080')
         }),
       Forget: (address: string) =>
         this.record('Forget', [address], () => {

@@ -76,13 +76,46 @@ Three things happen on the way out, and each of them is the point:
 
 The person's event stream is opened by the application for the same reason — a page cannot set a header on a handshake — and what the interface receives is the events themselves, emitted to the window as they arrive.
 
-### The screen a page never needed
+### Nobody is asked where Convia is
 
-A browser knows where it is: the page came from somewhere, and that is the Convia it talks to. An installed application knows nothing until somebody says so, so the first screen asks for an address — and the application checks it answers as a Convia **before** the next screen asks for a password, because a typo that becomes a password sent to whatever answered is the failure this screen exists to prevent.
+A browser knows where it is: the page came from somewhere, and that is the Convia it talks to. An installed application knows nothing until it is told — and **an address is something whoever set Convia up knows, not something an ordinary person does.** Asking for one as the first screen would be asking most people a question they cannot answer.
 
-It is not the screen most starts show. The installation used last is reconnected to without a word, and the session kept for it signs somebody straight back in. The ones used before that are offered as buttons; forgetting one drops the session kept for it too. Signing out leads to the sign-in form with a way back here, so that somebody who signed out of the wrong Convia is not stuck on it.
+So the application works it out, in this order:
 
-Three ways of being wrong get three different sets of words. Nothing answered, which may be the network rather than the address. Something answered and was not a Convia anybody can sign in to, which is a typo. And plain HTTP to anywhere but this machine, which is refused in the interface before anything is asked of the address at all — a session travelling in a header over plain HTTP is a session anybody on the network holds.
+1. **The installation used last**, reconnected to without a word, with the session kept for it signing somebody straight back in. This is what every start after the first one does.
+2. **The Convia on this computer**, tried on the port Convia serves on by default. Somebody who installed the whole thing on their own machine never sees a question at all.
+3. **Only then, the screen** — and even there the Convia on this computer is the first thing offered, as a button, because it may have been started in the meantime. Below it are the installations used before, as buttons, and below those the address field for the person whose Convia is somewhere else and who was given its address by whoever runs it.
+
+An invitation link is the fourth door and is `M35-009`: somebody sent a link, and the address comes with it rather than being typed.
+
+The address is checked before the next screen asks for a password, because a typo that becomes a password sent to whatever answered is the failure this screen exists to prevent. Three ways of being wrong get three different sets of words: nothing answered, which may be the network rather than the address; something answered and was not a Convia anybody can sign in to, which is a typo; and plain HTTP to anywhere but this machine, which is refused in the interface before anything is asked of the address at all — a session travelling in a header over plain HTTP is a session anybody on the network holds.
+
+Signing out leads to the sign-in form with a way back to that screen, so that somebody who signed out of the wrong Convia is not stuck on it.
+
+### Calls, and what the window is allowed to do
+
+The webview grants the camera and the microphone to the page without asking, because there is no third party here to protect anybody from: the page is Convia's own interface, compiled into the binary that shows it. What decides whether the application may use a camera at all is **Windows**, in Privacy & security, where desktop apps are allowed or refused as a class. So a refusal in the application names that setting, where the same refusal in a browser names the site settings beside the address bar. It is the same failure and a different remedy, and telling somebody to look beside an address bar they do not have is worse than saying nothing.
+
+The other three device failures — none found, held by another program, would not start — say the same thing wherever the interface is running.
+
+The window's page is served under a content policy, applied around the whole asset server so that it reaches the page itself. It is the policy the service serves the interface under, with one directive loosened: `connect-src`. The service knows which media server its deployment has and names it exactly; an application connects to whichever installation somebody typed, each with a media server of its own, and the page is loaded before any of that is known. What it can say is the scheme — encrypted, or this machine — which is weaker than the page's policy and stronger than what an application has by default, which is none at all.
+
+Everything the webview keeps — its profile and its cache, tens of megabytes of it — goes under Convia's own folder, beside the list of installations. The toolkit's default is a folder named after the executable file, `convia-desktop.exe`, in the roaming profile.
+
+### The icon
+
+Convia's own mark: an open ring with a point at the opening, the same one the interface draws on its sign-in screen. It sits on a dark rounded tile so that it reads on a light taskbar and a dark one alike, and it is drawn at every size Windows asks for rather than scaled down from one — a ring three and a half units thick does not survive being resampled to sixteen pixels.
+
+It is generated rather than drawn by hand, because a mark that cannot be redrawn is a mark nobody will ever change:
+
+```bash
+go run ./cmd/convia-desktop/icon/generate.go            # the mark -> convia.ico
+go run github.com/tc-hib/go-winres@v0.3.3 make   --in cmd/convia-desktop/icon/winres.json   --out cmd/convia-desktop/rsrc --arch amd64,arm64      # convia.ico -> the resource
+```
+
+The `.syso` files are committed, so that an ordinary `go build` produces an application with an icon and needs neither of those commands. The icon is registered twice, under resource group 1 and group 3: Explorer and the taskbar read the first, and Wails asks for the second when it sets the window's own icon. Registering one would leave the other blank, which is what the first build did.
+
+The same resource carries the manifest, which is what a plain `go build` otherwise leaves out: per-monitor DPI awareness, so the window is not blurry on a scaled display, and long-path awareness. Version numbers are `0.0.0.0` until `M35-011` decides what a release is.
 
 ### What it does not carry
 

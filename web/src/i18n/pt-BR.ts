@@ -116,10 +116,14 @@ export const ptBR: Words = {
   },
 
   installation: {
-    title: 'Onde fica a sua Convia?',
-    lead: 'A Convia não é um lugar só. Este é o endereço da que você usa — a do seu time, a sua, ou uma que alguém te passou.',
+    title: 'Conectar à Convia',
+    lead: 'A Convia roda em um computador: este, ou um que o seu time mantém. Se ela está instalada aqui, é só isso.',
+    here: 'Usar a Convia deste computador',
+    lookingHere: 'Procurando neste computador…',
+    noneHere: 'Não há uma Convia rodando neste computador. Se a sua fica em outro lugar, ponha o endereço dela abaixo.',
+    given: 'Se alguém te passou um endereço',
     address: 'Endereço',
-    addressRule: 'Por exemplo convia.example, ou localhost:8080 para uma rodando nesta máquina.',
+    addressRule: 'Quem instalou a sua Convia sabe qual é. Por exemplo convia.example.',
     connect: 'Conectar',
     connecting: 'Conectando…',
     remembered: 'Usadas recentemente',
@@ -388,11 +392,13 @@ export const ptBR: Words = {
     cannotStart: 'Uma sala fechada não inicia novas chamadas.',
     dismiss: 'Dispensar',
 
-    refused: (refusal, kind) => {
+    refused: (refusal, kind, installed) => {
       const device = yours[kind]
       switch (refusal) {
         case 'denied':
-          return `A Convia não tem permissão para usar ${device}. Permita nas configurações do site, ao lado da barra de endereço, e tente de novo.`
+          return installed
+            ? `A Convia não tem permissão para usar ${device}. Quem decide isso é o Windows: abra Configurações, depois Privacidade e segurança, depois ${deviceNames[kind]}, e libere o acesso para aplicativos da área de trabalho.`
+            : `A Convia não tem permissão para usar ${device}. Permita nas configurações do site, ao lado da barra de endereço, e tente de novo.`
         case 'missing':
           return kind === 'audioinput' ? 'Nenhum microfone foi encontrado.' : 'Nenhuma câmera foi encontrada.'
         case 'busy':

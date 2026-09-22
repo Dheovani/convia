@@ -978,7 +978,7 @@ The hosted Convia is `M26`'s to operate. This milestone is for everybody else wh
 - [x] **M35-005:** Keep the session where Windows keeps secrets, not in a file beside the executable. Signing out forgets it; a session Convia no longer accepts is noticed and cleared rather than retried forever.
 - [x] **M35-006:** Ask which installation to connect to, check it answers as a Convia before signing in, and remember it. It is the first screen anybody sees, and it is a question a page never had to ask.
 - [x] **M35-007:** Take the page's assumptions out of `web/`: the relative `/v1`, `credentials: 'same-origin'`, and the stream address built from `window.location`. What replaces them is what the app already knows.
-- [ ] **M35-008:** Make a call work inside WebView2: camera and microphone permission as Windows asks it, the device choice `M18` already offers, and an honest failure when the runtime or a device is missing.
+- [x] **M35-008:** Make a call work inside WebView2: camera and microphone permission as Windows asks it, the device choice `M18` already offers, and an honest failure when the runtime or a device is missing.
 - [ ] **M35-009:** Let an invitation link open the app: register the scheme, keep one instance, and hand a link to the instance already running instead of starting a second.
 - [ ] **M35-010:** Decide how the app behaves as an application: the window, the tray, what closing it means, and what it says when something happens while nobody is looking at it.
 - [ ] **M35-011:** Build a Windows installer, decide what signing costs and whether the first version is signed, and decide how the app updates itself. An unsigned installer is a warning every person who installs it has to walk past.

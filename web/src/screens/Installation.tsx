@@ -8,14 +8,17 @@ import type { Words } from '../i18n/en'
 import { useWords } from '../i18n/language'
 
 /*
-The first screen of Convia's application, and a question a page never had to
-ask.
+Where Convia is, asked only when the application could not work it out.
 
-A browser knows where it is: the page came from somewhere, and that is the
-Convia it talks to. An installed application knows nothing until somebody says
-so, and what they say is trusted with a password on the very next screen — so
-the address is checked before then. The check is the application's; this asks
-for the address and shows what the application made of it.
+An address is something whoever set Convia up knows, and an ordinary person
+does not — so this screen is the fallback and not the front door. Before it is
+ever drawn, the application has tried the installation used last and then the
+one on this computer. What is left over is the person whose Convia is
+somewhere else, and they were given an address by whoever runs it.
+
+Even then, the Convia on this computer is the first thing offered: somebody who
+just installed it and started it a moment ago is one button away, and the
+address field is below for the person who actually needs it.
 */
 
 // local names the machine this application is running on, which is the one
@@ -62,17 +65,11 @@ function explain(words: Words, error: unknown): string {
   return words.installation.failed
 }
 
-/*
-Installation asks which Convia to connect to, and remembers the answer.
-
-The ones used before are offered as buttons, most recent first, because typing
-an address once is a question and typing it every morning is a chore.
-*/
 export function Installation({ onConnected }: { onConnected: (connection: Connection) => void }) {
   const [address, setAddress] = useState('')
   const [remembered, setRemembered] = useState<string[]>([])
   const [failure, setFailure] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'here' | 'address' | null>(null)
 
   const words = useWords()
   const said = words.installation
@@ -89,8 +86,8 @@ export function Installation({ onConnected }: { onConnected: (connection: Connec
       })
       .catch(() => {
         /*
-        A list that cannot be read is an empty list on this screen. The address
-        field is the whole of what this screen needs, and refusing to draw it
+        A list that cannot be read is an empty list on this screen. What this
+        screen needs is the button and the field, and refusing to draw them
         would leave somebody unable to connect at all.
         */
       })
@@ -99,21 +96,26 @@ export function Installation({ onConnected }: { onConnected: (connection: Connec
     }
   }, [])
 
-  async function connect(typed: string) {
+  // reach is every way of arriving somewhere: the button, a remembered one, or
+  // a typed address. They differ in what they try and in what they say about it.
+  async function reach(doing: 'here' | 'address', attempt: () => Promise<Connection>, failed: string) {
+    setBusy(doing)
+    setFailure(null)
+    try {
+      onConnected(await attempt())
+    } catch (error) {
+      setFailure(doing === 'here' ? failed : explain(words, error))
+      setBusy(null)
+    }
+  }
+
+  async function byAddress(typed: string) {
     const wrong = problem(words, typed)
     if (wrong !== null) {
       setFailure(wrong)
       return
     }
-
-    setBusy(true)
-    setFailure(null)
-    try {
-      onConnected(await desktop.connect(typed.trim()))
-    } catch (error) {
-      setFailure(explain(words, error))
-      setBusy(false)
-    }
+    await reach('address', () => desktop.connect(typed.trim()), said.failed)
   }
 
   async function forget(known: string) {
@@ -139,7 +141,7 @@ export function Installation({ onConnected }: { onConnected: (connection: Connec
           bg-surface p-8 shadow-raised"
         onSubmit={(event) => {
           event.preventDefault()
-          void connect(address)
+          void byAddress(address)
         }}
         noValidate
       >
@@ -149,20 +151,69 @@ export function Installation({ onConnected }: { onConnected: (connection: Connec
         <h1 className="m-0 font-display text-[1.6rem] font-semibold tracking-[-0.02em]">{said.title}</h1>
         <p className="mt-0 mb-2 text-[0.9rem] text-ink-dim">{said.lead}</p>
 
-        <Field
-          label={said.address}
-          name="address"
-          inputMode="url"
-          autoComplete="url"
-          autoCapitalize="none"
-          spellCheck={false}
-          autoFocus
-          required
-          value={address}
-          onChange={(event) => setAddress(event.target.value)}
-          {...described}
-        />
-        <p className="-mt-2 mb-0 text-[0.75rem] text-ink-faint">{said.addressRule}</p>
+        {/*
+        The one thing most people need, and the only thing on this screen that
+        asks nothing of them.
+        */}
+        <Button
+          tone="primary"
+          disabled={busy !== null}
+          onClick={() => void reach('here', () => desktop.connectHere(), said.noneHere)}
+        >
+          {busy === 'here' ? said.lookingHere : said.here}
+        </Button>
+
+        {remembered.length > 0 && (
+          <section className="flex flex-col gap-1" aria-label={said.remembered}>
+            <h2 className="m-0 text-[0.75rem] font-medium tracking-wide text-ink-faint uppercase">
+              {said.remembered}
+            </h2>
+            {remembered.map((known) => (
+              <div key={known} className="flex items-center gap-1">
+                <Button
+                  size="small"
+                  className="min-w-0 flex-1 justify-start truncate"
+                  disabled={busy !== null}
+                  onClick={() => void byAddress(known)}
+                >
+                  {known}
+                </Button>
+                <Button
+                  size="small"
+                  aria-label={said.forget(known)}
+                  disabled={busy !== null}
+                  onClick={() => void forget(known)}
+                >
+                  ×
+                </Button>
+              </div>
+            ))}
+          </section>
+        )}
+
+        <section className="mt-2 flex flex-col gap-3 border-t border-line pt-4" aria-label={said.given}>
+          <h2 className="m-0 text-[0.75rem] font-medium tracking-wide text-ink-faint uppercase">
+            {said.given}
+          </h2>
+
+          <Field
+            label={said.address}
+            name="address"
+            inputMode="url"
+            autoComplete="url"
+            autoCapitalize="none"
+            spellCheck={false}
+            required
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            {...described}
+          />
+          <p className="-mt-2 mb-0 text-[0.75rem] text-ink-faint">{said.addressRule}</p>
+
+          <Button size="small" type="submit" disabled={busy !== null}>
+            {busy === 'address' ? said.connecting : said.connect}
+          </Button>
+        </section>
 
         {/*
         The failure keeps its line whether or not it says anything: an error
@@ -172,38 +223,6 @@ export function Installation({ onConnected }: { onConnected: (connection: Connec
         <p className="m-0 min-h-5 text-[0.85rem] text-danger" id={failureId} role="alert">
           {failure}
         </p>
-
-        <Button tone="primary" type="submit" disabled={busy}>
-          {busy ? said.connecting : said.connect}
-        </Button>
-
-        {remembered.length > 0 && (
-          <section className="mt-2 flex flex-col gap-1" aria-label={said.remembered}>
-            <h2 className="m-0 text-[0.75rem] font-medium tracking-wide text-ink-faint uppercase">
-              {said.remembered}
-            </h2>
-            {remembered.map((known) => (
-              <div key={known} className="flex items-center gap-1">
-                <Button
-                  size="small"
-                  className="min-w-0 flex-1 justify-start truncate"
-                  disabled={busy}
-                  onClick={() => void connect(known)}
-                >
-                  {known}
-                </Button>
-                <Button
-                  size="small"
-                  aria-label={said.forget(known)}
-                  disabled={busy}
-                  onClick={() => void forget(known)}
-                >
-                  ×
-                </Button>
-              </div>
-            ))}
-          </section>
-        )}
       </form>
     </main>
   )

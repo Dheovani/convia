@@ -76,6 +76,11 @@ type App struct {
 	emit      Emitter
 	carrier   *httputil.ReverseProxy
 
+	// here is where this application looks for a Convia on this computer. It
+	// is Here, and it is a field so that a test can put an installation
+	// somewhere a test is allowed to put one.
+	here string
+
 	/*
 		lifetime is the window's, not a request's.
 
@@ -119,6 +124,7 @@ func New(logger *slog.Logger, book *installations.Book, keeper secrets.Keeper, t
 		keeper:    keeper,
 		transport: transport,
 		carrier:   carrier(),
+		here:      Here,
 	}
 }
 
@@ -203,6 +209,30 @@ func (application *App) Connect(typed string) (Connection, error) {
 	application.mutex.Unlock()
 
 	return Connection{Address: reached.Address(), Signed: application.resume(ctx, reached)}, nil
+}
+
+/*
+Here is the Convia on this computer.
+
+It is the port Convia serves on by default, over plain HTTP — which the address
+check refuses everywhere else, and which is not a risk on loopback, where there
+is no network between the two for anything to sit on.
+
+Somebody who runs Convia on their own machine should never have to know this
+string, and somebody whose Convia is elsewhere should not have to know what a
+port is to find that out.
+*/
+const Here = "http://localhost:8080"
+
+/*
+ConnectHere connects to the Convia on this computer.
+
+It is the first thing the application tries, before asking anybody anything: an
+address is a thing an administrator knows and an ordinary person does not, and
+the screen that asks for one is the fallback rather than the front door.
+*/
+func (application *App) ConnectHere() (Connection, error) {
+	return application.Connect(application.here)
 }
 
 /*

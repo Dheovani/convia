@@ -50,11 +50,31 @@ remembered, so a machine where nobody has connected anywhere has no Convia
 directory at all.
 */
 func Default() (*Book, error) {
+	folder, err := Folder()
+	if err != nil {
+		return nil, err
+	}
+	return In(folder), nil
+}
+
+/*
+Folder is Convia's own folder on this machine.
+
+The book lives here, and so does anything else the application keeps that is
+not a secret — the webview's cache and profile, which are large and are not
+worth backing up, but are worth being somewhere a person can recognize. The
+alternative is what the toolkit does by default, which is a folder named after
+the executable file, `convia-desktop.exe`, sitting in the roaming profile.
+
+It does not create anything. The folder appears the first time something is
+written to it.
+*/
+func Folder() (string, error) {
 	configuration, err := os.UserConfigDir()
 	if err != nil {
-		return nil, fmt.Errorf("find where this system keeps configuration: %w", err)
+		return "", fmt.Errorf("find where this system keeps configuration: %w", err)
 	}
-	return In(filepath.Join(configuration, directory)), nil
+	return filepath.Join(configuration, directory), nil
 }
 
 // In is a book kept in a directory of the caller's choosing, which is what the

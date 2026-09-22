@@ -81,8 +81,8 @@ describe('the Portuguese catalogue', () => {
   })
 
   it('agrees with the device it names', () => {
-    expect(ptBR.call.refused('busy', 'audioinput')).toBe('Seu microfone está sendo usado por outro aplicativo.')
-    expect(ptBR.call.refused('busy', 'videoinput')).toBe('Sua câmera está sendo usada por outro aplicativo.')
+    expect(ptBR.call.refused('busy', 'audioinput', false)).toBe('Seu microfone está sendo usado por outro aplicativo.')
+    expect(ptBR.call.refused('busy', 'videoinput', false)).toBe('Sua câmera está sendo usada por outro aplicativo.')
     expect(ptBR.call.replaced('videoinput')).toBe(
       'Sua câmera foi desconectada, então a chamada está usando o padrão do sistema.',
     )

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../App'
 import { ApiError, NetworkError } from '../api/errors'
 import { desktop, NotConviaError } from './bridge'
+import { en } from '../i18n/en'
 import { FakeApplication, refused } from '../test/application'
 import { FakeConvia, ana, message, room } from '../test/server'
 import { FakeSocket } from '../test/socket'
@@ -34,16 +35,52 @@ function carried(): FakeConvia {
 
 describe('the first screen of an installed application', () => {
   /*
-  A browser has an address bar and a history; an application has neither. The
-  question has to be asked, and it has to be asked before a password is.
+  An address is something whoever set Convia up knows, and an ordinary person
+  does not. Somebody who installed the whole thing on their own computer must
+  not have to learn what an address is to open it — so before anybody is asked
+  anything, the application looks for a Convia here.
   */
-  it('asks which installation to connect to when this machine knows none', async () => {
+  it('opens straight into the Convia on this computer, asking nothing', async () => {
+    carried().install()
+    const application = new FakeApplication().runsHere().holds(ana)
+    application.install()
+
+    render(<App />)
+
+    await screen.findByRole('heading', { name: 'Standup' })
+    expect(application.asked('ConnectHere')).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'Connect to Convia' })).toBeNull()
+  })
+
+  /*
+  Only when there is nothing here and nothing remembered is anybody asked —
+  and the Convia on this computer is still the first thing offered, because it
+  may have been started in the meantime.
+  */
+  it('asks only when it found nothing, and offers this computer first', async () => {
     new FakeApplication().install()
 
     render(<App />)
 
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
+    expect(screen.getByRole('button', { name: 'Use the Convia on this computer' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Password')).toBeNull()
+  })
+
+  it('connects when that button finds one, and says so when it does not', async () => {
+    carried().install()
+    const application = new FakeApplication()
+    application.install()
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Use the Convia on this computer' }))
+    await screen.findByText(/There is no Convia running on this computer/)
+
+    application.runsHere()
+    await userEvent.click(screen.getByRole('button', { name: 'Use the Convia on this computer' }))
+    await screen.findByRole('heading', { name: 'Sign in' })
   })
 
   /*
@@ -61,7 +98,7 @@ describe('the first screen of an installed application', () => {
 
     await screen.findByRole('heading', { name: 'Standup' })
     expect(application.asked('Connect')).toEqual([['https://convia.example']])
-    expect(screen.queryByRole('heading', { name: 'Where is your Convia?' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Connect to Convia' })).toBeNull()
   })
 
   /*
@@ -80,7 +117,7 @@ describe('the first screen of an installed application', () => {
     await screen.findByRole('heading', { name: 'Sign in' })
     await userEvent.click(screen.getByRole('button', { name: 'Connect to another Convia' }))
 
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
     const offered = screen.getAllByRole('button', { name: /^https:\/\/\w+\.example$/ })
     expect(offered.map((button) => button.textContent)).toEqual([
       'https://work.example',
@@ -96,7 +133,7 @@ describe('the first screen of an installed application', () => {
     render(<App />)
     await screen.findByRole('heading', { name: 'Sign in' })
     await userEvent.click(screen.getByRole('button', { name: 'Connect to another Convia' }))
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
 
     await userEvent.click(screen.getByRole('button', { name: 'Forget https://home.example' }))
 
@@ -116,7 +153,7 @@ describe('an address that is not going to work', () => {
     application.install()
 
     render(<App />)
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
 
     await userEvent.type(screen.getByLabelText('Address'), 'convia.example')
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
@@ -130,7 +167,7 @@ describe('an address that is not going to work', () => {
     application.install()
 
     render(<App />)
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
 
     await userEvent.type(screen.getByLabelText('Address'), 'convia.example')
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
@@ -150,7 +187,7 @@ describe('an address that is not going to work', () => {
     application.install()
 
     render(<App />)
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
 
     await userEvent.type(screen.getByLabelText('Address'), 'http://convia.example')
     await userEvent.click(screen.getByRole('button', { name: 'Connect' }))
@@ -223,7 +260,7 @@ describe('signing in through the application', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Connect to another Convia' }))
 
-    await screen.findByRole('heading', { name: 'Where is your Convia?' })
+    await screen.findByRole('heading', { name: 'Connect to Convia' })
   })
 })
 
@@ -287,6 +324,35 @@ describe('what the application refuses with', () => {
     application.install()
 
     await expect(desktop.signOut()).rejects.toBe(strange)
+  })
+})
+
+
+describe('a device the application is not allowed to use', () => {
+  /*
+  The same refusal, and a different remedy.
+
+  A page in a browser is told to look beside the address bar, because that is
+  where a browser keeps it. An installed application has no address bar, and
+  whether it may use a camera at all is Windows' to decide — so it names
+  Windows' own setting instead of a place that is not there.
+  */
+  it('names Windows rather than a site setting that does not exist', () => {
+    const said = en.call
+
+    expect(said.refused('denied', 'audioinput', true)).toContain('Windows')
+    expect(said.refused('denied', 'audioinput', true)).toContain('Microphone')
+    expect(said.refused('denied', 'audioinput', true)).not.toContain('address bar')
+
+    expect(said.refused('denied', 'videoinput', false)).toContain('address bar')
+  })
+
+  // The other three are the same wherever the interface is running: a device
+  // nobody has, one another program is holding, and one that would not start.
+  it('says the same thing about the failures Windows has nothing to do with', () => {
+    for (const refusal of ['missing', 'busy', 'failed'] as const) {
+      expect(en.call.refused(refusal, 'videoinput', true)).toBe(en.call.refused(refusal, 'videoinput', false))
+    }
   })
 })
 

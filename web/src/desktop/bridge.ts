@@ -60,6 +60,7 @@ be a second name for one thing.
 interface Bound {
   Installations: () => Promise<string[] | null>
   Connect: (address: string) => Promise<Connection>
+  ConnectHere: () => Promise<Connection>
   Forget: (address: string) => Promise<void>
   SignIn: (username: string, password: string) => Promise<Signed>
   Register: (username: string, password: string) => Promise<Signed>
@@ -218,6 +219,17 @@ export const desktop = {
   */
   connect(address: string): Promise<Connection> {
     return asked(() => bound().Connect(address))
+  },
+
+  /*
+  connectHere connects to the Convia on this computer.
+
+  It is what the application tries before asking anybody anything. An address
+  is something whoever set Convia up knows and an ordinary person does not, so
+  the screen that asks for one is the fallback rather than the front door.
+  */
+  connectHere(): Promise<Connection> {
+    return asked(() => bound().ConnectHere())
   },
 
   // forget stops offering an installation, and drops the session kept for it.

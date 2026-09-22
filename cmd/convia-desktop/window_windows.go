@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"path/filepath"
 	"strings"
 
 	"github.com/wailsapp/go-webview2/webviewloader"
@@ -21,6 +22,7 @@ import (
 	winoptions "github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"convia/internal/desktop/app"
+	"convia/internal/desktop/installations"
 )
 
 const (
@@ -85,6 +87,9 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 				the page, because the interface routes within itself.
 			*/
 			Handler: routed(ui, application),
+			// What the interface may do, applied to the page as well, which
+			// Wails serves itself.
+			Middleware: hardened,
 		},
 
 		/*
@@ -110,6 +115,16 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 		LogLevel: logger.INFO,
 
 		Windows: &winoptions.Options{
+			/*
+				Where the webview keeps its profile and its cache, which runs
+				to tens of megabytes. Named, because what the toolkit does
+				otherwise is make a folder called `convia-desktop.exe` in the
+				roaming profile. Empty when this machine will not say where
+				configuration goes, which leaves that default rather than
+				refusing to open a window over it.
+			*/
+			WebviewUserDataPath: webviewData(log),
+
 			// The window follows the system, and so does the interface inside
 			// it: the palette is chosen by a media query, not by a setting.
 			Theme: winoptions.SystemDefault,
@@ -216,3 +231,19 @@ func (r relay) Fatal(message string) { r.to.Error(message, "source", "window", "
 // ensure relay satisfies the interface Wails asks for, at compile time rather
 // than at the first line the window logs.
 var _ logger.Logger = relay{}
+
+/*
+webviewData is Convia's own folder, with the webview's belongings inside it.
+
+It is a subfolder rather than the folder itself, so that what a person put
+there — the list of installations they connect to — is not mixed in with a
+cache nothing but Chromium reads.
+*/
+func webviewData(log *slog.Logger) string {
+	folder, err := installations.Folder()
+	if err != nil {
+		log.Warn("find where to keep the webview's data", "error", err)
+		return ""
+	}
+	return filepath.Join(folder, "webview")
+}
