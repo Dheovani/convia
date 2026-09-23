@@ -1,4 +1,4 @@
-package events
+package serving
 
 import (
 	"context"
@@ -6,15 +6,17 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+
+	"convia/internal/events"
 )
 
 // refusingSink is a durable destination that cannot accept anything.
 type refusingSink struct {
 	err      error
-	received []Event
+	received []events.Event
 }
 
-func (sink *refusingSink) Enqueue(_ context.Context, event Event) error {
+func (sink *refusingSink) Enqueue(_ context.Context, event events.Event) error {
 	sink.received = append(sink.received, event)
 	return sink.err
 }
@@ -29,17 +31,17 @@ durable half is skipped, because a retry there would arrive after the report
 stopped being true and after the newer one that replaced it.
 */
 func TestAnAdvisoryEventIsNotQueuedForRedelivery(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	sink := &refusingSink{}
 	announcer := NewAnnouncer(broker, sink, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	stream, err := broker.Subscribe("app_1", Types())
+	stream, err := broker.Subscribe("app_1", events.Types())
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 	defer stream.Close()
 
-	event := New(PresenceChanged, "app_1", "usr_1", "req_1", Data{"state": "online"})
+	event := events.New(events.PresenceChanged, "app_1", "usr_1", "req_1", events.Data{"state": "online"})
 	announcer.Publish(context.Background(), event)
 
 	if got := receive(t, stream).ID; got != event.ID {
@@ -58,17 +60,17 @@ told about the same occurrence, from one call, so a domain service never has to
 know there are two of them.
 */
 func TestAnnouncingReachesBothHalves(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	sink := &refusingSink{}
 	announcer := NewAnnouncer(broker, sink, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	stream, err := broker.Subscribe("app_1", Types())
+	stream, err := broker.Subscribe("app_1", events.Types())
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 	defer stream.Close()
 
-	event := New(CallStarted, "app_1", "call_1", "req_1", nil)
+	event := events.New(events.CallStarted, "app_1", "call_1", "req_1", nil)
 	announcer.Publish(context.Background(), event)
 
 	if got := receive(t, stream).ID; got != event.ID {
@@ -88,12 +90,12 @@ that cannot take it must fail the change too: otherwise a destination would
 never hear of something that happened.
 */
 func TestAQueueThatFailsFailsTheChange(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	refusal := errors.New("the database is unreachable")
 	sink := &refusingSink{err: refusal}
 	announcer := NewAnnouncer(broker, sink, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	err := announcer.Publish(context.Background(), New(ParticipantJoined, "app_1", "part_1", "req_1", nil))
+	err := announcer.Publish(context.Background(), events.New(events.ParticipantJoined, "app_1", "part_1", "req_1", nil))
 	if !errors.Is(err, refusal) {
 		t.Errorf("Publish() error = %v, want the queue's", err)
 	}
@@ -102,14 +104,14 @@ func TestAQueueThatFailsFailsTheChange(t *testing.T) {
 // fakeJournal records events, and can refuse to.
 type fakeJournal struct {
 	err      error
-	recorded []Event
+	recorded []events.Event
 }
 
-func (journal *fakeJournal) Record(_ context.Context, event Event) (Event, error) {
+func (journal *fakeJournal) Record(_ context.Context, event events.Event) (events.Event, error) {
 	if journal.err != nil {
-		return Event{}, journal.err
+		return events.Event{}, journal.err
 	}
-	event.Cursor = Cursor{Transaction: 7, Position: int64(len(journal.recorded) + 1)}.String()
+	event.Cursor = events.Cursor{Transaction: 7, Position: int64(len(journal.recorded) + 1)}.String()
 	journal.recorded = append(journal.recorded, event)
 	return event, nil
 }
@@ -120,20 +122,20 @@ event, queues it with its cursor, and leaves the live streams to whatever follow
 the journal, which it wakes.
 */
 func TestAJournaledEventReachesStreamsThroughTheJournal(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	journal := &fakeJournal{}
 	sink := &refusingSink{}
 	woken := 0
 	announcer := NewJournaledAnnouncer(broker, journal, sink, func() { woken++ },
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	stream, err := broker.Subscribe("app_1", Types())
+	stream, err := broker.Subscribe("app_1", events.Types())
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 	defer stream.Close()
 
-	event := New(CallStarted, "app_1", "call_1", "req_1", nil)
+	event := events.New(events.CallStarted, "app_1", "call_1", "req_1", nil)
 	if err := announcer.Publish(context.Background(), event); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
@@ -154,7 +156,7 @@ func TestAJournaledEventReachesStreamsThroughTheJournal(t *testing.T) {
 	}
 
 	journal.err = errors.New("the journal is full")
-	if err := announcer.Publish(context.Background(), New(CallEnded, "app_1", "call_1", "", nil)); err == nil {
+	if err := announcer.Publish(context.Background(), events.New(events.CallEnded, "app_1", "call_1", "", nil)); err == nil {
 		t.Error("Publish() succeeded although the journal refused the event")
 	}
 	if len(sink.received) != 1 {
@@ -170,18 +172,18 @@ A Convia that streams events and delivers no webhooks is a deployment, not a
 degraded state.
 */
 func TestAnnouncingWithNoDurableSinkIsSupported(t *testing.T) {
-	broker := NewBroker()
+	broker := events.NewBroker()
 	announcer := NewAnnouncer(broker, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	stream, err := broker.Subscribe("app_1", Types())
+	stream, err := broker.Subscribe("app_1", events.Types())
 	if err != nil {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 	defer stream.Close()
 
-	announcer.Publish(context.Background(), New(CallEnded, "app_1", "call_1", "", nil))
+	announcer.Publish(context.Background(), events.New(events.CallEnded, "app_1", "call_1", "", nil))
 
-	if got := receive(t, stream).Type; got != CallEnded {
+	if got := receive(t, stream).Type; got != events.CallEnded {
 		t.Errorf("the stream received %q", got)
 	}
 }

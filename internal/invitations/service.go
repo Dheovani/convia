@@ -53,8 +53,8 @@ type userLookup interface {
 participation is the behavior this package needs to turn an invitation into a
 presence.
 
-Redeeming does not reimplement joining. Every rule about who may be in a call —
-capacity, suspension, a removal that must not be undone — lives in the
+Redeeming does not reimplement joining. Every rule about who may be in a call â€”
+capacity, suspension, a removal that must not be undone â€” lives in the
 participants package, and an invitation that carried its own copy of them would
 be a second place to be right about one thing.
 */
@@ -71,7 +71,7 @@ announcer is the behavior this package needs to publish what happened.
 
 It is called inside the transaction that made the change, and records the
 event there: an error means the change must not commit either. See
-docs/adr/0017. events.Announcer satisfies it.
+docs/adr/0017. [convia/internal/events/serving.Announcer] satisfies it.
 */
 type announcer interface {
 	Publish(ctx context.Context, event events.Event) error
@@ -469,7 +469,7 @@ func (service *Service) requireCall(ctx context.Context, applicationID, callID s
 requireUser confirms the person exists without deciding whether they may join.
 
 Suspension is deliberately not checked here. An invitation is permission for
-later, and whether somebody may take part is settled when they redeem it — by
+later, and whether somebody may take part is settled when they redeem it â€” by
 the participants package, which is where that rule lives. Refusing to issue an
 invitation to a suspended user would be a second, weaker copy of a check that
 already happens at the moment it matters.
@@ -530,7 +530,7 @@ audit records an invitation event and announces it to whoever is listening.
 
 Only declining reaches this. Issuing, withdrawing, and redeeming are recorded
 through [Service.record] instead, and the package documentation of
-internal/events says why none of the three streams — two are the application's
+internal/events says why none of the three streams â€” two are the application's
 own acts, and the third already arrives as a participant joining.
 */
 func (service *Service) audit(ctx context.Context, kind events.Type, invitation Invitation) error {

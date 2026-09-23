@@ -110,6 +110,37 @@ export const en = {
     wantAccount: 'Create an account',
   },
 
+  installation: {
+    title: 'Connect to Convia',
+    lead: 'Convia runs on a computer: this one, or one your team keeps. If it is installed here, this is all you need.',
+    here: 'Use the Convia on this computer',
+    lookingHere: 'Looking on this computer…',
+    noneHere: 'There is no Convia running on this computer. If yours is somewhere else, put its address below.',
+    given: 'If somebody gave you an address',
+    address: 'Address',
+    addressRule: 'Whoever set up your Convia can tell you this. For example convia.example.',
+    connect: 'Connect',
+    connecting: 'Connecting…',
+    remembered: 'Used recently',
+    forget: (address: string) => `Forget ${address}`,
+    needed: 'An address is needed.',
+    insecure: 'An installation anywhere but this machine has to be reached over HTTPS.',
+    unreachable: 'Nothing answered at that address. Check it and your connection, and try again.',
+    notConvia: 'Something answered there, and it was not a Convia you can sign in to.',
+    failed: 'That installation could not be reached. Try again.',
+    elsewhere: 'Connect to another Convia',
+  },
+
+  tray: {
+    open: 'Open Convia',
+    quit: 'Quit',
+  },
+
+  notifications: {
+    message: 'A new message',
+    call: 'A call started',
+  },
+
   presence: {
     online: 'Available',
     busy: 'Busy',
@@ -365,12 +396,20 @@ export const en = {
     cannotStart: 'A closed room does not start new calls.',
     dismiss: 'Dismiss',
 
-    // refused says why a device could not be had while getting ready to join.
-    refused: (refusal: Refusal, kind: 'audioinput' | 'videoinput') => {
+    /*
+    refused says why a device could not be had while getting ready to join.
+
+    `installed` is whether this is Convia's own application rather than a page.
+    It changes one of the four, and it has to: a person in an application has
+    no address bar to look beside, and the place that decides is Windows.
+    */
+    refused: (refusal: Refusal, kind: 'audioinput' | 'videoinput', installed: boolean) => {
       const device = devices[kind]
       switch (refusal) {
         case 'denied':
-          return `Convia is not allowed to use your ${device}. Allow it from the site settings beside the address bar, then try again.`
+          return installed
+            ? `Convia is not allowed to use your ${device}. Windows decides that: open Settings, then Privacy & security, then ${deviceNames[kind]}, and let desktop apps use it.`
+            : `Convia is not allowed to use your ${device}. Allow it from the site settings beside the address bar, then try again.`
         case 'missing':
           return `No ${device} was found.`
         case 'busy':

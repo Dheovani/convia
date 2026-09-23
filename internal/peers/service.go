@@ -227,13 +227,17 @@ func (service *Service) Revoke(ctx context.Context, principal sessions.Principal
 }
 
 /*
-usable returns an invitation the signer may use, or [ErrNotFound].
+usable returns an invitation the named account may use, or [ErrNotFound].
 
 Every reason it may not is one answer — see ErrNotFound — and the check that it
-is addressed to the signer comes first, so that nothing about an invitation for
-somebody else is read into a decision at all.
+is addressed to that account comes first, so that nothing about an invitation
+for somebody else is read into a decision at all.
+
+It takes an account rather than a [Signer] because an account is all it needs,
+and because the two ways of proving one are different: a signature from another
+installation, or a session here. See [Service.Look].
 */
-func (service *Service) usable(ctx context.Context, signer Signer, id string) (Invitation, rooms.Room, error) {
+func (service *Service) usable(ctx context.Context, accountID, id string) (Invitation, rooms.Room, error) {
 	if !ValidInvitationID(id) {
 		return Invitation{}, rooms.Room{}, ErrNotFound
 	}
@@ -242,7 +246,7 @@ func (service *Service) usable(ctx context.Context, signer Signer, id string) (I
 	if err != nil {
 		return Invitation{}, rooms.Room{}, err
 	}
-	if invitation.InviteeAccountID != signer.AccountID || !invitation.Pending(service.now()) ||
+	if invitation.InviteeAccountID != accountID || !invitation.Pending(service.now()) ||
 		invitation.ApplicationID != service.application {
 		return Invitation{}, rooms.Room{}, ErrNotFound
 	}
@@ -260,9 +264,14 @@ func (service *Service) usable(ctx context.Context, signer Signer, id string) (I
 	return invitation, room, nil
 }
 
-// Preview tells the person an invitation is for what they would be joining.
+// Preview tells the person an invitation is for what they would be joining,
+// for a request another installation signed.
 func (service *Service) Preview(ctx context.Context, signer Signer, id string) (Preview, error) {
-	invitation, room, err := service.usable(ctx, signer, id)
+	return service.preview(ctx, signer.AccountID, id)
+}
+
+func (service *Service) preview(ctx context.Context, accountID, id string) (Preview, error) {
+	invitation, room, err := service.usable(ctx, accountID, id)
 	if err != nil {
 		return Preview{}, err
 	}
@@ -290,12 +299,16 @@ membership made. A membership that cannot be made releases the claim, so the
 link still works once whatever refused it is fixed.
 */
 func (service *Service) Accept(ctx context.Context, signer Signer, username, id string) (Accepted, error) {
+	return service.accept(ctx, signer.AccountID, username, id)
+}
+
+func (service *Service) accept(ctx context.Context, accountID, username, id string) (Accepted, error) {
 	normalized, err := accounts.NormalizeUsername(username)
 	if err != nil {
 		return Accepted{}, ErrNotFound
 	}
 
-	invitation, room, err := service.usable(ctx, signer, id)
+	invitation, room, err := service.usable(ctx, accountID, id)
 	if err != nil {
 		return Accepted{}, err
 	}
@@ -304,15 +317,15 @@ func (service *Service) Accept(ctx context.Context, signer Signer, username, id 
 	}
 
 	local := true
-	if _, err := service.accounts.Get(ctx, signer.AccountID); errors.Is(err, accounts.ErrNotFound) {
+	if _, err := service.accounts.Get(ctx, accountID); errors.Is(err, accounts.ErrNotFound) {
 		local = false
 	} else if err != nil {
 		return Accepted{}, fmt.Errorf("look for a local account: %w", err)
 	}
 
 	person, _, err := service.people.Resolve(ctx, invitation.ApplicationID, users.Identity{
-		ExternalSubject: signer.AccountID,
-		DisplayName:     visitorName(normalized, signer.AccountID),
+		ExternalSubject: accountID,
+		DisplayName:     visitorName(normalized, accountID),
 	})
 	if errors.Is(err, users.ErrSubjectDeleted) {
 		return Accepted{}, ErrNotFound
@@ -324,7 +337,7 @@ func (service *Service) Accept(ctx context.Context, signer Signer, username, id 
 		return Accepted{}, ErrNotFound
 	}
 
-	claimed, err := service.store.ClaimInvitation(ctx, invitation.ID, signer.AccountID, normalized, person.ID, service.now())
+	claimed, err := service.store.ClaimInvitation(ctx, invitation.ID, accountID, normalized, person.ID, service.now())
 	if err != nil {
 		return Accepted{}, err
 	}
@@ -434,11 +447,31 @@ type Joined struct {
 	Remote *RemoteRoom
 }
 
-// Look asks a home what an invitation link is for, on behalf of the person it names.
-func (service *Service) Look(ctx context.Context, identity accounts.Identity, rawLink string) (Link, Preview, error) {
+/*
+Look previews an invitation on behalf of the person it names.
+
+Links to this installation stay in process so local invitations do not depend
+on the server being allowed to dial its own private address. Other homes must
+still pass through the guarded peer client.
+*/
+func (service *Service) Look(
+	ctx context.Context,
+	here string,
+	principal sessions.Principal,
+	identity accounts.Identity,
+	rawLink string,
+) (Link, Preview, error) {
 	link, err := ParseLink(rawLink)
 	if err != nil {
 		return Link{}, Preview{}, err
+	}
+
+	if link.Home == here {
+		preview, err := service.preview(ctx, principal.AccountID, link.InvitationID)
+		if err != nil {
+			return Link{}, Preview{}, err
+		}
+		return link, preview, nil
 	}
 
 	response, err := service.client.Do(ctx, identity, http.MethodGet, link.Home, invitationTarget(link), nil)
@@ -470,6 +503,7 @@ member of it here, and it appears in their own list like any other.
 */
 func (service *Service) Join(
 	ctx context.Context,
+	here string,
 	account accounts.Account,
 	identity accounts.Identity,
 	rawLink string,
@@ -477,6 +511,14 @@ func (service *Service) Join(
 	link, err := ParseLink(rawLink)
 	if err != nil {
 		return Joined{}, err
+	}
+
+	if link.Home == here {
+		accepted, err := service.accept(ctx, account.ID, account.Username, link.InvitationID)
+		if err != nil {
+			return Joined{}, err
+		}
+		return Joined{RoomID: accepted.RoomID, RoomName: accepted.RoomName}, nil
 	}
 
 	payload, err := json.Marshal(acceptRequest{Username: account.Username})

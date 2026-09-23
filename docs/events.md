@@ -2,7 +2,7 @@
 
 A **control event** is one thing Convia recorded, delivered to an application while it is still news.
 
-The domain lives in [`internal/events`](../internal/events), the endpoint and the envelope are in [`api/openapi.yaml`](../api/openapi.yaml), and the design decisions are in [ADR 0003](adr/0003-a-one-directional-in-process-control-event-stream.md) and [ADR 0017](adr/0017-events-are-recorded-with-the-change-that-caused-them.md).
+The vocabulary lives in [`internal/events`](../internal/events) and serving it in [`internal/events/serving`](../internal/events/serving) — the split is [ADR 0020](adr/0020-the-event-vocabulary-is-separate-from-its-delivery.md), and it is what lets a client speak this vocabulary without carrying the service. The endpoint and the envelope are in [`api/openapi.yaml`](../api/openapi.yaml), and the design decisions are in [ADR 0003](adr/0003-a-one-directional-in-process-control-event-stream.md) and [ADR 0017](adr/0017-events-are-recorded-with-the-change-that-caused-them.md).
 
 ## What streams, and what does not
 

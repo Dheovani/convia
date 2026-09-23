@@ -101,8 +101,8 @@ type personalService interface {
 	Invite(ctx context.Context, principal sessions.Principal, roomID, handle string) (Invitation, error)
 	Revoke(ctx context.Context, principal sessions.Principal, id string) error
 	Pending(ctx context.Context, principal sessions.Principal, roomID string) ([]Invitation, error)
-	Look(ctx context.Context, identity accounts.Identity, link string) (Link, Preview, error)
-	Join(ctx context.Context, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
+	Look(ctx context.Context, here string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
+	Join(ctx context.Context, here string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
 	RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error)
 	Relay(ctx context.Context, identity accounts.Identity, remote RemoteRoom, method, target string, body []byte) (Response, error)
@@ -213,7 +213,7 @@ func (handler *SessionHandler) Invite(response http.ResponseWriter, request *htt
 		return
 	}
 
-	home, err := HomeFromOrigin(request.Header.Get("Origin"))
+	home, err := homeReached(request)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -241,7 +241,7 @@ func (handler *SessionHandler) Pending(response http.ResponseWriter, request *ht
 		return
 	}
 
-	home, err := HomeFromOrigin(requestOrigin(request))
+	home, err := homeReached(request)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -258,6 +258,23 @@ func (handler *SessionHandler) Pending(response http.ResponseWriter, request *ht
 		body.Data = append(body.Data, representInvitation(home, invitation))
 	}
 	write(handler.logger, response, request, http.StatusOK, body)
+}
+
+// homeReached prefers the browser's public origin, falling back to the address
+// reached by non-browser clients such as the desktop application.
+func homeReached(request *http.Request) (string, error) {
+	if origin := request.Header.Get("Origin"); origin != "" {
+		return HomeFromOrigin(origin)
+	}
+	return HomeFromOrigin(requestOrigin(request))
+}
+
+func here(request *http.Request) string {
+	home, err := homeReached(request)
+	if err != nil {
+		return ""
+	}
+	return home
 }
 
 // requestOrigin is the origin a request reached, from its Host and its scheme.
@@ -295,7 +312,7 @@ func (handler *SessionHandler) Revoke(response http.ResponseWriter, request *htt
 
 // Look asks the home of a link what it is an invitation to.
 func (handler *SessionHandler) Look(response http.ResponseWriter, request *http.Request) {
-	_, identity, ok := handler.signingAs(response, request)
+	principal, identity, ok := handler.signingAs(response, request)
 	if !ok {
 		return
 	}
@@ -306,7 +323,7 @@ func (handler *SessionHandler) Look(response http.ResponseWriter, request *http.
 		return
 	}
 
-	link, preview, err := handler.service.Look(request.Context(), identity, body.Link)
+	link, preview, err := handler.service.Look(request.Context(), here(request), principal, identity, body.Link)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -340,7 +357,7 @@ func (handler *SessionHandler) Join(response http.ResponseWriter, request *http.
 		return
 	}
 
-	joined, err := handler.service.Join(request.Context(), account, identity, body.Link)
+	joined, err := handler.service.Join(request.Context(), here(request), account, identity, body.Link)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return

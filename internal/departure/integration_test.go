@@ -20,6 +20,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
+	"convia/internal/events/serving"
 	"convia/internal/messages"
 	"convia/internal/peers"
 	"convia/internal/rooms"
@@ -78,7 +79,7 @@ func newFixture(t *testing.T) fixture {
 	if err := applicationService.EnsureFirstParty(ctx); err != nil {
 		t.Fatalf("EnsureFirstParty() error = %v", err)
 	}
-	announcer := events.NewAnnouncer(events.NewBroker(), nil, logger)
+	announcer := serving.NewAnnouncer(events.NewBroker(), nil, logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
 	// Nobody here arrived by invitation, which is all the message service asks invitations about.

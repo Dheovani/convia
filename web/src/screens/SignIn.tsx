@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 
 import { api, ApiError, NetworkError } from '../api/client'
 import type { Account } from '../api/types'
@@ -66,7 +66,21 @@ function problem(words: Words, username: string, password: string, confirmation:
   return null
 }
 
-export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void }) {
+/*
+`elsewhere` is what Convia's own application puts here: a way back to the
+screen that asks which installation to connect to.
+
+It is a prop rather than something this screen knows about, because in a
+browser there is nowhere else to go — the page came from the only Convia it can
+talk to.
+*/
+export function SignIn({
+  onSignedIn,
+  elsewhere,
+}: {
+  onSignedIn: (account: Account) => void
+  elsewhere?: ReactNode
+}) {
   const [mode, setMode] = useState<Mode>('sign-in')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -213,6 +227,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (account: Account) => void 
         >
           {registering ? said.haveAccount : said.wantAccount}
         </Button>
+
+        {elsewhere}
       </form>
     </main>
   )

@@ -115,6 +115,37 @@ export const ptBR: Words = {
     wantAccount: 'Criar uma conta',
   },
 
+  installation: {
+    title: 'Conectar à Convia',
+    lead: 'A Convia roda em um computador: este, ou um que o seu time mantém. Se ela está instalada aqui, é só isso.',
+    here: 'Usar a Convia deste computador',
+    lookingHere: 'Procurando neste computador…',
+    noneHere: 'Não há uma Convia rodando neste computador. Se a sua fica em outro lugar, ponha o endereço dela abaixo.',
+    given: 'Se alguém te passou um endereço',
+    address: 'Endereço',
+    addressRule: 'Quem instalou a sua Convia sabe qual é. Por exemplo convia.example.',
+    connect: 'Conectar',
+    connecting: 'Conectando…',
+    remembered: 'Usadas recentemente',
+    forget: (address: string) => `Esquecer ${address}`,
+    needed: 'Falta o endereço.',
+    insecure: 'Uma instalação que não seja desta máquina precisa ser acessada por HTTPS.',
+    unreachable: 'Nada respondeu nesse endereço. Confira o endereço e a sua conexão, e tente de novo.',
+    notConvia: 'Alguma coisa respondeu ali, e não era uma Convia em que você possa entrar.',
+    failed: 'Não foi possível alcançar essa instalação. Tente de novo.',
+    elsewhere: 'Conectar em outra Convia',
+  },
+
+  tray: {
+    open: 'Abrir a Convia',
+    quit: 'Sair',
+  },
+
+  notifications: {
+    message: 'Nova mensagem',
+    call: 'Uma chamada começou',
+  },
+
   presence: {
     online: 'Disponível',
     busy: 'Ocupado',
@@ -371,11 +402,13 @@ export const ptBR: Words = {
     cannotStart: 'Uma sala fechada não inicia novas chamadas.',
     dismiss: 'Dispensar',
 
-    refused: (refusal, kind) => {
+    refused: (refusal, kind, installed) => {
       const device = yours[kind]
       switch (refusal) {
         case 'denied':
-          return `A Convia não tem permissão para usar ${device}. Permita nas configurações do site, ao lado da barra de endereço, e tente de novo.`
+          return installed
+            ? `A Convia não tem permissão para usar ${device}. Quem decide isso é o Windows: abra Configurações, depois Privacidade e segurança, depois ${deviceNames[kind]}, e libere o acesso para aplicativos da área de trabalho.`
+            : `A Convia não tem permissão para usar ${device}. Permita nas configurações do site, ao lado da barra de endereço, e tente de novo.`
         case 'missing':
           return kind === 'audioinput' ? 'Nenhum microfone foi encontrado.' : 'Nenhuma câmera foi encontrada.'
         case 'busy':

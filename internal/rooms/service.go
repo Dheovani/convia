@@ -49,7 +49,7 @@ announcer is the behavior this package needs to publish what happened.
 
 It is called inside the transaction that made the change, and records the
 event there: an error means the change must not commit either. See
-docs/adr/0017. events.Announcer satisfies it.
+docs/adr/0017. [convia/internal/events/serving.Announcer] satisfies it.
 */
 type announcer interface {
 	Publish(ctx context.Context, event events.Event) error
@@ -76,8 +76,8 @@ them.
 It is declared here and implemented by the participants package, which is the
 only direction the dependency can go: calls and participants read rooms, so a
 room cannot import them back. The two methods are the two ways a room can pull
-the ground out from under a conversation — going away, and somebody losing
-their place in it — and neither returns anything, because the room has already
+the ground out from under a conversation â€” going away, and somebody losing
+their place in it â€” and neither returns anything, because the room has already
 changed by the time it says so and nothing a call does may undo that.
 */
 type conversations interface {

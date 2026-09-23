@@ -42,14 +42,28 @@ func moduleRoot(t *testing.T) string {
 /*
 mayReach names the Convia packages this one is allowed to import.
 
-It is a short list and should stay short. Events flow **into** this package
-from the domains and never the other way round, which is what lets every domain
-import it without a cycle. The exceptions are all about the caller rather than
-about what happened: one supplies the correlation identifier and the error
-shape, one the scopes that decide what an application's stream receives, and
-one the person a person's stream is for.
+**It is empty, and that is the point.** The vocabulary depends on nothing of
+Convia's: what an event is, which events exist, and how a cursor reads are
+answered without a database, a session or a credential anywhere in sight.
+
+It was not always empty. Announcing, authorizing and serving a stream do need
+those things, and they live in internal/events/serving for that reason â€” which
+is what lets the desktop application, and any client after it, use the same
+vocabulary without carrying a Postgres driver and a password hash to somebody's
+machine.
 */
-var mayReach = map[string]string{
+var mayReach = map[string]string{}
+
+/*
+servingMayReach names what the serving side is allowed to import.
+
+It is the list this file used to hold, moved to where those imports went. It
+should stay short for the same reason: events flow into the vocabulary from the
+domains and never back out, and a domain import here would be a cycle waiting
+to happen.
+*/
+var servingMayReach = map[string]string{
+	"convia/internal/events":      "the vocabulary it serves",
 	"convia/internal/api":         "the request identifier and the one public error shape",
 	"convia/internal/credentials": "the scopes that decide what a subscriber is entitled to",
 	"convia/internal/sessions":    "the signed-in person a person's stream is for, and whether they still are",
@@ -71,35 +85,43 @@ happened. If a subscriber needs more, it reads the resource.
 func TestEventsStayALeaf(t *testing.T) {
 	root := moduleRoot(t)
 
-	entries, err := os.ReadDir(filepath.Join(root, "internal", "events"))
-	if err != nil {
-		t.Fatalf("read the events package: %v", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
-			continue
-		}
-
-		path := filepath.Join(root, "internal", "events", entry.Name())
-		file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+	for _, where := range []struct {
+		directory string
+		permitted map[string]string
+	}{
+		{directory: filepath.Join("internal", "events"), permitted: mayReach},
+		{directory: filepath.Join("internal", "events", "serving"), permitted: servingMayReach},
+	} {
+		entries, err := os.ReadDir(filepath.Join(root, where.directory))
 		if err != nil {
-			t.Fatalf("parse %s: %v", entry.Name(), err)
+			t.Fatalf("read %s: %v", where.directory, err)
 		}
 
-		for _, imported := range file.Imports {
-			target, err := strconv.Unquote(imported.Path.Value)
-			if err != nil {
-				t.Fatalf("read an import path in %s: %v", entry.Name(), err)
-			}
-			if !strings.HasPrefix(target, "convia/") {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
 				continue
 			}
-			if _, permitted := mayReach[target]; !permitted {
-				t.Errorf("%s imports %q. Events flow into this package and never out of it: "+
-					"a domain import is a cycle waiting to happen, and reading a domain on the "+
-					"publish path would put a query inside an operation that must not be able "+
-					"to block or fail.", entry.Name(), target)
+
+			path := filepath.Join(root, where.directory, entry.Name())
+			file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+			if err != nil {
+				t.Fatalf("parse %s: %v", entry.Name(), err)
+			}
+
+			for _, imported := range file.Imports {
+				target, err := strconv.Unquote(imported.Path.Value)
+				if err != nil {
+					t.Fatalf("read an import path in %s: %v", entry.Name(), err)
+				}
+				if !strings.HasPrefix(target, "convia/") {
+					continue
+				}
+				if _, permitted := where.permitted[target]; !permitted {
+					t.Errorf("%s/%s imports %q. Events flow into the vocabulary and never out of it: "+
+						"a domain import is a cycle waiting to happen, and reading a domain on the "+
+						"publish path would put a query inside an operation that must not be able "+
+						"to block or fail.", where.directory, entry.Name(), target)
+				}
 			}
 		}
 	}

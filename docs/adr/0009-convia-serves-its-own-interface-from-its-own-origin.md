@@ -1,6 +1,6 @@
 # 0009 — Convia serves its own interface, from its own origin
 
-**Status:** Accepted
+**Status:** Accepted; superseded for the product by [ADR 0019](0019-a-session-travels-in-a-cookie-or-a-header.md) and `M35`, which embed the interface in a desktop application. The page Convia serves stays for development
 **Date:** 2026-09-12
 **Milestone:** M18
 

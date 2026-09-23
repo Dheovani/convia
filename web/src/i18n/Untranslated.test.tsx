@@ -6,6 +6,7 @@ import { App } from '../App'
 import type { CallPresence, JoinSession, Person } from '../api/types'
 import { ConnectionQuality, Room } from '../test/livekit'
 import { marked, markedLanguage, unmarked } from '../test/language'
+import { FakeApplication } from '../test/application'
 import { FakeConvia, ana, message, room, withdrawn } from '../test/server'
 import { LanguageContext } from './language'
 
@@ -62,6 +63,8 @@ const data = [
   'Archive',
   'Weekly sync',
   'convia.elsewhere.test',
+  'https://convia.elsewhere.test',
+  'http://convia.example',
   'Standup in five minutes.',
   'Off topic.',
   'Bruno Alves',
@@ -165,6 +168,31 @@ describe('every word on screen comes from the catalogue', () => {
     expectAllMarked()
   })
 
+  /*
+  The first screen of Convia's application, which a browser never reaches: it
+  asks where Convia is, and offers the ones this machine has used.
+  */
+  it('when the application asks which installation to connect to', async () => {
+    new FakeConvia()
+      .on('GET', '/v1/me', { status: 401, failure: { code: 'unauthenticated', message: 'no' } })
+      .install()
+    new FakeApplication().knows('https://convia.elsewhere.test').install()
+    speaking()
+    const person = userEvent.setup()
+
+    await screen.findByRole('button', { name: said.signIn.signIn })
+    await person.click(screen.getByRole('button', { name: said.installation.elsewhere }))
+
+    await screen.findByRole('heading', { name: said.installation.title })
+    expectAllMarked()
+
+    await person.type(screen.getByLabelText(said.installation.address), 'http://convia.example')
+    await person.click(screen.getByRole('button', { name: said.installation.connect }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(said.installation.insecure)
+    expectAllMarked()
+  })
+
   it('in a room its owner reads, with the people and the room menu open', async () => {
     workspace().install()
     speaking()
@@ -205,7 +233,7 @@ describe('every word on screen comes from the catalogue', () => {
     const ready = await screen.findByRole('region', { name: said.call.prepare })
     await person.click(within(ready).getByRole('button', { name: said.call.cameraOn }))
     await within(ready).findByRole('option', { name: said.call.numbered('audioinput', 2) })
-    await within(ready).findByText(said.call.refused('busy', 'videoinput'))
+    await within(ready).findByText(said.call.refused('busy', 'videoinput', false))
     expectAllMarked()
 
     Room.refusals = {}

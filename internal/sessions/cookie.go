@@ -97,6 +97,20 @@ and an API key refuse each other's surfaces by shape rather than by a check
 somebody has to remember.
 */
 func Present(request *http.Request) (string, bool) {
+	if token, found := InCookie(request); found {
+		return token, true
+	}
+	return inHeader(request)
+}
+
+/*
+InCookie reads the session a browser sent, and says whether there was one.
+
+It is what decides whether a request needs its origin checked: a cookie is sent
+by the browser rather than by the page, so it is the only credential here that
+another site could cause to be attached. See internal/server/origin.go.
+*/
+func InCookie(request *http.Request) (string, bool) {
 	cookie, err := request.Cookie(CookieName)
 	if err != nil {
 		return "", false
@@ -104,4 +118,32 @@ func Present(request *http.Request) (string, bool) {
 
 	token := strings.TrimSpace(cookie.Value)
 	return token, token != ""
+}
+
+/*
+inHeader reads the session a client that is not a browser sent.
+
+Convia's own application holds its session in the operating system's keychain
+and presents it here, which is why this surface no longer reads a cookie and
+nothing else. What a browser cannot do — attach this header to a request the
+page did not make — is exactly what makes it safe to skip the origin check for
+it. See docs/adr/0019.
+*/
+func inHeader(request *http.Request) (string, bool) {
+	header := strings.TrimSpace(request.Header.Get("Authorization"))
+	scheme, token, found := strings.Cut(header, " ")
+	if !found || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+
+	token = strings.TrimSpace(token)
+	/*
+		Only this family is read here. An application's key offered to this
+		surface is not rejected so much as never looked at, which is the
+		separation every surface in Convia keeps.
+	*/
+	if _, _, recognized := format.Parse(token); !recognized {
+		return "", false
+	}
+	return token, true
 }

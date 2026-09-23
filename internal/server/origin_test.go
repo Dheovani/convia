@@ -307,3 +307,54 @@ func TestGuessingAPasswordThroughASessionIsBudgeted(t *testing.T) {
 		t.Error("the refusal does not say when to try again")
 	}
 }
+
+/*
+TestAnApplicationIsNotAskedToBeAPage is docs/adr/0019.
+
+Convia's own application presents its session in a header, which no page can
+cause a browser to attach, so there is no forgery for an origin check to stop. A
+cookie is the opposite, and is still guarded — including on a request that also
+carries a header, because the cookie was sent either way.
+*/
+func TestAnApplicationIsNotAskedToBeAPage(t *testing.T) {
+	const token = "cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5"
+	target := api.Prefix + "/me/rooms/" + sampleRoom().ID + "/leave"
+
+	held := httptest.NewRequest(http.MethodPost, target, nil)
+	held.Header.Set("Authorization", "Bearer "+token)
+	if response := serveBrowser(held); response.Code != http.StatusNoContent {
+		t.Errorf("an application holding its session in a header answered %d: %s", response.Code, response.Body)
+	}
+
+	sent := httptest.NewRequest(http.MethodPost, target, nil)
+	sent.Header.Set("Authorization", "Bearer "+token)
+	sent.AddCookie(&http.Cookie{Name: sessions.CookieName, Value: token})
+	if response := serveBrowser(sent); response.Code != http.StatusForbidden {
+		t.Errorf("a request carrying the cookie was served without its origin: %d %s", response.Code, response.Body)
+	}
+}
+
+/*
+TestSigningInFromSomethingThatIsNotAPageIsServed completes the pair: a browser
+always sends an origin here, so absence is how an application is told apart, and
+it is answered with a session it can hold rather than a cookie it cannot.
+*/
+func TestSigningInFromSomethingThatIsNotAPageIsServed(t *testing.T) {
+	for _, path := range []string{"/sessions", "/accounts"} {
+		request := httptest.NewRequest(http.MethodPost, api.Prefix+path,
+			strings.NewReader(`{"username":"ana","password":"correct horse battery"}`))
+		request.Header.Set("Content-Type", "application/json")
+
+		response := serveBrowser(request)
+
+		if response.Code != http.StatusCreated {
+			t.Errorf("POST %s status = %d, want %d: %s", path, response.Code, http.StatusCreated, response.Body)
+		}
+		if response.Header().Get("Set-Cookie") != "" {
+			t.Errorf("POST %s gave an application a cookie: %q", path, response.Header().Get("Set-Cookie"))
+		}
+		if !strings.Contains(response.Body.String(), `"token":`) {
+			t.Errorf("POST %s did not give the application its session: %s", path, response.Body)
+		}
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
+	"convia/internal/events/serving"
 	"convia/internal/media"
 	"convia/internal/rooms"
 	"convia/internal/users"
@@ -107,7 +108,7 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	broker := events.NewBroker()
 	// No durable sink: these tests are about what the domain announces,
 	// not about where it is later delivered.
-	announcer := events.NewAnnouncer(broker, nil, logger)
+	announcer := serving.NewAnnouncer(broker, nil, logger)
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
 
 	setup := fixture{

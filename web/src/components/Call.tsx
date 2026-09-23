@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 
 import type { RoomCall, SidebarRoom } from '../api/types'
+import { inApplication } from '../desktop/bridge'
 import { useLanguage, useWords } from '../i18n/language'
 import type { Attachable, Device, DeviceKind, Preview, Seen } from '../media/connection'
 import { useCall } from '../state/call'
@@ -233,6 +234,7 @@ export function OwnLevel() {
 export function PreviewRefusals() {
   const call = useCall()
   const said = useWords().call
+  const inApp = inApplication()
   const refused = call.preview?.refused ?? {}
 
   if (refused.microphone === undefined && refused.camera === undefined) {
@@ -241,8 +243,8 @@ export function PreviewRefusals() {
 
   return (
     <div className="flex flex-col gap-1 text-[0.8rem] text-danger" role="alert">
-      {refused.microphone !== undefined && <p className="m-0">{said.refused(refused.microphone, 'audioinput')}</p>}
-      {refused.camera !== undefined && <p className="m-0">{said.refused(refused.camera, 'videoinput')}</p>}
+      {refused.microphone !== undefined && <p className="m-0">{said.refused(refused.microphone, 'audioinput', inApp)}</p>}
+      {refused.camera !== undefined && <p className="m-0">{said.refused(refused.camera, 'videoinput', inApp)}</p>}
       <div>
         <Button size="small" onClick={() => void call.choose({})}>
           {said.tryAgain}

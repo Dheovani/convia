@@ -57,6 +57,26 @@ type meResponse struct {
 	UserID    string `json:"user_id"`
 	Username  string `json:"username"`
 	Handle    string `json:"handle"`
+	/*
+		Token is the session, and it is present only for a client that cannot
+		hold Convia's cookie — its own application, which keeps it in the
+		operating system's keychain. A browser is answered with the cookie and
+		never with this, so a page has nothing to store and nothing to leak.
+	*/
+	Token string `json:"token,omitempty"`
+}
+
+/*
+browser reports a caller that is one.
+
+A browser sends `Origin` on every request that changes something, and
+`Sec-Fetch-Site` on every request at all; a program sends neither unless it
+chooses to. The distinction decides how a new session is handed over, and
+nothing else: what a client may do is decided by the session, not by what it
+is. See docs/adr/0019.
+*/
+func browser(request *http.Request) bool {
+	return request.Header.Get("Origin") != "" || request.Header.Get("Sec-Fetch-Site") != ""
 }
 
 /*
@@ -129,17 +149,28 @@ func (handler *Handler) Register(response http.ResponseWriter, request *http.Req
 	handler.signedIn(response, request, session, token)
 }
 
-// signedIn sets the cookie for a new session and says who it belongs to.
-func (handler *Handler) signedIn(response http.ResponseWriter, request *http.Request, session Session, token string) {
-	Set(response, token)
+/*
+signedIn hands over a new session and says who it belongs to.
 
+A browser is given the cookie, which it cannot read and cannot be tricked into
+sending elsewhere. Anything else is given the token in the answer, because a
+cookie of Convia's origin is not something it can hold.
+*/
+func (handler *Handler) signedIn(response http.ResponseWriter, request *http.Request, session Session, token string) {
 	account, err := handler.service.Account(request.Context(), session.AccountID)
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
 	}
 
-	handler.write(response, request, http.StatusCreated, represent(account))
+	body := represent(account)
+	if browser(request) {
+		Set(response, token)
+	} else {
+		body.Token = token
+	}
+
+	handler.write(response, request, http.StatusCreated, body)
 }
 
 /*
@@ -232,15 +263,31 @@ func (handler *Handler) ChangePassword(response http.ResponseWriter, request *ht
 		return
 	}
 
-	_, token, err := handler.service.ChangePassword(request.Context(), principal,
+	_, rotated, err := handler.service.ChangePassword(request.Context(), principal,
 		accounts.Password(body.CurrentPassword), accounts.Password(body.NewPassword))
 	if err != nil {
 		handler.writeError(response, request, err)
 		return
 	}
 
-	Set(response, token)
-	response.WriteHeader(http.StatusNoContent)
+	/*
+		The session is rotated either way, and each client is given the new one
+		in the form it holds: a browser its cookie, and an application the
+		token in the answer. A client left with the old one would be signed out
+		by its own password change.
+	*/
+	if browser(request) {
+		Set(response, rotated)
+		response.WriteHeader(http.StatusNoContent)
+		return
+	}
+	handler.write(response, request, http.StatusOK, rotatedSession{Token: rotated})
+}
+
+// rotatedSession is the new session a password change produced, for a client
+// that holds its own.
+type rotatedSession struct {
+	Token string `json:"token"`
 }
 
 /*

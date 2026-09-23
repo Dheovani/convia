@@ -2,11 +2,16 @@
 Package sessions owns what a browser holds after somebody signs in.
 
 This is Convia's fourth credential family, and the first that a person rather
-than a program presents. It is `cvs_`, it lives **only in a cookie**, and it is
-never read from an `Authorization` header — which is what makes an API key
-useless here and a session cookie useless on the tenant surface, refused by
-shape before any lookup, the same way the other three families already refuse
-each other.
+than a program presents. It is `cvs_`, and it travels in a cookie for the page Convia
+serves in development and in an `Authorization` header for Convia's own
+application, which is not a browser and holds no cookie of Convia's origin.
+Which of the two a request used decides one thing: whether its origin is
+checked, because a cookie is the one credential here a browser attaches by
+itself. See docs/adr/0019.
+
+An application's key is still useless here and a session is still useless on
+the tenant surface: each surface reads only its own family, refused by shape
+before any lookup.
 
 # A session is not an application key, and cannot become one
 

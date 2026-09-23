@@ -1,6 +1,6 @@
 # Convia's own interface
 
-Convia's standalone product: the page people open, sign in to, and talk in. It lives in `web/`, is built by Vite with React, TypeScript and Tailwind, and is compiled into the Convia binary and served from the same origin as the API.
+Convia's standalone product: the page people open, sign in to, and talk in. It lives in `web/`, is built by Vite with React, TypeScript and Tailwind, and is compiled into the binary that shows it. **That binary is Convia's desktop application** — see [The application](#the-application). The service still serves the same bundle from the same origin as the API, which is how the interface is worked on and how it was built; `M35-013` settles what that is for once the application carries it.
 
 It is built on the **public session surface and nothing else**. There is no privileged path from the page to the database, no internal endpoint it alone may call, and no shortcut where it acts with the first-party application's key. Everything on the screen came from a request any browser could have made with the same cookie. That is `M18-015`, and it is the only thing that makes this product evidence that the platform works.
 
@@ -19,6 +19,158 @@ Then open `http://127.0.0.1:8080`.
 For working on the interface itself, `npm run dev` serves it with hot reloading and **proxies `/v1` to a Convia on port 8080**, so the browser still sees one origin. That proxy is not a convenience: without it the session cookie would be cross-site in development and same-site in production, which is the one difference that would make every cookie and CSRF decision untestable until deployment.
 
 A binary built with `go build` alone has no interface, because the bundle needs Node. It says so at startup and answers **503** with a page naming the command that fixes it — not 404, because the page is not missing: this deployment does not have one.
+
+## The application
+
+Convia's client is a desktop application, and the interface described here is what it shows. `M35` is building it, and what follows is what exists today rather than what is planned.
+
+The application is a second binary in this module, `cmd/convia-desktop`. Its window is [Wails](https://wails.io) v2, pinned in `go.mod`: v3 has been in beta since August 2026, and a first version does not ride a beta. On Windows that window is WebView2, which is Chromium, so a call runs in the engine the interface was built against.
+
+**The first version is for Windows.** The command still compiles on macOS and Linux, and then refuses to run, naming the system it is for. That is deliberate: everything in this repository is checked on Linux, and a command excluded from that build is a command nobody checks. macOS is not refused on principle — WKWebView has no `getDisplayMedia`, so a call there could not share a screen, which is a decision with a date on it rather than a position.
+
+### What it is built with
+
+| Pinned | Where | Version |
+| --- | --- | --- |
+| Go | `go.mod` | 1.26.6 |
+| Node | `web/.nvmrc` | 24.11.1 |
+| Wails | `go.mod` | v2.16.0 |
+
+```bash
+cd web && npm ci && npm run build   # writes into internal/web/assets/dist
+cd .. && go build -tags desktop,production ./cmd/convia-desktop
+```
+
+**The tags are not optional.** Wails compiles two different applications from the same source: without `production` it compiles one whose window never opens and which says the tags are missing instead. `desktop` selects nothing in v2.16 and is passed because Wails' own CLI passes it, so that what this repository builds and what Wails documents stay the same string. A build that left them out says so on startup, naming the command above, rather than leaving somebody with a dialog about a project built with a CLI this one does not use.
+
+There is no `wails build` yet. A `go build` with those tags produces a working application, and what the CLI adds — an icon, a manifest, `-ldflags "-w -s -H windowsgui"` so there is no console behind the window, and an installer — is `M35-011`. The scripts below deliberately leave the console, because in development that is where the log goes.
+
+The interface is compiled into the application out of the same embed the service serves it from: one build of `web/`, one copy, whichever binary shows it. A test asserts that the page the application renders and the page the service serves are byte for byte the same file, because two embeds would eventually be two builds, and the difference would look like a bug in whichever one somebody happened to be looking at.
+
+Nothing is served over HTTP. Wails reads the bundle out of the binary and the window renders it, so the application opens no port and the interface it is showing is not reachable from anywhere else on the machine.
+
+### Running it while working on it
+
+```sh
+./scripts/app.sh     # Git Bash
+./scripts/app.ps1    # Windows PowerShell
+```
+
+It starts the containers, applies the migrations, builds the interface into the application, starts Convia, and opens the window. Closing the window stops Convia. `--skip-interface`, or `-SkipInterface`, reuses the last build of `web/`, which is the slow step and the one nothing about a Go change touches.
+
+For working on the interface itself, `./scripts/dev.sh` and `./scripts/dev.ps1` are still the ones to use: they serve `web/` with hot reloading in a browser, so a change is on the screen when it is saved. Here a change needs the interface rebuilt and the window reopened.
+
+The two pairs share what they have in common — reading `.env`, starting the containers, waiting for Convia — in `scripts/common.sh` and `scripts/common.ps1`.
+
+### How it reaches Convia
+
+The interface asks for `/v1/...` and does not know where that goes. In a browser it goes to the origin the page came from, with the session in a cookie. In the application it goes to the application's own process, which makes the request against the installation with the session in a header.
+
+**Nothing is listening on a port.** Wails lets the window's asset server hand requests to an `http.Handler`, so the webview's request never leaves this process until it leaves it as a request to Convia. Nothing else on the machine can reach it.
+
+Three things happen on the way out, and each of them is the point:
+
+- **The session is attached.** The interface cannot set the header, cannot read it, and does not know it exists — the same position the page is in with the cookie, which is why [ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md) allows both forms.
+- **The browser is taken off.** A webview sends an origin, a site-context and cookies for the address it thinks it is at. Convia reads exactly those to decide whether it is talking to a browser, and left on they would make it answer by setting a cookie this process cannot keep instead of accepting the session it holds. `Origin`, `Cookie`, `Referer` and the `Sec-Fetch-*` headers are removed, and a `Set-Cookie` coming back is dropped.
+- **Six routes are refused.** Signing in, registering, signing out of one session or all of them, changing the password and deleting the account each answer with a session or end one, and the answer to a carried request is read by the webview. The interface reaches those through the application's own methods, which return who is signed in and never what signed them in.
+
+The person's event stream is opened by the application for the same reason — a page cannot set a header on a handshake — and what the interface receives is the events themselves, emitted to the window as they arrive.
+
+### Nobody is asked where Convia is
+
+A browser knows where it is: the page came from somewhere, and that is the Convia it talks to. An installed application knows nothing until it is told — and **an address is something whoever set Convia up knows, not something an ordinary person does.** Asking for one as the first screen would be asking most people a question they cannot answer.
+
+So the application works it out, in this order:
+
+1. **The installation used last**, reconnected to without a word, with the session kept for it signing somebody straight back in. This is what every start after the first one does.
+2. **The Convia on this computer**, tried on the port Convia serves on by default. Somebody who installed the whole thing on their own machine never sees a question at all.
+3. **Only then, the screen** — and even there the Convia on this computer is the first thing offered, as a button, because it may have been started in the meantime. Below it are the installations used before, as buttons, and below those the address field for the person whose Convia is somewhere else and who was given its address by whoever runs it.
+
+An invitation link is the fourth door and is `M35-009`: somebody sent a link, and the address comes with it rather than being typed.
+
+The address is checked before the next screen asks for a password, because a typo that becomes a password sent to whatever answered is the failure this screen exists to prevent. Three ways of being wrong get three different sets of words: nothing answered, which may be the network rather than the address; something answered and was not a Convia anybody can sign in to, which is a typo; and plain HTTP to anywhere but this machine, which is refused in the interface before anything is asked of the address at all — a session travelling in a header over plain HTTP is a session anybody on the network holds.
+
+Signing out leads to the sign-in form with a way back to that screen, so that somebody who signed out of the wrong Convia is not stuck on it.
+
+### An invitation that opens the application
+
+An invitation is an ordinary `https://` link, because that is what survives being sent through anything anybody sends links with. Nothing but a browser may be opened from one, so a click reaches an installed application only through a scheme of its own — and it is the same link with one word changed:
+
+```
+https://convia.example/invitations/inv_X    what somebody sends
+convia://convia.example/invitations/inv_X   what opens the application
+```
+
+Which scheme Convia is then reached over is decided the way every other address in the application is: HTTPS everywhere, plain HTTP only for this machine. The `https://` link is unchanged and still pastes by hand, which is how every invitation was opened before this existed.
+
+**The application translates and does not judge.** Whether an invitation exists, has expired or was withdrawn is the installation's to answer; asking here first would be a second opinion with less to go on. What is refused here is only the shape — a link carrying credentials, a query or a fragment is refused rather than tidied, because anything on the machine can hand anything to a registered scheme.
+
+The scheme is registered under the current user, which needs no administrator, and it is read before it is written: there is nothing to change once it is right. A failure to register is not a reason to refuse to start — what it costs is that clicking does not open Convia, and pasting still works.
+
+**One Convia at a time.** Clicking an invitation while the application is open hands the link to the window that is already there and ends the second process. Two windows would be two event streams against the same person's ceiling, and the conversation somebody was in the middle of would be behind the new window rather than in it.
+
+Clicking on a machine where Convia is closed starts it *with* the link, which arrives before the window exists, before an installation is chosen and before anybody has signed in. It waits in the application until the interface comes for it, which is why a link that started the window and one that reached it are the same call. It is handed over once: twice would reopen the same invitation the next time anybody looked.
+
+What somebody sees is what the invitation leads to — the room, and who invited them — without being asked to look, because clicking it was the asking. **Joining still waits for a second, deliberate press**, whether the link was pasted or clicked. Nobody joins a stranger's room on the strength of a URL.
+
+### Calls, and what the window is allowed to do
+
+The webview grants the camera and the microphone to the page without asking, because there is no third party here to protect anybody from: the page is Convia's own interface, compiled into the binary that shows it. What decides whether the application may use a camera at all is **Windows**, in Privacy & security, where desktop apps are allowed or refused as a class. So a refusal in the application names that setting, where the same refusal in a browser names the site settings beside the address bar. It is the same failure and a different remedy, and telling somebody to look beside an address bar they do not have is worse than saying nothing.
+
+The other three device failures — none found, held by another program, would not start — say the same thing wherever the interface is running.
+
+The window's page is served under a content policy, applied around the whole asset server so that it reaches the page itself. It is the policy the service serves the interface under, with one directive loosened: `connect-src`. The service knows which media server its deployment has and names it exactly; an application connects to whichever installation somebody typed, each with a media server of its own, and the page is loaded before any of that is known. What it can say is the scheme — encrypted, or this machine — which is weaker than the page's policy and stronger than what an application has by default, which is none at all.
+
+Everything the webview keeps — its profile and its cache, tens of megabytes of it — goes under Convia's own folder, beside the list of installations. The toolkit's default is a folder named after the executable file, `convia-desktop.exe`, in the roaming profile.
+
+### Closing, and what happens while nobody is looking
+
+**Closing the window puts Convia beside the clock rather than ending it.** A conversation is not over because a window is, and a call arriving after somebody shut it has to reach them. Leaving for good is a thing somebody says — the menu on that icon — rather than a thing that happens to them by pressing the same button they press to stop reading.
+
+It opens with Windows, and it opens **hidden**: no window, just the icon, the session resumed from the Credential Manager and the stream open. Without that, Convia reaches somebody only after they have opened it by hand, which means every morning, and means a call arriving before they do reaches nothing. The entry is written under the current user, like the scheme that opens invitations and for the same reason.
+
+While the window is not on the screen, Convia says what happened: a message in one of your rooms, and a call starting in one. It says **where** and not **what** — an event carries what the domain had in hand when it recorded what happened, which is a room and not the words in it. Reading them is what the window is for.
+
+**Not on the screen is two different things**, and only one of them is Convia's own doing. A window put beside the clock was put there by Convia, so it is remembered. A **minimised** window was minimised by the person, and Windows raises no event for it in either direction — so it is asked about at the moment a notification is about to be made, rather than tracked. Asking is also the safer half: there is no remembered state to fall out of step with a window somebody restored from the taskbar.
+
+Notifications are registered with Windows as the application starts. A toast is shown on behalf of a registered application, and one sent before that registration exists is attributed to nothing in particular — which is not an error anybody is told about, so the failure is silence.
+
+Three things are decided on different sides of the boundary, each by whoever can:
+
+| | |
+| --- | --- |
+| **whether anybody is looking** | the window, because nothing in a webview can answer it reliably |
+| **what is worth saying** | the interface, because it knows whose message it was and which room it was in |
+| **the words** | the interface's catalogue, in whatever language somebody chose |
+
+That last one is why the menu beside the clock is handed its labels rather than reading them: it is drawn by Windows, so it is the one surface Convia's catalogue cannot reach on its own. It starts in English and is renamed the moment the interface loads.
+
+### The icon
+
+Convia's own mark: an open ring with a point at the opening, the same one the interface draws on its sign-in screen. It sits on a dark rounded tile so that it reads on a light taskbar and a dark one alike, and it is drawn at every size Windows asks for rather than scaled down from one — a ring three and a half units thick does not survive being resampled to sixteen pixels.
+
+It is generated rather than drawn by hand, because a mark that cannot be redrawn is a mark nobody will ever change:
+
+```bash
+go run ./cmd/convia-desktop/icon/generate.go            # the mark -> convia.ico
+go run github.com/tc-hib/go-winres@v0.3.3 make   --in cmd/convia-desktop/icon/winres.json   --out cmd/convia-desktop/rsrc --arch amd64,arm64      # convia.ico -> the resource
+```
+
+The `.syso` files are committed, so that an ordinary `go build` produces an application with an icon and needs neither of those commands. The icon is registered twice, under resource group 1 and group 3: Explorer and the taskbar read the first, and Wails asks for the second when it sets the window's own icon. Registering one would leave the other blank, which is what the first build did.
+
+The same resource carries the manifest, which is what a plain `go build` otherwise leaves out: per-monitor DPI awareness, so the window is not blurry on a scaled display, and long-path awareness. Version numbers are `0.0.0.0` until `M35-011` decides what a release is.
+
+### What it does not carry
+
+The application links the vocabulary of Convia's events, the shape of its errors, and nothing else of the service. No database driver, no migration runner, no media plane, no password hashing. A test asserts it, from both sides: the application does not carry the service, and the service does not carry a window.
+
+That is not tidiness. Convia is a call service and the service is the part with a commercial future; the application is the interface an ordinary person opens, and it reaches the service the same way any other client does. Two binaries whose dependencies are separate are two binaries whose licences, vulnerabilities and audits are separate too, and the day that stops being true will be a day somebody imported something convenient. [ADR 0020](adr/0020-the-event-vocabulary-is-separate-from-its-delivery.md) is what it cost to make it true in the first place.
+
+### What a machine needs to run it
+
+The **Microsoft Edge WebView2 Runtime**. It ships with Windows 11 and with current Windows 10. Where it is absent the application says so in a message box and exits, naming Microsoft's Evergreen Standalone Installer — a machine started from an icon has no console to print to, and what it would otherwise show is a window that never appears.
+
+It does not install the runtime itself. Downloading and running an installer is something to ask an administrator for, and on the managed machines where the runtime is missing, that is exactly the request that would be refused.
 
 ## The three zones
 
@@ -48,8 +200,8 @@ Only the session surface, documented in [`messages.md`](messages.md#acting-as-yo
 
 | | |
 | --- | --- |
-| `POST /v1/accounts` | create an account and sign in; the cookie comes back on the response |
-| `POST /v1/sessions` | sign in; the cookie comes back on the response |
+| `POST /v1/accounts` | create an account and sign in; the cookie comes back in a browser, and in the application the session does not come back to the interface at all |
+| `POST /v1/sessions` | sign in; as above |
 | `GET /v1/me` | who is signed in — asked **before the first paint** |
 | `GET /v1/me/rooms` | the sidebar: rooms and unread counts in one request |
 | `GET/POST /v1/me/rooms/{id}/messages` | read a room, say something |

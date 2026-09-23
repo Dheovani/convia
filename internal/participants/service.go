@@ -38,9 +38,9 @@ callLookup is the behavior this package needs from the call domain.
 
 The dependency stays one-directional, and the call stays the authority on its own
 state: every change to a call is made by the call domain, under its own rules.
-What this package asks for are the changes that follow from a call's people —
+What this package asks for are the changes that follow from a call's people â€”
 starting one for a person who wants to talk, ending one nobody is in, ending the
-one a deleted room held — and the two things only the call domain can do with
+one a deleted room held â€” and the two things only the call domain can do with
 its media session: close somebody's connection, and ask whether they still have
 one.
 */
@@ -88,7 +88,7 @@ announcer is the behavior this package needs to publish what happened.
 
 It is called inside the transaction that made the change, and records the
 event there: an error means the change must not commit either. See
-docs/adr/0017. events.Announcer satisfies it.
+docs/adr/0017. [convia/internal/events/serving.Announcer] satisfies it.
 */
 type announcer interface {
 	Publish(ctx context.Context, event events.Event) error
@@ -148,7 +148,7 @@ Join admits someone to a call, reporting whether this request admitted them.
 
 Joining is **idempotent by the person**: someone already in the call is
 returned as they are, rather than added a second time. That is what makes a
-reconnection safe — a client whose network dropped and came back is the same
+reconnection safe â€” a client whose network dropped and came back is the same
 person, and a roster showing them twice would be wrong in a way users notice
 immediately.
 
@@ -205,14 +205,14 @@ AdmitGuest seats somebody Convia has no user for.
 authorization wrapper and both HTTP handlers consume. There is therefore no
 route, and no application-facing operation, that reaches it: a guest arrives by
 redeeming an invitation or not at all. That matters because this method cannot
-check the invitation itself — invitations depend on this package, so depending
-back would be a cycle — and so it trusts its caller entirely. Making the only
+check the invitation itself â€” invitations depend on this package, so depending
+back would be a cycle â€” and so it trusts its caller entirely. Making the only
 caller the one that has already verified the invitation is what keeps that
 trust safe, and putting the method out of reach is what keeps it that way.
 
 Everything else about joining applies unchanged. Capacity is still settled
 under the call's lock, a guest still cannot rejoin a call they were removed
-from, and redeeming twice still returns the participation they already had —
+from, and redeeming twice still returns the participation they already had â€”
 identified by the invitation rather than by a person, because that is the only
 identity a guest has.
 */
@@ -361,7 +361,7 @@ func (service *Service) Leave(ctx context.Context, applicationID, id string) (Pa
 /*
 Remove puts someone out of a call.
 
-The authority is the caller's own — an application may remove someone from its
+The authority is the caller's own â€” an application may remove someone from its
 own call, and an operator may too. When the application names a participant as
 acting, Convia checks that participant was entitled to: Convia does not decide
 whether the application may remove someone, because it already may. What
@@ -486,7 +486,7 @@ Session issues the credential a client connects to a call with.
 It is the one place Convia decides that a particular person may take part in a
 particular conversation right now, and it re-decides it every time. A
 participant who was removed, whose user was suspended, or whose call has ended
-gets nothing, however recently they were let in — which is what makes removal
+gets nothing, however recently they were let in â€” which is what makes removal
 mean something despite the media plane having no way to be told about it.
 
 The checks are the ones joining already applies, deliberately: a rule enforced
@@ -520,8 +520,8 @@ func (service *Service) Session(ctx context.Context, applicationID, id string) (
 	/*
 		A guest has no user to check, and no check replaces it. Their standing
 		is the participation itself: they were let in by an invitation, and
-		anything that should stop them now — leaving, being removed, the call
-		ending — has already been decided above.
+		anything that should stop them now â€” leaving, being removed, the call
+		ending â€” has already been decided above.
 	*/
 	if !participant.Guest() {
 		if err := service.requireActiveUser(ctx, applicationID, participant.UserID); err != nil {
@@ -758,13 +758,13 @@ func (service *Service) changed(
 record writes the audit entry for a change to who is in a call.
 
 It is separate from [Service.audit] so that the one thing this package records
-without delivering it live — a connection credential being issued — has a way
+without delivering it live â€” a connection credential being issued â€” has a way
 to be recorded that does not go through the event vocabulary at all. The
 package documentation of internal/events says why that one does not stream.
 
 Every value recorded is one Convia assigned: identifiers, a state, a role, an
 authority. The removal reason is not recorded, because it is composed by the
-application and may say something about the person removed — a test asserts it
+application and may say something about the person removed â€” a test asserts it
 stays out.
 */
 func (service *Service) record(ctx context.Context, event string, participant Participant) {

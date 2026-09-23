@@ -9,6 +9,8 @@ import { OnShelf, Recoverable, toastClass } from '../components/Recovery'
 import { Button } from '../components/controls'
 import { SettingsNav, SettingsPage, type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
+import { useInvitation } from '../desktop/useInvitation'
+import { useNotifications } from '../desktop/useNotifications'
 import { useWords } from '../i18n/language'
 import { CallContext, useCallSession } from '../state/call'
 import { EventsContext, useEventStream } from '../state/events'
@@ -78,6 +80,13 @@ export function Workspace({
   const [mode, setMode] = useState<Mode>('chat')
   const [selected, setSelected] = useState<string | null>(null)
 
+  /*
+  An invitation somebody clicked, which only Convia's own application can hand
+  over. It opens the join panel with the link already in it, on whichever
+  screen they were on.
+  */
+  const invitation = useInvitation()
+
   const narrow = useNarrow()
   const words = useWords()
   const said = words.workspace
@@ -99,6 +108,8 @@ export function Workspace({
   const { live, listen } = stream
   const { rooms, loading, failed, refresh, remember, forget } = useRooms(onSignedOut, live)
   const elsewhere = useRemoteRooms(onSignedOut)
+
+  useNotifications(stream, rooms, elsewhere.remoteRooms, account.user_id)
 
   /*
   The call this page is in, and the calls it could join. The call is held here
@@ -398,6 +409,7 @@ export function Workspace({
                 onCreate={create}
                 onLook={(link) => api.look(link)}
                 onJoin={join}
+                invitation={invitation}
               />
             )}
           </Recoverable>

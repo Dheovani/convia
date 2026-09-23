@@ -4974,8 +4974,13 @@ paths:
         more tightly than the rest of the API: a password can be guessed where
         an API key cannot.
 
-        The request must come from Convia's own page. `Origin` is required and
-        matched exactly.
+        **The session is handed over in the form the caller can hold.** A
+        browser sends `Origin`, is matched exactly against Convia's own, and is
+        answered with the cookie and nothing else. A client that is not a
+        browser sends no `Origin`, is answered with the session in `token`, and
+        is given no cookie. Absence is what tells the two apart, and a browser
+        cannot produce it: it sends `Origin` on every request that changes
+        something.
       x-lifecycle: experimental
       security: []
       requestBody:
@@ -4987,8 +4992,9 @@ paths:
       responses:
         "201":
           description: |
-            Signed in. The session travels in a `Set-Cookie` header; the body
-            says who signed in.
+            Signed in. For a browser the session travels in a `Set-Cookie`
+            header; for anything else it is `token` in the body. Either way the
+            body says who signed in.
           headers:
             X-Request-ID:
               $ref: "#/components/headers/RequestId"
@@ -5030,6 +5036,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       responses:
         "204":
           description: Every session was ended and this browser's cookie cleared.
@@ -5067,6 +5074,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       responses:
         "204":
           description: The session was ended and the cookie cleared.
@@ -5102,6 +5110,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/MembershipCursor"
@@ -5143,6 +5152,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       requestBody:
         required: true
         content:
@@ -5194,6 +5204,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/Limit"
@@ -5241,6 +5252,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -5291,6 +5303,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -5329,6 +5342,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       requestBody:
@@ -5381,6 +5395,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5414,6 +5429,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5451,6 +5467,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5490,6 +5507,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/Limit"
@@ -5533,6 +5551,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -5568,6 +5587,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -5606,6 +5626,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       requestBody:
@@ -5659,6 +5680,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -5694,6 +5716,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -5734,6 +5757,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5771,6 +5795,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       responses:
         "200":
           description: The calls running in the person's rooms.
@@ -5804,6 +5829,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5843,6 +5869,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/Limit"
@@ -5892,6 +5919,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5944,6 +5972,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -5983,6 +6012,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/UserID"
@@ -6025,6 +6055,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/Limit"
         - $ref: "#/components/parameters/MembershipCursor"
@@ -6069,6 +6100,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - name: Connection
           in: header
@@ -6133,6 +6165,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
         - $ref: "#/components/parameters/Limit"
@@ -6176,6 +6209,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       requestBody:
@@ -6231,6 +6265,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -6271,6 +6306,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       requestBody:
@@ -6328,6 +6364,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/MessageID"
       requestBody:
@@ -6387,6 +6424,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/MessageID"
       responses:
@@ -6430,6 +6468,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -6463,6 +6502,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomID"
       requestBody:
@@ -6512,6 +6552,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RoomInvitationID"
       responses:
@@ -6545,6 +6586,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       requestBody:
         required: true
         content:
@@ -6592,6 +6634,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       responses:
         "200":
           description: The rooms elsewhere this person belongs to.
@@ -6622,6 +6665,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       requestBody:
         required: true
         content:
@@ -6673,6 +6717,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
         - $ref: "#/components/parameters/Limit"
@@ -6714,6 +6759,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
       requestBody:
@@ -6764,6 +6810,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
         - $ref: "#/components/parameters/MessageID"
@@ -6815,6 +6862,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
         - $ref: "#/components/parameters/MessageID"
@@ -6854,6 +6902,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
       responses:
@@ -6889,6 +6938,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
       requestBody:
@@ -6937,6 +6987,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
         - $ref: "#/components/parameters/Limit"
@@ -6978,6 +7029,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
       responses:
@@ -7009,6 +7061,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/RemoteRoomID"
       responses:
@@ -7446,6 +7499,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       responses:
         "200":
           description: The person who is signed in.
@@ -7488,6 +7542,12 @@ paths:
         the new password and is otherwise unchanged, so the account identifier
         and handle stay what they were.
 
+        **The rotated session comes back in the form the caller holds**: a
+        browser receives the new cookie and `204`, and a client that presented
+        its session in a header receives `200` with the new token, because one
+        left with the old session would be signed out by its own password
+        change.
+
         A wrong current password is `403 wrong_password`, not `401`: the
         session is still good, and a page told `401` believes it has ended.
         Each wrong password is charged to the same per-address budget as a
@@ -7496,6 +7556,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       requestBody:
         required: true
         content:
@@ -7503,10 +7564,21 @@ paths:
             schema:
               $ref: "#/components/schemas/PasswordChangeRequest"
       responses:
+        "200":
+          description: |
+            The password was changed, and the rotated session is in the body.
+            This is the answer to a client that is not a browser.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RotatedSession"
         "204":
           description: |
             The password was changed. The rotated session travels in a
-            `Set-Cookie` header.
+            `Set-Cookie` header, which is the answer to a browser.
           headers:
             X-Request-ID:
               $ref: "#/components/headers/RequestId"
@@ -7549,6 +7621,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       requestBody:
         required: true
         content:
@@ -7837,6 +7910,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/DeviceID"
       requestBody:
@@ -7878,6 +7952,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - $ref: "#/components/parameters/DeviceID"
       responses:
@@ -7910,6 +7985,7 @@ paths:
       x-lifecycle: experimental
       security:
         - SessionCookie: []
+        - SessionToken: []
       parameters:
         - name: user_id
           in: query
@@ -8193,6 +8269,26 @@ paths:
 
 components:
   securitySchemes:
+    SessionToken:
+      type: http
+      scheme: bearer
+      bearerFormat: cvs_<session id>_<secret>
+      description: |
+        The same session as `SessionCookie`, presented by a client that is not
+        a browser — Convia's own desktop application, which keeps it where the
+        operating system keeps secrets.
+
+        **A header is not sent by itself.** A browser attaches a cookie to
+        whatever request the page makes, which is why the cookie is guarded by
+        an exact `Origin` check; nothing can make a browser attach this header,
+        so a request carrying it needs no such check and is served without one.
+        A request that carries the cookie is guarded whether or not it also
+        carries this.
+
+        Only this family is read here. An application's key offered on this
+        surface is not refused so much as never looked at, exactly as a session
+        offered on the tenant surface is not. See docs/adr/0019.
+
     SessionCookie:
       type: apiKey
       in: cookie
@@ -9514,6 +9610,20 @@ components:
             predictable rather than less, because people satisfy them in the
             same few ways.
 
+    RotatedSession:
+      type: object
+      description: |
+        The session a password change produced, for a client that holds its own
+        rather than a cookie.
+      required: [token]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          description: |
+            The new session. The one that made the request no longer works.
+          example: cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5
+
     AccountDeletionRequest:
       type: object
       description: The account's password, which confirms deleting it.
@@ -9557,6 +9667,14 @@ components:
             character before anything is sent.
           pattern: "^[a-z0-9][a-z0-9._-]{2,31}#[A-Z2-7]{27}$"
           example: ana#7KQZP4XN2VJH6TBWMDR3YAFC5EC
+        token:
+          type: string
+          description: |
+            The session, present only when the caller is not a browser and was
+            therefore given no cookie. Keep it where the operating system keeps
+            secrets and present it as `Authorization: Bearer`. A browser never
+            receives this.
+          example: cvs_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5
 
     PresenceState:
       type: string

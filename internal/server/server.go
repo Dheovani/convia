@@ -14,7 +14,7 @@ import (
 	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/departure"
-	"convia/internal/events"
+	"convia/internal/events/serving"
 	"convia/internal/invitations"
 	"convia/internal/messages"
 	"convia/internal/operator"
@@ -74,7 +74,7 @@ const (
 
 		Ten a minute per address. A person who has mistyped their password ten
 		times in a minute is not typing, and ten attempts a minute is far below
-		what guessing needs to be worth attempting — while still leaving a
+		what guessing needs to be worth attempting â€” while still leaving a
 		household or an office behind one address able to sign in normally.
 	*/
 	signInFailureBurst  = 10
@@ -157,7 +157,7 @@ type Dependencies struct {
 		rather than per tenant. Like TenantEvents it outlives the write
 		timeouts by hijacking its connection.
 	*/
-	PersonalEvents *events.PersonHandler
+	PersonalEvents *serving.PersonHandler
 
 	/*
 		TenantEvents is the one route that is not a request and a response. It
@@ -166,7 +166,7 @@ type Dependencies struct {
 		clears them for its own connection rather than the server relaxing them
 		for every route.
 	*/
-	TenantEvents *events.TenantHandler
+	TenantEvents *serving.TenantHandler
 
 	/*
 		TenantWebhooks is the durable counterpart of the stream above: where an
@@ -180,7 +180,7 @@ type Dependencies struct {
 		TenantPresence is the advisory surface: what an application says about
 		who is available, held for as long as it keeps saying it. Leaving it
 		out removes the routes, and everything else about the application works
-		unchanged — which is the same thing that happens when the ephemeral
+		unchanged â€” which is the same thing that happens when the ephemeral
 		store behind it is unreachable.
 	*/
 	TenantPresence *presence.TenantHandler
@@ -326,27 +326,30 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			Every surface is named here, and the default panics. `handler` runs
 			at startup, so a surface somebody adds and forgets to wire brings
 			the process down instead of serving its routes to anybody who
-			asks — which is what the omission used to do, silently.
+			asks â€” which is what the omission used to do, silently.
 
-			The two browser surfaces are additionally wrapped by [sameOrigin],
-			inside authentication rather than outside it. A request carrying no
+			The two browser surfaces are additionally wrapped by an origin
+			guard, inside authentication rather than outside it. It guards the
+			cookie rather than the surface: Convia's own application presents
+			its session in a header, which no page can cause to be sent, so
+			there is nothing to forge. See docs/adr/0019. A request carrying no
 			session is answered as unauthenticated whatever page it came from,
 			which is both the more accurate answer and the cheaper one; the
 			origin question is only interesting once there is a session to
 			spend. It is applied here, to the surface, rather than inside each
 			handler, because a CSRF check that every new route has to remember
-			is one a new route will eventually forget — and four of them
+			is one a new route will eventually forget â€” and four of them
 			already had.
 		*/
 		switch entry.surface {
 		case surfacePublic:
 			// Served as it is. Operational endpoints only.
 		case surfaceSignIn:
-			served = budgeted(logger, signingIn, resolve, sameOrigin(logger, served))
+			served = budgeted(logger, signingIn, resolve, guardEntry(logger, served))
 		case surfaceRegistration:
 			// The origin is checked first, so another page cannot spend the
 			// allowance of the person whose browser it is running in.
-			served = sameOrigin(logger, rationed(logger, registering, resolve, served))
+			served = guardEntry(logger, rationed(logger, registering, resolve, served))
 		case surfacePeer:
 			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
 		case surfaceVisitor:
@@ -368,7 +371,7 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 				served = budgeted(logger, signingIn, resolve, served)
 			}
 			served = authenticate(logger, sessionVerifier{service: dependencies.SessionAuthenticator},
-				signingIn, resolve, sameOrigin(logger, served))
+				signingIn, resolve, guardCookie(logger, served))
 		default:
 			panic(fmt.Sprintf("server: route %s %s is on surface %d, which nothing authenticates",
 				entry.method, entry.path, entry.surface))
@@ -453,7 +456,7 @@ const (
 		a member of a room here.
 
 		The signature is verified as on surfacePeer, and then the signer must
-		already be a user here — made when they accepted an invitation, never by
+		already be a user here â€” made when they accepted an invitation, never by
 		a request that merely arrives. What they may do is what a signed-in
 		person may, through the same handlers, decided per room by membership.
 	*/
@@ -819,7 +822,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 
 			It is not marked idempotent. An Idempotency-Key exists so that a
 			retried creation produces no second resource, and a stream creates
-			nothing — opening a second one is a second subscriber, which is
+			nothing â€” opening a second one is a second subscriber, which is
 			exactly what a client that reconnected wants.
 		*/
 		table = append(table,
@@ -840,7 +843,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			It is deliberately **not** marked idempotent. An Idempotency-Key is
 			claimed inside the authentication wrapper precisely so an
 			unauthenticated caller cannot reserve keys, and this route is
-			unauthenticated by definition — marking it would hand a stranger
+			unauthenticated by definition â€” marking it would hand a stranger
 			exactly what that ordering exists to prevent.
 
 			Nothing here changes state on a GET. That is what lets SameSite=Lax
@@ -1077,7 +1080,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 
 			The handlers are the session surface's own. They read the person from
 			the context and never from the request, and the visitor surface puts
-			exactly that person there — so reaching a room somebody is not in
+			exactly that person there â€” so reaching a room somebody is not in
 			answers 404 here as it does for anybody.
 		*/
 		messagesHandler := dependencies.PersonalMessages
@@ -1111,7 +1114,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 
 			None of it is marked idempotent. An Idempotency-Key exists so that
 			a retried creation produces no second resource, and nothing here
-			creates one — every operation is already safe to repeat, which is
+			creates one â€” every operation is already safe to repeat, which is
 			what a heartbeat has to be.
 		*/
 		table = append(table,
@@ -1177,7 +1180,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			/*
 				What Convia tried to send. Nested under an endpoint when the
 				question is about one destination, and flat when it is about the
-				tenant — the same shape rooms and calls already use.
+				tenant â€” the same shape rooms and calls already use.
 			*/
 			route{method: http.MethodGet, path: api.Prefix + "/webhooks/{endpoint_id}/deliveries", surface: surfaceTenant,
 				handler: http.HandlerFunc(dependencies.TenantWebhooks.ListDeliveries)},

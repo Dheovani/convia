@@ -19,6 +19,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/credentials"
 	"convia/internal/events"
+	"convia/internal/events/serving"
 )
 
 // eventStreamURL is the address a subscriber dials.
@@ -54,18 +55,18 @@ func (log *transcript) String() string {
 }
 
 /*
-serving starts the whole routed server, middleware and all, over a real
+routed starts the whole server, middleware and all, over a real
 listener.
 
 The event stream is the one route that stops being a request and a response, so
 proving it works means proving it works through the chain that wraps every
 other route rather than in isolation.
 */
-func serving(t *testing.T, broker *events.Broker, logs io.Writer) *httptest.Server {
+func routed(t *testing.T, broker *events.Broker, logs io.Writer) *httptest.Server {
 	t.Helper()
 
 	dependencies := testDependencies()
-	dependencies.TenantEvents = events.NewTenantHandler(
+	dependencies.TenantEvents = serving.NewTenantHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil)
 
 	logger := slog.New(slog.NewJSONHandler(logs, nil))
@@ -104,7 +105,7 @@ nothing in the events package would notice.
 */
 func TestAnUpgradeSurvivesTheMiddlewareChain(t *testing.T) {
 	broker := events.NewBroker()
-	connection := dialStream(t, serving(t, broker, &transcript{}))
+	connection := dialStream(t, routed(t, broker, &transcript{}))
 
 	waitForStream(t, broker)
 	broker.Publish(events.New(events.CallStarted, sampleApplication().ID, sampleCall().ID, "req_1", nil))
@@ -126,14 +127,14 @@ TestTheAccessLogTellsTheTruthAboutAnUpgrade keeps one line per request honest
 for the one request that stops being one.
 
 Without the recorder noticing the hijack, an upgraded connection would be
-logged as an ordinary 200 that returned nothing — which is exactly what an
+logged as an ordinary 200 that returned nothing â€” which is exactly what an
 operator would be looking at while trying to work out why a client never
 connected.
 */
 func TestTheAccessLogTellsTheTruthAboutAnUpgrade(t *testing.T) {
 	broker := events.NewBroker()
 	logs := &transcript{}
-	server := serving(t, broker, logs)
+	server := routed(t, broker, logs)
 
 	connection := dialStream(t, server)
 	waitForStream(t, broker)
@@ -158,7 +159,7 @@ Every route is served with a write timeout, which is right for a request and a
 response and fatal for a connection meant to stay open for hours. What saves
 the stream is net/http: hijacking a connection clears the deadlines the server
 set on it. That is worth a test precisely because it is somebody else's
-guarantee — if it stopped holding, every stream would die thirty seconds in,
+guarantee â€” if it stopped holding, every stream would die thirty seconds in,
 in production, long after a fast test had finished.
 
 The timeout here is a fraction of a second, so the same failure would be
@@ -168,7 +169,7 @@ func TestAStreamOutlivesTheServerWriteTimeout(t *testing.T) {
 	broker := events.NewBroker()
 
 	dependencies := testDependencies()
-	dependencies.TenantEvents = events.NewTenantHandler(
+	dependencies.TenantEvents = serving.NewTenantHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil)
 
 	server := httptest.NewUnstartedServer(
@@ -206,7 +207,7 @@ A WebSocket endpoint that quietly skipped authentication would be the most
 valuable route in the API to find.
 */
 func TestTheStreamIsRefusedWithoutACredential(t *testing.T) {
-	server := serving(t, events.NewBroker(), io.Discard)
+	server := routed(t, events.NewBroker(), io.Discard)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -233,7 +234,7 @@ TestTheContractDescribesTheHandshakeAndTheEnvelope is M14-011.
 OpenAPI 3.0.3 cannot describe a stream, but it can describe the exchange that
 opens one and the shape of what travels on it. Both are published, so a client
 author has the endpoint, its refusals, and the envelope in the same document as
-the rest of the API — and a delivered event is validated against the schema
+the rest of the API â€” and a delivered event is validated against the schema
 that document names.
 */
 func TestTheContractDescribesTheHandshakeAndTheEnvelope(t *testing.T) {

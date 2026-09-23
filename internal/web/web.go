@@ -192,6 +192,40 @@ to discover it by opening the page.
 */
 func (site *Site) Built() bool { return site.wasBuilt }
 
+/*
+Bundle is the built interface, for whoever shows it without serving it.
+
+The desktop application renders the same bundle this package serves, out of
+this same embed: one build of the interface, in one binary or the other, never
+two copies that can differ. It reports the same fact Built does, and reports it
+before anything is opened rather than after.
+*/
+func Bundle() (fs.FS, bool) { return bundleIn(assets) }
+
+/*
+bundleIn is the same question asked of any tree, so that the answer for a tree
+with nothing in it can be tested.
+
+`go test` cannot produce a build — that needs Node — so the case this has to
+be right about, a binary assembled without the interface, is the one case no
+test could otherwise reach.
+*/
+func bundleIn(tree fs.FS) (fs.FS, bool) {
+	built, err := fs.Sub(tree, bundle)
+	if err != nil {
+		return nil, false
+	}
+	/*
+		A directory is not a bundle. Vite empties this one on every build, so
+		an interrupted one leaves it there and empty, and what the page names
+		is what says whether there is anything to show.
+	*/
+	if _, err := fs.Stat(built, indexFile); err != nil {
+		return nil, false
+	}
+	return built, true
+}
+
 func (site *Site) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	if !site.wasBuilt {
 		site.serveNotice(response, request)

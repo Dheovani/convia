@@ -44,11 +44,11 @@ func (service *recordingService) Pending(ctx context.Context, principal sessions
 	return []Invitation{invitation}, err
 }
 
-func (service *recordingService) Look(context.Context, accounts.Identity, string) (Link, Preview, error) {
+func (service *recordingService) Look(context.Context, string, sessions.Principal, accounts.Identity, string) (Link, Preview, error) {
 	return Link{}, Preview{}, service.err
 }
 
-func (service *recordingService) Join(context.Context, accounts.Account, accounts.Identity, string) (Joined, error) {
+func (service *recordingService) Join(context.Context, string, accounts.Account, accounts.Identity, string) (Joined, error) {
 	return Joined{}, service.err
 }
 
@@ -242,5 +242,39 @@ func TestAnInvitationLinkNamesWhereItWasMadeFrom(t *testing.T) {
 	}
 	if want := `"link":"http://192.168.1.10:8080/invitations/` + sampleInvitationID + `"`; !strings.Contains(response.Body.String(), want) {
 		t.Errorf("the response %s does not carry %s", response.Body, want)
+	}
+}
+
+func TestAnInvitationMadeWithoutAnOriginStillNamesSomewhere(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+
+	request := asPerson(http.MethodPost, "/v1/me/rooms/x/invitations", `{"handle":"bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH"}`)
+	request.Host = "convia.example"
+	request.Header.Del("Origin")
+	request.Header.Set("X-Forwarded-Proto", "https")
+
+	response := httptest.NewRecorder()
+	handler.Invite(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
+	}
+	if want := `"link":"https://convia.example/invitations/` + sampleInvitationID + `"`; !strings.Contains(response.Body.String(), want) {
+		t.Errorf("the response %s does not carry %s", response.Body, want)
+	}
+}
+
+func TestAnInvitationPrefersTheOriginWhenThereIsOne(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+
+	request := asPerson(http.MethodPost, "/v1/me/rooms/x/invitations", `{"handle":"bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH"}`)
+	request.Host = "behind-the-proxy.internal"
+	request.Header.Set("Origin", "https://convia.example")
+
+	response := httptest.NewRecorder()
+	handler.Invite(response, request)
+
+	if want := `"link":"https://convia.example/invitations/`; !strings.Contains(response.Body.String(), want) {
+		t.Errorf("the response %s does not name the address the browser used", response.Body)
 	}
 }

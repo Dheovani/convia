@@ -181,12 +181,62 @@ func TestRegisteringSignsTheNewAccountIn(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body)
 	}
-	if !strings.Contains(response.Header().Get("Set-Cookie"), "cvs_token") {
-		t.Error("registering did not sign the new account in")
+	if !strings.Contains(response.Body.String(), `"token":"cvs_token"`) {
+		t.Error("registering did not hand the application its session")
 	}
 	if handle := somebody().Handle(); !strings.Contains(response.Body.String(), `"handle":"`+handle+`"`) {
 		t.Errorf("the response does not carry the handle %q: %s", handle, response.Body)
 	}
+}
+
+/*
+TestASessionIsHandedOverInTheFormTheClientHolds is docs/adr/0019.
+
+A browser is given the cookie and never the token, so a page has nothing to
+store and nothing to leak. Convia's own application is given the token, because
+it holds no cookie of Convia's origin. Which one a caller is, is read from the
+headers only a browser sends.
+*/
+func TestASessionIsHandedOverInTheFormTheClientHolds(t *testing.T) {
+	for name, from := range map[string]func(*http.Request){
+		"a page that sent its origin":     func(request *http.Request) { request.Header.Set("Origin", "https://convia.example") },
+		"a page that sent fetch metadata": func(request *http.Request) { request.Header.Set("Sec-Fetch-Site", "same-origin") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			handler := NewHandler(quiet(), &stubService{account: somebody()})
+			request := httptest.NewRequest(http.MethodPost, "/v1/sessions",
+				strings.NewReader(`{"username":"ana","password":"correct horse battery staple"}`))
+			request.Header.Set("Content-Type", "application/json")
+			from(request)
+
+			response := httptest.NewRecorder()
+			handler.SignIn(response, request)
+
+			if !strings.Contains(response.Header().Get("Set-Cookie"), "cvs_token") {
+				t.Errorf("a browser was not given the cookie: %q", response.Header().Get("Set-Cookie"))
+			}
+			if strings.Contains(response.Body.String(), "cvs_token") {
+				t.Errorf("a browser was given the token as well: %s", response.Body)
+			}
+		})
+	}
+
+	t.Run("an application that sent neither", func(t *testing.T) {
+		handler := NewHandler(quiet(), &stubService{account: somebody()})
+		request := httptest.NewRequest(http.MethodPost, "/v1/sessions",
+			strings.NewReader(`{"username":"ana","password":"correct horse battery staple"}`))
+		request.Header.Set("Content-Type", "application/json")
+
+		response := httptest.NewRecorder()
+		handler.SignIn(response, request)
+
+		if response.Header().Get("Set-Cookie") != "" {
+			t.Errorf("an application was given a cookie it cannot hold: %q", response.Header().Get("Set-Cookie"))
+		}
+		if !strings.Contains(response.Body.String(), `"token":"cvs_token"`) {
+			t.Errorf("an application was not given its session: %s", response.Body)
+		}
+	})
 }
 
 // TestATakenUsernameIsAConflict rather than a refusal of credentials, and sets
@@ -222,6 +272,7 @@ func TestChangingAPasswordRotatesThisSessionToo(t *testing.T) {
 
 	request := signedIn(http.MethodPatch, "/v1/me/password",
 		`{"current_password":"old one here","new_password":"a new one entirely"}`)
+	request.Header.Set("Origin", "https://convia.example")
 
 	response := httptest.NewRecorder()
 	handler.ChangePassword(response, request)
@@ -233,6 +284,31 @@ func TestChangingAPasswordRotatesThisSessionToo(t *testing.T) {
 	cookie := response.Header().Get("Set-Cookie")
 	if !strings.Contains(cookie, "cvs_rotated") {
 		t.Errorf("the response did not carry a rotated session: %q", cookie)
+	}
+}
+
+/*
+TestAnApplicationIsGivenTheRotatedSession keeps a password change from signing
+out the client that made it: the new session comes back in the answer, because
+an application holds a token rather than a cookie.
+*/
+func TestAnApplicationIsGivenTheRotatedSession(t *testing.T) {
+	handler := NewHandler(quiet(), &stubService{account: somebody()})
+
+	request := signedIn(http.MethodPatch, "/v1/me/password",
+		`{"current_password":"old one here","new_password":"a new one entirely"}`)
+
+	response := httptest.NewRecorder()
+	handler.ChangePassword(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body)
+	}
+	if !strings.Contains(response.Body.String(), `"token":"cvs_rotated"`) {
+		t.Errorf("the application was not given the rotated session: %s", response.Body)
+	}
+	if response.Header().Get("Set-Cookie") != "" {
+		t.Errorf("an application was given a cookie: %q", response.Header().Get("Set-Cookie"))
 	}
 }
 

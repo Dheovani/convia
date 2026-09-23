@@ -69,6 +69,18 @@ var notMediaInfrastructure = map[string]string{
 	"github.com/sethvargo/go-retry": "pulled in by goose",
 	"go.uber.org/multierr":          "pulled in by goose",
 	"golang.org/x":                  "extended standard library",
+	"github.com/danieljoos/wincred": "keeps the desktop application's session in the Windows " +
+		"Credential Manager. It reads and writes one secret per installation and knows nothing " +
+		"about calls. See internal/desktop/secrets and docs/adr/0019",
+	"github.com/wailsapp/wails": "is the window Convia's own application is shown in. It renders " +
+		"the interface out of the binary and binds Go methods to it; the audio and video in a call " +
+		"are the webview's, and this never sees them. See cmd/convia-desktop",
+	"github.com/wailsapp/go-webview2": "asks Windows whether the runtime the window is made of is " +
+		"installed, before there is a window to report it in",
+	"fyne.io/systray": "draws the icon beside the clock and its menu. It is a picture and two " +
+		"words; it knows nothing about calls. See cmd/convia-desktop",
+	"github.com/godbus/dbus": "pulled in by systray, and used on Linux, which the application " +
+		"does not run on",
 }
 
 /*

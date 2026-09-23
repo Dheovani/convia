@@ -1,10 +1,12 @@
-package events
+package serving
 
 import (
 	"errors"
 
 	"convia/internal/credentials"
 	"convia/internal/sessions"
+
+	"convia/internal/events"
 )
 
 /*
@@ -12,7 +14,7 @@ ErrForbidden reports an operation the caller's credential does not permit.
 
 It covers both refusals a stream can meet: a credential not granted the stream
 at all, and one granted the stream but nothing it could carry. They are the
-same answer on purpose — telling a caller which of the two it is would describe
+same answer on purpose â€” telling a caller which of the two it is would describe
 the scopes of a key to whoever presented it, and the remedy is identical.
 */
 var ErrForbidden = errors.New("credential does not permit this operation")
@@ -26,15 +28,15 @@ describes something the API already exposes, so the question "may this
 credential be told about it" has an answer already, and inventing a second one
 here would be a way for the two to disagree.
 */
-func readingScopeFor(kind Type) credentials.Scope {
+func readingScopeFor(kind events.Type) credentials.Scope {
 	switch kind {
-	case CallStarted, CallEnded:
+	case events.CallStarted, events.CallEnded:
 		return credentials.ScopeCallsRead
-	case ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged:
+	case events.ParticipantJoined, events.ParticipantLeft, events.ParticipantRemoved, events.ParticipantRoleChanged:
 		return credentials.ScopeParticipantsRead
-	case InvitationDeclined:
+	case events.InvitationDeclined:
 		return credentials.ScopeInvitationsRead
-	case MessagePosted, MessageEdited, MessageDeleted:
+	case events.MessagePosted, events.MessageEdited, events.MessageDeleted:
 		/*
 			messages:read rather than rooms:read, and the split is the point:
 			listing rooms is administration, while being told what was said in
@@ -42,13 +44,13 @@ func readingScopeFor(kind Type) credentials.Scope {
 			read a history must not learn its shape from the stream either.
 		*/
 		return credentials.ScopeMessagesRead
-	case MemberAdded, MemberRemoved, MemberRoleChanged:
+	case events.MemberAdded, events.MemberRemoved, events.MemberRoleChanged:
 		// The scope that already lists who is in a room, on either side of the
 		// change.
 		return credentials.ScopeMembersRead
-	case RoomUpdated, RoomClosed, RoomReopened, RoomDeleted:
+	case events.RoomUpdated, events.RoomClosed, events.RoomReopened, events.RoomDeleted:
 		return credentials.ScopeRoomsRead
-	case PresenceChanged:
+	case events.PresenceChanged:
 		return credentials.ScopePresenceRead
 	default:
 		/*
@@ -69,16 +71,16 @@ application.
 
 The application is taken from the verified principal and never from the
 request, so a subscriber receives its own tenant's events and there is no field
-anywhere — in the path, in a query, in a message over the socket — that could
+anywhere â€” in the path, in a query, in a message over the socket â€” that could
 name another.
 */
 type Authorized struct {
-	broker    *Broker
+	broker    *events.Broker
 	principal credentials.Principal
 }
 
 // Authorize binds the broker to the authority of a verified caller.
-func Authorize(broker *Broker, principal credentials.Principal) *Authorized {
+func Authorize(broker *events.Broker, principal credentials.Principal) *Authorized {
 	return &Authorized{broker: broker, principal: principal}
 }
 
@@ -93,13 +95,13 @@ A credential granted the stream but no read scope receives no connection rather
 than an empty one. An empty stream looks exactly like a quiet one, and a client
 would sit waiting for events that were never going to come.
 */
-func (authorized *Authorized) Subscribe() (*Stream, error) {
+func (authorized *Authorized) Subscribe() (*events.Stream, error) {
 	if !authorized.principal.Allows(credentials.ScopeEventsRead) {
 		return nil, ErrForbidden
 	}
 
-	permitted := make([]Type, 0, len(Types()))
-	for _, kind := range Types() {
+	permitted := make([]events.Type, 0, len(events.Types()))
+	for _, kind := range events.Types() {
 		if authorized.principal.Allows(readingScopeFor(kind)) {
 			permitted = append(permitted, kind)
 		}
@@ -124,15 +126,15 @@ What is absent is absent for that reason and no other. Calls and their rosters
 have no route on the session surface yet, so a person cannot read them, and a
 participant event names a call rather than a room besides. Presence is about a
 person rather than a room. Each arrives when the interface can read what it is
-about — calls with M18-004 — and not before.
+about â€” calls with M18-004 â€” and not before.
 */
-func personTypes() []Type {
-	return []Type{
-		MessagePosted, MessageEdited, MessageDeleted,
-		MemberAdded, MemberRemoved, MemberRoleChanged,
-		RoomUpdated, RoomClosed, RoomReopened, RoomDeleted,
-		CallStarted, CallEnded,
-		ParticipantJoined, ParticipantLeft, ParticipantRemoved, ParticipantRoleChanged,
+func personTypes() []events.Type {
+	return []events.Type{
+		events.MessagePosted, events.MessageEdited, events.MessageDeleted,
+		events.MemberAdded, events.MemberRemoved, events.MemberRoleChanged,
+		events.RoomUpdated, events.RoomClosed, events.RoomReopened, events.RoomDeleted,
+		events.CallStarted, events.CallEnded,
+		events.ParticipantJoined, events.ParticipantLeft, events.ParticipantRemoved, events.ParticipantRoleChanged,
 	}
 }
 
@@ -140,17 +142,17 @@ func personTypes() []Type {
 Personal is the event broker acting for one signed-in person.
 
 The application and the person both come from the verified session, so there is
-nothing in a request that could name another person's rooms — the same
+nothing in a request that could name another person's rooms â€” the same
 property the tenant's stream has, one level narrower.
 */
 type Personal struct {
-	broker    *Broker
+	broker    *events.Broker
 	principal sessions.Principal
 }
 
 // AsPerson binds the broker to the authority of a verified session. It
 // produces no credentials.Principal; see docs/adr/0007.
-func AsPerson(broker *Broker, principal sessions.Principal) *Personal {
+func AsPerson(broker *events.Broker, principal sessions.Principal) *Personal {
 	return &Personal{broker: broker, principal: principal}
 }
 
@@ -158,10 +160,10 @@ func AsPerson(broker *Broker, principal sessions.Principal) *Personal {
 Subscribe opens the person's stream.
 
 It covers no rooms yet. Which rooms is a read, and reading is the caller's to do
-with [Stream.Reconcile] before handing the stream to anybody, because this
+with [events.Stream.Reconcile] before handing the stream to anybody, because this
 package holds no store to read from.
 */
-func (personal *Personal) Subscribe() (*Stream, error) {
-	return personal.broker.subscribePerson(personal.principal.ApplicationID, personal.principal.UserID,
+func (personal *Personal) Subscribe() (*events.Stream, error) {
+	return personal.broker.SubscribePerson(personal.principal.ApplicationID, personal.principal.UserID,
 		personTypes())
 }
