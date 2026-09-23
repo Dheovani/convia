@@ -425,6 +425,92 @@ describe('an invitation somebody clicked', () => {
   })
 })
 
+
+describe('what Convia says while nobody is looking', () => {
+  function arriving(type: string, data: Record<string, unknown>) {
+    return {
+      id: 'evt_1',
+      version: 1,
+      type,
+      occurred_at: new Date().toISOString(),
+      application_id: 'app_1',
+      subject: { type: 'room', id: room().id },
+      data,
+    }
+  }
+
+  async function watching() {
+    carried().install()
+    const application = new FakeApplication().runsHere().holds(ana)
+    application.install()
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Standup' })
+    return application
+  }
+
+  it('names the room a message arrived in', async () => {
+    const application = await watching()
+
+    await act(async () => {
+      application.event(arriving('message.posted', { room_id: room().id, user_id: 'usr_BRUNO' }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(application.asked('Notify')).toEqual([['Standup', 'A new message']]))
+  })
+
+  it('says a call started', async () => {
+    const application = await watching()
+
+    await act(async () => {
+      application.event(arriving('call.started', { room_id: room().id }))
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(application.asked('Notify')).toEqual([['Standup', 'A call started']]))
+  })
+
+  it('says nothing about what this person just said', async () => {
+    const application = await watching()
+
+    await act(async () => {
+      application.event(arriving('message.posted', { room_id: room().id, user_id: ana.user_id }))
+      await Promise.resolve()
+    })
+
+    await new Promise((settle) => setTimeout(settle, 50))
+    expect(application.asked('Notify')).toEqual([])
+  })
+
+  it('says nothing about a room it cannot name', async () => {
+    const application = await watching()
+
+    await act(async () => {
+      application.event(arriving('message.posted', { room_id: 'room_SOMEWHEREELSE', user_id: 'usr_BRUNO' }))
+      await Promise.resolve()
+    })
+
+    await new Promise((settle) => setTimeout(settle, 50))
+    expect(application.asked('Notify')).toEqual([])
+  })
+
+  it('hands the menu beside the clock its words', async () => {
+    const application = await watching()
+
+    await waitFor(() => expect(application.asked('Named')).toContainEqual(['Open Convia', 'Quit']))
+  })
+
+  it('asks nothing of a browser', async () => {
+    carried().install()
+
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Standup' })
+
+    expect(screen.getByRole('heading', { name: 'Standup' })).toBeInTheDocument()
+  })
+})
+
 describe('a device the application is not allowed to use', () => {
   /*
   The same refusal, and a different remedy.

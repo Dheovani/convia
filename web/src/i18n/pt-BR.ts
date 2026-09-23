@@ -136,6 +136,16 @@ export const ptBR: Words = {
     elsewhere: 'Conectar em outra Convia',
   },
 
+  tray: {
+    open: 'Abrir a Convia',
+    quit: 'Sair',
+  },
+
+  notifications: {
+    message: 'Nova mensagem',
+    call: 'Uma chamada começou',
+  },
+
   presence: {
     online: 'Disponível',
     busy: 'Ocupado',

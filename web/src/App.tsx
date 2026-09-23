@@ -94,6 +94,13 @@ installation signs them straight back in either way.
 */
 function Installed() {
   const [connection, setConnection] = useState<Connection | null | undefined>(undefined)
+  const words = useWords()
+
+  // The menu beside the clock is drawn by Windows, not by this interface, so its
+  // words are handed over rather than read — again whenever somebody changes them.
+  useEffect(() => {
+    void desktop.named(words.tray.open, words.tray.quit).catch(() => {})
+  }, [words])
 
   useEffect(() => {
     let showing = true

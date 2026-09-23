@@ -131,6 +131,16 @@ export const en = {
     elsewhere: 'Connect to another Convia',
   },
 
+  tray: {
+    open: 'Open Convia',
+    quit: 'Quit',
+  },
+
+  notifications: {
+    message: 'A new message',
+    call: 'A call started',
+  },
+
   presence: {
     online: 'Available',
     busy: 'Busy',

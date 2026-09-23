@@ -2,6 +2,14 @@
 #
 # These credentials are development-only and must never be reused anywhere
 # else. Production configuration comes from the deployment environment.
+#
+# Nothing here restarts on its own. `restart: unless-stopped` would make these
+# start with Docker, which means starting with the computer: somebody who
+# booted their machine to do something else entirely would find Convia's
+# database running. A development dependency is started when somebody is
+# working on Convia and stopped when they are not.
+#
+#   docker compose down
 
 services:
   postgres:
@@ -23,7 +31,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-    restart: unless-stopped
+    restart: "no"
 
   # Convia runs perfectly well without a media plane, so this one is opt-in:
   #
@@ -59,7 +67,7 @@ services:
       - "127.0.0.1:7880:7880"
       - "127.0.0.1:7881:7881"
       - "127.0.0.1:7882:7882/udp"
-    restart: unless-stopped
+    restart: "no"
 
   # A single Convia instance needs none of this: its event broker is in
   # process, and everything it publishes reaches everything it serves. Redis is
@@ -85,7 +93,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    restart: unless-stopped
+    restart: "no"
 
 volumes:
   postgres-data:

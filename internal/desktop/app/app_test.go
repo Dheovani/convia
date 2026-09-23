@@ -122,6 +122,10 @@ type emitted struct {
 	values []any
 }
 
+func (told *emitted) shown(title, body string) {
+	told.record("notification", title+": "+body)
+}
+
 func (told *emitted) record(topic string, what any) {
 	told.mutex.Lock()
 	defer told.mutex.Unlock()
@@ -157,7 +161,7 @@ func listening(t *testing.T, held *kept) (*App, *emitted) {
 
 	ctx, stop := context.WithCancel(context.Background())
 	t.Cleanup(stop)
-	made.Start(ctx, told.record)
+	made.Start(ctx, Window{Emit: told.record, Notify: told.shown})
 
 	return made, told
 }

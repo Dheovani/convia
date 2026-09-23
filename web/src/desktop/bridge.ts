@@ -63,6 +63,8 @@ interface Bound {
   ConnectHere: () => Promise<Connection>
   Forget: (address: string) => Promise<void>
   PendingLink: () => Promise<string>
+  Notify: (title: string, body: string) => Promise<void>
+  Named: (open: string, quit: string) => Promise<void>
   SignIn: (username: string, password: string) => Promise<Signed>
   Register: (username: string, password: string) => Promise<Signed>
   SignOut: () => Promise<void>
@@ -244,6 +246,14 @@ export const desktop = {
   */
   pendingLink(): Promise<string> {
     return asked(() => bound().PendingLink())
+  },
+
+  notify(title: string, body: string): Promise<void> {
+    return asked(() => bound().Notify(title, body))
+  },
+
+  named(open: string, quit: string): Promise<void> {
+    return asked(() => bound().Named(open, quit))
   },
 
   // forget stops offering an installation, and drops the session kept for it.

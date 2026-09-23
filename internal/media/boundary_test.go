@@ -77,6 +77,10 @@ var notMediaInfrastructure = map[string]string{
 		"are the webview's, and this never sees them. See cmd/convia-desktop",
 	"github.com/wailsapp/go-webview2": "asks Windows whether the runtime the window is made of is " +
 		"installed, before there is a window to report it in",
+	"fyne.io/systray": "draws the icon beside the clock and its menu. It is a picture and two " +
+		"words; it knows nothing about calls. See cmd/convia-desktop",
+	"github.com/godbus/dbus": "pulled in by systray, and used on Linux, which the application " +
+		"does not run on",
 }
 
 /*

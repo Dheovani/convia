@@ -10,6 +10,7 @@ import { Button } from '../components/controls'
 import { SettingsNav, SettingsPage, type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
 import { useInvitation } from '../desktop/useInvitation'
+import { useNotifications } from '../desktop/useNotifications'
 import { useWords } from '../i18n/language'
 import { CallContext, useCallSession } from '../state/call'
 import { EventsContext, useEventStream } from '../state/events'
@@ -107,6 +108,8 @@ export function Workspace({
   const { live, listen } = stream
   const { rooms, loading, failed, refresh, remember, forget } = useRooms(onSignedOut, live)
   const elsewhere = useRemoteRooms(onSignedOut)
+
+  useNotifications(stream, rooms, elsewhere.remoteRooms, account.user_id)
 
   /*
   The call this page is in, and the calls it could join. The call is held here

@@ -124,7 +124,7 @@ func TestTheLinkItselfIsNotWrittenDown(t *testing.T) {
 	var written bytes.Buffer
 
 	made := New(slog.New(slog.NewTextHandler(&written, nil)), installations.In(t.TempDir()), store(nil), nil)
-	made.Start(context.Background(), nil)
+	made.Start(context.Background(), Window{})
 
 	const invitation = "inv_7QK4XMZP2VJH6TBWNDR3YAFC5"
 	if !made.Arrived([]string{"convia://elsewhere.example/invitations/" + invitation}) {

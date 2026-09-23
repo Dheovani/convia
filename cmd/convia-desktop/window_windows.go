@@ -63,7 +63,7 @@ the machine can reach the interface this process is showing.
 func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 	// The window, once it exists. A second instance arrives on a goroutine of
 	// its own and asks for it there.
-	opened := &window{}
+	opened := &window{log: log}
 
 	if !builtWithWailsTags {
 		announce(windowTitle, missingTags)
@@ -79,6 +79,19 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 	log.Info("the webview runtime is present", "version", version)
 
 	registerScheme(log)
+	openWithWindows(log)
+
+	/*
+		The icon beside the clock, started before the window so that it is
+		there whether or not one ever opens: Windows opens Convia hidden, and
+		the icon is then the whole of what somebody sees.
+	*/
+	icon := &tray{}
+	icon.start(log,
+		func() { opened.show() },
+		func() { opened.leave() },
+	)
+	defer icon.stop()
 
 	return wails.Run(&options.App{
 		Title:            windowTitle,
@@ -105,14 +118,48 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 			Everything that crosses here is chosen in internal/desktop/app; the
 			session is not among it.
 		*/
+		// Opened by Windows rather than by somebody: the icon, and no window.
+		StartHidden: openingHidden(os.Args[1:]),
+
 		OnStartup: func(ctx context.Context) {
-			opened.is(ctx)
-			application.Start(ctx, func(topic string, what any) {
-				runtime.EventsEmit(ctx, topic, what)
+			opened.is(ctx, !openingHidden(os.Args[1:]))
+
+			/*
+				Notifications are set up before anything can ask for one.
+				Windows shows a toast on behalf of a registered application, so
+				until this runs there is nothing for it to be shown on behalf
+				of and every notification is dropped by Windows without a word.
+			*/
+			if err := runtime.InitializeNotifications(ctx); err != nil {
+				log.Error("notifications are not available, so nothing will be said while the window is away",
+					"error", err)
+			}
+
+			application.Start(ctx, app.Window{
+				Emit:   func(topic string, what any) { runtime.EventsEmit(ctx, topic, what) },
+				Notify: opened.notify,
+				Named:  icon.named,
 			})
 			// Whatever this was opened with, which is an invitation when
 			// somebody clicked one on a machine where Convia was closed.
 			application.Arrived(os.Args[1:])
+		},
+
+		/*
+			Closing the window puts Convia beside the clock rather than ending
+			it. A conversation is not over because a window is, and a call
+			arriving after somebody shut it has to reach them.
+
+			Leaving for good is the menu on that icon, which says so before
+			this returns false and lets the close through.
+		*/
+		OnBeforeClose: func(ctx context.Context) bool {
+			if opened.leaving() {
+				return false
+			}
+			runtime.WindowHide(ctx)
+			opened.showing(false)
+			return true
 		},
 
 		/*
@@ -128,13 +175,20 @@ func open(log *slog.Logger, ui fs.FS, application *app.App) error {
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId: "convia-desktop",
 			OnSecondInstanceLaunch: func(second options.SecondInstanceData) {
-				if !application.Arrived(second.Args) {
+				application.Arrived(second.Args)
+
+				/*
+					The window comes back whether or not a link came with it.
+					Starting Convia is somebody asking for Convia, and the one
+					time it is not is Windows starting it at sign-in, which says
+					so in the arguments. Without this, somebody whose Convia is
+					already sitting beside the clock opens it and nothing at all
+					happens.
+				*/
+				if openingHidden(second.Args) {
 					return
 				}
-				if ctx := opened.context(); ctx != nil {
-					runtime.WindowUnminimise(ctx)
-					runtime.WindowShow(ctx)
-				}
+				opened.show()
 			},
 		},
 		Bind: []any{application},
@@ -284,25 +338,36 @@ func webviewData(log *slog.Logger) string {
 }
 
 /*
-window is the context Wails gives when the window opens.
+window is what the application can ask of the thing showing it.
 
-Every runtime call wants it back, and the one that matters here happens on
-another goroutine: a second instance launched from a clicked invitation, which
-has to raise the window this one is holding. So it is written once, by the
-window, and read there.
+It holds the context Wails gives when the window opens, because every runtime
+call wants it back and some of them happen elsewhere: a second instance
+launched from a clicked invitation, and the menu beside the clock, both arrive
+on goroutines of their own. So everything here is behind a lock.
 
-It is a lifetime rather than a request, which is the one kind of context worth
+It also holds whether the window is on the screen at all, which is the half
+Wails cannot answer: a window hidden beside the clock is still a normal one as
+far as it is concerned, and the two moments that change it are ours — closing
+hides, and the menu shows. Whether a window that *is* on the screen has been
+minimised is Windows' to answer, and [window.notify] asks it.
+
+The context is a lifetime rather than a request, which is the one kind worth
 keeping.
 */
 type window struct {
 	mutex sync.Mutex
 	ctx   context.Context
+	// shown is whether the window is on the screen rather than beside the clock.
+	shown bool
+	going bool
+	log   *slog.Logger
 }
 
-func (opened *window) is(ctx context.Context) {
+func (opened *window) is(ctx context.Context, shown bool) {
 	opened.mutex.Lock()
 	defer opened.mutex.Unlock()
 	opened.ctx = ctx
+	opened.shown = shown
 }
 
 // context answers the window's, or nil before there is one.
@@ -310,4 +375,98 @@ func (opened *window) context() context.Context {
 	opened.mutex.Lock()
 	defer opened.mutex.Unlock()
 	return opened.ctx
+}
+
+func (opened *window) showing(shown bool) {
+	opened.mutex.Lock()
+	defer opened.mutex.Unlock()
+	opened.shown = shown
+}
+
+// show brings the window back, from the menu beside the clock or from an
+// invitation somebody clicked while Convia was closed.
+func (opened *window) show() {
+	ctx := opened.context()
+	if ctx == nil {
+		return
+	}
+
+	runtime.WindowUnminimise(ctx)
+	runtime.WindowShow(ctx)
+	opened.showing(true)
+}
+
+/*
+notify puts something in front of somebody who is not looking.
+
+**It says nothing when the window is on the screen.** Whatever happened is
+already there, and a notification about a conversation somebody is reading is
+an interruption about nothing.
+
+Not looking is two different things, and only one of them is ours. A window put
+beside the clock was put there by us, so that is a flag. A **minimised** window
+was minimised by the person, with no callback of any kind — so it is asked for
+here, at the moment it matters, rather than tracked. Asking is also the better
+half of the bargain: there is no state to get out of step with the window when
+somebody restores it from the taskbar, which raises no event either.
+*/
+func (opened *window) notify(title, body string) {
+	opened.mutex.Lock()
+	ctx, shown := opened.ctx, opened.shown
+	opened.mutex.Unlock()
+
+	if ctx == nil {
+		return
+	}
+	if looking(shown, runtime.WindowIsMinimised(ctx)) {
+		return
+	}
+
+	/*
+		A notification that could not be shown is worth a line. Convia carries
+		on either way — what happened is in the conversation, and the window is
+		where somebody reads it — but the whole point of this is the times
+		nobody is looking at that window, and silence here looks exactly like
+		nothing having happened.
+	*/
+	if err := runtime.SendNotification(ctx, runtime.NotificationOptions{
+		Title: title,
+		Body:  body,
+	}); err != nil && opened.log != nil {
+		opened.log.Warn("a notification could not be shown", "error", err)
+	}
+}
+
+/*
+looking reports whether somebody is in front of the window.
+
+It is two different absences and only one of them is ours, which is how this
+came to be wrong: a window put beside the clock was put there by us, so it is a
+flag, and a minimised one was minimised by the person, which no callback
+reports and Windows answers on request.
+*/
+func looking(shown, minimised bool) bool { return shown && !minimised }
+
+/*
+leave ends the application for good, which is a thing somebody says rather than
+a thing that happens to them.
+
+The flag is what tells the close handler this one is real: every other close
+puts Convia beside the clock instead.
+*/
+func (opened *window) leave() {
+	opened.mutex.Lock()
+	opened.going = true
+	ctx := opened.ctx
+	opened.mutex.Unlock()
+
+	if ctx != nil {
+		runtime.Quit(ctx)
+	}
+}
+
+func (opened *window) leaving() bool {
+	opened.mutex.Lock()
+	defer opened.mutex.Unlock()
+	return opened.going
 }

@@ -143,6 +143,9 @@ export class FakeApplication {
           this.pending = ''
           return link
         }),
+      Notify: (title: string, body: string) =>
+        this.record('Notify', [title, body], () => undefined),
+      Named: (open: string, quit: string) => this.record('Named', [open, quit], () => undefined),
       Forget: (address: string) =>
         this.record('Forget', [address], () => {
           this.remembered = this.remembered.filter((one) => one !== address)

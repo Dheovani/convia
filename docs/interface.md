@@ -123,6 +123,28 @@ The window's page is served under a content policy, applied around the whole ass
 
 Everything the webview keeps — its profile and its cache, tens of megabytes of it — goes under Convia's own folder, beside the list of installations. The toolkit's default is a folder named after the executable file, `convia-desktop.exe`, in the roaming profile.
 
+### Closing, and what happens while nobody is looking
+
+**Closing the window puts Convia beside the clock rather than ending it.** A conversation is not over because a window is, and a call arriving after somebody shut it has to reach them. Leaving for good is a thing somebody says — the menu on that icon — rather than a thing that happens to them by pressing the same button they press to stop reading.
+
+It opens with Windows, and it opens **hidden**: no window, just the icon, the session resumed from the Credential Manager and the stream open. Without that, Convia reaches somebody only after they have opened it by hand, which means every morning, and means a call arriving before they do reaches nothing. The entry is written under the current user, like the scheme that opens invitations and for the same reason.
+
+While the window is not on the screen, Convia says what happened: a message in one of your rooms, and a call starting in one. It says **where** and not **what** — an event carries what the domain had in hand when it recorded what happened, which is a room and not the words in it. Reading them is what the window is for.
+
+**Not on the screen is two different things**, and only one of them is Convia's own doing. A window put beside the clock was put there by Convia, so it is remembered. A **minimised** window was minimised by the person, and Windows raises no event for it in either direction — so it is asked about at the moment a notification is about to be made, rather than tracked. Asking is also the safer half: there is no remembered state to fall out of step with a window somebody restored from the taskbar.
+
+Notifications are registered with Windows as the application starts. A toast is shown on behalf of a registered application, and one sent before that registration exists is attributed to nothing in particular — which is not an error anybody is told about, so the failure is silence.
+
+Three things are decided on different sides of the boundary, each by whoever can:
+
+| | |
+| --- | --- |
+| **whether anybody is looking** | the window, because nothing in a webview can answer it reliably |
+| **what is worth saying** | the interface, because it knows whose message it was and which room it was in |
+| **the words** | the interface's catalogue, in whatever language somebody chose |
+
+That last one is why the menu beside the clock is handed its labels rather than reading them: it is drawn by Windows, so it is the one surface Convia's catalogue cannot reach on its own. It starts in English and is renamed the moment the interface loads.
+
 ### The icon
 
 Convia's own mark: an open ring with a point at the opening, the same one the interface draws on its sign-in screen. It sits on a dark rounded tile so that it reads on a light taskbar and a dark one alike, and it is drawn at every size Windows asks for rather than scaled down from one — a ring three and a half units thick does not survive being resampled to sixteen pixels.

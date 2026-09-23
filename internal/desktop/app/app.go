@@ -73,7 +73,7 @@ type App struct {
 	book      *installations.Book
 	keeper    secrets.Keeper
 	transport *http.Client
-	emit      Emitter
+	window    Window
 	carrier   *httputil.ReverseProxy
 
 	// here is where this application looks for a Convia on this computer. It
@@ -110,6 +110,13 @@ this package testable on a system that has no windows at all.
 */
 type Emitter func(name string, data any)
 
+// Window provides the native operations used by the application.
+type Window struct {
+	Emit   Emitter
+	Notify func(title, body string)
+	Named  func(open, quit string)
+}
+
 // What the window is told. The interface subscribes to both by name.
 const (
 	// EventTopic carries one of the person's events, as Convia sent it.
@@ -143,8 +150,22 @@ func (application *App) held() *client.Client {
 // tell passes something to the window, and does nothing when there is no
 // window — which is every test in this package.
 func (application *App) tell(topic string, what any) {
-	if application.emit != nil {
-		application.emit(topic, what)
+	if application.window.Emit != nil {
+		application.window.Emit(topic, what)
+	}
+}
+
+// Notify asks the native window to show a notification, when available.
+func (application *App) Notify(title, body string) {
+	if application.window.Notify != nil {
+		application.window.Notify(title, body)
+	}
+}
+
+// Named sets the native menu labels, when available.
+func (application *App) Named(open, quit string) {
+	if application.window.Named != nil {
+		application.window.Named(open, quit)
 	}
 }
 
@@ -157,9 +178,9 @@ instead of leaving it running in a process on its way out. The emitter arrives
 here rather than at construction because it is made from this same context:
 there is nothing to tell a window that has not opened.
 */
-func (application *App) Start(ctx context.Context, emit Emitter) {
+func (application *App) Start(ctx context.Context, window Window) {
 	application.lifetime = ctx
-	application.emit = emit
+	application.window = window
 }
 
 /*

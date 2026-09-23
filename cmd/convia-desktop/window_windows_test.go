@@ -59,3 +59,27 @@ func TestABuildWithoutWailsTagsSaysHowToBuildIt(t *testing.T) {
 		}
 	}
 }
+
+/*
+TestNobodyIsLookingAtAWindowThatIsMinimisedOrPutAway is the rule notifications
+turn on, and the second case is the one that was missing: minimising Convia
+left it convinced somebody was still reading, so nothing was ever said while
+the window sat in the taskbar.
+*/
+func TestNobodyIsLookingAtAWindowThatIsMinimisedOrPutAway(t *testing.T) {
+	for _, each := range []struct {
+		window    string
+		shown     bool
+		minimised bool
+		looking   bool
+	}{
+		{"on the screen", true, false, true},
+		{"minimised", true, true, false},
+		{"beside the clock", false, false, false},
+		{"beside the clock, minimised before that", false, true, false},
+	} {
+		if got := looking(each.shown, each.minimised); got != each.looking {
+			t.Errorf("looking at a window %s = %v, want %v", each.window, got, each.looking)
+		}
+	}
+}

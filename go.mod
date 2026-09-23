@@ -3,6 +3,7 @@ module convia
 go 1.26.6
 
 require (
+	fyne.io/systray v1.12.2
 	github.com/coder/websocket v1.8.15
 	github.com/danieljoos/wincred v1.2.3
 	github.com/getkin/kin-openapi v0.149.0
