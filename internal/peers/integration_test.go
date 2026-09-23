@@ -404,13 +404,13 @@ func TestSomebodyWhoSignsInHereNeedsNoPointer(t *testing.T) {
 	}
 }
 
-var nothingMayLeave = errors.New("nothing may leave this installation")
+var errNothingMayLeave = errors.New("nothing may leave this installation")
 
 func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
 
-	setup.relay.err = nothingMayLeave
+	setup.relay.err = errNothingMayLeave
 	const home = "http://localhost:8080"
 
 	bruno, identity, err := setup.accounts.Register(ctx, "bruno", "another good password")
@@ -443,7 +443,7 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 	}
 
 	elsewhere := Link{Home: "https://elsewhere.example", InvitationID: invitation.ID}.String()
-	if _, _, err := setup.service.Look(ctx, home, brunoHere, identity, elsewhere); !errors.Is(err, nothingMayLeave) {
+	if _, _, err := setup.service.Look(ctx, home, brunoHere, identity, elsewhere); !errors.Is(err, errNothingMayLeave) {
 		t.Errorf("Look() at another installation's link error = %v, want it to have travelled", err)
 	}
 }

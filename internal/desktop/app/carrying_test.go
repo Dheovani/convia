@@ -156,6 +156,27 @@ func (installation *serving) received() []arrived {
 	return append([]arrived(nil), installation.got...)
 }
 
+/*
+reachedSince names which of these requests arrived after a mark, if any.
+
+Counting everything that arrived cannot answer that. A signed-in person has an
+event stream open, and it reaches the installation on a goroutine of its own
+for as long as the test runs — so a count taken before and a count taken after
+differ for a reason that has nothing to do with what is being asserted. The
+mark is where to start reading, and the paths are the claim itself.
+*/
+func (installation *serving) reachedSince(mark int, paths ...string) []string {
+	var carried []string
+	for _, one := range installation.received()[mark:] {
+		for _, path := range paths {
+			if one.path == path {
+				carried = append(carried, one.method+" "+one.path)
+			}
+		}
+	}
+	return carried
+}
+
 func (installation *serving) asked(path string) *arrived {
 	for _, one := range installation.received() {
 		if one.path == path {
@@ -262,7 +283,9 @@ func TestTheRoutesThatHandOverASessionAreNotCarried(t *testing.T) {
 		{http.MethodPost, "/v1/me/delete"},
 	}
 
+	paths := make([]string, 0, len(applications))
 	for _, route := range applications {
+		paths = append(paths, route.path)
 		response := through(made, route.method, route.path, `{}`)
 
 		if response.Code != http.StatusForbidden {
@@ -273,8 +296,8 @@ func TestTheRoutesThatHandOverASessionAreNotCarried(t *testing.T) {
 		}
 	}
 
-	if after := len(installation.received()); after != before {
-		t.Errorf("%d of them reached the installation anyway", after-before)
+	if carried := installation.reachedSince(before, paths...); len(carried) > 0 {
+		t.Errorf("%v reached the installation anyway", carried)
 	}
 }
 
@@ -345,14 +368,15 @@ func TestAnythingOutsideTheAPIIsNotCarried(t *testing.T) {
 	made, _, _ := connected(t, installation)
 	before := len(installation.received())
 
-	for _, path := range []string{"/favicon.ico", "/rooms/abc", "/v2/me"} {
+	outside := []string{"/favicon.ico", "/rooms/abc", "/v2/me"}
+	for _, path := range outside {
 		if response := through(made, http.MethodGet, path, ""); response.Code != http.StatusNotFound {
 			t.Errorf("%s was answered %d, want 404", path, response.Code)
 		}
 	}
 
-	if after := len(installation.received()); after != before {
-		t.Error("something outside the API reached the installation")
+	if carried := installation.reachedSince(before, outside...); len(carried) > 0 {
+		t.Errorf("%v reached the installation", carried)
 	}
 }
 
