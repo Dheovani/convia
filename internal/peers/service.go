@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -411,7 +412,31 @@ accepting an invitation, never by a signed request that happens to arrive. A
 suspended person is refused on their next request, as a suspended session is.
 */
 func (service *Service) Visit(ctx context.Context, signer Signer) (sessions.Principal, error) {
-	person, err := service.people.BySubject(ctx, service.application, signer.AccountID)
+	return service.visiting(ctx, signer.AccountID)
+}
+
+/*
+Visiting re-asks whether an account is still somebody here, with no signature to
+present.
+
+A signature proves who is asking, and it is checked on every request — but a
+stream is one request that stays open for hours, and what it is allowed to carry
+has to keep being true after the signature that opened it. This is what a
+visitor's stream asks on its interval, and it answers the same way [Visit] does.
+*/
+func (service *Service) Visiting(ctx context.Context, accountID string) (bool, error) {
+	_, err := service.visiting(ctx, accountID)
+	if errors.Is(err, ErrUnauthenticated) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (service *Service) visiting(ctx context.Context, accountID string) (sessions.Principal, error) {
+	person, err := service.people.BySubject(ctx, service.application, accountID)
 	if errors.Is(err, users.ErrNotFound) {
 		return sessions.Principal{}, ErrUnauthenticated
 	}
@@ -423,7 +448,7 @@ func (service *Service) Visit(ctx context.Context, signer Signer) (sessions.Prin
 	}
 
 	return sessions.Principal{
-		AccountID:     signer.AccountID,
+		AccountID:     accountID,
 		UserID:        person.ID,
 		ApplicationID: service.application,
 	}, nil
@@ -453,10 +478,15 @@ Look previews an invitation on behalf of the person it names.
 Links to this installation stay in process so local invitations do not depend
 on the server being allowed to dial its own private address. Other homes must
 still pass through the guarded peer client.
+
+`ours` is the addresses that are this installation: the one an operator
+configured, and the one this request arrived at. A link naming anything else
+travels, exactly as written — working out which other names might resolve to
+this same machine is how that guard gets talked out of its job.
 */
 func (service *Service) Look(
 	ctx context.Context,
-	here string,
+	ours []string,
 	principal sessions.Principal,
 	identity accounts.Identity,
 	rawLink string,
@@ -466,7 +496,7 @@ func (service *Service) Look(
 		return Link{}, Preview{}, err
 	}
 
-	if link.Home == here {
+	if slices.Contains(ours, link.Home) {
 		preview, err := service.preview(ctx, principal.AccountID, link.InvitationID)
 		if err != nil {
 			return Link{}, Preview{}, err
@@ -503,7 +533,7 @@ member of it here, and it appears in their own list like any other.
 */
 func (service *Service) Join(
 	ctx context.Context,
-	here string,
+	ours []string,
 	account accounts.Account,
 	identity accounts.Identity,
 	rawLink string,
@@ -513,7 +543,7 @@ func (service *Service) Join(
 		return Joined{}, err
 	}
 
-	if link.Home == here {
+	if slices.Contains(ours, link.Home) {
 		accepted, err := service.accept(ctx, account.ID, account.Username, link.InvitationID)
 		if err != nil {
 			return Joined{}, err

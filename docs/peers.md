@@ -36,7 +36,7 @@ POST /v1/me/rooms/{room_id}/invitations
 - Somebody already in the room answers `409`.
 - Somebody the room's owner banned answers `403`, and a link already sent to them stops admitting them. Lifting the ban before the link expires makes it work again.
 - A visitor is never a room's owner, and never inherits one: moderation stays on the room's home ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)).
-- **The link lasts a day and is used once.** `DELETE /v1/me/room-invitations/{id}` withdraws it before then, and `GET /v1/me/rooms/{room_id}/invitations` lists the ones a person made into a room that still work, with their links. Only their own: the other people in the room did not send them. Both the link handed back when an invitation is made and the ones in that list name this installation the same way: by the `Origin` when the request carried one, and otherwise by the address the request reached. Two things send no `Origin` and both are ordinary — a page reading a list, and Convia’s own application, whose requests are carried with the browser taken off them on purpose ([ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md)).
+- **The link lasts a day and is used once.** `DELETE /v1/me/room-invitations/{id}` withdraws it before then, and `GET /v1/me/rooms/{room_id}/invitations` lists the ones a person made into a room that still work, with their links. Only their own: the other people in the room did not send them. Both the link handed back when an invitation is made and the ones in that list name this installation the same way, and **`CONVIA_PUBLIC_ADDRESS` is that way when it is set** — it is the address an operator says other installations reach this one at, and it outranks anything a request can offer, because every address a request offers is the address *this* person reached Convia at. Unset, the link is named by the `Origin` when the request carried one and otherwise by the address the request arrived at. Two things send no `Origin` and both are ordinary — a page reading a list, and Convia’s own application, whose requests are carried with the browser taken off them on purpose ([ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md)). That guess is right for one machine on one network and wrong behind a reverse proxy, or when an administrator opens Convia at an address nobody else can reach, which is what the setting is for.
 - **The link names this installation by the address the inviting browser used.** Opened as `localhost`, that is the inviter's own machine, and the interface says so: nobody elsewhere can follow it. Open Convia at an address others can reach.
 
 **The link is not a secret.** It can go through any channel. Accepting it needs a signature by the key whose fingerprint is Bia's identifier, and the username must be `bia`. A link forwarded to somebody else, or read on the way, lets nobody else in.
@@ -54,7 +54,7 @@ Looking shows the room's name, who invited her, and which installation it lives 
 
 Joining makes Bia a user of Ana's installation, identified by her account identifier and named `bia#7QK4` (her username and the first characters of her identifier, so two people named `bia` can be told apart), and a member of the room. Bia's Convia keeps a pointer: the home, the room, who Bia is there, and the room's name.
 
-If the link turns out to point at Bia's own installation, nothing is kept: she is simply a member of that room now, and it appears among her rooms. **That case never leaves the process.** A link whose home is the address the request reached is looked at and accepted here, against the same rows, rather than as a signed request this installation makes to itself — which would make the commonest invitation of all, two people on one Convia, depend on the server being able to dial its own address. Behind a private network, or on somebody's computer, it cannot, and `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` is a setting about *other people's* links, not a way to make your own work. Anything whose home is not that exact address travels, whatever it resolves to; guessing at which names mean this same machine is how the guard against reaching the private network gets talked out of its job.
+If the link turns out to point at Bia's own installation, nothing is kept: she is simply a member of that room now, and it appears among her rooms. **That case never leaves the process.** An installation answers to **both** of its addresses for this — the configured one and the one the request arrived at — and a link naming either is looked at and accepted here, against the same rows, rather than as a signed request this installation makes to itself — which would make the commonest invitation of all, two people on one Convia, depend on the server being able to dial its own address. Behind a private network, or on somebody's computer, it cannot, and `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` is a setting about *other people's* links, not a way to make your own work. Anything whose home is not that exact address travels, whatever it resolves to; guessing at which names mean this same machine is how the guard against reaching the private network gets talked out of its job.
 
 Every failure to use an invitation — unknown, expired, used, withdrawn, meant for somebody else — is one `404`. Two acceptances at once cannot both succeed.
 
@@ -76,6 +76,23 @@ The home serves those with **the same handlers** it serves its own signed-in peo
 What Bia's Convia relays is re-encoded from what it decoded, never forwarded as it arrived, and only the query parameters a route has are passed on.
 
 **A home that refuses Bia answers `403` on Bia's Convia, never `401`.** The page treats a `401` as its own session ending, and a room elsewhere turning Bia away says nothing about her session at home.
+
+### Being told, rather than asking
+
+Bia's Convia holds a **signed stream** open to each home she has a room on, for as long as she is connected to her own:
+
+```
+Bia's browser ── GET /v1/me/events ──▶ Bia's Convia ── GET /v1/peer/events ──▶ Ana's Convia
+                                                          signed with Bia's key
+```
+
+It runs this way round, and not the other, for the reason everything else here does: **there is no installation identity**. A home cannot prove itself to Bia's Convia — there is no key it could do it with — and it does not know where Bia's Convia is. What exists is Bia's own key, so her installation opens the connection and signs the handshake with it, exactly as it signs every other request it makes for her. The home serves that stream with the same handler it serves `/v1/me/events` with, because a visitor is a user there and membership decides what either is told.
+
+**What it costs a home is one connection per visitor who is connected**, not one per room and not one per visitor it has ever admitted. Bia's key is sealed by her password and opened from her session, so the stream cannot outlive her being signed in even if anybody wanted it to.
+
+What arrives is translated before Bia sees it. The home names its own rooms and knows nothing of the pointer Bia's Convia keeps, so an event about `room_X` there becomes an event about the `rrm_` that names it here; an event naming a room she has no pointer for is dropped. **The home's cursor is stripped**: a cursor is a position in the journal of the installation that gave it out, and passing one on would let Bia's page ask her own Convia to resume from a place in somebody else's journal. What she missed in a room elsewhere is read from its home instead, which is what her page already does after any gap.
+
+Which installations she has a room on is read again every thirty seconds, so a room she joins while the stream is open is followed without waiting for anything to reconnect.
 
 ## Signatures
 
@@ -111,7 +128,7 @@ The home accepts it only when all of these hold:
 
 Nonces are claimed in `peer_nonces`, whose primary key decides, so a replay reaching two instances at once is still refused once. They expire with the window.
 
-The **authority** is signed so that a home cannot take a request Bia sent it and replay it to a third installation where Bia is also a member. It is compared with the `Host` the request arrived with, so a reverse proxy in front of the home must preserve `Host`.
+The **authority** is signed so that a home cannot take a request Bia sent it and replay it to a third installation where Bia is also a member. It is compared with the `Host` the request arrived with, so a reverse proxy in front of the home must preserve `Host`. **`CONVIA_PUBLIC_ADDRESS` does not change that.** It says what a link names; it is not consulted here, so an installation that publishes an address its proxy then rewrites the `Host` of hands out links whose requests it will refuse. Letting the configured address stand as the authority as well is `M33-003`'s decision to make, with the rest of what one installation trusts another to say.
 
 ## Where the key comes from
 
@@ -142,7 +159,7 @@ Turning it on in production still refuses plain `http`, so installations on a pr
 
 ## Known gaps
 
-- **A room elsewhere is not announced.** The page reads it on a five-second timer while it is open, and its row in the sidebar has no unread count.
+- **A room elsewhere has no unread count.** What happens in one is announced since `M33-001`, so the page is no longer read on a timer — but the count in the sidebar is read from the home, and nothing asks it for one yet.
 - **A home that does not answer cannot be left, only forgotten.** Leaving keeps the pointer until the home confirms, because dropping it silently would leave a membership nothing here remembers. Once leaving has failed, the interface offers to forget the room here anyway (`DELETE /v1/me/remote-rooms/{id}`), after saying that the person stays a member at the home and that nothing here can take them out later. It is how somebody gets rid of a room whose home is gone, has moved, or refuses them.
 - **No calls between installations yet.** The call interface itself is still to come (`M18-004`); when it arrives, a visitor will reach the home's media plane directly, with a token the home issues.
 - **No verification code on first contact.** Looking at a link shows the room, the inviter's handle and the home's address, and that is the check.

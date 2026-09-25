@@ -359,3 +359,120 @@ describe('a stream that ends', () => {
     expect(FakeSocket.latest()!.url).not.toContain('after=')
   })
 })
+
+/*
+A room on another installation is told about too, since `M33-001`.
+
+Before it, the only way to know something had been said in a room elsewhere was
+to ask its home every five seconds through this installation. Now that
+installation holds a signed stream open to the home and passes on what arrives,
+having first rewritten the room its home names into the one this person knows
+it by — which is why the event below carries the pointer and not the home's own
+identifier.
+*/
+describe('a room somewhere else, told rather than asked', () => {
+  const remoteId = 'rrm_7KQZP4XN2VJH6TBWMDR3YAFC5E'
+  const anaThere = 'usr_4XZQP7KN2VJH6TBWMDR3YAFC5E'
+  const elsewhereHistory = `/v1/me/remote-rooms/${remoteId}/messages`
+  const elsewhereNewer = `${elsewhereHistory}?limit=50&cursor=1&direction=newer`
+
+  function visiting(): FakeConvia {
+    return new FakeConvia()
+      .on('GET', '/v1/me/rooms', { body: { data: [] } })
+      .on('GET', '/v1/me/remote-rooms', {
+        body: {
+          data: [
+            {
+              id: remoteId,
+              home: 'https://elsewhere.example',
+              room_id: room().id,
+              user_id: anaThere,
+              name: 'Their room',
+            },
+          ],
+        },
+      })
+      .on('GET', elsewhereHistory, {
+        body: { data: [message({ user_id: anaThere, body: 'Said over there.' })] },
+      })
+      .on('GET', elsewhereNewer, { body: { data: [] } })
+      .on('PUT', `/v1/me/remote-rooms/${remoteId}/read_state`, {
+        body: { room_id: room().id, user_id: anaThere, sequence: 1, unread: 0 },
+      })
+      .on('GET', `/v1/me/remote-rooms/${remoteId}/members`, {
+        body: { data: [{ user_id: anaThere, display_name: 'ana#7QK4' }] },
+      })
+  }
+
+  it('reads what was just said there when the event names the room by its pointer', async () => {
+    const server = visiting()
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    await screen.findByText('Said over there.')
+    const socket = await connected()
+    await settle(server)
+
+    server.on('GET', elsewhereNewer, {
+      body: {
+        data: [message({ id: 'msg_second', sequence: 2, user_id: anaThere, body: 'And again over there.' })],
+      },
+    })
+    act(() =>
+      socket.deliver(
+        event('message.posted', { type: 'message', id: 'msg_second' }, { room_id: remoteId, sequence: 2 }),
+      ),
+    )
+
+    expect(await screen.findByText('And again over there.')).toBeInTheDocument()
+  })
+
+  /*
+  The timer itself, gone.
+
+  Being told and asking every five seconds both end with the message on the
+  screen, so the only way to tell them apart is to say nothing and watch: a room
+  that is still asking reads again within that window, and a room that is told
+  reads nothing at all.
+  */
+  it('stops asking its home on a timer', async () => {
+    const server = visiting()
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    await screen.findByText('Said over there.')
+    await connected()
+    await settle(server)
+
+    const before = count(server, 'GET', elsewhereNewer)
+    await act(() => new Promise((resolve) => setTimeout(resolve, 6_000)))
+
+    expect(count(server, 'GET', elsewhereNewer)).toBe(before)
+  }, 20_000)
+
+  // The room a person is looking at is not every room they are in, and an
+  // installation elsewhere may say anything about any of them.
+  it('leaves the open room alone when the news is about another room elsewhere', async () => {
+    const server = visiting()
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    await screen.findByText('Said over there.')
+    const socket = await connected()
+    await settle(server)
+
+    const before = count(server, 'GET', elsewhereNewer)
+    act(() =>
+      socket.deliver(
+        event(
+          'message.posted',
+          { type: 'message', id: 'msg_elsewhere' },
+          { room_id: 'rrm_4XZQP7KN2VJH6TBWMDR3YAFC5E', sequence: 9 },
+        ),
+      ),
+    )
+    await act(() => new Promise((resolve) => setTimeout(resolve, 200)))
+
+    expect(count(server, 'GET', elsewhereNewer)).toBe(before)
+  })
+})

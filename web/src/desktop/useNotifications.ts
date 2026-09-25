@@ -33,7 +33,7 @@ export function useNotifications(
 
       const name =
         here.find((room) => room.id === roomId)?.name ??
-        elsewhere.find((room) => room.room_id === roomId)?.name
+        elsewhere.find((room) => room.id === roomId)?.name
       if (name === undefined) {
         return
       }

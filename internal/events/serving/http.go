@@ -234,7 +234,7 @@ func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http
 		"active_streams", handler.broker.Active(),
 	)
 
-	status, reason := deliver(request.Context(), connection, stream, nil, from)
+	status, reason := deliver(request.Context(), connection, stream, nil, nil, from)
 
 	handler.logger.Info("event stream closed",
 		"application_id", principal.ApplicationID,
@@ -312,6 +312,7 @@ func deliver(
 	ctx context.Context,
 	connection *websocket.Conn,
 	stream *events.Stream,
+	abroad <-chan events.Event,
 	again *recheck,
 	from *resume,
 ) (websocket.StatusCode, string) {
@@ -325,7 +326,7 @@ func deliver(
 		refuseClientMessages(listening, connection)
 	}()
 
-	status, reason := pump(listening, connection, stream, again, from)
+	status, reason := pump(listening, connection, stream, abroad, again, from)
 
 	/*
 		The close frame goes first and the reader is waited for second. Closing
@@ -351,6 +352,7 @@ func pump(
 	ctx context.Context,
 	connection *websocket.Conn,
 	stream *events.Stream,
+	abroad <-chan events.Event,
 	again *recheck,
 	from *resume,
 ) (websocket.StatusCode, string) {
@@ -394,6 +396,28 @@ func pump(
 
 			writing, cancel := context.WithTimeout(ctx, writeTimeout)
 			err := wsjson.Write(writing, connection, stream.Outgoing(event))
+			cancel()
+
+			if err != nil {
+				return closeStatusFor(err), "the event could not be delivered"
+			}
+
+		/*
+			What another installation said about a room this person is in there.
+
+			It is written as it arrived: it was shaped for a person by the home
+			that sent it, and their own installation has already translated the
+			room it names into the one this person knows it by. It carries no
+			cursor, so nothing here can be asked to resume from it.
+		*/
+		case event, open := <-abroad:
+			if !open {
+				abroad = nil
+				continue
+			}
+
+			writing, cancel := context.WithTimeout(ctx, writeTimeout)
+			err := wsjson.Write(writing, connection, event)
 			cancel()
 
 			if err != nil {
@@ -555,11 +579,13 @@ the upgrade, kept current by the membership events the stream itself carries,
 and read again on an interval along with the session.
 */
 type PersonHandler struct {
-	logger   *slog.Logger
-	broker   *events.Broker
-	replayer events.Replayer
-	sessions sessionAuthenticator
-	rooms    memberships
+	logger    *slog.Logger
+	broker    *events.Broker
+	replayer  events.Replayer
+	sessions  sessionAuthenticator
+	visitors  visitors
+	elsewhere elsewhere
+	rooms     memberships
 
 	// every is how often the stream rechecks, which is recheckInterval outside
 	// the tests that need to watch it happen.
@@ -571,11 +597,51 @@ func NewPersonHandler(
 	broker *events.Broker,
 	replayer events.Replayer,
 	sessions sessionAuthenticator,
+	visitors visitors,
+	elsewhere elsewhere,
 	rooms memberships,
 ) *PersonHandler {
-	return &PersonHandler{logger: logger, broker: broker, replayer: replayer, sessions: sessions, rooms: rooms,
-		every: recheckInterval}
+	return &PersonHandler{logger: logger, broker: broker, replayer: replayer, sessions: sessions,
+		visitors: visitors, elsewhere: elsewhere, rooms: rooms, every: recheckInterval}
 }
+
+/*
+visitors re-asks whether somebody from another installation is still somebody
+here, for as long as their stream stays open.
+
+It answers whether they still are rather than an error for not being one,
+because the two answers are different things to do: a stream whose person is
+gone is closed and told why, and one that could not ask is left open until the
+next interval. peers.Service satisfies it.
+*/
+type visitors interface {
+	Visiting(ctx context.Context, accountID string) (bool, error)
+}
+
+/*
+elsewhere follows what happens to a person in rooms on other installations, for
+as long as their stream here is open.
+
+It is a second source of events for one connection, and deliberately not the
+broker. Events from another installation are that installation's: publishing
+them here would put them in front of every other instance of this one, and in
+front of anybody else's stream that happened to cover the same identifier. A nil
+channel — which is what somebody in no room elsewhere gets — is never ready, so
+the cost to everybody else is one case in a select. peers.Following satisfies it.
+*/
+type elsewhere interface {
+	Follow(ctx context.Context, accountID, token string) (<-chan events.Event, error)
+}
+
+/*
+recognised is how a stream asks, on its interval, whether the person it was
+opened for is still somebody it may be delivered to.
+
+Which credential proved them differs — a session here, a signature from another
+installation — and so does the sentinel each surface uses for gone, so each
+translates its own before this is called.
+*/
+type recognised func(ctx context.Context) (still bool, err error)
 
 /*
 Stream upgrades the request and delivers the person's events until one side
@@ -589,17 +655,97 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 	principal, found := sessions.PrincipalFromContext(request.Context())
 	token, presented := sessions.Present(request)
 	if !found || !presented {
-		path := strings.ReplaceAll(strings.ReplaceAll(request.URL.Path, "\n", ""), "\r", "")
-		handler.logger.Error("a session route was reached without a session",
-			"method", request.Method,
-			"path", path,
-			"request_id", api.RequestIDFromContext(request.Context()),
-		)
-		handler.fail(response, request, api.NewFailure(http.StatusUnauthorized,
-			api.CodeUnauthenticated, "The request did not carry a usable credential."))
+		handler.unrecognised(response, request)
 		return
 	}
 
+	/*
+		What happens to this person on other installations, followed for as long
+		as this connection lasts. A visitor's stream is not followed onwards:
+		their rooms elsewhere are their own installation's to tell them about,
+		and chaining would have one home hold streams on behalf of another.
+	*/
+	var abroad <-chan events.Event
+	if handler.elsewhere != nil {
+		followed, err := handler.elsewhere.Follow(request.Context(), principal.AccountID, token)
+		if err != nil {
+			// A stream about the rooms here is worth more than none at all, so
+			// this is said and the rest goes ahead.
+			handler.logger.Warn("the rooms somebody is in elsewhere could not be followed",
+				"error", err, "account_id", principal.AccountID,
+				"request_id", api.RequestIDFromContext(request.Context()))
+		} else {
+			abroad = followed
+		}
+	}
+
+	handler.serve(response, request, principal, abroad, "session_id", principal.SessionID,
+		"the session this stream was opened with has ended",
+		func(ctx context.Context) (bool, error) {
+			_, err := handler.sessions.Authenticate(ctx, token)
+			if errors.Is(err, sessions.ErrUnauthenticated) {
+				return false, nil
+			}
+			return true, err
+		})
+}
+
+/*
+Visiting serves the same stream to somebody taking part from another
+installation.
+
+It is the same stream because they are in the same rooms: a visitor is a user
+here, made when they accepted an invitation, and what they may be told is
+decided by membership exactly as it is for anybody else. What differs is only
+what proved them — a signature by their own key rather than a session — which
+the surface checked before this was reached and which this rechecks on the same
+interval. See internal/peers.
+*/
+func (handler *PersonHandler) Visiting(response http.ResponseWriter, request *http.Request) {
+	principal, found := sessions.PrincipalFromContext(request.Context())
+	if !found || handler.visitors == nil {
+		handler.unrecognised(response, request)
+		return
+	}
+
+	handler.serve(response, request, principal, nil, "account_id", principal.AccountID,
+		"this installation no longer recognises you",
+		func(ctx context.Context) (bool, error) {
+			return handler.visitors.Visiting(ctx, principal.AccountID)
+		})
+}
+
+// unrecognised is a stream route reached without whatever the surface in
+// front of it was supposed to have proved, which is a mistake in the wiring.
+func (handler *PersonHandler) unrecognised(response http.ResponseWriter, request *http.Request) {
+	path := strings.ReplaceAll(strings.ReplaceAll(request.URL.Path, "\n", ""), "\r", "")
+	handler.logger.Error("a stream route was reached without anybody to serve it to",
+		"method", request.Method,
+		"path", path,
+		"request_id", api.RequestIDFromContext(request.Context()),
+	)
+	handler.fail(response, request, api.NewFailure(http.StatusUnauthorized,
+		api.CodeUnauthenticated, "The request did not carry a usable credential."))
+}
+
+/*
+serve is a person's stream once somebody has been recognised, which is all of
+it: the rooms, the upgrade, the delivery, and asking on an interval whether
+they are still somebody.
+
+Both ways of being recognised reach it. `who` and `whom` name the credential
+that proved them, so the log says which, and `gone` is what the other end is
+told when they stop being somebody while it is open.
+*/
+func (handler *PersonHandler) serve(
+	response http.ResponseWriter,
+	request *http.Request,
+	principal sessions.Principal,
+	abroad <-chan events.Event,
+	who, whom string,
+	gone string,
+	still recognised,
+) {
 	after, resuming, err := resumption(request)
 	if err != nil {
 		handler.fail(response, request, api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest,
@@ -617,7 +763,7 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 	if err := stream.Reconcile(handler.roomsOf(request.Context(), principal)); err != nil {
 		handler.logger.Error("read the rooms a person's event stream covers",
 			"error", err,
-			"session_id", principal.SessionID,
+			who, whom,
 			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
@@ -630,27 +776,27 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 		from = &resume{after: after, replayer: handler.replayer}
 	}
 
-	connection, ok := accept(handler.logger, response, request, "session_id", principal.SessionID)
+	connection, ok := accept(handler.logger, response, request, who, whom)
 	if !ok {
 		return
 	}
 	defer connection.CloseNow()
 
 	handler.logger.Info("person event stream opened",
-		"session_id", principal.SessionID,
+		who, whom,
 		"request_id", api.RequestIDFromContext(request.Context()),
 		"active_streams", handler.broker.Active(),
 	)
 
-	status, reason := deliver(request.Context(), connection, stream, &recheck{
+	status, reason := deliver(request.Context(), connection, stream, abroad, &recheck{
 		every: handler.every,
 		run: func(ctx context.Context) (websocket.StatusCode, string, bool) {
-			return handler.recheck(ctx, token, principal, stream)
+			return handler.recheck(ctx, principal, stream, gone, still)
 		},
 	}, from)
 
 	handler.logger.Info("person event stream closed",
-		"session_id", principal.SessionID,
+		who, whom,
 		"request_id", api.RequestIDFromContext(request.Context()),
 		"close_status", int(status),
 		"close_reason", reason,
@@ -661,37 +807,38 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 /*
 recheck asks whether the stream should stay open, and which rooms it covers.
 
-A session that no longer authenticates ends the stream. A check that could not
-be made does not: the database being briefly unreachable says nothing about the
+A person who is no longer recognised ends the stream. A check that could not be
+made does not: the database being briefly unreachable says nothing about the
 person, and closing every stream on an instance because of it would send every
 open tab to reconnect at once, into the same outage.
 
-Authenticating again also counts as using the session, exactly as a request
-does. An open tab keeps its session from going idle, which is what the tab
-polling every few seconds already did.
+For a session, asking again also counts as using it, exactly as a request does.
+An open tab keeps its session from going idle, which is what the tab polling
+every few seconds already did.
 */
 func (handler *PersonHandler) recheck(
 	ctx context.Context,
-	token string,
 	principal sessions.Principal,
 	stream *events.Stream,
+	gone string,
+	still recognised,
 ) (websocket.StatusCode, string, bool) {
 	checking, cancel := context.WithTimeout(ctx, recheckTimeout)
 	defer cancel()
 
-	_, err := handler.sessions.Authenticate(checking, token)
-	if errors.Is(err, sessions.ErrUnauthenticated) {
-		return statusSessionEnded, "the session this stream was opened with has ended", true
-	}
+	present, err := still(checking)
 	if err != nil {
-		handler.logger.Warn("a person's event stream could not recheck its session",
-			"error", err, "session_id", principal.SessionID)
+		handler.logger.Warn("a person's event stream could not recheck who it is for",
+			"error", err, "account_id", principal.AccountID)
 		return 0, "", false
+	}
+	if !present {
+		return statusSessionEnded, gone, true
 	}
 
 	if err := stream.Reconcile(handler.roomsOf(checking, principal)); err != nil {
 		handler.logger.Warn("a person's event stream could not read their rooms again",
-			"error", err, "session_id", principal.SessionID)
+			"error", err, "account_id", principal.AccountID)
 	}
 	return 0, "", false
 }

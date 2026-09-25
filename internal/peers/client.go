@@ -10,7 +10,10 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"convia/internal/accounts"
 	"convia/internal/api"
@@ -49,26 +52,41 @@ refused outside development, no proxy is consulted, and no redirect is
 followed. See internal/webhooks.Destinations.
 */
 type Client struct {
-	http  *http.Client
-	guard webhooks.Destinations
-	now   func() time.Time
+	http *http.Client
+	/*
+		streaming is the same client without a deadline on the whole exchange.
+
+		A request has an end and a stream does not: the timeout that bounds one
+		request would cut a connection meant to stay open for hours. Everything
+		else is shared, the guard at the socket included, because an address
+		somebody else chose is no safer for being connected to for longer.
+	*/
+	streaming *http.Client
+	guard     webhooks.Destinations
+	now       func() time.Time
 }
 
 func NewClient(guard webhooks.Destinations) *Client {
 	dialer := &net.Dialer{Timeout: 5 * time.Second, Control: guard.Control}
+	transport := &http.Transport{
+		Proxy:                 nil,
+		DialContext:           dialer.DialContext,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: clientTimeout,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       time.Minute,
+	}
+	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 	return &Client{
 		http: &http.Client{
-			Timeout: clientTimeout,
-			Transport: &http.Transport{
-				Proxy:                 nil,
-				DialContext:           dialer.DialContext,
-				TLSHandshakeTimeout:   5 * time.Second,
-				ResponseHeaderTimeout: clientTimeout,
-				MaxIdleConnsPerHost:   4,
-				IdleConnTimeout:       time.Minute,
-			},
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			Timeout:       clientTimeout,
+			Transport:     transport,
+			CheckRedirect: noRedirect,
+		},
+		streaming: &http.Client{
+			Transport:     transport,
+			CheckRedirect: noRedirect,
 		},
 		guard: guard,
 		now:   time.Now,
@@ -164,4 +182,65 @@ func jsonObject(contentType string, payload []byte) bool {
 
 	var object map[string]json.RawMessage
 	return json.Unmarshal(payload, &object) == nil
+}
+
+/*
+Stream opens a signed WebSocket to another installation and answers it.
+
+The handshake is an ordinary signed request — the same canonical form, the same
+headers, the same guard at the socket — so a home checks it exactly as it checks
+any other. What differs afterwards is only that nothing is read back here: the
+connection is the caller's, and closing it is theirs.
+
+The signature covers the address as https or http names it rather than as ws
+names it, because that is the authority the home compares against its own Host.
+*/
+func (client *Client) Stream(
+	ctx context.Context,
+	identity accounts.Identity,
+	home, target string,
+) (*websocket.Conn, error) {
+	if !homePattern.MatchString(home) {
+		return nil, fmt.Errorf("%w: %q is not the address of an installation", ErrUnreachable, home)
+	}
+	if !targetPattern.MatchString(target) {
+		return nil, fmt.Errorf("%w: %q is not a path on the peer surface", ErrUnreachable, target)
+	}
+	if err := client.guard.Permits(home); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrUnreachable, err)
+	}
+
+	/*
+		Built as the request it is signed as, and dialled as the websocket URL
+		it becomes. Signing the ws form would sign an authority no home ever
+		compares against, so the two would never agree.
+	*/
+	signable, err := http.NewRequestWithContext(ctx, http.MethodGet, home+target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%w: build the handshake: %v", ErrUnreachable, err)
+	}
+	Sign(signable, nil, identity, client.now())
+
+	connection, response, err := websocket.Dial(ctx, websocketURL(home)+target, &websocket.DialOptions{
+		HTTPClient: client.streaming,
+		HTTPHeader: signable.Header,
+	})
+	if err != nil {
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+			_ = response.Body.Close()
+		}
+		return nil, fmt.Errorf("%w: the stream was not opened (%d): %v", ErrUnreachable, status, err)
+	}
+	return connection, nil
+}
+
+// websocketURL is a home as a WebSocket address. Only the scheme changes, so
+// that the host and port the guard checked are the ones dialled.
+func websocketURL(home string) string {
+	if rest, found := strings.CutPrefix(home, "https://"); found {
+		return "wss://" + rest
+	}
+	return "ws://" + strings.TrimPrefix(home, "http://")
 }

@@ -287,7 +287,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
 		PersonalEvents: serving.NewPersonHandler(logger, events.NewBroker(), nil,
-			stubSessionAuthenticator{principal: samplePerson()}, stubRooms{room: sampleRoom(), member: sampleMember()}),
+			stubSessionAuthenticator{principal: samplePerson()}, stubVisitors{}, nil,
+			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -317,7 +318,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 
 		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
 		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
-		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
+		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}, ""),
 
 		PersonalCalls: participants.NewSessionHandler(logger, stubPersonalCalls{},
 			stubRooms{room: sampleRoom(), member: sampleMember()}, user),

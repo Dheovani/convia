@@ -411,7 +411,15 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 	ctx := context.Background()
 
 	setup.relay.err = errNothingMayLeave
-	const home = "http://localhost:8080"
+
+	/*
+		The two addresses one installation answers to at once: the one an
+		operator configured for everybody else, and the one somebody on the
+		machine itself reached it at. A link naming either is ours.
+	*/
+	const configured = "https://convia.example"
+	const reached = "http://localhost:8080"
+	ours := []string{configured, reached}
 
 	bruno, identity, err := setup.accounts.Register(ctx, "bruno", "another good password")
 	if err != nil {
@@ -422,11 +430,11 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 		t.Fatalf("Invite() error = %v", err)
 	}
 
-	link := Link{Home: home, InvitationID: invitation.ID}.String()
+	link := Link{Home: reached, InvitationID: invitation.ID}.String()
 	brunoHere := sessions.Principal{AccountID: bruno.ID, UserID: bruno.UserID,
 		ApplicationID: applications.FirstPartyID}
 
-	_, preview, err := setup.service.Look(ctx, home, brunoHere, identity, link)
+	_, preview, err := setup.service.Look(ctx, ours, brunoHere, identity, link)
 	if err != nil {
 		t.Fatalf("Look() error = %v", err)
 	}
@@ -434,7 +442,17 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 		t.Errorf("Look() room = %q, want %q", preview.RoomName, setup.room.Name)
 	}
 
-	joined, err := setup.service.Join(ctx, home, bruno, identity, link)
+	/*
+		The configured address is ours too. It is checked before joining, because
+		joining claims the invitation and a claimed one is not found — which is a
+		different answer from the one this is looking for.
+	*/
+	configuredLink := Link{Home: configured, InvitationID: invitation.ID}.String()
+	if _, _, err := setup.service.Look(ctx, ours, brunoHere, identity, configuredLink); err != nil {
+		t.Errorf("Look() at our configured address error = %v, want it answered here", err)
+	}
+
+	joined, err := setup.service.Join(ctx, ours, bruno, identity, link)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
@@ -443,7 +461,7 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 	}
 
 	elsewhere := Link{Home: "https://elsewhere.example", InvitationID: invitation.ID}.String()
-	if _, _, err := setup.service.Look(ctx, home, brunoHere, identity, elsewhere); !errors.Is(err, errNothingMayLeave) {
+	if _, _, err := setup.service.Look(ctx, ours, brunoHere, identity, elsewhere); !errors.Is(err, errNothingMayLeave) {
 		t.Errorf("Look() at another installation's link error = %v, want it to have travelled", err)
 	}
 }
@@ -490,7 +508,7 @@ func TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt(t *testing.T) {
 	}
 
 	for range 2 {
-		joined, err := setup.service.Join(ctx, "https://here.example", setup.ana, identity, link)
+		joined, err := setup.service.Join(ctx, []string{"https://here.example"}, setup.ana, identity, link)
 		if err != nil {
 			t.Fatalf("Join() error = %v", err)
 		}
@@ -521,7 +539,7 @@ func TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt(t *testing.T) {
 	}
 
 	setup.relay.err = nil
-	if _, err := setup.service.Join(ctx, "https://here.example", setup.ana, identity, link); err != nil {
+	if _, err := setup.service.Join(ctx, []string{"https://here.example"}, setup.ana, identity, link); err != nil {
 		t.Fatalf("joining again error = %v", err)
 	}
 	rejoined, _ := setup.service.RemoteRooms(ctx, setup.ana.ID)
@@ -550,7 +568,7 @@ func TestAHomeThatAnswersNonsenseIsNotBelieved(t *testing.T) {
 		Body:   []byte(`{"room_id":"../../v1/users","room_name":"x","user_id":"usr_7KQZP4XN2VJH6TBWMDR3YAFC5E"}`),
 	}
 
-	if _, err := setup.service.Join(ctx, "https://here.example", setup.ana, identity,
+	if _, err := setup.service.Join(ctx, []string{"https://here.example"}, setup.ana, identity,
 		Link{Home: "https://elsewhere.example", InvitationID: sampleInvitationID}.String()); !errors.Is(err, ErrUnreachable) {
 		t.Errorf("Join() with a malformed room error = %v, want %v", err, ErrUnreachable)
 	}

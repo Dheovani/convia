@@ -27,7 +27,7 @@ func servingPeople(t *testing.T, broker *events.Broker) *httptest.Server {
 	discard := slog.New(slog.NewTextHandler(io.Discard, nil))
 	dependencies := testDependencies()
 	dependencies.PersonalEvents = serving.NewPersonHandler(discard, broker, nil,
-		stubSessionAuthenticator{principal: samplePerson()},
+		stubSessionAuthenticator{principal: samplePerson()}, stubVisitors{}, nil,
 		stubRooms{room: sampleRoom(), member: sampleMember()})
 
 	server := httptest.NewServer(New("127.0.0.1:0", discard, dependencies).Handler)

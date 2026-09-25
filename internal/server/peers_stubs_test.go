@@ -61,12 +61,12 @@ func (service stubPeerService) Pending(ctx context.Context, principal sessions.P
 	return []peers.Invitation{invitation}, err
 }
 
-func (stubPeerService) Look(context.Context, string, sessions.Principal, accounts.Identity, string) (peers.Link, peers.Preview, error) {
+func (stubPeerService) Look(context.Context, []string, sessions.Principal, accounts.Identity, string) (peers.Link, peers.Preview, error) {
 	preview, _ := stubPeerHost{}.Preview(context.Background(), peers.Signer{}, "")
 	return peers.Link{Home: "https://convia.example"}, preview, nil
 }
 
-func (stubPeerService) Join(context.Context, string, accounts.Account, accounts.Identity, string) (peers.Joined, error) {
+func (stubPeerService) Join(context.Context, []string, accounts.Account, accounts.Identity, string) (peers.Joined, error) {
 	return peers.Joined{RoomID: sampleRoom().ID, RoomName: "Standup", Remote: &sampleRemoteRoom}, nil
 }
 
@@ -105,3 +105,7 @@ func (stubIdentities) Identity(context.Context, string) (accounts.Identity, erro
 func (stubIdentities) Account(context.Context, string) (accounts.Account, error) {
 	return sampleAccount(), nil
 }
+
+type stubVisitors struct{}
+
+func (stubVisitors) Visiting(context.Context, string) (bool, error) { return true, nil }

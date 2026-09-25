@@ -233,7 +233,7 @@ func TestAPersonIsReplayedOnlyTheirRoomsAndTheirOwnPlace(t *testing.T) {
 
 	broker := events.NewBroker()
 	handler := NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, replayer,
-		&switchableSession{}, &rooms{ids: []string{"room_a"}})
+		&switchableSession{}, alwaysVisiting{}, nil, &rooms{ids: []string{"room_a"}})
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		request.URL.RawQuery = "after=10-1"
 		handler.Stream(response, request.WithContext(

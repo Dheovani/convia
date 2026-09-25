@@ -1100,6 +1100,17 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(messagesHandler.Delete)},
 			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/members", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Members)},
+			/*
+				What happens here, to somebody taking part from elsewhere.
+
+				It is the same stream `/v1/me/events` serves, because a visitor is
+				a user here and what they may be told is decided by membership
+				either way. Their own installation holds it open and hands on what
+				arrives, which is why nothing here has to know how to reach them.
+				See internal/peers and docs/peers.md.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/peer/events", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalEvents.Visiting)},
 			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/leave", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Leave)},
 		)

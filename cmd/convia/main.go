@@ -264,13 +264,31 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		than the environment's, because anybody who registers can make it follow
 		a link. See docs/peers.md.
 	*/
+	/*
+		The address other installations reach this one at, if an operator said.
+
+		It is checked here, once, rather than on the request that needs it: a
+		value nobody can make a link out of is a mistake in the configuration,
+		and a mistake in the configuration stops the process rather than
+		producing links that quietly name the wrong place.
+	*/
+	publicAddress := ""
+	if cfg.PublicAddress != "" {
+		publicAddress, err = peers.ParseHome(cfg.PublicAddress)
+		if err != nil {
+			return fmt.Errorf("CONVIA_PUBLIC_ADDRESS must be an http or https address with no path, such as https://convia.example: %w", err)
+		}
+		logger.Info("invitation links will name this installation by its configured address", "address", publicAddress)
+	}
+
 	peerDestinations := destinations.WithPrivateAddresses(cfg.PeersAllowPrivateAddresses)
 	if cfg.PeersAllowPrivateAddresses {
 		logger.Warn("links between installations may reach this server's private network, and anybody who registers can follow one",
 			"remedy", "unset CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES unless the installations you share rooms with are on that network")
 	}
+	peerClient := peers.NewClient(peerDestinations)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peers.NewClient(peerDestinations), applications.FirstPartyID, logger)
+		accountService, peerClient, applications.FirstPartyID, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -319,11 +337,12 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
-		PersonalEvents:       serving.NewPersonHandler(logger, broker, follower, sessionService, roomService),
+		PersonalEvents: serving.NewPersonHandler(logger, broker, follower, sessionService, peerService,
+			peers.NewFollowing(peerService, sessionService, peerClient, logger), roomService),
 
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),
-		RoomInvitations:   peers.NewSessionHandler(logger, peerService, sessionService),
+		RoomInvitations:   peers.NewSessionHandler(logger, peerService, sessionService, publicAddress),
 
 		PersonalCalls: participants.NewSessionHandler(logger, participantService, roomService, userService),
 	}

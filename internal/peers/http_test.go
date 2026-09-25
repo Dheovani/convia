@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,11 +45,11 @@ func (service *recordingService) Pending(ctx context.Context, principal sessions
 	return []Invitation{invitation}, err
 }
 
-func (service *recordingService) Look(context.Context, string, sessions.Principal, accounts.Identity, string) (Link, Preview, error) {
+func (service *recordingService) Look(context.Context, []string, sessions.Principal, accounts.Identity, string) (Link, Preview, error) {
 	return Link{}, Preview{}, service.err
 }
 
-func (service *recordingService) Join(context.Context, string, accounts.Account, accounts.Identity, string) (Joined, error) {
+func (service *recordingService) Join(context.Context, []string, accounts.Account, accounts.Identity, string) (Joined, error) {
 	return Joined{}, service.err
 }
 
@@ -105,7 +106,7 @@ Origin, which a page sends on no GET: the links name the address the request
 reached, through the proxy that terminated it.
 */
 func TestPendingLinksNameTheAddressTheListWasReadAt(t *testing.T) {
-	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "")
 
 	request := asPerson(http.MethodGet, "/v1/me/rooms/room_7KQZP4XN2VJH6TBWMDR3YAFC5E/invitations", "")
 	request.Host = "convia.example"
@@ -133,7 +134,7 @@ passing its 401 along would sign them out of the wrong Convia.
 func TestAHomesRefusalNeverSignsSomebodyOut(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
 		service := &recordingService{answer: Response{Status: status, Code: "unauthenticated"}}
-		handler := NewSessionHandler(quiet(), service, openIdentities{})
+		handler := NewSessionHandler(quiet(), service, openIdentities{}, "")
 
 		response := httptest.NewRecorder()
 		handler.History(response, asPerson(http.MethodGet, "/v1/me/remote-rooms/x/messages", ""))
@@ -146,7 +147,7 @@ func TestAHomesRefusalNeverSignsSomebodyOut(t *testing.T) {
 
 func TestAnUnreachableHomeIsUnavailable(t *testing.T) {
 	service := &recordingService{err: ErrUnreachable}
-	handler := NewSessionHandler(quiet(), service, openIdentities{})
+	handler := NewSessionHandler(quiet(), service, openIdentities{}, "")
 
 	response := httptest.NewRecorder()
 	handler.History(response, asPerson(http.MethodGet, "/v1/me/remote-rooms/x/messages", ""))
@@ -160,7 +161,7 @@ func TestAnUnreachableHomeIsUnavailable(t *testing.T) {
 // not answer, so it needs neither the home nor the key that talks to it.
 func TestForgettingARoomAsksNothingOfItsHome(t *testing.T) {
 	service := &recordingService{}
-	handler := NewSessionHandler(quiet(), service, nil)
+	handler := NewSessionHandler(quiet(), service, nil, "")
 
 	response := httptest.NewRecorder()
 	handler.Forget(response, asPerson(http.MethodDelete, "/v1/me/remote-rooms/"+sampleRemoteID, ""))
@@ -179,7 +180,7 @@ func TestForgettingARoomAsksNothingOfItsHome(t *testing.T) {
 func TestOnlyAMessageIdentifierReachesTheHomesAddress(t *testing.T) {
 	for _, id := range []string{"../../users", "msg_short", "msg_7KQZP4XN2VJH6TBWMDR3YAFC5E/../x"} {
 		service := &recordingService{answer: Response{Status: http.StatusOK, Body: []byte(`{}`)}}
-		handler := NewSessionHandler(quiet(), service, openIdentities{})
+		handler := NewSessionHandler(quiet(), service, openIdentities{}, "")
 
 		request := asPerson(http.MethodPost, "/v1/me/remote-rooms/x/messages/x/delete", "")
 		request.SetPathValue("message_id", id)
@@ -197,7 +198,7 @@ func TestOnlyAMessageIdentifierReachesTheHomesAddress(t *testing.T) {
 	service := &recordingService{answer: Response{Status: http.StatusOK, Body: []byte(`{}`)}}
 	request := asPerson(http.MethodPost, "/v1/me/remote-rooms/x/messages/x/delete", "")
 	request.SetPathValue("message_id", "msg_7KQZP4XN2VJH6TBWMDR3YAFC5E")
-	NewSessionHandler(quiet(), service, openIdentities{}).Withdraw(httptest.NewRecorder(), request)
+	NewSessionHandler(quiet(), service, openIdentities{}, "").Withdraw(httptest.NewRecorder(), request)
 	if service.target != "/v1/peer/messages/msg_7KQZP4XN2VJH6TBWMDR3YAFC5E/delete" {
 		t.Errorf("a valid message was relayed to %q", service.target)
 	}
@@ -207,7 +208,7 @@ func TestOnlyAMessageIdentifierReachesTheHomesAddress(t *testing.T) {
 // forwards only the query parameters the route has.
 func TestARelayCarriesOnlyWhatThisInstallationUnderstood(t *testing.T) {
 	service := &recordingService{answer: Response{Status: http.StatusOK, Body: []byte(`{"data":[]}`)}}
-	handler := NewSessionHandler(quiet(), service, openIdentities{})
+	handler := NewSessionHandler(quiet(), service, openIdentities{}, "")
 
 	handler.History(httptest.NewRecorder(), asPerson(http.MethodGet,
 		"/v1/me/remote-rooms/x/messages?limit=5&cursor=3&direction=newer&user_id=usr_OTHER", ""))
@@ -230,7 +231,7 @@ func TestARelayCarriesOnlyWhatThisInstallationUnderstood(t *testing.T) {
 // TestAnInvitationLinkNamesWhereItWasMadeFrom, which is the address the
 // inviting person reached their Convia at.
 func TestAnInvitationLinkNamesWhereItWasMadeFrom(t *testing.T) {
-	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "")
 
 	request := asPerson(http.MethodPost, "/v1/me/rooms/x/invitations", `{"handle":"bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH"}`)
 	request.Header.Set("Origin", "http://192.168.1.10:8080")
@@ -246,7 +247,7 @@ func TestAnInvitationLinkNamesWhereItWasMadeFrom(t *testing.T) {
 }
 
 func TestAnInvitationMadeWithoutAnOriginStillNamesSomewhere(t *testing.T) {
-	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "")
 
 	request := asPerson(http.MethodPost, "/v1/me/rooms/x/invitations", `{"handle":"bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH"}`)
 	request.Host = "convia.example"
@@ -265,7 +266,7 @@ func TestAnInvitationMadeWithoutAnOriginStillNamesSomewhere(t *testing.T) {
 }
 
 func TestAnInvitationPrefersTheOriginWhenThereIsOne(t *testing.T) {
-	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{})
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "")
 
 	request := asPerson(http.MethodPost, "/v1/me/rooms/x/invitations", `{"handle":"bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH"}`)
 	request.Host = "behind-the-proxy.internal"
@@ -276,5 +277,91 @@ func TestAnInvitationPrefersTheOriginWhenThereIsOne(t *testing.T) {
 
 	if want := `"link":"https://convia.example/invitations/`; !strings.Contains(response.Body.String(), want) {
 		t.Errorf("the response %s does not name the address the browser used", response.Body)
+	}
+}
+
+/*
+TestAConfiguredAddressOutranksAnythingARequestSays is the whole of `M33-005`.
+
+Every address a request can offer is the address *this* person reached Convia
+at, and behind a reverse proxy, or on the machine Convia runs on, that is not
+where anybody else reaches it. An operator who says so is not guessed at: the
+`Origin` a browser sent, the `Host` the request arrived with and the forwarded
+scheme are all ignored, because each of them is a way of being wrong that this
+setting exists to end.
+*/
+func TestAConfiguredAddressOutranksAnythingARequestSays(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "https://convia.example")
+
+	request := asPerson(http.MethodPost, "/v1/me/rooms/x/invitations", `{"handle":"bia#7QK4XMZP2VJH6TBWNDR3YAFC5EH"}`)
+	request.Host = "behind-the-proxy.internal"
+	request.Header.Set("Origin", "http://localhost:8080")
+
+	response := httptest.NewRecorder()
+	handler.Invite(response, request)
+
+	if want := `"link":"https://convia.example/invitations/`; !strings.Contains(response.Body.String(), want) {
+		t.Errorf("the response %s does not name the configured address", response.Body)
+	}
+}
+
+// TestThePendingListNamesTheConfiguredAddressToo: the links in the list and the
+// link handed back when an invitation is made are the same link, so a person
+// who copies one from either place sends the same address.
+func TestThePendingListNamesTheConfiguredAddressToo(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "https://convia.example")
+
+	request := asPerson(http.MethodGet, "/v1/me/rooms/room_7KQZP4XN2VJH6TBWMDR3YAFC5E/invitations", "")
+	request.Host = "behind-the-proxy.internal"
+	request.Header.Del("Origin")
+
+	response := httptest.NewRecorder()
+	handler.Pending(response, request)
+
+	if want := `"link":"https://convia.example/invitations/`; !strings.Contains(response.Body.String(), want) {
+		t.Errorf("the list %s does not name the configured address", response.Body)
+	}
+}
+
+/*
+TestAnInstallationAnswersToBothOfItsAddresses is what stops a configured address
+from breaking the invitation somebody is holding right now.
+
+An operator who configures one does not stop people reaching Convia the way they
+already did, so a link made before the setting existed, or made by somebody on
+the machine itself, still names this installation — and a link that names this
+installation is answered here rather than fetched from ourselves over a network
+that may well refuse to dial its own address.
+*/
+func TestAnInstallationAnswersToBothOfItsAddresses(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "https://convia.example")
+
+	request := asPerson(http.MethodPost, "/v1/me/invitation-previews", "{}")
+	request.Host = "localhost:8080"
+	request.Header.Del("Origin")
+
+	ours := handler.ours(request)
+	for _, address := range []string{"https://convia.example", "http://localhost:8080"} {
+		if !slices.Contains(ours, address) {
+			t.Errorf("%q is not among %v, and it is this installation", address, ours)
+		}
+	}
+	if len(ours) != 2 {
+		t.Errorf("ours = %v, want exactly the two addresses this installation has", ours)
+	}
+}
+
+// TestAnAddressIsNotListedTwice: an operator who configures the address people
+// already reach Convia at has said the same thing twice, not two things.
+func TestAnAddressIsNotListedTwice(t *testing.T) {
+	handler := NewSessionHandler(quiet(), &recordingService{}, openIdentities{}, "https://convia.example")
+
+	request := asPerson(http.MethodPost, "/v1/me/invitation-previews", "{}")
+	request.Host = "convia.example"
+	request.Header.Set("X-Forwarded-Proto", "https")
+	request.Header.Del("Origin")
+
+	if ours := handler.ours(request); len(ours) != 1 {
+		t.Errorf("ours = %v, want the one address said twice", ours)
 	}
 }
