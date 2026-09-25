@@ -63,18 +63,23 @@ func ParseLink(raw string) (Link, error) {
 }
 
 /*
-HomeFromOrigin turns the origin a browser sent into the home its links name.
+ParseHome reads an address an installation can be named by.
 
-The origin a person's browser reached Convia at is the address other people
-reach it at too, in the ordinary case — a public name, or an address on the
-local network — so it is the right thing to put in a link without anybody
-configuring it. The interface warns when that address only works on the machine
-it was opened on.
+It is used for the two that exist. One is **configured**: an operator says what
+address other installations reach this one at, which is the only thing that is
+true behind a reverse proxy or when the person using Convia opened it at an
+address nobody else can. The other is **derived** from a request, which is what
+an installation nobody has configured has to fall back on — in the ordinary
+case, one machine on one network, it is right, and the interface warns when the
+address it produced only works on the machine it was opened on.
+
+Anything a URL parser would forgive and a home may not have — credentials, a
+path, a query — is refused rather than trimmed off.
 */
-func HomeFromOrigin(origin string) (string, error) {
-	parsed, err := url.Parse(origin)
+func ParseHome(address string) (string, error) {
+	parsed, err := url.Parse(address)
 	if err != nil || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" {
-		return "", ValidationError{Field: "origin", Message: "The request did not say where it came from."}
+		return "", ValidationError{Field: "home", Message: "The address must be an http or https URL."}
 	}
 	return homeOf(parsed)
 }

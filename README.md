@@ -1,6 +1,6 @@
 # Convia
 
-Convia is a standalone real-time communication platform. It is intended to provide its own user interface while also exposing stable public APIs and SDKs for products such as Orbit and Workspace Town.
+Convia is a standalone real-time communication platform. It is two things at once: a product with a client of its own — **a desktop application people install** — and a platform other products such as Orbit and Workspace Town integrate with through stable public APIs and SDKs.
 
 Convia owns its public API and domain model. Media infrastructure, including the planned initial use of LiveKit, remains an internal implementation detail.
 
@@ -24,15 +24,17 @@ A media plane exists behind that boundary: a call asks LiveKit for the room its 
 
 Control events stream: an application opens one WebSocket at `/v1/events` and is told what happened while it is still news — a call starting or ending, a roster changing, an invitation declined. The stream carries nothing upstream, so it cannot become a way to push media, and a credential is told only about the things it could already have read. Every event but presence is recorded with the change that caused it and kept for a day, so a client that reconnects with the cursor of the last event it received is sent what it missed, and a subscriber that falls behind is disconnected with a reason rather than quietly losing an event. Every instance follows those records itself; a deployment running more than one instance sets `CONVIA_REDIS_URL` so that presence reaches them all, and an unreachable Redis narrows presence rather than failing anything. A signed-in person has a stream of their own at `/v1/me/events`, authorized per room rather than per tenant, which is how Convia's interface is told what changed instead of asking. See [`docs/events.md`](docs/events.md).
 
-People sign in to Convia's own product with a fourth family of credential, `cvs_`, which lives only in a cookie and **carries no authority over a tenant** — a session proves who somebody is, and nothing anywhere turns one into an application key. Passwords are argon2id where every other Convia secret is a plain digest, because the rule is chosen by where the entropy came from. Every sign-in failure answers identically, and an unknown username is hashed against a decoy so the timing does not answer either. **A person creates their own account** from the sign-in page, with a username and a password and nothing else: accounts belong to the installation, the way entries belong to a password manager's file. An account's identifier is the fingerprint of a key pair generated for it, and the private key is stored only sealed by the password — so nobody with the database can use it, and **there is no password reset**. A person is named to somebody else by a handle, `username#IDENTIFIER` with a check character that catches a typo. Nothing needs configuring: Convia makes its own application the first time it starts. See [`docs/sessions.md`](docs/sessions.md) and [ADR 0011](docs/adr/0011-an-account-is-local-and-its-identifier-is-its-key.md).
+People sign in to Convia's own product with a fourth family of credential, `cvs_`, which travels in a cookie for the page and in an `Authorization` header for the application — the browser's headers are what tell the two apart — and **carries no authority over a tenant** — a session proves who somebody is, and nothing anywhere turns one into an application key. Passwords are argon2id where every other Convia secret is a plain digest, because the rule is chosen by where the entropy came from. Every sign-in failure answers identically, and an unknown username is hashed against a decoy so the timing does not answer either. **A person creates their own account** from the sign-in page, with a username and a password and nothing else: accounts belong to the installation, the way entries belong to a password manager's file. An account's identifier is the fingerprint of a key pair generated for it, and the private key is stored only sealed by the password — so nobody with the database can use it, and **there is no password reset**. A person is named to somebody else by a handle, `username#IDENTIFIER` with a check character that catches a typo. Nothing needs configuring: Convia makes its own application the first time it starts. See [`docs/sessions.md`](docs/sessions.md), [ADR 0011](docs/adr/0011-an-account-is-local-and-its-identifier-is-its-key.md) and [ADR 0019](docs/adr/0019-a-session-travels-in-a-cookie-or-a-header.md).
 
-People on different installations share rooms. Somebody invites a handle and sends the link they get. The invitee pastes it into their own Convia, which looks at it, joins, and from then on relays what they do in that room to the installation it lives on. Every request between installations is **signed with the person's own key**, which their session holds while they are signed in and at no other time. The link is not a secret, because only that key can accept it. The browser never talks to the other installation, so cookies and the origin check are untouched. Following a link uses the same guard against internal addresses as webhook delivery. See [`docs/peers.md`](docs/peers.md) and [ADR 0012](docs/adr/0012-a-room-lives-on-one-installation-and-visitors-sign.md).
+People on different installations share rooms. Somebody invites a handle and sends the link they get. The invitee pastes it into their own Convia, which looks at it, joins, and from then on relays what they do in that room to the installation it lives on. Every request between installations is **signed with the person's own key**, which their session holds while they are signed in and at no other time. The link is not a secret, because only that key can accept it. Neither the page nor the application's window ever talks to the other installation itself, so cookies and the origin check are untouched. Following a link uses the same guard against internal addresses as webhook delivery. See [`docs/peers.md`](docs/peers.md) and [ADR 0012](docs/adr/0012-a-room-lives-on-one-installation-and-visitors-sign.md).
 
 Presence is the one advisory thing Convia holds: an application heartbeats for each of a person's devices, Convia aggregates them into one answer and expires it on a clock that is never the caller's. Whether somebody is *in a call* is a different, durable question and is deliberately not a field on it. Presence streams as `presence.changed` and is the one event type Convia refuses to deliver by webhook, because a redelivered presence report arrives after it stopped being true. See [`docs/presence.md`](docs/presence.md).
 
 A room remembers what was said in it. **A conversation is a room** rather than a second noun beside it, so messages outlive the calls held in the place — a history is something to open, not something that ends with the meeting. Order is a per-room sequence allocated by PostgreSQL under the room's row lock rather than a timestamp, because several instances stamp `created_at` from several clocks and a chat that shows a reply above the thing it replies to is broken in a way people notice. An edit records that it happened and not what it said before; a deletion leaves a tombstone that keeps its place, so a history never closes over a hole and slides messages past a reader's cursor. Nothing anybody said reaches the log. See [`docs/messages.md`](docs/messages.md).
 
-Convia has its own interface. It lives in `web/`, is built with React, TypeScript, Tailwind and Vite, and is **compiled into the Convia binary and served from the same origin as the API** — which is what makes the session cookie first-party, gives `SameSite` something to compare against, and makes CORS unnecessary rather than merely configured. A person signs in, sees the rooms they are in with what they have not read, and reads and writes in them. It is built on the public session surface and nothing else: no privileged path, no internal endpoint, no acting with the first-party application's key. A binary built without the bundle still serves the API and says so. See [`docs/interface.md`](docs/interface.md) and [ADR 0009](docs/adr/0009-convia-serves-its-own-interface-from-its-own-origin.md).
+**Convia's own client is a desktop application**, which is what a person installs and opens. The interface lives in `web/`, is built with React, TypeScript, Tailwind and Vite, and is compiled into that application — a second binary, `cmd/convia-desktop`, built with Wails v2 over WebView2. Its Go process is the API client: it holds the session where Windows keeps secrets, carries the interface's requests to the installation it is connected to, and keeps the person's event stream, so nothing opens a port and nothing else on the machine can reach what the window is showing. A person signs in, sees the rooms they are in with what they have not read, and reads and writes in them. It is built on the public session surface and nothing else: no privileged path, no internal endpoint, no acting with the first-party application's key. See [`docs/interface.md`](docs/interface.md) and [ADR 0019](docs/adr/0019-a-session-travels-in-a-cookie-or-a-header.md).
+
+The same interface is **also served as a page**, compiled into the Convia binary and served from the API's own origin, and that is how it is worked on: hot reloading, a browser's own tools, and a session in a `__Host-` cookie, which makes CORS unnecessary rather than merely configured. It is not what anybody installs. A binary built without the bundle still serves the API and says so. [ADR 0009](docs/adr/0009-convia-serves-its-own-interface-from-its-own-origin.md) decided that arrangement when the page was meant to be the product, and is superseded for the product by ADR 0019.
 
 Webhooks exist for what a client must not miss: an application registers a destination, Convia signs every delivery with a secret shown once, retries on a published schedule, disables a receiver that has stopped answering, and keeps a readable record of every attempt. It refuses to connect to anything that is not the public internet, checked at the socket on every attempt rather than at the hostname once. See [`docs/webhooks.md`](docs/webhooks.md).
 
@@ -51,6 +53,7 @@ The public API is specified in [`api/openapi.yaml`](api/openapi.yaml), an OpenAP
 - Go 1.26.6, as declared in `go.mod`
 - Docker, for the local PostgreSQL instance and for a container build
 - Node 24, as declared in `web/.nvmrc`, to build Convia's own interface. Only that: nothing in the Go build, the tests, or the container's Go stage needs it, and a Convia built without it serves the API and says the interface is absent.
+- Windows, to build or run the desktop application. It needs the WebView2 runtime, which current Windows carries; the application says so rather than showing nothing when it is missing. Everything else builds and tests on any platform.
 
 ## Run
 
@@ -64,28 +67,28 @@ go run ./cmd/convia migrate up
 go run ./cmd/convia
 ```
 
-That serves the API. To serve Convia's own interface as well, build it first — it is compiled into the binary, so `go run` alone produces one without it:
+That serves the API and nothing else.
 
-```sh
-cd web && npm install && npm run build && cd ..
-go run ./cmd/convia
-```
-
-For testing locally, one script does all of that together — starts the containers, applies the migrations, builds and starts Convia, and serves the interface with hot reloading at `http://localhost:5173` — and Ctrl+C stops both. It reads `.env`, starts LiveKit and Redis only when `.env` configures them, and leaves the containers running. Create an account on the sign-in page.
-
-```sh
-./scripts/dev.sh     # macOS, Linux, Git Bash
-./scripts/dev.ps1    # Windows PowerShell
-```
-
-To run Convia's own client — the desktop application, which is what people install — one script builds the interface into it, starts Convia, and opens the window. Closing the window stops Convia. It runs on Windows only, because the application does; see [`docs/interface.md`](docs/interface.md).
+**To run Convia the way a person uses it**, one script builds the interface into the application, starts Convia, and opens the window. Closing the window stops Convia. Windows only, because the application is; see [`docs/interface.md`](docs/interface.md).
 
 ```sh
 ./scripts/app.sh     # Git Bash
 ./scripts/app.ps1    # Windows PowerShell
 ```
 
-A binary with no bundle serves the API normally and answers the page with 503 and the command above. `npm run dev` inside `web/` serves the interface with hot reloading and proxies `/v1` to a Convia on port 8080, so the browser still sees one origin.
+**To work on the interface**, another script serves it as a page with hot reloading at `http://localhost:5173`, proxying `/v1` to Convia on port 8080 so the browser still sees one origin. It starts the containers, applies the migrations, builds and starts Convia too, and Ctrl+C stops both. It reads `.env`, starts LiveKit and Redis only when `.env` configures them, and leaves the containers running. Create an account on the sign-in page.
+
+```sh
+./scripts/dev.sh     # macOS, Linux, Git Bash
+./scripts/dev.ps1    # Windows PowerShell
+```
+
+The page is also compiled into the Convia binary, for an installation reached from a browser rather than from the application. `go run` alone produces a binary without it, which serves the API normally and answers the page with 503 and the command to fix it:
+
+```sh
+cd web && npm install && npm run build && cd ..
+go run ./cmd/convia
+```
 
 Both API surfaces require a credential, so a fresh instance needs one operator key before it can do anything. Issuing one over the API requires presenting one, so the first is minted against the database:
 
@@ -103,6 +106,7 @@ Configuration is available through these environment variables:
 - `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
 - `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
 - `CONVIA_TRUSTED_PROXIES` names the networks whose `X-Forwarded-For` header Convia believes, as comma-separated CIDR blocks or bare addresses. The default is empty, which trusts nothing. Set it before deploying behind a reverse proxy.
+- `CONVIA_PUBLIC_ADDRESS` is the address other installations reach this one at, as a scheme and host with no path, such as `https://convia.example`. It is what an invitation link names, and it outranks anything a request can say. The default is empty, which names a link after the address the request that made it arrived at — right for one machine on one network, wrong behind a reverse proxy or when an administrator opens Convia at an address only that machine can reach. Setting it does not relax the rule that a proxy must pass `Host` through unchanged. See [`docs/peers.md`](docs/peers.md).
 - `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` lets invitation links between installations reach loopback and private-network addresses when set to `true`. The default is `false` in every environment. Turn it on only when the installations you share rooms with are on your own network: while it is on, anybody who can create an account here can make this server connect to machines on that network. See [`docs/peers.md`](docs/peers.md).
 - `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
 - `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
@@ -157,10 +161,17 @@ cd web && npm install && npm test
 
 ## Build
 
-Build the Go executable:
+Build the service:
 
 ```sh
 go build -o convia ./cmd/convia
+```
+
+Build the desktop application, on Windows. The interface has to be built first, because it is compiled in, and Wails needs its build tags — without them the result is a program that opens no window and says why:
+
+```sh
+cd web && npm install && npm run build && cd ..
+go build -tags desktop,production -o convia-desktop.exe ./cmd/convia-desktop
 ```
 
 Build the container image. It builds the interface in a Node stage of its own and compiles it into the binary, so this needs no Node installed:

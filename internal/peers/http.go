@@ -101,8 +101,8 @@ type personalService interface {
 	Invite(ctx context.Context, principal sessions.Principal, roomID, handle string) (Invitation, error)
 	Revoke(ctx context.Context, principal sessions.Principal, id string) error
 	Pending(ctx context.Context, principal sessions.Principal, roomID string) ([]Invitation, error)
-	Look(ctx context.Context, here string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
-	Join(ctx context.Context, here string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
+	Look(ctx context.Context, ours []string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
+	Join(ctx context.Context, ours []string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
 	RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error)
 	Relay(ctx context.Context, identity accounts.Identity, remote RemoteRoom, method, target string, body []byte) (Response, error)
@@ -130,10 +130,56 @@ type SessionHandler struct {
 	logger     *slog.Logger
 	service    personalService
 	identities identities
+	// public is the address an operator says other installations reach this one
+	// at, already checked, or "" when nobody said. See [SessionHandler.naming].
+	public string
 }
 
-func NewSessionHandler(logger *slog.Logger, service personalService, identities identities) *SessionHandler {
-	return &SessionHandler{logger: logger, service: service, identities: identities}
+func NewSessionHandler(
+	logger *slog.Logger,
+	service personalService,
+	identities identities,
+	public string,
+) *SessionHandler {
+	return &SessionHandler{logger: logger, service: service, identities: identities, public: public}
+}
+
+/*
+naming is the address this installation's links should name.
+
+A configured address wins over anything a request can say, because it is the
+only one that is true where the two differ: behind a reverse proxy, or when the
+person using Convia opened it at an address nobody else can reach. Without one,
+the address the request arrived at is the best guess available, and for one
+machine on one network it is right.
+*/
+func (handler *SessionHandler) naming(request *http.Request) (string, error) {
+	if handler.public != "" {
+		return handler.public, nil
+	}
+	return homeReached(request)
+}
+
+/*
+ours is every address that is this installation, for deciding whether a link
+somebody pasted leads back here.
+
+There can be two, and both are ordinary: the configured one that other people
+use, and the one this request arrived at, which is how somebody reaches their
+own Convia from the machine it runs on. A link naming either is answered here
+rather than fetched over the network from ourselves. Anything else travels —
+working out which *other* names might resolve to this same machine is how a
+guard against reaching the private network gets talked out of its job.
+*/
+func (handler *SessionHandler) ours(request *http.Request) []string {
+	addresses := make([]string, 0, 2)
+	if handler.public != "" {
+		addresses = append(addresses, handler.public)
+	}
+	if reached, err := homeReached(request); err == nil && reached != handler.public {
+		addresses = append(addresses, reached)
+	}
+	return addresses
 }
 
 type (
@@ -213,7 +259,7 @@ func (handler *SessionHandler) Invite(response http.ResponseWriter, request *htt
 		return
 	}
 
-	home, err := homeReached(request)
+	home, err := handler.naming(request)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -241,7 +287,7 @@ func (handler *SessionHandler) Pending(response http.ResponseWriter, request *ht
 		return
 	}
 
-	home, err := homeReached(request)
+	home, err := handler.naming(request)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -264,17 +310,9 @@ func (handler *SessionHandler) Pending(response http.ResponseWriter, request *ht
 // reached by non-browser clients such as the desktop application.
 func homeReached(request *http.Request) (string, error) {
 	if origin := request.Header.Get("Origin"); origin != "" {
-		return HomeFromOrigin(origin)
+		return ParseHome(origin)
 	}
-	return HomeFromOrigin(requestOrigin(request))
-}
-
-func here(request *http.Request) string {
-	home, err := homeReached(request)
-	if err != nil {
-		return ""
-	}
-	return home
+	return ParseHome(requestOrigin(request))
 }
 
 // requestOrigin is the origin a request reached, from its Host and its scheme.
@@ -323,7 +361,7 @@ func (handler *SessionHandler) Look(response http.ResponseWriter, request *http.
 		return
 	}
 
-	link, preview, err := handler.service.Look(request.Context(), here(request), principal, identity, body.Link)
+	link, preview, err := handler.service.Look(request.Context(), handler.ours(request), principal, identity, body.Link)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -357,7 +395,7 @@ func (handler *SessionHandler) Join(response http.ResponseWriter, request *http.
 		return
 	}
 
-	joined, err := handler.service.Join(request.Context(), here(request), account, identity, body.Link)
+	joined, err := handler.service.Join(request.Context(), handler.ours(request), account, identity, body.Link)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return

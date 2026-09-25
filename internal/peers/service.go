@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -453,10 +454,15 @@ Look previews an invitation on behalf of the person it names.
 Links to this installation stay in process so local invitations do not depend
 on the server being allowed to dial its own private address. Other homes must
 still pass through the guarded peer client.
+
+`ours` is the addresses that are this installation: the one an operator
+configured, and the one this request arrived at. A link naming anything else
+travels, exactly as written — working out which other names might resolve to
+this same machine is how that guard gets talked out of its job.
 */
 func (service *Service) Look(
 	ctx context.Context,
-	here string,
+	ours []string,
 	principal sessions.Principal,
 	identity accounts.Identity,
 	rawLink string,
@@ -466,7 +472,7 @@ func (service *Service) Look(
 		return Link{}, Preview{}, err
 	}
 
-	if link.Home == here {
+	if slices.Contains(ours, link.Home) {
 		preview, err := service.preview(ctx, principal.AccountID, link.InvitationID)
 		if err != nil {
 			return Link{}, Preview{}, err
@@ -503,7 +509,7 @@ member of it here, and it appears in their own list like any other.
 */
 func (service *Service) Join(
 	ctx context.Context,
-	here string,
+	ours []string,
 	account accounts.Account,
 	identity accounts.Identity,
 	rawLink string,
@@ -513,7 +519,7 @@ func (service *Service) Join(
 		return Joined{}, err
 	}
 
-	if link.Home == here {
+	if slices.Contains(ours, link.Home) {
 		accepted, err := service.accept(ctx, account.ID, account.Username, link.InvitationID)
 		if err != nil {
 			return Joined{}, err

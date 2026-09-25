@@ -317,7 +317,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 
 		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
 		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
-		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
+		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}, ""),
 
 		PersonalCalls: participants.NewSessionHandler(logger, stubPersonalCalls{},
 			stubRooms{room: sampleRoom(), member: sampleMember()}, user),
