@@ -101,8 +101,7 @@ export function useConversation(
   read.current = onRead
 
   const key = source === null ? null : sourceKey(source)
-  const remote = source?.kind === 'remote'
-  const told = live && !remote
+  const told = live
 
   /*
   The API is rebuilt from the key rather than taken from the source object, so
@@ -267,12 +266,18 @@ export function useConversation(
 
   An event names a message and its place and carries nothing that was said, so
   each one is a read of exactly what it names: what is new after a post, and the
-  one message after an edit or a withdrawal. Only rooms here are announced.
+  one message after an edit or a withdrawal. Rooms elsewhere are announced too,
+  by the installation that follows them on this person's behalf.
   */
   useEffect(() => {
-    if (source === null || source.kind !== 'local') {
+    if (source === null) {
       return
     }
+    /*
+    A room elsewhere is named by the pointer this installation keeps for it rather
+    than by the identifier its home uses, and that translation is done before the
+    event reaches this page. So both kinds of room are matched the same way here.
+    */
     const roomId = source.id
     return listen((event) => {
       if (event.data?.['room_id'] !== roomId) {

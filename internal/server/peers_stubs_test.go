@@ -105,3 +105,7 @@ func (stubIdentities) Identity(context.Context, string) (accounts.Identity, erro
 func (stubIdentities) Account(context.Context, string) (accounts.Account, error) {
 	return sampleAccount(), nil
 }
+
+type stubVisitors struct{}
+
+func (stubVisitors) Visiting(context.Context, string) (bool, error) { return true, nil }

@@ -286,8 +286,9 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		logger.Warn("links between installations may reach this server's private network, and anybody who registers can follow one",
 			"remedy", "unset CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES unless the installations you share rooms with are on that network")
 	}
+	peerClient := peers.NewClient(peerDestinations)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peers.NewClient(peerDestinations), applications.FirstPartyID, logger)
+		accountService, peerClient, applications.FirstPartyID, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -336,7 +337,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
-		PersonalEvents:       serving.NewPersonHandler(logger, broker, follower, sessionService, roomService),
+		PersonalEvents: serving.NewPersonHandler(logger, broker, follower, sessionService, peerService,
+			peers.NewFollowing(peerService, sessionService, peerClient, logger), roomService),
 
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),

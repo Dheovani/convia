@@ -7412,6 +7412,70 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/peer/events:
+    get:
+      operationId: streamPeerEvents
+      tags: [Peers]
+      summary: Listen to the rooms a visitor is in here
+      description: |
+        Upgrades the connection to a WebSocket and delivers the events about the rooms the signing person is in **on this installation**, as they happen. It is `GET /v1/me/events` for somebody taking part from elsewhere, and it carries exactly the same events under exactly the same rule: only those naming a room they are in.
+
+        **It is held open by the visitor's own installation, not by their browser.** A browser cannot sign a WebSocket handshake with the person's key, and it never talks to this installation at all. Their installation opens this, passes what arrives on to them, and closes it when they stop being connected - so a home holds one of these per visitor who is online, not one per room.
+
+        The signature covers the handshake, as it does any other request on this surface. What it proved is then rechecked every minute: somebody who has stopped being a user here, or whose user is suspended, ends the stream with close code `4001`. Which rooms it covers is read before the upgrade and again on that same interval.
+
+        A client that reconnects passes the `cursor` of the last event it received as `after`, exactly as `GET /v1/me/events` describes.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - name: Connection
+          in: header
+          required: true
+          description: Must be `Upgrade`.
+          schema:
+            type: string
+        - name: Upgrade
+          in: header
+          required: true
+          description: Must be `websocket`.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Version
+          in: header
+          required: true
+          description: Must be `13`, the version RFC 6455 defines.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Key
+          in: header
+          required: true
+          description: The client's handshake nonce, as RFC 6455 requires.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/EventCursor"
+      responses:
+        "101":
+          description: |
+            The connection is now a WebSocket carrying `Event` objects as text messages, one event per message.
+
+            Convia sends a ping every 30 seconds and closes the connection if it is not answered within 10.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/peer/rooms/{room_id}/members:
     get:
       operationId: listPeerRoomMembers

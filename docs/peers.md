@@ -77,6 +77,23 @@ What Bia's Convia relays is re-encoded from what it decoded, never forwarded as 
 
 **A home that refuses Bia answers `403` on Bia's Convia, never `401`.** The page treats a `401` as its own session ending, and a room elsewhere turning Bia away says nothing about her session at home.
 
+### Being told, rather than asking
+
+Bia's Convia holds a **signed stream** open to each home she has a room on, for as long as she is connected to her own:
+
+```
+Bia's browser ── GET /v1/me/events ──▶ Bia's Convia ── GET /v1/peer/events ──▶ Ana's Convia
+                                                          signed with Bia's key
+```
+
+It runs this way round, and not the other, for the reason everything else here does: **there is no installation identity**. A home cannot prove itself to Bia's Convia — there is no key it could do it with — and it does not know where Bia's Convia is. What exists is Bia's own key, so her installation opens the connection and signs the handshake with it, exactly as it signs every other request it makes for her. The home serves that stream with the same handler it serves `/v1/me/events` with, because a visitor is a user there and membership decides what either is told.
+
+**What it costs a home is one connection per visitor who is connected**, not one per room and not one per visitor it has ever admitted. Bia's key is sealed by her password and opened from her session, so the stream cannot outlive her being signed in even if anybody wanted it to.
+
+What arrives is translated before Bia sees it. The home names its own rooms and knows nothing of the pointer Bia's Convia keeps, so an event about `room_X` there becomes an event about the `rrm_` that names it here; an event naming a room she has no pointer for is dropped. **The home's cursor is stripped**: a cursor is a position in the journal of the installation that gave it out, and passing one on would let Bia's page ask her own Convia to resume from a place in somebody else's journal. What she missed in a room elsewhere is read from its home instead, which is what her page already does after any gap.
+
+Which installations she has a room on is read again every thirty seconds, so a room she joins while the stream is open is followed without waiting for anything to reconnect.
+
 ## Signatures
 
 Every request between installations carries:
@@ -142,7 +159,7 @@ Turning it on in production still refuses plain `http`, so installations on a pr
 
 ## Known gaps
 
-- **A room elsewhere is not announced.** The page reads it on a five-second timer while it is open, and its row in the sidebar has no unread count.
+- **A room elsewhere has no unread count.** What happens in one is announced since `M33-001`, so the page is no longer read on a timer — but the count in the sidebar is read from the home, and nothing asks it for one yet.
 - **A home that does not answer cannot be left, only forgotten.** Leaving keeps the pointer until the home confirms, because dropping it silently would leave a membership nothing here remembers. Once leaving has failed, the interface offers to forget the room here anyway (`DELETE /v1/me/remote-rooms/{id}`), after saying that the person stays a member at the home and that nothing here can take them out later. It is how somebody gets rid of a room whose home is gone, has moved, or refuses them.
 - **No calls between installations yet.** The call interface itself is still to come (`M18-004`); when it arrives, a visitor will reach the home's media plane directly, with a token the home issues.
 - **No verification code on first contact.** Looking at a link shows the room, the inviter's handle and the home's address, and that is the check.
