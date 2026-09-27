@@ -137,6 +137,25 @@ The trade is deliberate and runs the only way it can. A sidebar is how somebody 
 
 Nothing polls for it: the sidebar is read again when the stream carries something about a room, which is now true of rooms elsewhere too, so the badge follows what is said rather than a timer.
 
+## What it costs a home
+
+**A signature proves who is asking and not that they may ask three hundred times a minute.** Anybody who can register on any installation can make one this installation will verify, and verifying is itself work: a body read, a signature checked, and a nonce written down before any handler runs.
+
+So every request on the peer surface is charged against two budgets at once, successes included:
+
+| | |
+| --- | --- |
+| per **signer** | 300 a minute |
+| per **address** | 3 000 a minute |
+
+The ratio is the decision. An address is a whole installation with many people behind it; a signer is one of them. Equal budgets would mean the first person to ask three hundred times had spent everything their installation had, and somebody else there — doing nothing wrong — would be refused because of them.
+
+The address is charged before the signature is checked, because that check is the work a flood would be buying. The refusal says `429` and names neither dimension: saying which one ran out would tell a caller which to spread across.
+
+**An installation sending nonsense needs no separate answer.** It fails, and failing charges the failure budget every surface has. There is deliberately no blocklist: an address is somebody's whole installation, and shutting one out would take out every person on it for what one of them did.
+
+Nonces are forgotten on a schedule rather than by whoever happens to be verifying something — an installation that stops receiving requests would otherwise keep whatever a burst left behind for ever.
+
 ## Signatures
 
 Every request between installations carries:

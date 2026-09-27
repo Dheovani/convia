@@ -91,6 +91,39 @@ const (
 	*/
 	registrationBurst  = 20
 	registrationPeriod = time.Hour
+
+	/*
+		peerBurst and peerPeriod ration requests between installations,
+		successes included, per signer and per address at once.
+
+		**A signature proves who is asking and not that they may ask a thousand
+		times a minute.** Anybody who can register on any installation can make
+		one this one will verify, so verifying is not a reason to serve without
+		a limit; and each verification costs a database write for the nonce
+		before any handler runs.
+
+		Three hundred a minute per person is far above what taking part in rooms
+		needs — a stream costs one, and reading a conversation costs a handful —
+		and far below what makes flooding worth attempting.
+
+		**The address is allowed ten times that, and the ratio is the point.** An
+		address is a whole installation with many people behind it; a signer is
+		one of them. Equal budgets would mean one person could spend everything
+		their installation had, which is the thing the per-signer budget exists
+		to prevent.
+	*/
+	peerSignerBurst  = 300
+	peerAddressBurst = 3_000
+	peerPeriod       = time.Minute
+
+	/*
+		peerKeys bounds the signers and the addresses remembered at once.
+
+		A bucket exists only for somebody who has made a request recently, so
+		this is well above the number of people taking part from elsewhere at
+		any moment on an installation of the size this is built for.
+	*/
+	peerKeys = 10_000
 )
 
 /*
@@ -289,6 +322,17 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		spread its failed attempts across endpoints to buy more of them.
 	*/
 	failures := ratelimit.New(authFailureBurst, authFailurePeriod, authFailureKeys)
+	/*
+		What the surface between installations may cost, charged on every
+		request rather than only on refusals.
+
+		Two budgets, both charged: one keyed by the signer, so one person
+		cannot flood by spreading across addresses, and one keyed by the
+		address, so one installation cannot flood by minting accounts. Neither
+		alone covers the other.
+	*/
+	peerSigners := ratelimit.New(peerSignerBurst, peerPeriod, peerKeys)
+	peerAddresses := ratelimit.New(peerAddressBurst, peerPeriod, peerKeys)
 
 	/*
 		A budget of its own for the browser surface, and a much smaller one.
@@ -351,9 +395,9 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			// allowance of the person whose browser it is running in.
 			served = guardEntry(logger, rationed(logger, registering, resolve, served))
 		case surfacePeer:
-			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
+			served = signed(logger, dependencies.PeerAuthenticator, false, failures, peerSigners, peerAddresses, resolve, served)
 		case surfaceVisitor:
-			served = signed(logger, dependencies.PeerAuthenticator, true, failures, resolve, served)
+			served = signed(logger, dependencies.PeerAuthenticator, true, failures, peerSigners, peerAddresses, resolve, served)
 		case surfaceMedia:
 			served = reported(logger, dependencies.MediaReporter, failures, resolve, served)
 		case surfaceTenant:

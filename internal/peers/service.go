@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -20,9 +19,6 @@ import (
 	"convia/internal/sessions"
 	"convia/internal/users"
 )
-
-// pruneInterval is how often, at most, an instance forgets expired nonces.
-const pruneInterval = time.Minute
 
 // roomDirectory is what this package needs from rooms.
 type roomDirectory interface {
@@ -72,9 +68,6 @@ type Service struct {
 	application string
 	logger      *slog.Logger
 	now         func() time.Time
-
-	// lastPrune is when this instance last forgot expired nonces, in Unix seconds.
-	lastPrune atomic.Int64
 }
 
 func NewService(
@@ -407,7 +400,6 @@ func (service *Service) Verify(ctx context.Context, request *http.Request, body 
 	if !fresh {
 		return Signer{}, ErrUnauthenticated
 	}
-	service.pruneNonces(ctx, at)
 
 	active, err := service.tenants.Active(ctx, service.application)
 	if err != nil {
@@ -468,16 +460,6 @@ func (service *Service) visiting(ctx context.Context, accountID string) (session
 		UserID:        person.ID,
 		ApplicationID: service.application,
 	}, nil
-}
-
-func (service *Service) pruneNonces(ctx context.Context, at time.Time) {
-	last := service.lastPrune.Load()
-	if at.Unix()-last < int64(pruneInterval.Seconds()) || !service.lastPrune.CompareAndSwap(last, at.Unix()) {
-		return
-	}
-	if _, err := service.store.PruneNonces(ctx, at); err != nil {
-		service.logger.Warn("expired nonces could not be forgotten", "error", err)
-	}
 }
 
 // Joined is the result of accepting an invitation on somebody's behalf.

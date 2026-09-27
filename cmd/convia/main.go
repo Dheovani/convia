@@ -417,6 +417,13 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	*/
 	go presence.NewSweeper(presenceService, logger).Run(delivering)
 
+	/*
+		The nonce janitor. Every signed request between installations writes one
+		down, and a nonce stops refusing anything once the timestamp it came
+		with would be too old to accept — from then on it is a row nobody reads.
+	*/
+	go peers.NewJanitor(peers.NewStore(pool), logger).Run(delivering)
+
 	delivered := make(chan struct{})
 	go func() {
 		defer close(delivered)

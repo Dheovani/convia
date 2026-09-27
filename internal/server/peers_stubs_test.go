@@ -19,15 +19,28 @@ type stubPeerAuthenticator struct {
 	visitErr error
 }
 
-func (stub stubPeerAuthenticator) Verify(context.Context, *http.Request, []byte) (peers.Signer, error) {
+/*
+Verify answers the signer the stub was built with, or the one a test named in
+the request.
+
+The header is how one handler serves more than one person, which is what a test
+about a budget per signer needs: two people at one address, told apart the way
+a real signature tells them apart.
+*/
+func (stub stubPeerAuthenticator) Verify(_ context.Context, request *http.Request, _ []byte) (peers.Signer, error) {
+	if named := request.Header.Get(peers.HeaderAccount); named != "" {
+		return peers.Signer{AccountID: named}, stub.err
+	}
 	return stub.signer, stub.err
 }
 
-func (stub stubPeerAuthenticator) Visit(context.Context, peers.Signer) (sessions.Principal, error) {
+func (stub stubPeerAuthenticator) Visit(_ context.Context, signer peers.Signer) (sessions.Principal, error) {
 	if stub.visitErr != nil {
 		return sessions.Principal{}, stub.visitErr
 	}
-	return stub.principal, stub.err
+	principal := stub.principal
+	principal.AccountID = signer.AccountID
+	return principal, stub.err
 }
 
 // sampleExpiry is when the stubbed invitations stop working.
