@@ -118,11 +118,11 @@ Anything that cannot be believed to the end falls back to the peer address: no h
 
 A caller connecting to Convia directly is always charged to its own address, whatever it writes into the header.
 
-**Still not interpreted:** `X-Forwarded-Proto` and `Forwarded`. Convia generates no absolute URLs and makes no scheme-dependent decision, so neither would change any behavior today. A deployment behind a proxy must still terminate TLS at the proxy.
+**`X-Forwarded-Proto` is interpreted, in two places and nowhere else.** Both reconstruct the address this instance was reached at — the origin check on the session surface compares it with the `Origin` a browser sent, and the peer surface uses it to name this installation in an invitation link when no `Origin` came. It is read only for that, and never for anything a caller could benefit from getting wrong. `Forwarded` is still not interpreted at all. A deployment behind a proxy must still terminate TLS at the proxy.
 
 ## CORS
 
-No CORS headers are sent. Browser access from another origin is not supported yet. The policy will be decided in M18, when the origin model of the standalone web application is known.
+No CORS headers are sent, and that is the decision rather than a gap. Convia's own interface is either a page served from the API's own origin or a desktop application whose Go process makes the request, so neither is a browser calling across origins; an application integrating with Convia calls it from its own server with its own key. Cross-origin browser access is therefore not supported, and supporting it would mean deciding whose origins to admit and what a credential may do from one.
 
 ## Endpoint implementation checklist
 

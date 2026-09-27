@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"sync/atomic"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -18,9 +20,6 @@ import (
 	"convia/internal/sessions"
 	"convia/internal/users"
 )
-
-// pruneInterval is how often, at most, an instance forgets expired nonces.
-const pruneInterval = time.Minute
 
 // roomDirectory is what this package needs from rooms.
 type roomDirectory interface {
@@ -68,11 +67,11 @@ type Service struct {
 	accounts    localAccounts
 	client      relay
 	application string
-	logger      *slog.Logger
-	now         func() time.Time
-
-	// lastPrune is when this instance last forgot expired nonces, in Unix seconds.
-	lastPrune atomic.Int64
+	// public is the address an operator says other installations reach this
+	// one at, already checked, or "". See [Service.answers].
+	public string
+	logger *slog.Logger
+	now    func() time.Time
 }
 
 func NewService(
@@ -83,6 +82,7 @@ func NewService(
 	local localAccounts,
 	client relay,
 	firstPartyApplication string,
+	public string,
 	logger *slog.Logger,
 ) *Service {
 	return &Service{
@@ -93,6 +93,7 @@ func NewService(
 		accounts:    local,
 		client:      client,
 		application: firstPartyApplication,
+		public:      public,
 		logger:      logger,
 		now:         func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
 	}
@@ -207,6 +208,21 @@ func (service *Service) Pending(ctx context.Context, principal sessions.Principa
 
 // MaxPendingInvitations is the most invitations Pending lists at once.
 const MaxPendingInvitations = 100
+
+const (
+	/*
+		unreadBudget is how long every unread count together may take.
+
+		It is short on purpose. What is being answered is a badge, and the list
+		it sits beside is worth more than any of them.
+	*/
+	unreadBudget = 2 * time.Second
+
+	// unreadAtOnce is how many homes are asked at the same time, so that
+	// somebody in rooms on many installations does not open a connection to
+	// each of them at once.
+	unreadAtOnce = 8
+)
 
 func (service *Service) Revoke(ctx context.Context, principal sessions.Principal, id string) error {
 	if !ValidInvitationID(id) {
@@ -376,9 +392,28 @@ every other failure: a replay is somebody presenting a credential that no longer
 works. So is any request while the first-party application is not served,
 because suspending Convia's own product suspends its visitors too.
 */
+/*
+answers is every address this installation is reachable at, for comparing with
+the authority a caller signed.
+
+There can be two: the one an operator configured for everybody else, and the
+one the request actually arrived at. Both are addresses this installation
+answers to, and a caller signed one of them. See `M33-005`.
+*/
+func (service *Service) answers(request *http.Request) []string {
+	if service.public == "" {
+		return []string{request.Host}
+	}
+	configured := strings.TrimPrefix(strings.TrimPrefix(service.public, "https://"), "http://")
+	if configured == request.Host {
+		return []string{request.Host}
+	}
+	return []string{request.Host, configured}
+}
+
 func (service *Service) Verify(ctx context.Context, request *http.Request, body []byte) (Signer, error) {
 	at := service.now()
-	verified, err := verifySignature(request, body, at)
+	verified, err := verifySignature(request, body, service.answers(request), at)
 	if err != nil {
 		return Signer{}, err
 	}
@@ -390,7 +425,6 @@ func (service *Service) Verify(ctx context.Context, request *http.Request, body 
 	if !fresh {
 		return Signer{}, ErrUnauthenticated
 	}
-	service.pruneNonces(ctx, at)
 
 	active, err := service.tenants.Active(ctx, service.application)
 	if err != nil {
@@ -411,7 +445,31 @@ accepting an invitation, never by a signed request that happens to arrive. A
 suspended person is refused on their next request, as a suspended session is.
 */
 func (service *Service) Visit(ctx context.Context, signer Signer) (sessions.Principal, error) {
-	person, err := service.people.BySubject(ctx, service.application, signer.AccountID)
+	return service.visiting(ctx, signer.AccountID)
+}
+
+/*
+Visiting re-asks whether an account is still somebody here, with no signature to
+present.
+
+A signature proves who is asking, and it is checked on every request — but a
+stream is one request that stays open for hours, and what it is allowed to carry
+has to keep being true after the signature that opened it. This is what a
+visitor's stream asks on its interval, and it answers the same way [Visit] does.
+*/
+func (service *Service) Visiting(ctx context.Context, accountID string) (bool, error) {
+	_, err := service.visiting(ctx, accountID)
+	if errors.Is(err, ErrUnauthenticated) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (service *Service) visiting(ctx context.Context, accountID string) (sessions.Principal, error) {
+	person, err := service.people.BySubject(ctx, service.application, accountID)
 	if errors.Is(err, users.ErrNotFound) {
 		return sessions.Principal{}, ErrUnauthenticated
 	}
@@ -423,20 +481,10 @@ func (service *Service) Visit(ctx context.Context, signer Signer) (sessions.Prin
 	}
 
 	return sessions.Principal{
-		AccountID:     signer.AccountID,
+		AccountID:     accountID,
 		UserID:        person.ID,
 		ApplicationID: service.application,
 	}, nil
-}
-
-func (service *Service) pruneNonces(ctx context.Context, at time.Time) {
-	last := service.lastPrune.Load()
-	if at.Unix()-last < int64(pruneInterval.Seconds()) || !service.lastPrune.CompareAndSwap(last, at.Unix()) {
-		return
-	}
-	if _, err := service.store.PruneNonces(ctx, at); err != nil {
-		service.logger.Warn("expired nonces could not be forgotten", "error", err)
-	}
 }
 
 // Joined is the result of accepting an invitation on somebody's behalf.
@@ -453,10 +501,15 @@ Look previews an invitation on behalf of the person it names.
 Links to this installation stay in process so local invitations do not depend
 on the server being allowed to dial its own private address. Other homes must
 still pass through the guarded peer client.
+
+`ours` is the addresses that are this installation: the one an operator
+configured, and the one this request arrived at. A link naming anything else
+travels, exactly as written — working out which other names might resolve to
+this same machine is how that guard gets talked out of its job.
 */
 func (service *Service) Look(
 	ctx context.Context,
-	here string,
+	ours []string,
 	principal sessions.Principal,
 	identity accounts.Identity,
 	rawLink string,
@@ -466,7 +519,7 @@ func (service *Service) Look(
 		return Link{}, Preview{}, err
 	}
 
-	if link.Home == here {
+	if slices.Contains(ours, link.Home) {
 		preview, err := service.preview(ctx, principal.AccountID, link.InvitationID)
 		if err != nil {
 			return Link{}, Preview{}, err
@@ -503,7 +556,7 @@ member of it here, and it appears in their own list like any other.
 */
 func (service *Service) Join(
 	ctx context.Context,
-	here string,
+	ours []string,
 	account accounts.Account,
 	identity accounts.Identity,
 	rawLink string,
@@ -513,7 +566,7 @@ func (service *Service) Join(
 		return Joined{}, err
 	}
 
-	if link.Home == here {
+	if slices.Contains(ours, link.Home) {
 		accepted, err := service.accept(ctx, account.ID, account.Username, link.InvitationID)
 		if err != nil {
 			return Joined{}, err
@@ -566,6 +619,167 @@ func (service *Service) Join(
 // RemoteRooms lists the rooms elsewhere an account belongs to.
 func (service *Service) RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error) {
 	return service.store.RemoteRooms(ctx, accountID)
+}
+
+/*
+Unread counts what somebody has not read in each of the rooms they are in
+elsewhere.
+
+Every count is held at the room's home, which is the only place that knows both
+what was said and how far this person has read, so each one is asked. They are
+asked at once rather than in turn, under a budget of their own, and
+**best-effort: a home that does not answer costs a count, not the list.** The
+sidebar is how somebody sees they have rooms at all, and making it wait for the
+slowest installation they have ever joined would be the wrong trade in every
+direction — a missing count shows no badge, which is what a room with nothing
+unread shows anyway.
+*/
+func (service *Service) About(
+	ctx context.Context,
+	identity accounts.Identity,
+	rooms []RemoteRoom,
+) map[string]Elsewhere {
+	if len(rooms) == 0 {
+		return nil
+	}
+
+	asking, give := context.WithTimeout(ctx, unreadBudget)
+	defer give()
+
+	var (
+		mutex  sync.Mutex
+		counts = make(map[string]Elsewhere, len(rooms))
+		group  sync.WaitGroup
+	)
+	atOnce := make(chan struct{}, unreadAtOnce)
+
+	for _, room := range rooms {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+
+			select {
+			case atOnce <- struct{}{}:
+				defer func() { <-atOnce }()
+			case <-asking.Done():
+				return
+			}
+
+			known := service.askAbout(asking, identity, room)
+			if known.Unread == nil && known.Call == nil {
+				return
+			}
+
+			mutex.Lock()
+			counts[room.ID] = known
+			mutex.Unlock()
+		}()
+	}
+	group.Wait()
+
+	return counts
+}
+
+/*
+Elsewhere is what a home said about one of its rooms, for a list drawn here.
+
+Each field is absent when that home did not say, which is not the same as it
+saying nothing is there: no count and no call are how a room whose home is
+unreachable appears, and the row is still drawn.
+*/
+type Elsewhere struct {
+	Unread *int64
+	// Call is the call the room is holding, as the home rendered it, or nil.
+	Call json.RawMessage
+}
+
+/*
+askAbout asks one home the two things a room's row shows: how much of it is
+unread, and whether a call is running in it.
+
+They are two requests because they are two facts and the peer surface answers
+one thing per route. They are made together so that one room costs one turn of
+the budget rather than two.
+*/
+func (service *Service) askAbout(
+	ctx context.Context,
+	identity accounts.Identity,
+	room RemoteRoom,
+) Elsewhere {
+	var (
+		known Elsewhere
+		group sync.WaitGroup
+	)
+
+	group.Add(2)
+	go func() {
+		defer group.Done()
+		known.Unread = service.unreadAt(ctx, identity, room)
+	}()
+	go func() {
+		defer group.Done()
+		known.Call = service.callAt(ctx, identity, room)
+	}()
+	group.Wait()
+
+	return known
+}
+
+// unreadAt asks one home how much of one room this person has not read.
+func (service *Service) unreadAt(
+	ctx context.Context,
+	identity accounts.Identity,
+	room RemoteRoom,
+) *int64 {
+	response, err := service.client.Do(ctx, identity, http.MethodGet, room.Home,
+		roomTarget(room, "/read_state"), nil)
+	if err != nil || response.Status != http.StatusOK {
+		/*
+			Said quietly. A home being unreachable is ordinary and this runs for
+			every room on every read of the sidebar, so anything louder would be
+			a log nobody could read during an outage.
+		*/
+		service.logger.Debug("an unread count could not be read from a home",
+			"error", err, "home", room.Home, "remote_room_id", room.ID)
+		return nil
+	}
+
+	var state struct {
+		Unread int64 `json:"unread"`
+	}
+	if err := json.Unmarshal(response.Body, &state); err != nil || state.Unread < 0 {
+		return nil
+	}
+	return &state.Unread
+}
+
+/*
+callAt asks one home whether one of its rooms is holding a call.
+
+What comes back is passed on as the home rendered it, checked only for being a
+JSON object: it is the home's call, with the home's identifiers, and this
+installation has nothing to add to it. `204` is a home saying there is no call,
+which is an answer rather than a silence, so it is reported as an empty one.
+*/
+func (service *Service) callAt(
+	ctx context.Context,
+	identity accounts.Identity,
+	room RemoteRoom,
+) json.RawMessage {
+	response, err := service.client.Do(ctx, identity, http.MethodGet, room.Home, roomTarget(room, "/call"), nil)
+	if err != nil {
+		service.logger.Debug("a call could not be read from a home",
+			"error", err, "home", room.Home, "remote_room_id", room.ID)
+		return nil
+	}
+
+	switch {
+	case response.Status == http.StatusNoContent:
+		return json.RawMessage("null")
+	case response.Status != http.StatusOK || !json.Valid(response.Body):
+		return nil
+	}
+	return response.Body
 }
 
 // RemoteRoom returns one of them.
@@ -685,6 +899,16 @@ func refusal(response Response) error {
 		return ErrNotFound
 	case response.Status == http.StatusConflict:
 		return ErrAlreadyMember
+	case response.Code == string(api.CodeUnsupportedVersion):
+		/*
+			The other installation does not speak our protocol.
+
+			It is called out rather than folded into "could not be reached",
+			because the two need different things done about them: one is a
+			network and the other is a version, and only the second is fixed by
+			somebody upgrading something. The answer named what it does speak.
+		*/
+		return ErrUnsupportedVersion
 	default:
 		return fmt.Errorf("%w: the other installation answered %d", ErrUnreachable, response.Status)
 	}

@@ -91,6 +91,39 @@ const (
 	*/
 	registrationBurst  = 20
 	registrationPeriod = time.Hour
+
+	/*
+		peerBurst and peerPeriod ration requests between installations,
+		successes included, per signer and per address at once.
+
+		**A signature proves who is asking and not that they may ask a thousand
+		times a minute.** Anybody who can register on any installation can make
+		one this one will verify, so verifying is not a reason to serve without
+		a limit; and each verification costs a database write for the nonce
+		before any handler runs.
+
+		Three hundred a minute per person is far above what taking part in rooms
+		needs — a stream costs one, and reading a conversation costs a handful —
+		and far below what makes flooding worth attempting.
+
+		**The address is allowed ten times that, and the ratio is the point.** An
+		address is a whole installation with many people behind it; a signer is
+		one of them. Equal budgets would mean one person could spend everything
+		their installation had, which is the thing the per-signer budget exists
+		to prevent.
+	*/
+	peerSignerBurst  = 300
+	peerAddressBurst = 3_000
+	peerPeriod       = time.Minute
+
+	/*
+		peerKeys bounds the signers and the addresses remembered at once.
+
+		A bucket exists only for somebody who has made a request recently, so
+		this is well above the number of people taking part from elsewhere at
+		any moment on an installation of the size this is built for.
+	*/
+	peerKeys = 10_000
 )
 
 /*
@@ -289,6 +322,17 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		spread its failed attempts across endpoints to buy more of them.
 	*/
 	failures := ratelimit.New(authFailureBurst, authFailurePeriod, authFailureKeys)
+	/*
+		What the surface between installations may cost, charged on every
+		request rather than only on refusals.
+
+		Two budgets, both charged: one keyed by the signer, so one person
+		cannot flood by spreading across addresses, and one keyed by the
+		address, so one installation cannot flood by minting accounts. Neither
+		alone covers the other.
+	*/
+	peerSigners := ratelimit.New(peerSignerBurst, peerPeriod, peerKeys)
+	peerAddresses := ratelimit.New(peerAddressBurst, peerPeriod, peerKeys)
 
 	/*
 		A budget of its own for the browser surface, and a much smaller one.
@@ -351,9 +395,9 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			// allowance of the person whose browser it is running in.
 			served = guardEntry(logger, rationed(logger, registering, resolve, served))
 		case surfacePeer:
-			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
+			served = signed(logger, dependencies.PeerAuthenticator, false, failures, peerSigners, peerAddresses, resolve, served)
 		case surfaceVisitor:
-			served = signed(logger, dependencies.PeerAuthenticator, true, failures, resolve, served)
+			served = signed(logger, dependencies.PeerAuthenticator, true, failures, peerSigners, peerAddresses, resolve, served)
 		case surfaceMedia:
 			served = reported(logger, dependencies.MediaReporter, failures, resolve, served)
 		case surfaceTenant:
@@ -1057,6 +1101,24 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(invitations.MarkRead)},
 			route{method: http.MethodGet, path: remote + "/members", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Members)},
+			/*
+				A call in a room that lives somewhere else.
+
+				Every one of these is relayed, and the answer to joining carries
+				the **home's** media address and a credential the home issued. The
+				page connects to that directly: this installation orchestrates and
+				carries no media, which is the boundary AGENTS.md draws.
+			*/
+			route{method: http.MethodGet, path: remote + "/call", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Call)},
+			route{method: http.MethodGet, path: remote + "/call/participants", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.CallRoster)},
+			route{method: http.MethodPost, path: remote + "/call/join", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.JoinCall)},
+			route{method: http.MethodPost, path: remote + "/call/leave", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.LeaveCall)},
+			route{method: http.MethodDelete, path: remote + "/call/participants/{user_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.RemoveFromCall)},
 			route{method: http.MethodPost, path: remote + "/leave", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Leave)},
 			route{method: http.MethodDelete, path: remote, surface: surfaceSession,
@@ -1100,6 +1162,37 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(messagesHandler.Delete)},
 			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/members", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Members)},
+			/*
+				The room's call, for a member from another installation.
+
+				Served by the same handlers the session surface uses, because a
+				visitor is a user here and taking part in a call is decided by
+				membership either way. Joining answers with this installation's
+				media address and a credential it issued for this one person in
+				this one call, which their browser then uses directly — no media
+				crosses either control plane.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/call", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Call)},
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/call/participants",
+				surface: surfaceVisitor, handler: http.HandlerFunc(dependencies.PersonalCalls.Roster)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/call/join", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Join)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/call/leave", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Leave)},
+			route{method: http.MethodDelete, path: api.Prefix + "/peer/rooms/{room_id}/call/participants/{user_id}",
+				surface: surfaceVisitor, handler: http.HandlerFunc(dependencies.PersonalCalls.Remove)},
+			/*
+				What happens here, to somebody taking part from elsewhere.
+
+				It is the same stream `/v1/me/events` serves, because a visitor is
+				a user here and what they may be told is decided by membership
+				either way. Their own installation holds it open and hands on what
+				arrives, which is why nothing here has to know how to reach them.
+				See internal/peers and docs/peers.md.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/peer/events", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalEvents.Visiting)},
 			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/leave", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Leave)},
 		)

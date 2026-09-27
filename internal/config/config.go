@@ -55,6 +55,8 @@ const (
 
 	peersAllowPrivateAddressesEnvironment = "CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES"
 
+	publicAddressEnvironment = "CONVIA_PUBLIC_ADDRESS"
+
 	databaseURLEnvironment            = "CONVIA_DATABASE_URL"
 	databaseMaxConnectionsEnvironment = "CONVIA_DATABASE_MAX_CONNECTIONS"
 	databaseConnectTimeoutEnvironment = "CONVIA_DATABASE_CONNECT_TIMEOUT"
@@ -134,6 +136,22 @@ type Config struct {
 		following a link is something anybody who registers can cause.
 	*/
 	PeersAllowPrivateAddresses bool
+
+	/*
+		PublicAddress is the address other installations reach this one at, as a
+		scheme and authority: "https://convia.example".
+
+		Empty means nobody said, and an invitation link is then named after the
+		address the request that made it arrived at. That guess is right for one
+		machine on one network and wrong everywhere else — behind a reverse
+		proxy, or when an administrator opens Convia at an address only that
+		machine can reach.
+
+		It is a string here rather than a parsed value because what counts as an
+		address an installation can be named by belongs to internal/peers, which
+		this package does not import.
+	*/
+	PublicAddress string
 }
 
 // Database contains the connection and pool settings of the PostgreSQL client.
@@ -251,6 +269,7 @@ func Load() (Config, error) {
 		TrustedProxies: trustedProxies,
 
 		PeersAllowPrivateAddresses: peersAllowPrivate,
+		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil
 }
 

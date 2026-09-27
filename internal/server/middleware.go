@@ -409,6 +409,8 @@ func signed(
 	verify peerAuthenticator,
 	visiting bool,
 	failures *ratelimit.Limiter,
+	signers *ratelimit.Limiter,
+	addresses *ratelimit.Limiter,
 	resolve resolver,
 	next http.Handler,
 ) http.Handler {
@@ -418,6 +420,20 @@ func signed(
 			slowDown(logger, response, request, "", failures.RetryAfter(source), failedAttempts)
 			return
 		}
+
+		/*
+			What this installation costs, charged before it is spent.
+
+			The address is charged first and unconditionally, because reading
+			the body and checking a signature are themselves work, and a flood
+			of nonsense is work an unbudgeted surface would do forever. The
+			signer is charged once there is one to name — see below.
+		*/
+		if !addresses.Allows(source) {
+			slowDown(logger, response, request, "", addresses.RetryAfter(source), tooManyRequests)
+			return
+		}
+		addresses.Record(source)
 
 		if !peers.Presented(request) {
 			failures.Record(source)
@@ -439,6 +455,20 @@ func signed(
 		ctx := request.Context()
 		signer, err := verify.Verify(ctx, request, body)
 		if err == nil {
+			/*
+				And what this **person** costs, now that there is one to name.
+
+				An address is a whole installation: budgeting only by it would
+				let one person there use up what everybody else on it needs.
+				Budgeting only by signer would let one installation mint
+				accounts to buy more. Both are charged, and either refuses.
+			*/
+			if !signers.Allows(signer.AccountID) {
+				slowDown(logger, response, request, "", signers.RetryAfter(signer.AccountID), tooManyRequests)
+				return
+			}
+			signers.Record(signer.AccountID)
+
 			ctx = peers.ContextWithSigner(ctx, signer)
 			if visiting {
 				var principal sessions.Principal
@@ -451,6 +481,27 @@ func signed(
 		if err != nil {
 			if abandoned(request) {
 				refuse(logger, response, request, "")
+				return
+			}
+
+			/*
+				Not speaking the same protocol is not a refused credential.
+
+				Answering it as one would send whoever runs the caller to look at
+				their keys, which are fine. What they need is **what this
+				installation does speak**, so that is what they are told — and it
+				costs the failure budget like any other refusal, because a caller
+				that keeps asking in a version nobody speaks is still a caller
+				that keeps asking.
+			*/
+			if errors.Is(err, peers.ErrUnsupportedVersion) {
+				failures.Record(source)
+				response.Header().Set(peers.HeaderVersions, strings.Join(peers.Spoken, ", "))
+				failure := api.NewFailure(http.StatusBadRequest, api.CodeUnsupportedVersion,
+					"This installation does not speak that version of the protocol between installations.")
+				if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
+					logger.Error("write unsupported version response", "error", writeErr)
+				}
 				return
 			}
 
@@ -710,6 +761,15 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 
 // failedAttempts is what a caller that spent its budget for failures is told.
 const failedAttempts = "Too many failed authentication attempts. Retry later."
+
+/*
+tooManyRequests is what an installation asking too often is told.
+
+It says nothing about who or what was over the limit. The budget is per signer
+and per address at once, and naming which one was exhausted would tell a caller
+which dimension to spread across.
+*/
+const tooManyRequests = "Too many requests. Retry later."
 
 /*
 slowDown refuses a caller that has spent a budget.

@@ -80,6 +80,17 @@ and the reason is logged.
 */
 var ErrUnreachable = errors.New("the other installation could not be reached")
 
+/*
+ErrUnsupportedVersion reports a request signed under a protocol this
+installation does not speak.
+
+It is not a refused credential and must not be answered as one. A caller told
+its signature was rejected goes and looks at its keys; a caller told the
+version is not spoken is told **what is**, and can sign the next one
+differently. See [Spoken].
+*/
+var ErrUnsupportedVersion = errors.New("the protocol version is not one this installation speaks")
+
 // ValidationError reports a value that violates a rule of this package.
 type ValidationError struct {
 	Field   string

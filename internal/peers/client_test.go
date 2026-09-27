@@ -21,7 +21,7 @@ func TestTheClientSignsWhatItSends(t *testing.T) {
 
 	home := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		body, _ := io.ReadAll(request.Body)
-		verified, err := verifySignature(request, body, time.Now())
+		verified, err := verifySignature(request, body, []string{request.Host}, time.Now())
 		if err != nil || verified.AccountID != identity.ID() {
 			http.Error(response, "unsigned", http.StatusUnauthorized)
 			return

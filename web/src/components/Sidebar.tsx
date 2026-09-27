@@ -435,6 +435,15 @@ export function Sidebar({
                       <span className="truncate">{room.name}</span>
                       <span className="truncate text-[0.68rem] text-ink-faint">{hostOf(room.home)}</span>
                     </span>
+                    {room.unread !== undefined && room.unread > 0 && (
+                      <span
+                        className="min-w-5 flex-none rounded-full bg-accent px-2 py-px text-center
+                          text-[0.7rem] font-semibold text-on-accent"
+                      >
+                        <span className="sr-only">{said.unread(room.unread)}</span>
+                        <span aria-hidden="true">{room.unread > 99 ? said.manyUnread : room.unread}</span>
+                      </span>
+                    )}
                   </button>
                 </li>
               )

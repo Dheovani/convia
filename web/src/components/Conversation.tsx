@@ -349,7 +349,7 @@ export function Conversation({
           </span>
         )}
         <span className="flex-1" aria-hidden="true" />
-        {source.kind === 'local' && <CallButton room={room} running={callRunning} />}
+        <CallButton room={room} running={callRunning} />
         <Button
           size="small"
           aria-expanded={showPeople}
@@ -369,14 +369,18 @@ export function Conversation({
         )}
       </header>
 
-      {source.kind === 'local' && (
-        // The call is its own zone: when it breaks, the conversation goes on under it.
-        <Recoverable zone="call" placement="border-b border-line" resetKey={room.id}>
-          <CallProblem roomId={room.id} />
-          <CallPreparation room={room} running={callRunning} />
-          <CallStage room={room} moderator={room.owned || room.moderator} />
-        </Recoverable>
-      )}
+      {/*
+      The call is its own zone: when it breaks, the conversation goes on under it.
+
+      A room elsewhere has one too, since `M33-002`. It is the home's call, and
+      `room.id` is the pointer this installation keeps — which is what every
+      request about it is addressed by, and what the events about it name.
+      */}
+      <Recoverable zone="call" placement="border-b border-line" resetKey={room.id}>
+        <CallProblem roomId={room.id} />
+        <CallPreparation room={room} running={callRunning} />
+        <CallStage room={room} moderator={room.owned || room.moderator} />
+      </Recoverable>
 
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

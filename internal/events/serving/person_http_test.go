@@ -77,7 +77,8 @@ func listeningAsPerson(t *testing.T, handler *PersonHandler) *httptest.Server {
 }
 
 func personHandler(broker *events.Broker, session sessionAuthenticator, known memberships) *PersonHandler {
-	return NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil, session, known)
+	return NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil, session,
+		alwaysVisiting{}, nil, known)
 }
 
 // dialAsPerson opens the stream the way a browser holding a session would.
@@ -283,5 +284,124 @@ func TestRoomsThatCannotBeReadAreRefusedBeforeTheUpgrade(t *testing.T) {
 	}
 	if broker.Active() != 0 {
 		t.Errorf("a refused stream kept its place: %d open", broker.Active())
+	}
+}
+
+// alwaysVisiting is a visitor nobody has taken away, which is what the tests
+// about a session's stream need from this dependency: nothing.
+type alwaysVisiting struct{}
+
+func (alwaysVisiting) Visiting(context.Context, string) (bool, error) { return true, nil }
+
+// visiting answers whether a visitor is still somebody here, and can change
+// its answer while a stream is open.
+type visiting struct {
+	mutex sync.Mutex
+	still bool
+	err   error
+}
+
+func (person *visiting) Visiting(context.Context, string) (bool, error) {
+	person.mutex.Lock()
+	defer person.mutex.Unlock()
+	return person.still, person.err
+}
+
+func (person *visiting) leaves() {
+	person.mutex.Lock()
+	defer person.mutex.Unlock()
+	person.still = false
+}
+
+/*
+listeningAsVisitor serves the visitor's stream the way the peer surface leaves a
+request once a signature has been verified and the signer turned out to be
+somebody here: a principal in the context, and no session anywhere.
+*/
+func listeningAsVisitor(t *testing.T, handler *PersonHandler) *httptest.Server {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		handler.Visiting(response, request.WithContext(
+			sessions.ContextWithPrincipal(request.Context(), signedIn("usr_ana"))))
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func dialAsVisitor(t *testing.T, server *httptest.Server) (*websocket.Conn, *http.Response, error) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
+	defer cancel()
+
+	connection, response, err := websocket.Dial(ctx, strings.Replace(server.URL, "http://", "ws://", 1), nil)
+	if err == nil {
+		t.Cleanup(func() { connection.CloseNow() })
+	}
+	return connection, response, err
+}
+
+/*
+TestAVisitorReceivesTheSameEventsAPersonHereDoes is what makes a room elsewhere
+worth being in.
+
+A visitor is a user here — membership decides what they may be told, exactly as
+it does for anybody else — and the only thing that differs is what proved them.
+Nothing about the stream itself is a second implementation.
+*/
+func TestAVisitorReceivesTheSameEventsAPersonHereDoes(t *testing.T) {
+	broker := events.NewBroker()
+	handler := NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), broker, nil,
+		&switchableSession{}, &visiting{still: true}, nil, &rooms{ids: []string{"room_a"}})
+
+	connection, _, err := dialAsVisitor(t, listeningAsVisitor(t, handler))
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	arrived, _ := incoming(connection)
+
+	broker.Publish(posted("room_b"))
+	broker.Publish(posted("room_a"))
+
+	select {
+	case event := <-arrived:
+		if event.Data["room_id"] != "room_a" {
+			t.Errorf("the visitor received an event about %v", event.Data["room_id"])
+		}
+	case <-time.After(waitFor):
+		t.Fatal("no event arrived")
+	}
+}
+
+/*
+TestAVisitorNoLongerRecognisedIsClosed is the visitor's half of the rule a
+session's stream already has.
+
+A signature proved somebody once, and a stream stays open for hours. Somebody
+removed from every room here, or suspended, must stop being delivered to rather
+than keep a connection that happens to have been opened while they were welcome.
+*/
+func TestAVisitorNoLongerRecognisedIsClosed(t *testing.T) {
+	person := &visiting{still: true}
+	handler := NewPersonHandler(slog.New(slog.NewTextHandler(io.Discard, nil)), events.NewBroker(), nil,
+		&switchableSession{}, person, nil, &rooms{ids: []string{"room_a"}})
+	handler.every = 10 * time.Millisecond
+
+	connection, _, err := dialAsVisitor(t, listeningAsVisitor(t, handler))
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	_, failed := incoming(connection)
+
+	person.leaves()
+
+	select {
+	case err := <-failed:
+		if websocket.CloseStatus(err) != statusSessionEnded {
+			t.Errorf("the stream closed with %v, want %d", err, statusSessionEnded)
+		}
+	case <-time.After(waitFor):
+		t.Fatal("the stream stayed open for somebody this installation no longer recognises")
 	}
 }

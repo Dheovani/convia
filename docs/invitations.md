@@ -128,5 +128,5 @@ Suspending an application withdraws every invitation it issued, immediately and 
 
 ## What is deliberately not built
 
-- **Delivery.** Convia does not send the invitation anywhere. Mail, links, and pages belong to the application, or to the standalone web application of M18.
+- **Delivery.** Convia does not send the invitation anywhere. Mail, links, and pages belong to the application, or to Convia's own client.
 - **Rate limits on issuing** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key; a general per-tenant limit is the right shape rather than one bolted to this endpoint.

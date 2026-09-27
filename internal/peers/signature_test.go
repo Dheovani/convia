@@ -29,7 +29,7 @@ func TestASignedRequestVerifies(t *testing.T) {
 	request := signedRequest(t, identity, http.MethodPost, "https://convia.example/v1/peer/invitations/x/accept?a=1",
 		`{"username":"bia"}`, now)
 
-	verified, err := verifySignature(request, []byte(`{"username":"bia"}`), now)
+	verified, err := verifySignature(request, []byte(`{"username":"bia"}`), []string{request.Host}, now)
 	if err != nil {
 		t.Fatalf("verifySignature() error = %v", err)
 	}
@@ -101,7 +101,7 @@ func TestEveryAlterationIsRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			request := signedRequest(t, identity, http.MethodPost, target, body, now)
 			presented := alter(request)
-			if _, err := verifySignature(request, presented, now); !errors.Is(err, ErrUnauthenticated) {
+			if _, err := verifySignature(request, presented, []string{request.Host}, now); !errors.Is(err, ErrUnauthenticated) {
 				t.Errorf("verifySignature() after altering %s error = %v, want %v", name, err, ErrUnauthenticated)
 			}
 		})
@@ -128,9 +128,9 @@ func TestAKeyCannotClaimSomebodyElsesIdentifier(t *testing.T) {
 	request.Header.Set(HeaderTimestamp, timestamp)
 	request.Header.Set(HeaderNonce, nonce)
 	request.Header.Set(HeaderSignature, base64.StdEncoding.EncodeToString(mallory.Sign(
-		canonical(http.MethodGet, request.Host, request.URL.RequestURI(), nil, victim.ID(), timestamp, nonce))))
+		canonical(Current, http.MethodGet, request.Host, request.URL.RequestURI(), nil, victim.ID(), timestamp, nonce))))
 
-	if _, err := verifySignature(request, nil, now); !errors.Is(err, ErrUnauthenticated) {
+	if _, err := verifySignature(request, nil, []string{request.Host}, now); !errors.Is(err, ErrUnauthenticated) {
 		t.Errorf("a key signing for another identifier error = %v, want %v", err, ErrUnauthenticated)
 	}
 }
@@ -143,15 +143,101 @@ func TestASignatureLastsFiveMinutesEitherWay(t *testing.T) {
 
 	for name, offset := range map[string]time.Duration{"a clock behind": -4 * time.Minute, "a clock ahead": 4 * time.Minute} {
 		request := signedRequest(t, identity, http.MethodGet, "https://convia.example/v1/peer/x", "", now.Add(offset))
-		if _, err := verifySignature(request, nil, now); err != nil {
+		if _, err := verifySignature(request, nil, []string{request.Host}, now); err != nil {
 			t.Errorf("%s by four minutes was refused: %v", name, err)
 		}
 	}
 
 	for name, offset := range map[string]time.Duration{"a stale request": -6 * time.Minute, "a future one": 6 * time.Minute} {
 		request := signedRequest(t, identity, http.MethodGet, "https://convia.example/v1/peer/x", "", now.Add(offset))
-		if _, err := verifySignature(request, nil, now); !errors.Is(err, ErrUnauthenticated) {
+		if _, err := verifySignature(request, nil, []string{request.Host}, now); !errors.Is(err, ErrUnauthenticated) {
 			t.Errorf("%s by six minutes error = %v, want %v", name, err, ErrUnauthenticated)
 		}
+	}
+}
+
+/*
+TestAVersionNobodySpeaksIsNotARefusedCredential is `M33-003`.
+
+Two installations upgrade on their own schedules, so one will eventually sign in
+a protocol the other has never heard of. Answering that as a bad signature sends
+whoever runs the caller to look at their keys, which are fine. It is its own
+answer, and the answer carries what this installation does speak.
+*/
+func TestAVersionNobodySpeaksIsNotARefusedCredential(t *testing.T) {
+	identity, err := accounts.NewIdentity()
+	if err != nil {
+		t.Fatalf("NewIdentity() error = %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "https://convia.example/v1/peer/rooms/x/messages", nil)
+	Sign(request, nil, identity, time.Now())
+	request.Header.Set(HeaderVersion, "convia-peer-v99")
+
+	if _, err := verifySignature(request, nil, []string{request.Host}, time.Now()); !errors.Is(err, ErrUnsupportedVersion) {
+		t.Errorf("a version nobody speaks error = %v, want %v", err, ErrUnsupportedVersion)
+	}
+}
+
+/*
+TestTheVersionCannotBeChangedWithoutTheKey is what makes the header safe to read
+before anything is verified.
+
+The version has to be read first, because it decides what the canonical form is.
+That would be a way in if it were merely a header — so it is also the first
+thing the signature covers, and changing it produces a signature over a message
+nobody signed.
+*/
+func TestTheVersionCannotBeChangedWithoutTheKey(t *testing.T) {
+	identity, err := accounts.NewIdentity()
+	if err != nil {
+		t.Fatalf("NewIdentity() error = %v", err)
+	}
+
+	/*
+		Signed under a version this installation speaks, then relabelled as
+		another one it also speaks. Once there are two, this is the downgrade
+		somebody would try; with one, the same signature is simply not over
+		this message.
+	*/
+	request := httptest.NewRequest(http.MethodGet, "https://convia.example/v1/peer/rooms/x/messages", nil)
+	Sign(request, nil, identity, time.Now())
+
+	signed := canonical("convia-peer-v0", http.MethodGet, request.Host, request.URL.RequestURI(), nil,
+		identity.ID(), request.Header.Get(HeaderTimestamp), request.Header.Get(HeaderNonce))
+	request.Header.Set(HeaderSignature, base64.StdEncoding.EncodeToString(identity.Sign(signed)))
+
+	if _, err := verifySignature(request, nil, []string{request.Host}, time.Now()); !errors.Is(err, ErrUnauthenticated) {
+		t.Errorf("a signature over another version's message error = %v, want %v", err, ErrUnauthenticated)
+	}
+}
+
+/*
+TestAnAuthorityTheProxyRewroteStillVerifies is the half `M33-005` left open.
+
+The caller signs the address it dialled. Behind a reverse proxy that rewrites
+Host, the home compares that with an internal name and every signed request
+fails — so an operator who configures a public address is answered at it too.
+It is not a weakening: the caller must still have signed an address this
+installation actually answers to.
+*/
+func TestAnAuthorityTheProxyRewroteStillVerifies(t *testing.T) {
+	identity, err := accounts.NewIdentity()
+	if err != nil {
+		t.Fatalf("NewIdentity() error = %v", err)
+	}
+
+	// Signed for the public name, and arriving with the internal one.
+	request := httptest.NewRequest(http.MethodGet, "https://convia.example/v1/peer/rooms/x/messages", nil)
+	Sign(request, nil, identity, time.Now())
+	request.Host = "behind-the-proxy.internal"
+
+	if _, err := verifySignature(request, nil, []string{request.Host}, time.Now()); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("without the configured address error = %v, want it refused", err)
+	}
+
+	answers := []string{request.Host, "convia.example"}
+	if _, err := verifySignature(request, nil, answers, time.Now()); err != nil {
+		t.Errorf("with the configured address error = %v, want it verified", err)
 	}
 }

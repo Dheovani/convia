@@ -89,7 +89,7 @@ func newFixture(t *testing.T) fixture {
 	sessionService := sessions.NewService(sessions.NewStore(pool), accountService, applicationService,
 		userService, applications.FirstPartyID, logger)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peers.NewClient(webhooks.NewDestinations(true)), applications.FirstPartyID, logger)
+		accountService, peers.NewClient(webhooks.NewDestinations(true)), applications.FirstPartyID, "", logger)
 
 	return fixture{
 		service:  NewService(accountService, peerService, roomService, messageService, userService, logger),
