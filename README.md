@@ -184,7 +184,7 @@ docker build -t convia .
 
 GitHub Actions validates the project through three workflows:
 
-- `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package. It builds the interface first, so the tests covering how it is served run rather than skip, and validates the interface's own types and tests in a job of its own.
+- `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package. It builds the interface first, so the tests covering how it is served run rather than skip, and validates the interface's own types and tests in a job of its own. A further job starts **two installations against each other** — separate databases, and a media plane on only one of them — and drives the journeys that cross between them over the public API alone.
 - `Security` runs Go vulnerability analysis and CodeQL with extended security queries on pushes, pull requests, a weekly schedule, and manual requests.
 - `Container` builds the production image, verifies its non-root user, and smoke tests the health and readiness endpoints against a real PostgreSQL instance.
 

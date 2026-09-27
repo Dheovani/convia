@@ -379,3 +379,119 @@ jobs:
       # job that built one would report success for something nobody can run.
       - name: Build the application
         run: go build -tags desktop,production ./cmd/convia-desktop
+
+  federation:
+    name: Two installations against each other
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: convia
+          POSTGRES_PASSWORD: convia
+          POSTGRES_DB: convia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=convia"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build Convia
+        run: go build -o convia ./cmd/convia
+
+      # Only the second installation gets one. That asymmetry is what proves a
+      # visitor's call credential came from the room's home: the first could
+      # not have issued one.
+      #
+      # No webhook is configured, unlike the end-to-end job: these journeys
+      # check that a credential is issued and whose media server it names,
+      # and nothing here connects with one, so the media server has nothing
+      # to report.
+      - name: Start LiveKit for the second installation
+        run: |
+          docker run --detach --name convia-livekit \
+            --publish 127.0.0.1:7880:7880 \
+            --publish 127.0.0.1:7881:7881 \
+            --publish 127.0.0.1:7882:7882/udp \
+            --env "LIVEKIT_KEYS=devkey: a-development-secret-long-enough-to-be-accepted" \
+            livekit/livekit-server:v1.13.6 --dev --bind 0.0.0.0 --node-ip 127.0.0.1
+
+      # Two databases on one server, so the two installations share nothing but
+      # the network: an installation that could read the other's tables would
+      # prove nothing about what crosses between them.
+      - name: Create a database for each installation
+        env:
+          PGPASSWORD: convia
+        run: |
+          for name in convia_a convia_b; do
+            psql --host 127.0.0.1 --username convia --dbname postgres \
+              --command "CREATE DATABASE $name"
+          done
+
+      - name: Start both installations
+        env:
+          CONVIA_ENVIRONMENT: development
+          CONVIA_HTTP_HOST: 127.0.0.1
+          # Private addresses are allowed because the two reach each other on
+          # loopback, which Convia refuses by default and for good reason.
+          CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES: "true"
+        run: |
+          start() {
+            port=$1
+            database=$2
+            shift 2
+            env CONVIA_HTTP_PORT="$port" \
+                CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/$database?sslmode=disable" \
+                CONVIA_PUBLIC_ADDRESS="http://127.0.0.1:$port" \
+                "$@" ./convia migrate up
+            env CONVIA_HTTP_PORT="$port" \
+                CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/$database?sslmode=disable" \
+                CONVIA_PUBLIC_ADDRESS="http://127.0.0.1:$port" \
+                "$@" nohup ./convia serve > "convia-$database.log" 2>&1 &
+          }
+
+          start 8080 convia_a
+          start 8081 convia_b \
+            CONVIA_LIVEKIT_URL=http://127.0.0.1:7880 \
+            CONVIA_LIVEKIT_API_KEY=devkey \
+            CONVIA_LIVEKIT_API_SECRET=a-development-secret-long-enough-to-be-accepted
+
+          for _ in $(seq 1 30); do
+            if curl --silent --fail --output /dev/null http://127.0.0.1:8080/health \
+              && curl --silent --fail --output /dev/null http://127.0.0.1:8081/health \
+              && curl --silent --fail --output /dev/null http://127.0.0.1:7880/; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the installations did not both start" >&2
+          tail --lines=40 convia-convia_a.log convia-convia_b.log
+          exit 1
+
+      # The journeys drive the public surface and nothing else: two addresses
+      # and a token each, which is all a third party would have.
+      - name: Run the journeys between them
+        env:
+          CONVIA_TEST_FEDERATION_A: http://127.0.0.1:8080
+          CONVIA_TEST_FEDERATION_B: http://127.0.0.1:8081
+        run: go test -count=1 -shuffle=on -run Test ./internal/peers/
+
+      - name: Show what each installation logged
+        if: failure()
+        run: tail --lines=100 convia-convia_a.log convia-convia_b.log

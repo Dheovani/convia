@@ -137,6 +137,16 @@ The trade is deliberate and runs the only way it can. A sidebar is how somebody 
 
 Nothing polls for it: the sidebar is read again when the stream carries something about a room, which is now true of rooms elsewhere too, so the badge follows what is said rather than a timer.
 
+## How this is checked
+
+A CI job starts **two installations against each other** — separate databases, reaching each other over the network and sharing nothing else — and drives four journeys between them: sharing a room and being told what happens in it, joining a call at its home, being taken out of a room elsewhere, and a room the visitor is not in staying private.
+
+They drive the **public surface and nothing else**: two addresses and a token each, which is all a third party has. So they run against any two things that answer as a Convia, including installations somebody else built.
+
+**Only one of the two has a media plane.** That asymmetry is the proof for a call: a visitor who joins one at the other installation is handed a credential the first could not possibly have issued.
+
+Run them yourself against two installations with `CONVIA_TEST_FEDERATION_A` and `CONVIA_TEST_FEDERATION_B`; without both, they skip.
+
 ## What it costs a home
 
 **A signature proves who is asking and not that they may ask three hundred times a minute.** Anybody who can register on any installation can make one this installation will verify, and verifying is itself work: a body read, a signature checked, and a nonce written down before any handler runs.
