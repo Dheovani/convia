@@ -147,6 +147,33 @@ They drive the **public surface and nothing else**: two addresses and a token ea
 
 Run them yourself against two installations with `CONVIA_TEST_FEDERATION_A` and `CONVIA_TEST_FEDERATION_B`; without both, they skip.
 
+## Versions
+
+Two installations upgrade on their own schedules, so one will eventually sign in a protocol the other has never heard of. That is planned for rather than discovered.
+
+**The version is a header and the first thing the signature covers.** It has to be a header, because it decides what the canonical form is and a home cannot verify a signature without first knowing which one to build. It cannot be tampered with anyway: changing it without the key produces a signature over a different message.
+
+```
+Convia-Peer-Version: convia-peer-v1
+```
+
+It names the **arrangement**, not any one route: what the canonical form is, which headers carry what, and what the peer surface means. Adding a route does not change it; changing what a signature covers does.
+
+**An installation answers the current version and the one before it.** One is not enough — every upgrade would break every room shared with anybody who had not upgraded yet. More than two is a promise to keep code nobody can test against, because there is nowhere to find an installation that old. A version is answered for **at least six months** after its successor is released: somebody running an installation for a few friends does not watch for releases, and six months is long enough that the first they hear of it is not a room that stopped working.
+
+**Not speaking the same protocol is not a refused credential**, and is answered as its own thing:
+
+```
+HTTP/1.1 400 Bad Request
+Convia-Peer-Versions: convia-peer-v1
+
+{"error":{"code":"unsupported_version", …}}
+```
+
+A caller told its signature was rejected goes and looks at its keys, which are fine. A caller told the version is not spoken is told **what is**, and can sign the next one differently — which is the only thing that gets the two talking again. There is no endpoint to ask first: a caller signs with its newest and is told, which costs one request and no extra surface.
+
+To the person holding the screen this is a room that is not usable now, so it reaches them as the same `503` an unreachable home does. The log is where the two are told apart, because only somebody running an installation can act on the difference.
+
 ## What it costs a home
 
 **A signature proves who is asking and not that they may ask three hundred times a minute.** Anybody who can register on any installation can make one this installation will verify, and verifying is itself work: a body read, a signature checked, and a nonce written down before any handler runs.
@@ -200,7 +227,7 @@ The home accepts it only when all of these hold:
 
 Nonces are claimed in `peer_nonces`, whose primary key decides, so a replay reaching two instances at once is still refused once. They expire with the window.
 
-The **authority** is signed so that a home cannot take a request Bia sent it and replay it to a third installation where Bia is also a member. It is compared with the `Host` the request arrived with, so a reverse proxy in front of the home must preserve `Host`. **`CONVIA_PUBLIC_ADDRESS` does not change that.** It says what a link names; it is not consulted here, so an installation that publishes an address its proxy then rewrites the `Host` of hands out links whose requests it will refuse. Letting the configured address stand as the authority as well is `M33-003`'s decision to make, with the rest of what one installation trusts another to say.
+The **authority** is signed so that a home cannot take a request Bia sent it and replay it to a third installation where Bia is also a member. It is compared with the `Host` the request arrived with, so a reverse proxy in front of the home must preserve `Host`. **`CONVIA_PUBLIC_ADDRESS` is compared too, when it is set.** The caller signs the address it dialled, so behind a proxy that rewrites `Host` the home would otherwise compare it with an internal name and refuse every signed request. It is not a weakening: the caller must still have signed an address this installation actually answers to, and an operator is the one who says what that is.
 
 ## Where the key comes from
 

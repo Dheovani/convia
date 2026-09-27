@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -66,8 +67,11 @@ type Service struct {
 	accounts    localAccounts
 	client      relay
 	application string
-	logger      *slog.Logger
-	now         func() time.Time
+	// public is the address an operator says other installations reach this
+	// one at, already checked, or "". See [Service.answers].
+	public string
+	logger *slog.Logger
+	now    func() time.Time
 }
 
 func NewService(
@@ -78,6 +82,7 @@ func NewService(
 	local localAccounts,
 	client relay,
 	firstPartyApplication string,
+	public string,
 	logger *slog.Logger,
 ) *Service {
 	return &Service{
@@ -88,6 +93,7 @@ func NewService(
 		accounts:    local,
 		client:      client,
 		application: firstPartyApplication,
+		public:      public,
 		logger:      logger,
 		now:         func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
 	}
@@ -386,9 +392,28 @@ every other failure: a replay is somebody presenting a credential that no longer
 works. So is any request while the first-party application is not served,
 because suspending Convia's own product suspends its visitors too.
 */
+/*
+answers is every address this installation is reachable at, for comparing with
+the authority a caller signed.
+
+There can be two: the one an operator configured for everybody else, and the
+one the request actually arrived at. Both are addresses this installation
+answers to, and a caller signed one of them. See `M33-005`.
+*/
+func (service *Service) answers(request *http.Request) []string {
+	if service.public == "" {
+		return []string{request.Host}
+	}
+	configured := strings.TrimPrefix(strings.TrimPrefix(service.public, "https://"), "http://")
+	if configured == request.Host {
+		return []string{request.Host}
+	}
+	return []string{request.Host, configured}
+}
+
 func (service *Service) Verify(ctx context.Context, request *http.Request, body []byte) (Signer, error) {
 	at := service.now()
-	verified, err := verifySignature(request, body, at)
+	verified, err := verifySignature(request, body, service.answers(request), at)
 	if err != nil {
 		return Signer{}, err
 	}
@@ -874,6 +899,16 @@ func refusal(response Response) error {
 		return ErrNotFound
 	case response.Status == http.StatusConflict:
 		return ErrAlreadyMember
+	case response.Code == string(api.CodeUnsupportedVersion):
+		/*
+			The other installation does not speak our protocol.
+
+			It is called out rather than folded into "could not be reached",
+			because the two need different things done about them: one is a
+			network and the other is a version, and only the second is fixed by
+			somebody upgrading something. The answer named what it does speak.
+		*/
+		return ErrUnsupportedVersion
 	default:
 		return fmt.Errorf("%w: the other installation answered %d", ErrUnreachable, response.Status)
 	}

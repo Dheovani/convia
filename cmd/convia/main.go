@@ -288,7 +288,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	peerClient := peers.NewClient(peerDestinations)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peerClient, applications.FirstPartyID, logger)
+		accountService, peerClient, applications.FirstPartyID, publicAddress, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant

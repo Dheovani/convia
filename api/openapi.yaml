@@ -11477,6 +11477,7 @@ components:
         - invalid_request
         - malformed_json
         - unsupported_media_type
+        - unsupported_version
         - payload_too_large
         - unauthenticated
         - wrong_password

@@ -22,6 +22,17 @@ const (
 	// CodeUnsupportedMediaType reports a request whose Content-Type is not
 	// accepted by the endpoint.
 	CodeUnsupportedMediaType ErrorCode = "unsupported_media_type"
+
+	/*
+		CodeUnsupportedVersion is a request in a version of a protocol this
+		installation does not speak.
+
+		It exists so that not speaking the same protocol is distinguishable from
+		a refused credential, which is a different thing to go and fix. Today it
+		is only the protocol between installations; the answer carries what is
+		spoken.
+	*/
+	CodeUnsupportedVersion ErrorCode = "unsupported_version"
 	// CodePayloadTooLarge reports a request body above the accepted limit.
 	CodePayloadTooLarge ErrorCode = "payload_too_large"
 	/*
@@ -94,6 +105,7 @@ func ErrorCodes() []ErrorCode {
 		CodeInvalidRequest,
 		CodeMalformedJSON,
 		CodeUnsupportedMediaType,
+		CodeUnsupportedVersion,
 		CodePayloadTooLarge,
 		CodeUnauthenticated,
 		CodeWrongPassword,

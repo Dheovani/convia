@@ -484,6 +484,27 @@ func signed(
 				return
 			}
 
+			/*
+				Not speaking the same protocol is not a refused credential.
+
+				Answering it as one would send whoever runs the caller to look at
+				their keys, which are fine. What they need is **what this
+				installation does speak**, so that is what they are told — and it
+				costs the failure budget like any other refusal, because a caller
+				that keeps asking in a version nobody speaks is still a caller
+				that keeps asking.
+			*/
+			if errors.Is(err, peers.ErrUnsupportedVersion) {
+				failures.Record(source)
+				response.Header().Set(peers.HeaderVersions, strings.Join(peers.Spoken, ", "))
+				failure := api.NewFailure(http.StatusBadRequest, api.CodeUnsupportedVersion,
+					"This installation does not speak that version of the protocol between installations.")
+				if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
+					logger.Error("write unsupported version response", "error", writeErr)
+				}
+				return
+			}
+
 			failures.Record(source)
 			if !errors.Is(err, peers.ErrUnauthenticated) {
 				logger.Error("verify signed request", "error", err,

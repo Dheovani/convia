@@ -121,7 +121,7 @@ func newFixture(t *testing.T) fixture {
 
 	return fixture{
 		service: NewService(store, roomService, userService, applicationService, accountService, relay,
-			applications.FirstPartyID, logger),
+			applications.FirstPartyID, "", logger),
 		store:    store,
 		users:    userService,
 		rooms:    roomService,

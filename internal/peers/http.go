@@ -832,6 +832,20 @@ func writeError(logger *slog.Logger, response http.ResponseWriter, request *http
 	case errors.Is(err, ErrBanned):
 		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusForbidden, api.CodeForbidden, "That person cannot be invited to this room."))
+	case errors.Is(err, ErrUnsupportedVersion):
+		/*
+			The two installations do not speak the same protocol.
+
+			It is a 503 like an unreachable home, because to the person holding
+			the screen it is the same thing — that room is not usable now — and
+			trying again is the only thing they can do. The log is where it says
+			which of the two it was, because only somebody running an
+			installation can act on the difference.
+		*/
+		logger.Warn("another installation does not speak this one's protocol", "error", err,
+			"speaks", Spoken, "request_id", api.RequestIDFromContext(request.Context()))
+		writeFailure(logger, response, request, api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
+			"The other Convia could not be reached. Try again in a moment."))
 	case errors.Is(err, ErrUnreachable):
 		logger.Warn("another installation could not be reached", "error", err,
 			"request_id", api.RequestIDFromContext(request.Context()))

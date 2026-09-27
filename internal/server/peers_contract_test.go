@@ -171,3 +171,48 @@ func TestOnePersonCannotSpendWhatAnInstallationNeeds(t *testing.T) {
 			" whole installation had", code, http.StatusOK)
 	}
 }
+
+/*
+TestAnUnspokenVersionIsAnsweredWithWhatIsSpoken is the half of `M33-003` that
+whoever runs an installation actually sees.
+
+A caller told its signature was rejected goes and looks at its keys. A caller
+told the version is not spoken is told what is, and can sign the next one
+differently — which is the only thing that gets two installations talking again.
+*/
+func TestAnUnspokenVersionIsAnsweredWithWhatIsSpoken(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	dependencies := testDependencies()
+	dependencies.PeerAuthenticator = stubPeerAuthenticator{err: peers.ErrUnsupportedVersion}
+	handler := New("127.0.0.1:0", logger, dependencies).Handler
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, signedLike(httptest.NewRequest(http.MethodGet,
+		"/v1/peer/rooms/"+sampleRoom().ID+"/messages", nil)))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: not speaking the same protocol is not a refused credential",
+			response.Code, http.StatusBadRequest)
+	}
+
+	var body struct {
+		Error api.ErrorBody `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode the refusal: %v", err)
+	}
+	if body.Error.Code != api.CodeUnsupportedVersion {
+		t.Errorf("code = %q, want %q", body.Error.Code, api.CodeUnsupportedVersion)
+	}
+
+	spoken := response.Header().Get(peers.HeaderVersions)
+	if spoken == "" {
+		t.Fatal("the answer does not say what this installation speaks, which is the only thing that helps")
+	}
+	for _, version := range peers.Spoken {
+		if !strings.Contains(spoken, version) {
+			t.Errorf("%s = %q, does not name %q", peers.HeaderVersions, spoken, version)
+		}
+	}
+}
