@@ -109,3 +109,7 @@ func (stubIdentities) Account(context.Context, string) (accounts.Account, error)
 type stubVisitors struct{}
 
 func (stubVisitors) Visiting(context.Context, string) (bool, error) { return true, nil }
+
+func (stubPeerService) Unread(context.Context, accounts.Identity, []peers.RemoteRoom) map[string]int64 {
+	return nil
+}

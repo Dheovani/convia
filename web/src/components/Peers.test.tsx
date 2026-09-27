@@ -254,6 +254,36 @@ describe('a room on another Convia', () => {
     expect(server.asked('DELETE', `/v1/me/remote-rooms/${remoteId}`)).toBeDefined()
   })
 
+  /*
+  The badge, since `M33-001`.
+
+  The count lives at the home and is asked for when the list is read, so a room
+  elsewhere carries one the same way a room here does. A home that did not
+  answer sends no number at all, and its row still appears — which is the whole
+  reason the count is asked for best-effort rather than waited on.
+  */
+  it('shows how much of a room elsewhere is unread, and shows the room without it', async () => {
+    const server = nothingHere().on('GET', '/v1/me/remote-rooms', {
+      body: {
+        data: [
+          { ...remoteRoom, unread: 3 },
+          {
+            id: 'rrm_4XZQP7KN2VJH6TBWMDR3YAFC5E',
+            home: 'https://unreachable.example',
+            room_id: room().id,
+            user_id: anaThere,
+            name: 'A room whose home is down',
+          },
+        ],
+      },
+    })
+    server.install()
+    render(<Workspace account={ana} onSignedOut={() => {}} />)
+
+    expect(await screen.findByText('3 unread messages')).toBeInTheDocument()
+    expect(await screen.findByText('A room whose home is down')).toBeInTheDocument()
+  })
+
   it('offers no way to add or invite people in a room that lives elsewhere', async () => {
     const server = readingElsewhere(
       new FakeConvia()

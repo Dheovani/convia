@@ -21,6 +21,7 @@ const sampleRemoteID = "rrm_7KQZP4XN2VJH6TBWMDR3YAFC5E"
 
 // recordingService answers the session routes and remembers what it relayed.
 type recordingService struct {
+	unread map[string]int64
 	answer Response
 	err    error
 
@@ -364,4 +365,8 @@ func TestAnAddressIsNotListedTwice(t *testing.T) {
 	if ours := handler.ours(request); len(ours) != 1 {
 		t.Errorf("ours = %v, want the one address said twice", ours)
 	}
+}
+
+func (service *recordingService) Unread(context.Context, accounts.Identity, []RemoteRoom) map[string]int64 {
+	return service.unread
 }

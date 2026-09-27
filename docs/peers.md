@@ -94,6 +94,16 @@ What arrives is translated before Bia sees it. The home names its own rooms and 
 
 Which installations she has a room on is read again every thirty seconds, so a room she joins while the stream is open is followed without waiting for anything to reconnect.
 
+### The unread count
+
+`GET /v1/me/remote-rooms` carries an `unread` for each room, and every one of them is **asked of its home** — the home is the only place that knows both what was said and how far Bia has read. They are asked at once rather than in turn, under a budget of two seconds for all of them together.
+
+**A home that does not answer costs its own count and nothing else.** Its room still has a row, with its name and where it lives, and simply carries no number. That is why `unread` is absent rather than zero in that case: zero is a home saying there is nothing, absent is nobody having said. Both show no badge, and only one of them is a number anybody could act on.
+
+The trade is deliberate and runs the only way it can. A sidebar is how somebody sees they have rooms at all, and an installation they joined once and forgot about must not be able to take that view away by being slow.
+
+Nothing polls for it: the sidebar is read again when the stream carries something about a room, which is now true of rooms elsewhere too, so the badge follows what is said rather than a timer.
+
 ## Signatures
 
 Every request between installations carries:
@@ -159,7 +169,6 @@ Turning it on in production still refuses plain `http`, so installations on a pr
 
 ## Known gaps
 
-- **A room elsewhere has no unread count.** What happens in one is announced since `M33-001`, so the page is no longer read on a timer — but the count in the sidebar is read from the home, and nothing asks it for one yet.
 - **A home that does not answer cannot be left, only forgotten.** Leaving keeps the pointer until the home confirms, because dropping it silently would leave a membership nothing here remembers. Once leaving has failed, the interface offers to forget the room here anyway (`DELETE /v1/me/remote-rooms/{id}`), after saying that the person stays a member at the home and that nothing here can take them out later. It is how somebody gets rid of a room whose home is gone, has moved, or refuses them.
 - **No calls between installations yet.** The call interface itself is still to come (`M18-004`); when it arrives, a visitor will reach the home's media plane directly, with a token the home issues.
 - **No verification code on first contact.** Looking at a link shows the room, the inviter's handle and the home's address, and that is the check.

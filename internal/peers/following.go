@@ -91,11 +91,11 @@ func NewFollowing(
 	logger *slog.Logger,
 ) *Following {
 	return &Following{
-		rooms: rooms,
+		rooms:      rooms,
 		identities: identities,
-		client: client,
-		logger: logger,
-		every: refreshInterval,
+		client:     client,
+		logger:     logger,
+		every:      refreshInterval,
 	}
 }
 

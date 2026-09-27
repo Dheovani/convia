@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
@@ -208,6 +209,21 @@ func (service *Service) Pending(ctx context.Context, principal sessions.Principa
 
 // MaxPendingInvitations is the most invitations Pending lists at once.
 const MaxPendingInvitations = 100
+
+const (
+	/*
+		unreadBudget is how long every unread count together may take.
+
+		It is short on purpose. What is being answered is a badge, and the list
+		it sits beside is worth more than any of them.
+	*/
+	unreadBudget = 2 * time.Second
+
+	// unreadAtOnce is how many homes are asked at the same time, so that
+	// somebody in rooms on many installations does not open a connection to
+	// each of them at once.
+	unreadAtOnce = 8
+)
 
 func (service *Service) Revoke(ctx context.Context, principal sessions.Principal, id string) error {
 	if !ValidInvitationID(id) {
@@ -596,6 +612,93 @@ func (service *Service) Join(
 // RemoteRooms lists the rooms elsewhere an account belongs to.
 func (service *Service) RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error) {
 	return service.store.RemoteRooms(ctx, accountID)
+}
+
+/*
+Unread counts what somebody has not read in each of the rooms they are in
+elsewhere.
+
+Every count is held at the room's home, which is the only place that knows both
+what was said and how far this person has read, so each one is asked. They are
+asked at once rather than in turn, under a budget of their own, and
+**best-effort: a home that does not answer costs a count, not the list.** The
+sidebar is how somebody sees they have rooms at all, and making it wait for the
+slowest installation they have ever joined would be the wrong trade in every
+direction — a missing count shows no badge, which is what a room with nothing
+unread shows anyway.
+*/
+func (service *Service) Unread(
+	ctx context.Context,
+	identity accounts.Identity,
+	rooms []RemoteRoom,
+) map[string]int64 {
+	if len(rooms) == 0 {
+		return nil
+	}
+
+	asking, give := context.WithTimeout(ctx, unreadBudget)
+	defer give()
+
+	var (
+		mutex  sync.Mutex
+		counts = make(map[string]int64, len(rooms))
+		group  sync.WaitGroup
+	)
+	atOnce := make(chan struct{}, unreadAtOnce)
+
+	for _, room := range rooms {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+
+			select {
+			case atOnce <- struct{}{}:
+				defer func() { <-atOnce }()
+			case <-asking.Done():
+				return
+			}
+
+			count, known := service.unreadAt(asking, identity, room)
+			if !known {
+				return
+			}
+
+			mutex.Lock()
+			counts[room.ID] = count
+			mutex.Unlock()
+		}()
+	}
+	group.Wait()
+
+	return counts
+}
+
+// unreadAt asks one home how much of one room this person has not read.
+func (service *Service) unreadAt(
+	ctx context.Context,
+	identity accounts.Identity,
+	room RemoteRoom,
+) (int64, bool) {
+	response, err := service.client.Do(ctx, identity, http.MethodGet, room.Home,
+		roomTarget(room, "/read_state"), nil)
+	if err != nil || response.Status != http.StatusOK {
+		/*
+			Said once, quietly. A home being unreachable is ordinary and this
+			runs for every room on every read of the sidebar, so anything louder
+			would be a log nobody could read during an outage.
+		*/
+		service.logger.Debug("an unread count could not be read from a home",
+			"error", err, "home", room.Home, "remote_room_id", room.ID)
+		return 0, false
+	}
+
+	var state struct {
+		Unread int64 `json:"unread"`
+	}
+	if err := json.Unmarshal(response.Body, &state); err != nil || state.Unread < 0 {
+		return 0, false
+	}
+	return state.Unread, true
 }
 
 // RemoteRoom returns one of them.

@@ -104,6 +104,7 @@ type personalService interface {
 	Look(ctx context.Context, ours []string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
 	Join(ctx context.Context, ours []string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
+	Unread(ctx context.Context, identity accounts.Identity, rooms []RemoteRoom) map[string]int64
 	RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error)
 	Relay(ctx context.Context, identity accounts.Identity, remote RemoteRoom, method, target string, body []byte) (Response, error)
 	Leave(ctx context.Context, identity accounts.Identity, remote RemoteRoom) error
@@ -212,6 +213,16 @@ type (
 		RoomID string `json:"room_id"`
 		UserID string `json:"user_id"`
 		Name   string `json:"name"`
+		/*
+			Unread is how much of the room this person has not read, as its
+			home counted it.
+
+			It is a pointer because absent and zero are different answers:
+			zero is a home saying there is nothing, and absent is a home that
+			did not answer in time. Both show no badge; only one of them is
+			something anybody could act on.
+		*/
+		Unread *int64 `json:"unread,omitempty"`
 	}
 
 	joinedResponse struct {
@@ -411,7 +422,7 @@ func (handler *SessionHandler) Join(response http.ResponseWriter, request *http.
 
 // RemoteRooms lists the rooms elsewhere this person belongs to.
 func (handler *SessionHandler) RemoteRooms(response http.ResponseWriter, request *http.Request) {
-	principal, ok := handler.principal(response, request)
+	principal, identity, ok := handler.signingAs(response, request)
 	if !ok {
 		return
 	}
@@ -422,9 +433,17 @@ func (handler *SessionHandler) RemoteRooms(response http.ResponseWriter, request
 		return
 	}
 
+	// Asked of the homes, best-effort: see [Service.Unread]. A count nobody
+	// answered for is left out rather than guessed at.
+	counts := handler.service.Unread(request.Context(), identity, found)
+
 	body := remoteRoomsResponse{Data: make([]remoteRoomResponse, 0, len(found))}
 	for _, room := range found {
-		body.Data = append(body.Data, representRemoteRoom(room))
+		represented := representRemoteRoom(room)
+		if unread, counted := counts[room.ID]; counted {
+			represented.Unread = &unread
+		}
+		body.Data = append(body.Data, represented)
 	}
 	write(handler.logger, response, request, http.StatusOK, body)
 }

@@ -646,3 +646,69 @@ func TestPendingListsOnlyWhatStillWorks(t *testing.T) {
 		t.Errorf("a day later Pending() = %v, %v, want nothing", expired, err)
 	}
 }
+
+/*
+TestAnUnreadCountIsAskedOfEachHomeAndSurvivesOneNotAnswering is the trade this
+count is built on.
+
+Every count lives at its room's home, so a sidebar with rooms on three
+installations depends on three of them. Making the list wait for all three, or
+fail with any of them, would mean an installation somebody joined once and
+forgot about could take away the view that tells them they have rooms at all.
+So a home that says nothing costs its own count and nothing else.
+*/
+func TestAnUnreadCountIsAskedOfEachHomeAndSurvivesOneNotAnswering(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+	identity, _ := visitor(t)
+
+	answering := RemoteRoom{ID: sampleRemoteID, Home: "https://answering.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	silent := RemoteRoom{ID: "rrm_4XZQP7KN2VJH6TBWMDR3YAFC5E", Home: "https://silent.example",
+		RoomID: "room_4XZQP7KN2VJH6TBWMDR3YAFC5E"}
+
+	setup.relay.answers["GET /v1/peer/rooms/"+answering.RoomID+"/read_state"] = Response{
+		Status: http.StatusOK,
+		Body:   []byte(`{"room_id":"` + answering.RoomID + `","user_id":"usr_7KQZP4XN2VJH6TBWMDR3YAFC5E","sequence":4,"unread":3}`),
+	}
+
+	counts := setup.service.Unread(ctx, identity, []RemoteRoom{answering, silent})
+
+	if counts[answering.ID] != 3 {
+		t.Errorf("the answering home's count = %d, want 3", counts[answering.ID])
+	}
+	if _, counted := counts[silent.ID]; counted {
+		t.Errorf("a home that said nothing was given a count: %v", counts)
+	}
+}
+
+// TestAHomeThatAnswersNonsenseIsGivenNoCount: a count is a number put in front
+// of somebody, and one this installation made up is worse than none.
+func TestAHomeThatAnswersNonsenseIsGivenNoCount(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+
+	for _, answer := range []string{`not json at all`, `{"unread":-4}`, `[]`} {
+		setup.relay.answers["GET /v1/peer/rooms/"+room.RoomID+"/read_state"] = Response{
+			Status: http.StatusOK, Body: []byte(answer),
+		}
+
+		if counts := setup.service.Unread(context.Background(), identity, []RemoteRoom{room}); len(counts) != 0 {
+			t.Errorf("%s was believed: %v", answer, counts)
+		}
+	}
+}
+
+// TestNobodyWithRoomsNowhereIsAskedAnything: the cost of this for somebody in
+// no room elsewhere is no request and no goroutine.
+func TestNobodyWithRoomsNowhereIsAskedAnything(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	if counts := setup.service.Unread(context.Background(), identity, nil); counts != nil {
+		t.Errorf("Unread() = %v, want nothing asked at all", counts)
+	}
+}

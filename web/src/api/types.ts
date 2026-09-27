@@ -177,6 +177,15 @@ export interface RemoteRoom {
   room_id: string
   user_id: string
   name: string
+  /*
+  unread is how much of the room this person has not read, as its home counted
+  it.
+
+  It is absent rather than zero when the home did not answer in time. Both show
+  nothing, which is why the difference is only worth having in the type: a room
+  whose home is unreachable still has a row, with its name and where it lives.
+  */
+  unread?: number
 }
 
 export interface RemoteRoomPage {

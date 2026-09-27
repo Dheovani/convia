@@ -10009,6 +10009,15 @@ components:
         name:
           type: string
           example: Standup
+        unread:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            How much of the room this person has not read, as its home counted it.
+
+            **Absent is not zero.** Zero is a home saying there is nothing unread; absent is a home that did not answer within the short budget this listing gives every home together. Both show nothing in a list, and only one of them is a number anybody could act on. A room whose home is unreachable therefore still appears, with its name and where it lives, which is the point.
+          example: 3
 
     RemoteRoomPage:
       type: object
