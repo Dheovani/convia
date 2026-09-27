@@ -70,6 +70,11 @@ Bia's Convia serves the room under `/v1/me/remote-rooms/{id}`, with the same sha
 | `GET/PUT …/read_state` | `GET/PUT /v1/peer/rooms/{room_id}/read_state` |
 | `GET …/members` | `GET /v1/peer/rooms/{room_id}/members` |
 | `POST …/leave` | `POST /v1/peer/rooms/{room_id}/leave` |
+| `GET …/call` | `GET /v1/peer/rooms/{room_id}/call` |
+| `GET …/call/participants` | `GET /v1/peer/rooms/{room_id}/call/participants` |
+| `POST …/call/join` | `POST /v1/peer/rooms/{room_id}/call/join` |
+| `POST …/call/leave` | `POST /v1/peer/rooms/{room_id}/call/leave` |
+| `DELETE …/call/participants/{user_id}` | `DELETE /v1/peer/rooms/{room_id}/call/participants/{user_id}` |
 
 The home serves those with **the same handlers** it serves its own signed-in people. Membership decides, a room Bia is not in answers `404`, and suspending Bia's user at the home stops her on her next request.
 
@@ -93,6 +98,34 @@ It runs this way round, and not the other, for the reason everything else here d
 What arrives is translated before Bia sees it. The home names its own rooms and knows nothing of the pointer Bia's Convia keeps, so an event about `room_X` there becomes an event about the `rrm_` that names it here; an event naming a room she has no pointer for is dropped. **The home's cursor is stripped**: a cursor is a position in the journal of the installation that gave it out, and passing one on would let Bia's page ask her own Convia to resume from a place in somebody else's journal. What she missed in a room elsewhere is read from its home instead, which is what her page already does after any gap.
 
 Which installations she has a room on is read again every thirty seconds, so a room she joins while the stream is open is followed without waiting for anything to reconnect.
+
+### Calls
+
+Bia joins the call in Ana's room through her own Convia, like everything else — and then her browser connects to **Ana's media server**, directly, with a credential **Ana's installation** issued for her.
+
+```
+Bia's browser ── POST /v1/me/remote-rooms/{id}/call/join ──▶ Bia's Convia
+                                                                │ signed
+                                                                ▼
+                                                          Ana's Convia
+                                                                │ issues a credential
+                                                                ▼
+Bia's browser ══════════ audio and video ══════════▶ Ana's media server
+```
+
+**This is the one time a person's browser talks to an installation other than their own**, and it is a media address rather than an API: no session, no cookie, nothing of Bia's Convia goes with it. The credential names one person in one call and expires like any other. Neither control plane carries a byte of audio or video, which is the boundary `AGENTS.md` draws and the reason it is not relayed like everything else.
+
+What Bia may do in the call is what any member of that room may do — **moderation is the home's**. A visitor who moderates a room on their own Convia moderates nothing here, and putting somebody out of Ana's call is refused unless Ana's installation says otherwise.
+
+A page must be allowed to reach that media address by its content security policy. Convia's own application allows encrypted addresses for exactly this reason; a Convia serving the interface as a page names its own media server exactly and no other, so a call in a room elsewhere is a thing the **application** does. See [`docs/interface.md`](interface.md).
+
+Whether a room elsewhere is holding a call is asked of its home with the unread count below, and it arrives on the stream as `call.started` and `call.ended` while somebody is connected.
+
+### Losing a place in a room elsewhere
+
+A home decides who is in its rooms, and Bia's Convia finds out on the stream: `room.member_removed` naming who Bia is **there**, or `room.deleted`. **The pointer goes with it.** Keeping one would leave a room in Bia's list answering `404` to everything she tried, until she noticed and forgot it by hand — which is a thing nobody should have to know how to do. The event is still passed on to her, because the screen showing that room has to stop showing it.
+
+That is the opposite of a home that merely does not answer, which keeps its pointer: silence is not a decision, and [forgetting a room](#leaving) is still hers to do when a home is gone for good.
 
 ### The unread count
 

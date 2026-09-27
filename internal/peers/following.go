@@ -31,6 +31,10 @@ const (
 	*/
 	refreshInterval = 30 * time.Second
 
+	// forgetBudget bounds dropping one pointer, which happens while a stream is
+	// being read and must not hold it up.
+	forgetBudget = 5 * time.Second
+
 	// followQueue is how many events may wait to be written to one person.
 	// It is the broker's depth for the same reason: a reader that stalls is
 	// the reader's problem, and blocking here would stall every home at once.
@@ -66,6 +70,7 @@ this person is not in it, or not in it any more.
 */
 type Following struct {
 	rooms      remoteRoomsOf
+	forgets    forgetter
 	identities identities
 	client     streamer
 	logger     *slog.Logger
@@ -79,6 +84,12 @@ type remoteRoomsOf interface {
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
 }
 
+// forgetter drops a pointer to a room somebody is no longer in. Service
+// satisfies it.
+type forgetter interface {
+	Forget(ctx context.Context, remote RemoteRoom) error
+}
+
 // streamer opens a signed WebSocket to another installation. Client satisfies it.
 type streamer interface {
 	Stream(ctx context.Context, identity accounts.Identity, home, target string) (*websocket.Conn, error)
@@ -86,12 +97,14 @@ type streamer interface {
 
 func NewFollowing(
 	rooms remoteRoomsOf,
+	forgets forgetter,
 	identities identities,
 	client streamer,
 	logger *slog.Logger,
 ) *Following {
 	return &Following{
 		rooms:      rooms,
+		forgets:    forgets,
 		identities: identities,
 		client:     client,
 		logger:     logger,
@@ -256,7 +269,7 @@ func (following *Following) followHome(
 // this installation knows them by, kept current while streams are open.
 type pointers struct {
 	mutex  sync.RWMutex
-	byHome map[string]map[string]string
+	byHome map[string]map[string]RemoteRoom
 }
 
 func (pointing *pointers) homes() []string {
@@ -272,26 +285,26 @@ func (pointing *pointers) homes() []string {
 
 // here answers the identifier this installation knows a home's room by, if this
 // person is in it.
-func (pointing *pointers) here(home, room string) (string, bool) {
+func (pointing *pointers) here(home, room string) (RemoteRoom, bool) {
 	pointing.mutex.RLock()
 	defer pointing.mutex.RUnlock()
 
 	rooms, known := pointing.byHome[home]
 	if !known {
-		return "", false
+		return RemoteRoom{}, false
 	}
 	pointer, found := rooms[room]
 	return pointer, found
 }
 
 // snapshot is what this points to now, for copying into another.
-func (pointing *pointers) snapshot() map[string]map[string]string {
+func (pointing *pointers) snapshot() map[string]map[string]RemoteRoom {
 	pointing.mutex.RLock()
 	defer pointing.mutex.RUnlock()
 	return pointing.byHome
 }
 
-func (pointing *pointers) replace(byHome map[string]map[string]string) {
+func (pointing *pointers) replace(byHome map[string]map[string]RemoteRoom) {
 	pointing.mutex.Lock()
 	defer pointing.mutex.Unlock()
 	pointing.byHome = byHome
@@ -303,14 +316,14 @@ func (following *Following) pointers(ctx context.Context, accountID string) (*po
 		return nil, err
 	}
 
-	byHome := make(map[string]map[string]string)
+	byHome := make(map[string]map[string]RemoteRoom)
 	for _, room := range rooms {
 		here, started := byHome[room.Home]
 		if !started {
-			here = make(map[string]string)
+			here = make(map[string]RemoteRoom)
 			byHome[room.Home] = here
 		}
-		here[room.RoomID] = room.ID
+		here[room.RoomID] = room
 	}
 
 	pointing := &pointers{}
@@ -348,13 +361,37 @@ func (following *Following) read(
 			return
 		}
 
-		room, named := event.Data["room_id"].(string)
+		/*
+			Which room this is about, asked of the vocabulary rather than of the
+			payload.
+
+			The two kinds of event name it in two places: something said names
+			its room in `data`, and something that happened to a room *is* that
+			room, in the subject. Reading only the first quietly dropped every
+			`room.*` event a home sent — renames, closures, and somebody losing
+			their place — which is the whole of what a visitor most needs to
+			hear. See events.RoomOf.
+		*/
+		room, named := events.RoomOf(event)
 		if !named {
 			continue
 		}
 		pointer, ours := pointing.here(home, room)
 		if !ours {
 			continue
+		}
+
+		/*
+			A home saying this person no longer has a place in the room.
+
+			The pointer goes with it. Keeping one would leave a room in their
+			list that answers 404 to everything until they noticed and forgot
+			it by hand — and the home has just said, in the one way it can, that
+			there is nothing there for them any more. The event is still passed
+			on, because the screen showing that room has to stop showing it.
+		*/
+		if ended(event, pointer) {
+			following.forget(ctx, pointer)
 		}
 
 		/*
@@ -366,7 +403,7 @@ func (following *Following) read(
 			which names a different event or none at all. What they missed in a
 			room elsewhere is read from its home instead.
 		*/
-		event.Data["room_id"] = pointer
+		event = renamed(event, pointer)
 		event.Cursor = ""
 
 		select {
@@ -375,4 +412,68 @@ func (following *Following) read(
 			return
 		}
 	}
+}
+
+/*
+ended reports that a home has said this person no longer has a place in a room.
+
+It is two things and they arrive the same way. `room.member_removed` names who
+lost their place, and the name it uses is theirs **at the home** — which is what
+the pointer records, because it is not who they are here. `room.deleted` names
+nobody: the room is gone for everybody in it.
+
+Being removed and being banned are one event, deliberately: membership records
+no actor, and a type that claimed to know which it was would be guessing. See
+internal/events.
+*/
+func ended(event events.Event, pointer RemoteRoom) bool {
+	switch event.Type {
+	case events.RoomDeleted:
+		return true
+	case events.MemberRemoved:
+		who, named := event.Data["user_id"].(string)
+		return named && who == pointer.UserID
+	default:
+		return false
+	}
+}
+
+/*
+forget drops the pointer to a room this person is no longer in.
+
+It is done on its own context rather than the stream's, so that a stream ending
+in the same moment — the last room at a home going, and the follower being
+stopped for it — does not leave the pointer behind for the 404s to find.
+*/
+func (following *Following) forget(ctx context.Context, pointer RemoteRoom) {
+	dropping, done := context.WithTimeout(context.WithoutCancel(ctx), forgetBudget)
+	defer done()
+
+	if err := following.forgets.Forget(dropping, pointer); err != nil {
+		/*
+			Said and left. The room stays in the list until something reads it
+			again, which is a wrong row rather than a wrong answer, and forgetting
+			it by hand still works.
+		*/
+		following.logger.Warn("a room this person was taken out of could not be forgotten",
+			"error", err, "home", pointer.Home, "remote_room_id", pointer.ID)
+	}
+}
+
+/*
+renamed is one event with the room it names replaced by the name this
+installation knows that room by.
+
+It writes back where the room was read from, which is not one place: an event
+about something said carries its room in `data`, and an event about a room *is*
+that room, in the subject. Rewriting the wrong one would leave the other saying
+what the home calls it, and nothing here would match either.
+*/
+func renamed(event events.Event, pointer RemoteRoom) events.Event {
+	if _, inData := event.Data["room_id"].(string); inData {
+		event.Data["room_id"] = pointer.ID
+		return event
+	}
+	event.Subject.ID = pointer.ID
+	return event
 }

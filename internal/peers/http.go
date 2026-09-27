@@ -13,6 +13,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/messages"
 	"convia/internal/sessions"
+	"convia/internal/users"
 )
 
 // The bodies exchanged between installations. Both sides use these, so the two
@@ -104,7 +105,7 @@ type personalService interface {
 	Look(ctx context.Context, ours []string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
 	Join(ctx context.Context, ours []string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
-	Unread(ctx context.Context, identity accounts.Identity, rooms []RemoteRoom) map[string]int64
+	About(ctx context.Context, identity accounts.Identity, rooms []RemoteRoom) map[string]Elsewhere
 	RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error)
 	Relay(ctx context.Context, identity accounts.Identity, remote RemoteRoom, method, target string, body []byte) (Response, error)
 	Leave(ctx context.Context, identity accounts.Identity, remote RemoteRoom) error
@@ -223,6 +224,16 @@ type (
 			something anybody could act on.
 		*/
 		Unread *int64 `json:"unread,omitempty"`
+		/*
+			Call is the call the room is holding, as its home rendered it, or
+			null when it is holding none.
+
+			Absent is a home that did not say — the same distinction `unread`
+			makes, for the same reason. It is passed on rather than re-encoded
+			because it is the home's call, with the home's identifiers, and this
+			installation has nothing to add to it.
+		*/
+		Call json.RawMessage `json:"call,omitempty"`
 	}
 
 	joinedResponse struct {
@@ -433,15 +444,16 @@ func (handler *SessionHandler) RemoteRooms(response http.ResponseWriter, request
 		return
 	}
 
-	// Asked of the homes, best-effort: see [Service.Unread]. A count nobody
+	// Asked of the homes, best-effort: see [Service.About]. What nobody
 	// answered for is left out rather than guessed at.
-	counts := handler.service.Unread(request.Context(), identity, found)
+	said := handler.service.About(request.Context(), identity, found)
 
 	body := remoteRoomsResponse{Data: make([]remoteRoomResponse, 0, len(found))}
 	for _, room := range found {
 		represented := representRemoteRoom(room)
-		if unread, counted := counts[room.ID]; counted {
-			represented.Unread = &unread
+		if known, answered := said[room.ID]; answered {
+			represented.Unread = known.Unread
+			represented.Call = known.Call
 		}
 		body.Data = append(body.Data, represented)
 	}
@@ -453,6 +465,72 @@ func (handler *SessionHandler) History(response http.ResponseWriter, request *ht
 	handler.relay(response, request, http.MethodGet, func(remote RemoteRoom) (string, bool) {
 		return roomTarget(remote, "/messages") + forwardQuery(request, "limit", "cursor", "direction"), true
 	}, nil)
+}
+
+/*
+Call reads what a remote room's call is, if it is holding one.
+
+**A call in a room elsewhere is the home's call.** It happens on the home's
+media plane, with a credential the home issues, and this installation never
+carries a byte of audio or video: what it carries is the question and the
+answer. See docs/peers.md and AGENTS.md on the media plane.
+*/
+func (handler *SessionHandler) Call(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodGet, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call"), true
+	}, nil)
+}
+
+// CallRoster is who is in a remote room's call.
+func (handler *SessionHandler) CallRoster(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodGet, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call/participants") + forwardQuery(request, "limit", "cursor"), true
+	}, nil)
+}
+
+/*
+JoinCall seats this person in a remote room's call and answers with what to
+connect with.
+
+The credential in that answer is the **home's**, for the home's media server,
+and the page connects to it directly. That is the one place a person's browser
+talks to an installation other than their own, and it is why it is a media
+address rather than an API: nothing about their session goes with it.
+*/
+func (handler *SessionHandler) JoinCall(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodPost, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call/join"), true
+	}, nil)
+}
+
+// LeaveCall takes this person out of a remote room's call.
+func (handler *SessionHandler) LeaveCall(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodPost, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call/leave"), true
+	}, nil)
+}
+
+/*
+RemoveFromCall puts somebody out of a remote room's call.
+
+Whether this person may is the home's to decide, as everything about that room
+is: a visitor is no more a moderator there for being one here.
+*/
+func (handler *SessionHandler) RemoveFromCall(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodDelete, func(remote RemoteRoom) (string, bool) {
+		return participantTarget(request, remote)
+	}, nil)
+}
+
+// participantTarget addresses one person in a remote room's call, if the
+// identifier has the shape one can have. Nothing else from the path reaches
+// the home's URL.
+func participantTarget(request *http.Request, remote RemoteRoom) (string, bool) {
+	id := request.PathValue("user_id")
+	if !users.ValidID(id) {
+		return "", false
+	}
+	return roomTarget(remote, "/call/participants/"+id), true
 }
 
 // Post says something in a remote room.

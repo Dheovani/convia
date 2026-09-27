@@ -142,6 +142,23 @@ export interface RoomApi {
 }
 
 // roomApi is how one room is read and written, wherever it lives.
+/*
+callPath is the call in a room, wherever that room lives.
+
+A room here and a pointer to a room on another installation are two namespaces
+with two prefixes, and the call state carries whichever identifier it was
+given rather than a `RoomSource` — as the event stream does, which names a room
+elsewhere by the same pointer. So the prefix is what decides the path, and it
+is decided in one place.
+*/
+function callPath(roomId: string): string {
+  const id = encodeURIComponent(roomId)
+  return roomId.startsWith(remoteRoomPrefix) ? `/me/remote-rooms/${id}/call` : `/me/rooms/${id}/call`
+}
+
+// remoteRoomPrefix is what every pointer to a room elsewhere begins with.
+const remoteRoomPrefix = 'rrm_'
+
 export function roomApi(source: RoomSource): RoomApi {
   const id = encodeURIComponent(source.id)
   const room = source.kind === 'local' ? `/me/rooms/${id}` : `/me/remote-rooms/${id}`
@@ -356,23 +373,23 @@ export const api = {
 
   callParticipants(roomId: string, signal?: AbortSignal): Promise<CallPresencePage> {
     return call<CallPresencePage>(
-      `/me/rooms/${encodeURIComponent(roomId)}/call/participants` + query({ limit: pageLimit }),
+      `${callPath(roomId)}/participants` + query({ limit: pageLimit }),
       signal ? { signal } : {},
     )
   },
 
   joinCall(roomId: string): Promise<JoinSession> {
-    return call<JoinSession>(`/me/rooms/${encodeURIComponent(roomId)}/call/join`, { method: 'POST' })
+    return call<JoinSession>(`${callPath(roomId)}/join`, { method: 'POST' })
   },
 
   leaveCall(roomId: string): Promise<void> {
-    return call<void>(`/me/rooms/${encodeURIComponent(roomId)}/call/leave`, { method: 'POST' })
+    return call<void>(`${callPath(roomId)}/leave`, { method: 'POST' })
   },
 
   // removeFromCall is the moderator putting somebody out of the call.
   removeFromCall(roomId: string, userId: string): Promise<void> {
     return call<void>(
-      `/me/rooms/${encodeURIComponent(roomId)}/call/participants/${encodeURIComponent(userId)}`,
+      `${callPath(roomId)}/participants/${encodeURIComponent(userId)}`,
       { method: 'DELETE' },
     )
   },

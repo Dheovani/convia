@@ -110,6 +110,6 @@ type stubVisitors struct{}
 
 func (stubVisitors) Visiting(context.Context, string) (bool, error) { return true, nil }
 
-func (stubPeerService) Unread(context.Context, accounts.Identity, []peers.RemoteRoom) map[string]int64 {
+func (stubPeerService) About(context.Context, accounts.Identity, []peers.RemoteRoom) map[string]peers.Elsewhere {
 	return nil
 }

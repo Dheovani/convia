@@ -108,6 +108,7 @@ export function Workspace({
   const { live, listen } = stream
   const { rooms, loading, failed, refresh, remember, forget } = useRooms(onSignedOut, live)
   const elsewhere = useRemoteRooms(onSignedOut)
+  const refreshElsewhere = elsewhere.refresh
 
   useNotifications(stream, rooms, elsewhere.remoteRooms, account.user_id)
 
@@ -134,8 +135,14 @@ export function Workspace({
     pending.current = window.setTimeout(() => {
       pending.current = undefined
       refresh()
+      /*
+      The rooms elsewhere are read again too, and for more than tidiness: each
+      row carries what its home said about it, and a pointer can go without
+      anybody here doing anything, when a home takes this person out of a room.
+      */
+      refreshElsewhere()
     }, refreshDelay)
-  }, [refresh])
+  }, [refresh, refreshElsewhere])
 
   useEffect(() => () => window.clearTimeout(pending.current), [])
 
@@ -458,7 +465,16 @@ export function Workspace({
                 {...(open.source.kind === 'remote' ? { onForget: () => forgetElsewhere(open.source) } : {})}
                 onRoomChanged={refresh}
                 {...(open.source.kind === 'local' ? { onRoomDeleted: () => deleted(open.source) } : {})}
-                callRunning={running.calls.some((candidate) => candidate.room_id === open.room.id)}
+                /*
+                A call here is in the list this installation keeps. A call in a room
+                elsewhere is its home's, and the home said so when the list of rooms
+                elsewhere was read — there is nothing here that could know otherwise.
+                */
+                callRunning={
+                  open.source.kind === 'remote'
+                    ? elsewhere.remoteRooms.find((candidate) => candidate.id === open.source.id)?.call != null
+                    : running.calls.some((candidate) => candidate.room_id === open.room.id)
+                }
                 {...(narrow ? { onBack: () => setShowing('list') } : {})}
               />
             )}

@@ -672,13 +672,13 @@ func TestAnUnreadCountIsAskedOfEachHomeAndSurvivesOneNotAnswering(t *testing.T) 
 		Body:   []byte(`{"room_id":"` + answering.RoomID + `","user_id":"usr_7KQZP4XN2VJH6TBWMDR3YAFC5E","sequence":4,"unread":3}`),
 	}
 
-	counts := setup.service.Unread(ctx, identity, []RemoteRoom{answering, silent})
+	counts := setup.service.About(ctx, identity, []RemoteRoom{answering, silent})
 
-	if counts[answering.ID] != 3 {
-		t.Errorf("the answering home's count = %d, want 3", counts[answering.ID])
+	if said := counts[answering.ID]; said.Unread == nil || *said.Unread != 3 {
+		t.Errorf("the answering home's count = %v, want 3", said.Unread)
 	}
-	if _, counted := counts[silent.ID]; counted {
-		t.Errorf("a home that said nothing was given a count: %v", counts)
+	if _, answered := counts[silent.ID]; answered {
+		t.Errorf("a home that said nothing was given a row: %v", counts)
 	}
 }
 
@@ -696,8 +696,8 @@ func TestAHomeThatAnswersNonsenseIsGivenNoCount(t *testing.T) {
 			Status: http.StatusOK, Body: []byte(answer),
 		}
 
-		if counts := setup.service.Unread(context.Background(), identity, []RemoteRoom{room}); len(counts) != 0 {
-			t.Errorf("%s was believed: %v", answer, counts)
+		if said := setup.service.About(context.Background(), identity, []RemoteRoom{room}); said[room.ID].Unread != nil {
+			t.Errorf("%s was believed: %v", answer, said[room.ID].Unread)
 		}
 	}
 }
@@ -708,7 +708,7 @@ func TestNobodyWithRoomsNowhereIsAskedAnything(t *testing.T) {
 	setup := newFixture(t)
 	identity, _ := visitor(t)
 
-	if counts := setup.service.Unread(context.Background(), identity, nil); counts != nil {
+	if counts := setup.service.About(context.Background(), identity, nil); counts != nil {
 		t.Errorf("Unread() = %v, want nothing asked at all", counts)
 	}
 }

@@ -627,11 +627,11 @@ slowest installation they have ever joined would be the wrong trade in every
 direction — a missing count shows no badge, which is what a room with nothing
 unread shows anyway.
 */
-func (service *Service) Unread(
+func (service *Service) About(
 	ctx context.Context,
 	identity accounts.Identity,
 	rooms []RemoteRoom,
-) map[string]int64 {
+) map[string]Elsewhere {
 	if len(rooms) == 0 {
 		return nil
 	}
@@ -641,7 +641,7 @@ func (service *Service) Unread(
 
 	var (
 		mutex  sync.Mutex
-		counts = make(map[string]int64, len(rooms))
+		counts = make(map[string]Elsewhere, len(rooms))
 		group  sync.WaitGroup
 	)
 	atOnce := make(chan struct{}, unreadAtOnce)
@@ -658,13 +658,13 @@ func (service *Service) Unread(
 				return
 			}
 
-			count, known := service.unreadAt(asking, identity, room)
-			if !known {
+			known := service.askAbout(asking, identity, room)
+			if known.Unread == nil && known.Call == nil {
 				return
 			}
 
 			mutex.Lock()
-			counts[room.ID] = count
+			counts[room.ID] = known
 			mutex.Unlock()
 		}()
 	}
@@ -673,32 +673,106 @@ func (service *Service) Unread(
 	return counts
 }
 
+/*
+Elsewhere is what a home said about one of its rooms, for a list drawn here.
+
+Each field is absent when that home did not say, which is not the same as it
+saying nothing is there: no count and no call are how a room whose home is
+unreachable appears, and the row is still drawn.
+*/
+type Elsewhere struct {
+	Unread *int64
+	// Call is the call the room is holding, as the home rendered it, or nil.
+	Call json.RawMessage
+}
+
+/*
+askAbout asks one home the two things a room's row shows: how much of it is
+unread, and whether a call is running in it.
+
+They are two requests because they are two facts and the peer surface answers
+one thing per route. They are made together so that one room costs one turn of
+the budget rather than two.
+*/
+func (service *Service) askAbout(
+	ctx context.Context,
+	identity accounts.Identity,
+	room RemoteRoom,
+) Elsewhere {
+	var (
+		known Elsewhere
+		group sync.WaitGroup
+	)
+
+	group.Add(2)
+	go func() {
+		defer group.Done()
+		known.Unread = service.unreadAt(ctx, identity, room)
+	}()
+	go func() {
+		defer group.Done()
+		known.Call = service.callAt(ctx, identity, room)
+	}()
+	group.Wait()
+
+	return known
+}
+
 // unreadAt asks one home how much of one room this person has not read.
 func (service *Service) unreadAt(
 	ctx context.Context,
 	identity accounts.Identity,
 	room RemoteRoom,
-) (int64, bool) {
+) *int64 {
 	response, err := service.client.Do(ctx, identity, http.MethodGet, room.Home,
 		roomTarget(room, "/read_state"), nil)
 	if err != nil || response.Status != http.StatusOK {
 		/*
-			Said once, quietly. A home being unreachable is ordinary and this
-			runs for every room on every read of the sidebar, so anything louder
-			would be a log nobody could read during an outage.
+			Said quietly. A home being unreachable is ordinary and this runs for
+			every room on every read of the sidebar, so anything louder would be
+			a log nobody could read during an outage.
 		*/
 		service.logger.Debug("an unread count could not be read from a home",
 			"error", err, "home", room.Home, "remote_room_id", room.ID)
-		return 0, false
+		return nil
 	}
 
 	var state struct {
 		Unread int64 `json:"unread"`
 	}
 	if err := json.Unmarshal(response.Body, &state); err != nil || state.Unread < 0 {
-		return 0, false
+		return nil
 	}
-	return state.Unread, true
+	return &state.Unread
+}
+
+/*
+callAt asks one home whether one of its rooms is holding a call.
+
+What comes back is passed on as the home rendered it, checked only for being a
+JSON object: it is the home's call, with the home's identifiers, and this
+installation has nothing to add to it. `204` is a home saying there is no call,
+which is an answer rather than a silence, so it is reported as an empty one.
+*/
+func (service *Service) callAt(
+	ctx context.Context,
+	identity accounts.Identity,
+	room RemoteRoom,
+) json.RawMessage {
+	response, err := service.client.Do(ctx, identity, http.MethodGet, room.Home, roomTarget(room, "/call"), nil)
+	if err != nil {
+		service.logger.Debug("a call could not be read from a home",
+			"error", err, "home", room.Home, "remote_room_id", room.ID)
+		return nil
+	}
+
+	switch {
+	case response.Status == http.StatusNoContent:
+		return json.RawMessage("null")
+	case response.Status != http.StatusOK || !json.Valid(response.Body):
+		return nil
+	}
+	return response.Body
 }
 
 // RemoteRoom returns one of them.

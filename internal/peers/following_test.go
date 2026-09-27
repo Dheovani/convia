@@ -25,15 +25,40 @@ const waitFor = 3 * time.Second
 // listing is the rooms elsewhere an account belongs to, which a test can change
 // while streams are open.
 type listing struct {
-	mutex sync.Mutex
-	rooms []RemoteRoom
-	err   error
+	mutex     sync.Mutex
+	rooms     []RemoteRoom
+	forgotten []string
+	err       error
 }
 
 func (known *listing) RemoteRooms(context.Context, string) ([]RemoteRoom, error) {
 	known.mutex.Lock()
 	defer known.mutex.Unlock()
 	return known.rooms, known.err
+}
+
+// Forget drops a pointer, as a home taking this person out of a room makes
+// this installation do.
+func (known *listing) Forget(_ context.Context, remote RemoteRoom) error {
+	known.mutex.Lock()
+	defer known.mutex.Unlock()
+
+	kept := known.rooms[:0]
+	for _, room := range known.rooms {
+		if room.ID != remote.ID {
+			kept = append(kept, room)
+		}
+	}
+	known.rooms = kept
+	known.forgotten = append(known.forgotten, remote.ID)
+	return nil
+}
+
+// dropped is which pointers were forgotten, for a test to read.
+func (known *listing) dropped() []string {
+	known.mutex.Lock()
+	defer known.mutex.Unlock()
+	return append([]string(nil), known.forgotten...)
 }
 
 func (known *listing) become(rooms ...RemoteRoom) {
@@ -121,7 +146,7 @@ func following(t *testing.T, rooms *listing) *Following {
 		path being tested — which is most of what a stream between installations
 		is.
 	*/
-	follow := NewFollowing(rooms, openKey{identity}, NewClient(webhooks.NewDestinations(true)),
+	follow := NewFollowing(rooms, rooms, openKey{identity}, NewClient(webhooks.NewDestinations(true)),
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	follow.every = 20 * time.Millisecond
 	return follow
@@ -298,5 +323,95 @@ func TestTheStreamStopsWhenThePersonsDoes(t *testing.T) {
 		}
 	case <-time.After(waitFor):
 		t.Error("the channel was never closed")
+	}
+}
+
+/*
+TestBeingTakenOutOfARoomElsewhereForgetsThePointer is `M33-007`.
+
+A home decides who is in its rooms, and this installation finds out the only way
+it can: on the stream. Without acting on it, the room would sit in this person's
+list answering `404` to everything they tried, until they noticed and forgot it
+by hand — which is a thing nobody should have to know how to do.
+*/
+func TestBeingTakenOutOfARoomElsewhereForgetsThePointer(t *testing.T) {
+	home := newStandIn(t)
+	there := "usr_4XZQP7KN2VJH6TBWMDR3YAFC5E"
+	rooms := &listing{rooms: []RemoteRoom{{
+		ID: sampleRemoteID, Home: home.address(), RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E", UserID: there,
+	}}}
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+
+	arriving, err := following(t, rooms).Follow(ctx, "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E", "cvs_token")
+	if err != nil {
+		t.Fatalf("Follow() error = %v", err)
+	}
+
+	/*
+		Built the way a home builds it: something that happens to a room **is**
+		that room, so the room is the subject and `data` carries who lost their
+		place. Only something said names its room in `data`.
+	*/
+	home.saying <- events.Event{
+		Type:    events.MemberRemoved,
+		Subject: events.Subject{Type: events.SubjectRoom, ID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"},
+		Data:    events.Data{"user_id": there},
+	}
+
+	// The event is still passed on: the screen showing that room has to stop.
+	select {
+	case event := <-arriving:
+		if event.Subject.ID != sampleRemoteID {
+			t.Errorf("the event names %v, want the pointer", event.Subject.ID)
+		}
+	case <-time.After(waitFor):
+		t.Fatal("nothing arrived from the home")
+	}
+
+	if dropped := rooms.dropped(); len(dropped) != 1 || dropped[0] != sampleRemoteID {
+		t.Errorf("forgotten = %v, want the pointer to the room they were taken out of", dropped)
+	}
+}
+
+/*
+TestSomebodyElseLeavingARoomElsewhereKeepsThePointer is the other half, and the
+one that would be silently wrong.
+
+`room.member_removed` names whoever lost their place, and in a room elsewhere
+that name is theirs at the home. Comparing it with anything else — this
+person's identifier here, or nothing at all — would empty somebody's list the
+first time anybody else left a room they share.
+*/
+func TestSomebodyElseLeavingARoomElsewhereKeepsThePointer(t *testing.T) {
+	home := newStandIn(t)
+	rooms := &listing{rooms: []RemoteRoom{{
+		ID: sampleRemoteID, Home: home.address(), RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		UserID: "usr_4XZQP7KN2VJH6TBWMDR3YAFC5E",
+	}}}
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+
+	arriving, err := following(t, rooms).Follow(ctx, "acc_7KQZP4XN2VJH6TBWMDR3YAFC5E", "cvs_token")
+	if err != nil {
+		t.Fatalf("Follow() error = %v", err)
+	}
+
+	home.saying <- events.Event{
+		Type:    events.MemberRemoved,
+		Subject: events.Subject{Type: events.SubjectRoom, ID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"},
+		Data:    events.Data{"user_id": "usr_SOMEBODYELSE2VJH6TBWMDR3Y"},
+	}
+
+	select {
+	case <-arriving:
+	case <-time.After(waitFor):
+		t.Fatal("nothing arrived from the home")
+	}
+
+	if dropped := rooms.dropped(); len(dropped) != 0 {
+		t.Errorf("forgotten = %v, want the room kept: somebody else left it, not this person", dropped)
 	}
 }

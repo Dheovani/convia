@@ -186,6 +186,11 @@ export interface RemoteRoom {
   whose home is unreachable still has a row, with its name and where it lives.
   */
   unread?: number
+  /*
+  call is the call the room is holding, as its home rendered it, or null when
+  it is holding none. Absent is a home that did not say.
+  */
+  call?: RoomCall | null
 }
 
 export interface RemoteRoomPage {

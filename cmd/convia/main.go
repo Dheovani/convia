@@ -338,7 +338,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
 		PersonalEvents: serving.NewPersonHandler(logger, broker, follower, sessionService, peerService,
-			peers.NewFollowing(peerService, sessionService, peerClient, logger), roomService),
+			peers.NewFollowing(peerService, peerService, sessionService, peerClient, logger), roomService),
 
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),

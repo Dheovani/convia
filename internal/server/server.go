@@ -1057,6 +1057,24 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(invitations.MarkRead)},
 			route{method: http.MethodGet, path: remote + "/members", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Members)},
+			/*
+				A call in a room that lives somewhere else.
+
+				Every one of these is relayed, and the answer to joining carries
+				the **home's** media address and a credential the home issued. The
+				page connects to that directly: this installation orchestrates and
+				carries no media, which is the boundary AGENTS.md draws.
+			*/
+			route{method: http.MethodGet, path: remote + "/call", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Call)},
+			route{method: http.MethodGet, path: remote + "/call/participants", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.CallRoster)},
+			route{method: http.MethodPost, path: remote + "/call/join", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.JoinCall)},
+			route{method: http.MethodPost, path: remote + "/call/leave", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.LeaveCall)},
+			route{method: http.MethodDelete, path: remote + "/call/participants/{user_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.RemoveFromCall)},
 			route{method: http.MethodPost, path: remote + "/leave", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Leave)},
 			route{method: http.MethodDelete, path: remote, surface: surfaceSession,
@@ -1100,6 +1118,26 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(messagesHandler.Delete)},
 			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/members", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Members)},
+			/*
+				The room's call, for a member from another installation.
+
+				Served by the same handlers the session surface uses, because a
+				visitor is a user here and taking part in a call is decided by
+				membership either way. Joining answers with this installation's
+				media address and a credential it issued for this one person in
+				this one call, which their browser then uses directly — no media
+				crosses either control plane.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/call", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Call)},
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/call/participants",
+				surface: surfaceVisitor, handler: http.HandlerFunc(dependencies.PersonalCalls.Roster)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/call/join", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Join)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/call/leave", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Leave)},
+			route{method: http.MethodDelete, path: api.Prefix + "/peer/rooms/{room_id}/call/participants/{user_id}",
+				surface: surfaceVisitor, handler: http.HandlerFunc(dependencies.PersonalCalls.Remove)},
 			/*
 				What happens here, to somebody taking part from elsewhere.
 
