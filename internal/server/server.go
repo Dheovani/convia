@@ -15,6 +15,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/departure"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/invitations"
 	"convia/internal/messages"
 	"convia/internal/operator"
@@ -68,6 +69,44 @@ const (
 		above any plausible number of simultaneously misconfigured clients.
 	*/
 	authFailureKeys = 10_000
+
+	/*
+		tenantBurst and tenantPeriod ration what one application may ask of an
+		installation, successes included.
+
+		Every other budget above charges a mistake: a key that did not
+		authenticate, a password that was wrong. This one charges **work that
+		succeeded**, because what it bounds is not somebody guessing. It is one
+		tenant taking an installation's whole capacity while every other tenant
+		waits — and nothing it does on the way is a failure, so no budget of
+		failures can see it.
+
+		The unit is the application, not the address and not the key. An address
+		is wherever a tenant happens to deploy, and a tenant can mint itself more
+		keys, so budgeting by either lets it buy more by spreading. The
+		application is the one dimension it cannot widen without an operator.
+
+		Three thousand a minute, the same figure an installation gets on the
+		surface between installations and for the same reason: what is behind it
+		is a whole other system with many people in it rather than one person.
+		It is a ceiling rather than a throttle — fifty a second sustained is far
+		above what serving conversations needs, and far below what starving the
+		other tenants needs.
+
+		It is the default rather than the rule. The right number depends on the
+		deployment's size in a way none of the budgets above do, so an operator
+		can raise it; what they cannot do is turn it off, because the floor is
+		well above zero.
+	*/
+	tenantBurst  = 3_000
+	tenantPeriod = time.Minute
+
+	/*
+		tenantKeys bounds the applications remembered at once. A bucket exists
+		only for one that has asked recently, so this is far above the number of
+		applications an installation of this size serves.
+	*/
+	tenantKeys = 10_000
 
 	/*
 		signInFailureBurst and signInFailurePeriod budget failed sign-ins.
@@ -157,6 +196,13 @@ type Dependencies struct {
 	TrustedProxies []netip.Prefix
 
 	/*
+		TenantRequestsPerMinute is how often one application may ask, successes
+		included. Zero means [tenantBurst], which is what every caller that does
+		not care gets — the budget is never absent, only set.
+	*/
+	TenantRequestsPerMinute int
+
+	/*
 		The operator surface administers tenants: creating them, suspending
 		them, and issuing their first keys. It is authenticated by an operator
 		credential, which no application can hold.
@@ -240,6 +286,17 @@ type Dependencies struct {
 	Sessions             *sessions.Handler
 	// Departures serves a person deleting their own account. See docs/adr/0016.
 	Departures *departure.Handler
+
+	/*
+		Exports hand somebody everything Convia holds about them, as newline-
+		delimited JSON. Two surfaces because the obligation exists twice: a
+		person asks because Convia holds their data, an application asks because
+		it is the controller for the person it resolved. See docs/users.md.
+
+		Leaving either out removes that route and nothing else.
+	*/
+	PersonalExport *export.SessionHandler
+	TenantExport   *export.TenantHandler
 
 	/*
 		Rooms shared between installations.
@@ -335,6 +392,21 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	peerAddresses := ratelimit.New(peerAddressBurst, peerPeriod, peerKeys)
 
 	/*
+		What one tenant may cost, charged on every request it makes.
+
+		One limiter for the whole surface, so a tenant cannot buy more by
+		spreading across endpoints — the same reason the failure budget above is
+		shared. An unset budget is the default rather than none: a Dependencies
+		somebody assembled by hand is limited exactly like one an operator
+		configured.
+	*/
+	perMinute := dependencies.TenantRequestsPerMinute
+	if perMinute <= 0 {
+		perMinute = tenantBurst
+	}
+	tenants := ratelimit.New(perMinute, tenantPeriod, tenantKeys)
+
+	/*
 		A budget of its own for the browser surface, and a much smaller one.
 
 		The sixty-a-minute figure above is justified by a secret nobody can
@@ -401,8 +473,10 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		case surfaceMedia:
 			served = reported(logger, dependencies.MediaReporter, failures, resolve, served)
 		case surfaceTenant:
+			// Metered inside authentication, because there is no tenant to
+			// name until the key has been verified.
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
-				failures, resolve, served)
+				failures, resolve, metered(logger, tenants, served))
 		case surfaceOperator:
 			served = authenticate(logger, operatorVerifier{service: dependencies.OperatorAuthenticator},
 				failures, resolve, served)
@@ -914,6 +988,31 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodPost, path: api.Prefix + "/me/delete", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.Departures.Delete), guessable: true},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantExport != nil {
+		/*
+			An application asking for one of its own people, because it is the
+			controller for them and Convia is not. The user is named in the
+			path and the tenant comes from the key, so a caller reaches only
+			its own.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}/data", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantExport.Theirs)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalExport != nil {
+		/*
+			A person asking for their own data. It names no user, because the
+			session already does -- there is no request field that could name
+			somebody else.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/me/data", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalExport.Mine)},
 		)
 	}
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -321,6 +322,87 @@ func TestASettingThatIsNotTrueOrFalseStopsStartup(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Error("Load() accepted a setting that is neither true nor false")
+	}
+}
+
+/*
+TestTheTenantBudgetHasNoOffPosition.
+
+A limit an operator can set to zero is a limit that gets set to zero the first
+time an integration is noisy, and nothing about the running installation then
+says it is unprotected. The floor is what makes raising it the only way out, and
+the ceiling is what stops a mistyped number being the same thing by accident.
+*/
+func TestTheTenantBudgetHasNoOffPosition(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.TenantRequestsPerMinute != defaultTenantRequestsPerMinute {
+		t.Errorf("the default budget = %d, want %d",
+			config.TenantRequestsPerMinute, defaultTenantRequestsPerMinute)
+	}
+
+	for what, value := range map[string]string{
+		"off":              "0",
+		"negative":         "-1",
+		"below the floor":  strconv.Itoa(minimumTenantRequestsPerMinute - 1),
+		"above the sky":    strconv.Itoa(maximumTenantRequestsPerMinute + 1),
+		"not a number":     "lots",
+		"empty on purpose": "",
+	} {
+		t.Setenv(tenantRequestsEnvironment, value)
+		if _, err := Load(); err == nil {
+			t.Errorf("Load() accepted a budget that is %s: %q", what, value)
+		}
+	}
+
+	t.Setenv(tenantRequestsEnvironment, "12000")
+	if config, err = Load(); err != nil || config.TenantRequestsPerMinute != 12_000 {
+		t.Errorf("Load() with a raised budget = %d, %v, want 12000", config.TenantRequestsPerMinute, err)
+	}
+}
+
+/*
+TestTheErasureWindowIsBoundedAtBothEnds.
+
+Both ways of getting this wrong are silent. Too short erases somebody before
+anybody could notice the deletion was a mistake, and erasure cannot be undone.
+Too long never erases them at all, and the symptom of that is a database that
+looks exactly like one where the janitor is working.
+*/
+func TestTheErasureWindowIsBoundedAtBothEnds(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.ErasureWindow != defaultErasureWindow {
+		t.Errorf("the default window = %s, want %s", config.ErasureWindow, defaultErasureWindow)
+	}
+
+	for what, value := range map[string]string{
+		"immediate":         "0s",
+		"negative":          "-1h",
+		"below the floor":   "23h",
+		"beyond the sky":    "87601h",
+		"not a duration":    "a month",
+		"a bare number":     "720",
+		"empty on purpose":  "",
+		"seconds, probably": "720s",
+	} {
+		t.Setenv(erasureWindowEnvironment, value)
+		if _, err := Load(); err == nil {
+			t.Errorf("Load() accepted a window that is %s: %q", what, value)
+		}
+	}
+
+	t.Setenv(erasureWindowEnvironment, "168h")
+	if config, err = Load(); err != nil || config.ErasureWindow != 168*time.Hour {
+		t.Errorf("Load() with a week = %s, %v, want 168h", config.ErasureWindow, err)
 	}
 }
 

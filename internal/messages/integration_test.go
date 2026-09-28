@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/url"
@@ -609,4 +610,67 @@ func (record *recorder) all() []events.Event {
 	record.mutex.Lock()
 	defer record.mutex.Unlock()
 	return append([]events.Event(nil), record.events...)
+}
+
+/*
+TestNothingSomebodySaidReachesAnEvent is the property `docs/data-protection.md`
+rests its whole classification on: a conversation exists in **one** place.
+
+An event is not a log. It is delivered to every webhook destination an
+application registered, kept in the journal for a day so a reconnecting client
+can be caught up, and relayed to other installations for the people visiting
+from them. A body that got into one would be copied to all of that, and the
+copies would outlive a withdrawal: a late retry of an older delivery would carry
+text somebody has since taken back.
+
+So this is written against what the service publishes rather than against
+intent, and it covers withdrawal as well as posting — the event about a message
+being taken back is the one most tempting to make informative.
+*/
+func TestNothingSomebodySaidReachesAnEvent(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+
+	room := setup.newRoom(t, setup.first)
+	author := setup.newAuthor(t, setup.first, "ana")
+
+	const secret = "the merger closes on tuesday"
+	message, err := setup.service.Post(ctx, setup.first, room.ID, author, secret)
+	if err != nil {
+		t.Fatalf("Post() error = %v", err)
+	}
+	if _, err := setup.service.Edit(ctx, setup.first, message.ID, author, secret+", revised"); err != nil {
+		t.Fatalf("Edit() error = %v", err)
+	}
+	if _, err := setup.service.Delete(ctx, setup.first, message.ID, author); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+
+	published := setup.published.all()
+	if len(published) != 3 {
+		t.Fatalf("%d events were published, want one for each of posting, editing and withdrawing", len(published))
+	}
+
+	for _, event := range published {
+		/*
+			The whole envelope, encoded as a subscriber receives it. Reading
+			`Data` alone would miss a body that reached the event some other
+			way, which is exactly the mistake this is guarding against.
+		*/
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			t.Fatalf("encode %s: %v", event.Type, err)
+		}
+		if bytes.Contains(encoded, []byte(secret)) {
+			t.Errorf("%s carries what was said:\n%s", event.Type, encoded)
+		}
+
+		// And it still says enough to go and read it, for somebody entitled to.
+		if event.Subject.ID != message.ID {
+			t.Errorf("%s names subject %q, want the message", event.Type, event.Subject.ID)
+		}
+		if event.Data["room_id"] != room.ID {
+			t.Errorf("%s does not name the room, so no subscriber can tell whether it is theirs", event.Type)
+		}
+	}
 }

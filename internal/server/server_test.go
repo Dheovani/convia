@@ -21,6 +21,7 @@ import (
 	"convia/internal/departure"
 	"convia/internal/events"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/invitations"
 	"convia/internal/media"
 	"convia/internal/messages"
@@ -312,6 +313,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		SessionAuthenticator: stubSessionAuthenticator{principal: samplePerson()},
 		Sessions:             sessions.NewHandler(logger, stubSessions{account: sampleAccount()}),
 		Departures:           departure.NewHandler(logger, stubDeparture{}, stubIdentities{}),
+		PersonalExport:       export.NewSessionHandler(logger, stubExport{}, sampleApplication().ID),
+		TenantExport:         export.NewTenantHandler(logger, stubExport{}),
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),

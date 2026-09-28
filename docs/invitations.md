@@ -129,4 +129,4 @@ Suspending an application withdraws every invitation it issued, immediately and 
 ## What is deliberately not built
 
 - **Delivery.** Convia does not send the invitation anywhere. Mail, links, and pages belong to the application, or to Convia's own client.
-- **Rate limits on issuing** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key; a general per-tenant limit is the right shape rather than one bolted to this endpoint.
+- **Rate limits on issuing.** There is no limit on this endpoint in particular, and there is not meant to be: every write endpoint is equally exposed to a caller holding a valid key, so the limit is the general per-tenant one in [`authentication.md`](authentication.md). Issuing invitations spends it like anything else.

@@ -27,3 +27,20 @@ updates:
           - "*"
     open-pull-requests-limit: 5
 
+  # The interface, which was missing here while the Go side was covered.
+  #
+  # It is the half whose dependencies run in somebody's browser, on the same
+  # origin as their session, so leaving it out was the wrong way round.
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: America/Sao_Paulo
+    groups:
+      interface-dependencies:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+

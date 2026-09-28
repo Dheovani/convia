@@ -641,6 +641,73 @@ func rationed(logger *slog.Logger, uses *ratelimit.Limiter, resolve resolver, ne
 }
 
 /*
+metered rations what one application may ask of an installation.
+
+It is the only budget in Convia charged for work that succeeded. [budgeted]
+charges failures, because a caller presenting a working key has done nothing
+worth limiting — which is true of one caller and false of one tenant. A tenant
+holding a valid key can take the whole of an installation's capacity while every
+other tenant waits, and not one request on the way is a failure, so a budget of
+failures never sees it.
+
+It is keyed by the application rather than by the credential or the address. A
+tenant can mint itself another key and can deploy behind another address, so
+either of those would be a budget it could widen by spreading; the application
+is the one it cannot change without an operator.
+
+It runs inside authentication, because there is no tenant to name until the key
+has been verified, and outside idempotency, so a refused request never claims a
+key it did not spend.
+*/
+func metered(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		principal, found := credentials.PrincipalFromContext(request.Context())
+		if !found {
+			/*
+				Reachable only by wiring this somewhere a tenant is not named,
+				which is a mistake at startup rather than a caller's. Refusing is
+				its safe half: serving would leave the route unbudgeted, which is
+				the thing this exists to prevent.
+			*/
+			logger.Error("metered route reached without a principal",
+				"method", request.Method,
+				"path", request.URL.Path,
+				"request_id", api.RequestIDFromContext(request.Context()),
+			)
+			refuse(logger, response, request, "")
+			return
+		}
+
+		/*
+			Charged before the work rather than after it, like registering and
+			unlike a failed key: what is being rationed is the work itself, so
+			counting it afterwards would mean doing all of it first.
+		*/
+		if !uses.Allows(principal.ApplicationID) {
+			slowDown(logger, response, request, "",
+				uses.RetryAfter(principal.ApplicationID), tooManyTenantRequests)
+			return
+		}
+		uses.Record(principal.ApplicationID)
+
+		next.ServeHTTP(response, request)
+	})
+}
+
+/*
+tooManyTenantRequests is what an application asking too often is told.
+
+Unlike [tooManyRequests] it names what ran out, and the difference is not an
+inconsistency. There the budget has two dimensions and naming one would tell a
+caller which to spread across. Here there is one, it is the caller's own
+application, and saying so is what separates "your key keeps failing" from "you
+are simply asking faster than this installation serves" — two problems with
+different fixes, which one message cannot distinguish. It says nothing about any
+other tenant or about the installation's total load.
+*/
+const tooManyTenantRequests = "This application has made too many requests. Retry later."
+
+/*
 authenticate refuses a request that does not carry a usable credential.
 
 It wraps every route that acts with someone's authority — an application's or

@@ -208,6 +208,15 @@ type (
 		ExpiresAt string `json:"expires_at"`
 	}
 
+	// callResponse is a call a room elsewhere is holding, in the shape every
+	// call is published in. See [Call] for why it is rebuilt rather than relayed.
+	callResponse struct {
+		ID        string `json:"id"`
+		RoomID    string `json:"room_id"`
+		Status    string `json:"status"`
+		CreatedAt string `json:"created_at"`
+	}
+
 	remoteRoomResponse struct {
 		ID     string `json:"id"`
 		Home   string `json:"home"`
@@ -233,7 +242,7 @@ type (
 			because it is the home's call, with the home's identifiers, and this
 			installation has nothing to add to it.
 		*/
-		Call json.RawMessage `json:"call,omitempty"`
+		Call *callResponse `json:"call,omitempty"`
 	}
 
 	joinedResponse struct {
@@ -453,7 +462,10 @@ func (handler *SessionHandler) RemoteRooms(response http.ResponseWriter, request
 		represented := representRemoteRoom(room)
 		if known, answered := said[room.ID]; answered {
 			represented.Unread = known.Unread
-			represented.Call = known.Call
+			if known.Call != nil {
+				represented.Call = &callResponse{ID: known.Call.ID, RoomID: known.Call.RoomID,
+					Status: known.Call.Status, CreatedAt: known.Call.CreatedAt}
+			}
 		}
 		body.Data = append(body.Data, represented)
 	}

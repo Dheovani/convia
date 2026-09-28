@@ -16,6 +16,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/api"
+	"convia/internal/calls"
 	"convia/internal/rooms"
 	"convia/internal/sessions"
 	"convia/internal/users"
@@ -666,7 +667,7 @@ func (service *Service) About(
 			}
 
 			known := service.askAbout(asking, identity, room)
-			if known.Unread == nil && known.Call == nil {
+			if known.Unread == nil && !known.Answered {
 				return
 			}
 
@@ -689,8 +690,25 @@ unreachable appears, and the row is still drawn.
 */
 type Elsewhere struct {
 	Unread *int64
-	// Call is the call the room is holding, as the home rendered it, or nil.
-	Call json.RawMessage
+	// Call is the call the room is holding, or nil when the home said nothing.
+	// Answered is whether it said there is none, which is not the same thing.
+	Call     *Call
+	Answered bool
+}
+
+/*
+Call is a call a room elsewhere is holding.
+
+It is this installation's rendering of what a home said, not the home's bytes.
+**The room it names is the pointer kept here**, as every other identifier in an
+answer about a room elsewhere is, so nothing a person's client reads names a
+room by an identifier only somebody else's Convia owns.
+*/
+type Call struct {
+	ID        string
+	RoomID    string
+	Status    string
+	CreatedAt string
 }
 
 /*
@@ -718,7 +736,7 @@ func (service *Service) askAbout(
 	}()
 	go func() {
 		defer group.Done()
-		known.Call = service.callAt(ctx, identity, room)
+		known.Call, known.Answered = service.callAt(ctx, identity, room)
 	}()
 	group.Wait()
 
@@ -756,31 +774,67 @@ func (service *Service) unreadAt(
 /*
 callAt asks one home whether one of its rooms is holding a call.
 
-What comes back is passed on as the home rendered it, checked only for being a
-JSON object: it is the home's call, with the home's identifiers, and this
-installation has nothing to add to it. `204` is a home saying there is no call,
-which is an answer rather than a silence, so it is reported as an empty one.
+**What comes back is decoded and built again, never passed on as it arrived.**
+That is the rule for everything relayed between installations, and for the
+reason this is the place it was almost broken: a home's bytes put straight into
+this installation's own answer are a stranger choosing what this installation
+publishes. It could carry fields the contract forbids, omit ones it requires,
+or name the room by an identifier only that home owns.
+
+Anything that does not decode into a call this installation would have written
+itself is treated as the home having said nothing, which is the answer a
+silent home gets anyway.
+
+The second result is whether the home answered at all. A home saying there is
+no call and a home saying nothing are different facts, and only one of them is
+something to show.
 */
 func (service *Service) callAt(
 	ctx context.Context,
 	identity accounts.Identity,
 	room RemoteRoom,
-) json.RawMessage {
+) (*Call, bool) {
 	response, err := service.client.Do(ctx, identity, http.MethodGet, room.Home, roomTarget(room, "/call"), nil)
 	if err != nil {
 		service.logger.Debug("a call could not be read from a home",
 			"error", err, "home", room.Home, "remote_room_id", room.ID)
-		return nil
+		return nil, false
 	}
 
-	switch {
-	case response.Status == http.StatusNoContent:
-		return json.RawMessage("null")
-	case response.Status != http.StatusOK || !json.Valid(response.Body):
-		return nil
+	if response.Status == http.StatusNoContent {
+		return nil, true
 	}
-	return response.Body
+
+	if response.Status != http.StatusOK {
+		return nil, false
+	}
+
+	var body struct {
+		ID        string `json:"id"`
+		Status    string `json:"status"`
+		CreatedAt string `json:"created_at"`
+	}
+
+	if err := json.Unmarshal(response.Body, &body); err != nil {
+		return nil, false
+	}
+
+	if !calls.ValidID(body.ID) || body.Status != activeCall {
+		return nil, false
+	}
+
+	if _, err := time.Parse(time.RFC3339Nano, body.CreatedAt); err != nil {
+		return nil, false
+	}
+
+	// Named by the pointer kept here, like every other identifier in an answer
+	// about a room elsewhere.
+	return &Call{ID: body.ID, RoomID: room.ID, Status: body.Status, CreatedAt: body.CreatedAt}, true
 }
+
+// activeCall is the only status a call a room is holding can have: one that
+// has ended is not at that address at all.
+const activeCall = "active"
 
 // RemoteRoom returns one of them.
 func (service *Service) RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error) {

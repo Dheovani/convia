@@ -8110,6 +8110,94 @@ paths:
         "503":
           $ref: "#/components/responses/HashingBusy"
 
+  /v1/me/data:
+    get:
+      operationId: exportOwnData
+      tags: [Sessions]
+      summary: Take everything Convia holds about you
+      description: |
+        Streams everything Convia holds about the signed-in person as newline-delimited JSON, one object per line.
+
+        **It names no user.** The person comes from the session, so there is no field that could ask for somebody else's data.
+
+        Each line carries a `type`:
+
+        - `export` — a header saying when this was made and for whom.
+        - `user` — the user record: identifier, external subject, display name, metadata, status and timestamps. This is the whole of what Convia's user table holds; it keeps no profile or contact detail beyond it.
+        - `room_membership` — one room the person is in, when they joined, and whether they moderate it. **Not who else is in it**: a room's other members are not this person's data.
+        - `message` — one message the person wrote, with the room it was said in and its place in that room's order. **Only their own**; a conversation is not one person's to export. Withdrawn messages appear without a body, because the body is already gone.
+        - `call_participation` — one call they took part in, when they arrived and when they left.
+        - `end` — the terminator, with a count of each kind.
+
+        **A response without an `end` line is incomplete.** The status is sent with the first byte, so a failure part-way through cannot be reported as one; the terminator is how a reader tells a whole export from a truncated one.
+
+        What Convia cannot give back is the application's own copy of this person, which lives in the application's database. See docs/users.md.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      responses:
+        "200":
+          description: The export, as newline-delimited JSON.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                description: One JSON object per line, ending with a line whose type is `end`.
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{user_id}/data:
+    get:
+      operationId: exportUserData
+      tags: [Users]
+      summary: Take everything Convia holds about one of your users
+      description: |
+        Streams everything Convia holds about one of the caller's own users, in the same newline-delimited format as `GET /v1/me/data`, which documents the line types.
+
+        **This exists because the obligation does.** An application is the controller for the people it resolves; answering a request one of them makes means asking Convia for its part. Convia holds only what this returns.
+
+        The application comes from the key and the user from the path, so a caller reaches only its own people: an identifier belonging to another tenant is reported as missing.
+      x-lifecycle: experimental
+      security:
+        - ApiKeyAuth: [users:read]
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: The export, as newline-delimited JSON.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                description: One JSON object per line, ending with a line whose type is `end`.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/presence:
     get:
       operationId: listPresence
@@ -12175,12 +12263,20 @@ components:
 
     RateLimited:
       description: |
-        Too many failed authentication attempts from this caller.
+        Too many requests. `Retry-After` says how long to wait, and the message
+        says which of two limits was reached.
 
-        Only failures are counted, so a client presenting a working key never
-        meets this. A client that does is presenting one that will not start
-        working by being repeated — a revoked or expired key in a retry loop,
-        most often — and should read `Retry-After` and back off.
+        **Too many failed attempts from this caller.** Only failures count
+        towards it, so a working key never meets it. A client that does is
+        presenting one that will not start working by being repeated — a
+        revoked or expired key in a retry loop, most often.
+
+        **Too many requests from this application.** Successes count towards
+        this one, because what it bounds is one tenant taking an installation's
+        whole capacity rather than anybody guessing. It is counted per
+        application, so another key for the same application meets it too;
+        back off rather than retrying, and ask the operator to raise it if the
+        integration genuinely needs more.
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestId"
