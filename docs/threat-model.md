@@ -6,6 +6,8 @@ It is organised by **trust boundary** — by who is on the other side and what t
 
 **It is a living document.** A change that adds a boundary, or changes what one is trusted for, changes this. A change that adds a route to a boundary that already exists usually does not.
 
+[`data-protection.md`](data-protection.md) is its companion: this one asks who is on the other side of each boundary, that one asks what is worth taking, what protects it on the way, and what protects it at rest.
+
 ## What Convia is protecting
 
 Three things, in this order:
