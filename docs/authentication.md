@@ -105,7 +105,7 @@ Tests cover every operation from both sides: with its scope, without it, and wit
 
 Failed authentication attempts are budgeted per caller address: **60 attempts, refilled over a minute.** Exceeding it is answered `429` with a `Retry-After` header.
 
-**Only failures are charged.** A client presenting a working key is never limited, however much traffic it sends. A client that does meet this limit is presenting a key that will not start working by being repeated — a revoked or expired credential in a retry loop is the usual cause.
+**Only failures are charged against it.** A client presenting a working key never meets *this* limit — it meets the tenant's own budget below, which is a different limit for a different reason. A client that meets this one is presenting a key that will not start working by being repeated; a revoked or expired credential in a retry loop is the usual cause.
 
 This is **not** a defence against guessing a key. A secret with 130 bits of entropy cannot be searched at any rate. What the limit protects is the cost of the attempt: each well-formed but wrong key is a database read, and a flood of them is load Convia would otherwise pay for. The budget is checked **before** the key is verified, so an exhausted caller costs a map lookup rather than a query.
 
@@ -122,6 +122,24 @@ The numbers are chosen around that. One indexed read takes a few hundred microse
 **Convia reads `X-Forwarded-For` only from networks an operator named in `CONVIA_TRUSTED_PROXIES`.** Trusting a header nobody told it to trust would let a caller evade its own limit and spend someone else's budget by claiming their address.
 
 Unset — the default — every client behind a proxy shares the proxy's address, so one misconfigured client can exhaust the budget for all of them. **Set it before deploying behind a proxy.** [`api-conventions.md`](api-conventions.md) documents the format and how the chain is read.
+
+## Rate limiting a tenant
+
+The budget above charges mistakes. This one charges **work that succeeded**, and it exists because the two are not the same problem.
+
+**An application may make 3 000 requests a minute**, successes included, across the whole tenant surface. Exceeding it is answered `429` with `Retry-After` and a message that names the application, so an integration can tell "my key keeps failing" from "I am asking faster than this installation serves" — two problems with different fixes.
+
+```
+CONVIA_TENANT_REQUESTS_PER_MINUTE=3000
+```
+
+**It is per application, not per key and not per address.** A tenant issues its own keys and deploys behind whatever addresses it likes, so either of those would be a limit it could widen by spreading. The application is the one dimension it cannot change without an operator, which is why it is the one that is counted.
+
+**A valid key is not a reason to serve without a limit.** Nothing an application does while taking an installation's whole capacity is a failure, so no budget of failed attempts can see it — and the people who notice are the *other* tenants, who did nothing at all. What this bounds is that, and only that: one tenant's flood never spends another tenant's budget, which is the property the limit exists for.
+
+The default is a ceiling rather than a throttle. Fifty requests a second sustained is far above what serving conversations needs and far below what starving the other tenants needs. **The right number depends on the deployment in a way the failure budgets do not**, so an operator can raise it — between 60 and 1 000 000 a minute. There is no value that turns it off, and a number outside those bounds stops the process at startup rather than quietly restoring what the limit was added to end.
+
+**The budget is per instance**, like every other in Convia: a deployment running four instances behind a load balancer grants four times the number configured. Making it exact needs shared state on the path whose whole purpose is to be cheaper than the work it guards. See [`events.md`](events.md), whose stream ceilings are per instance for the same reason.
 
 The reading is what makes the header safe to use at all. The chain is walked **from the right**, skipping trusted hops, because a proxy appends what it saw and anything a client invented sits further left. A caller connecting directly is charged to its own address whatever it claims, so the limiter cannot be turned into a weapon: a caller can neither escape its own budget by rotating the header nor spend someone else's by naming them. Both are asserted by tests.
 

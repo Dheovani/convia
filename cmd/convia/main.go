@@ -302,8 +302,9 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		sessionService)
 
 	dependencies := server.Dependencies{
-		Database:       pool,
-		TrustedProxies: cfg.TrustedProxies,
+		Database:                pool,
+		TrustedProxies:          cfg.TrustedProxies,
+		TenantRequestsPerMinute: cfg.TenantRequestsPerMinute,
 
 		OperatorAuthenticator: operatorService,
 		Applications:          applications.NewHandler(logger, applicationService),

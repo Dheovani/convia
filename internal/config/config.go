@@ -53,6 +53,24 @@ const (
 
 	trustedProxiesEnvironment = "CONVIA_TRUSTED_PROXIES"
 
+	tenantRequestsEnvironment = "CONVIA_TENANT_REQUESTS_PER_MINUTE"
+
+	/*
+		What one application may ask of an installation in a minute.
+
+		The default is a ceiling rather than a throttle: far above what serving
+		conversations needs, far below what starving the other tenants needs.
+		The bounds are the part that matters. The floor is what makes this a
+		setting an operator raises rather than one they switch off — sixty a
+		minute is still generous enough to be a limit somebody chose, and there
+		is no value below it that means "no limit". The ceiling is there so that
+		a mistyped number is refused at startup instead of quietly restoring
+		what this was added to end.
+	*/
+	defaultTenantRequestsPerMinute = 3_000
+	minimumTenantRequestsPerMinute = 60
+	maximumTenantRequestsPerMinute = 1_000_000
+
 	peersAllowPrivateAddressesEnvironment = "CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES"
 
 	publicAddressEnvironment = "CONVIA_PUBLIC_ADDRESS"
@@ -127,6 +145,18 @@ type Config struct {
 		address. See ClientAddress in internal/server.
 	*/
 	TrustedProxies []netip.Prefix
+
+	/*
+		TenantRequestsPerMinute is how often one application may ask, successes
+		included.
+
+		It is per application rather than per key or per address, because a
+		tenant can mint itself more of either. It exists because a valid key is
+		not a reason to serve without a limit: what it bounds is one tenant
+		taking the whole installation while the others wait, which no budget of
+		failed attempts can see.
+	*/
+	TenantRequestsPerMinute int
 
 	/*
 		PeersAllowPrivateAddresses is whether links between installations may
@@ -228,6 +258,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	tenantRequests, err := loadInt(tenantRequestsEnvironment, defaultTenantRequestsPerMinute,
+		minimumTenantRequestsPerMinute, maximumTenantRequestsPerMinute)
+	if err != nil {
+		return Config{}, err
+	}
+
 	peersAllowPrivate, err := loadBool(peersAllowPrivateAddressesEnvironment)
 	if err != nil {
 		return Config{}, err
@@ -268,6 +304,7 @@ func Load() (Config, error) {
 		Redis:          shared,
 		TrustedProxies: trustedProxies,
 
+		TenantRequestsPerMinute:    tenantRequests,
 		PeersAllowPrivateAddresses: peersAllowPrivate,
 		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil

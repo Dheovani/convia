@@ -298,17 +298,22 @@ erasure is a capability rather than a schedule for them.
 | Page size | 25 by default, 100 at most — a larger limit is **refused**, not clamped |
 | Request body | 1 MiB, which is the transport cap every JSON route shares |
 | History per room | unbounded, deliberately |
-| Rate | **not bounded per caller.** See below. |
+| Rate | bounded per **tenant**, not per caller or per room. See below. |
 
 A test asserts the first three cannot contradict one another: a message at the
 documented limit must not be refused by the transport before it is validated,
 and must not be accepted by the domain and rejected by the column.
 
-**There is no request rate limit in Convia**, for messages or anything else. The
-budget that exists covers *failed authentication* only. `M13-008` is where the
-general one belongs, and the note M18 made about per-account limiting applies
-here too: doing it properly across several instances needs shared state, which
-the Redis of M16 now makes possible.
+**Nothing here is limited per room, per author, or per key.** The general limit
+is per **application**, applies to every tenant route equally, and is documented
+in [`authentication.md`](authentication.md): 3 000 requests a minute by default,
+successes included. Limiting posting alone would be arbitrary — an application
+flooding an installation does not have to do it through messages.
+
+**Per person is still open.** A signed-in person's requests carry no application
+and meet no budget while they succeed. The note M18 made applies: doing it
+properly across several instances needs shared state, which the Redis of M16
+makes possible.
 
 ## What a closed room does
 

@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -321,6 +322,46 @@ func TestASettingThatIsNotTrueOrFalseStopsStartup(t *testing.T) {
 
 	if _, err := Load(); err == nil {
 		t.Error("Load() accepted a setting that is neither true nor false")
+	}
+}
+
+/*
+TestTheTenantBudgetHasNoOffPosition.
+
+A limit an operator can set to zero is a limit that gets set to zero the first
+time an integration is noisy, and nothing about the running installation then
+says it is unprotected. The floor is what makes raising it the only way out, and
+the ceiling is what stops a mistyped number being the same thing by accident.
+*/
+func TestTheTenantBudgetHasNoOffPosition(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.TenantRequestsPerMinute != defaultTenantRequestsPerMinute {
+		t.Errorf("the default budget = %d, want %d",
+			config.TenantRequestsPerMinute, defaultTenantRequestsPerMinute)
+	}
+
+	for what, value := range map[string]string{
+		"off":              "0",
+		"negative":         "-1",
+		"below the floor":  strconv.Itoa(minimumTenantRequestsPerMinute - 1),
+		"above the sky":    strconv.Itoa(maximumTenantRequestsPerMinute + 1),
+		"not a number":     "lots",
+		"empty on purpose": "",
+	} {
+		t.Setenv(tenantRequestsEnvironment, value)
+		if _, err := Load(); err == nil {
+			t.Errorf("Load() accepted a budget that is %s: %q", what, value)
+		}
+	}
+
+	t.Setenv(tenantRequestsEnvironment, "12000")
+	if config, err = Load(); err != nil || config.TenantRequestsPerMinute != 12_000 {
+		t.Errorf("Load() with a raised budget = %d, %v, want 12000", config.TenantRequestsPerMinute, err)
 	}
 }
 

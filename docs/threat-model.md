@@ -44,7 +44,9 @@ Which surface a route is on is **declared in the route table** (`internal/server
 
 **What stops the obvious attack:** a key is ~130 bits of randomness stored as a SHA-256 digest, so the database does not hold anything that can be presented. Scopes are checked per route. Every failure charges a budget per address.
 
-**Not covered:** a leaked key is a leaked key until it is revoked; there is no binding to an address or a certificate. `docs/runbooks/credential-revocation.md` is the procedure. A general per-tenant rate limit is `M13-008`/`M23-013` and does not exist.
+**What stops the attack that is not obvious:** an application that does nothing wrong at all, very fast. Every request is charged against a budget keyed by the **application** — 3 000 a minute by default — so one tenant's flood is refused to that tenant rather than to everybody sharing the installation. It is keyed by the application rather than by the key or the address because a tenant can mint itself more of either, and it is charged on successes because nothing on the way is a failure.
+
+**Not covered:** a leaked key is a leaked key until it is revoked; there is no binding to an address or a certificate. `docs/runbooks/credential-revocation.md` is the procedure. The budget is per instance, so a replicated deployment grants it once per instance, and it bounds how often rather than how expensive — a deliberately costly query is `M22`'s to make visible.
 
 ## An operator → Convia
 
@@ -77,7 +79,7 @@ Which surface a route is on is **declared in the route table** (`internal/server
 - **Stealing a session from the page.** The cookie is `HttpOnly` and `__Host-` prefixed, so a script in the page cannot read it and a compromised subdomain cannot write it.
 - **CSRF.** Three independent layers: `SameSite=Lax`, a JSON content type an HTML form cannot send, and an **exact-match `Origin` check that fails closed** on every state-changing request. A test walks the route table and proves no route on this surface changes state on a `GET`, which is what keeps `SameSite=Lax` meaningful.
 
-**Not covered:** there is no rate limit per *account*, deliberately — a naive one is a trivial denial of service against a known user. There is no password reset, by design: the account's private key is sealed by the password, so nobody without it can recover the account, including whoever runs the installation.
+**Not covered:** there is no rate limit per *account*. Failed sign-ins are budgeted, and so is registering, but a request that succeeds costs a person nothing however many they make — the tenant budget above names an application, and a session names none. The reason it has not simply been copied is that the unit is wrong twice over: a budget sized for a backend would never refuse anybody, and one sized for a person is a denial of service against a named person as soon as somebody else shares their address. **It is an open question rather than a settled one**, and the thing it would bound is a stolen session reading an installation faster than a person could. There is no password reset, by design: the account's private key is sealed by the password, so nobody without it can recover the account, including whoever runs the installation.
 
 ## Another installation → Convia
 
@@ -148,6 +150,6 @@ Convia's own interface and the desktop application are **one client among many**
 
 | | |
 | --- | --- |
-| No rate limit per tenant | `M13-008`, `M23-013` |
+| No rate limit per person, only per tenant and per address | `M23` |
 | No audit trail an operator cannot write to | `M23` |
 | No secret manager, no defined rotation | `M23-005`, `M23-006` |

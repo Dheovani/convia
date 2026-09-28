@@ -12175,12 +12175,20 @@ components:
 
     RateLimited:
       description: |
-        Too many failed authentication attempts from this caller.
+        Too many requests. `Retry-After` says how long to wait, and the message
+        says which of two limits was reached.
 
-        Only failures are counted, so a client presenting a working key never
-        meets this. A client that does is presenting one that will not start
-        working by being repeated — a revoked or expired key in a retry loop,
-        most often — and should read `Retry-After` and back off.
+        **Too many failed attempts from this caller.** Only failures count
+        towards it, so a working key never meets it. A client that does is
+        presenting one that will not start working by being repeated — a
+        revoked or expired key in a retry loop, most often.
+
+        **Too many requests from this application.** Successes count towards
+        this one, because what it bounds is one tenant taking an installation's
+        whole capacity rather than anybody guessing. It is counted per
+        application, so another key for the same application meets it too;
+        back off rather than retrying, and ask the operator to raise it if the
+        integration genuinely needs more.
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestId"
