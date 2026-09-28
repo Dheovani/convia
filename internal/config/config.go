@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"net/url"
@@ -52,6 +53,10 @@ const (
 	httpPortEnvironment = "CONVIA_HTTP_PORT"
 
 	trustedProxiesEnvironment = "CONVIA_TRUSTED_PROXIES"
+
+	logLevelEnvironment = "CONVIA_LOG_LEVEL"
+
+	serviceInstanceEnvironment = "CONVIA_SERVICE_INSTANCE"
 
 	erasureWindowEnvironment = "CONVIA_ERASURE_WINDOW"
 
@@ -193,6 +198,27 @@ type Config struct {
 	ErasureWindow time.Duration
 
 	/*
+		LogLevel is the lowest severity Convia writes.
+
+		It defaults to info. **Debug is not a setting to leave on**: the debug
+		lines in Convia name identifiers, addresses and the shape of what
+		somebody is doing, which is the social graph `docs/data-protection.md`
+		classifies. They are there to answer a question during an incident and
+		to be turned off afterwards.
+	*/
+	LogLevel slog.Level
+
+	/*
+		ServiceInstance tells two processes apart in the logs.
+
+		Empty means the hostname, which is right in a container and adequate
+		anywhere else. An operator running two instances on one host sets it,
+		because otherwise both answer to the same name and the logs cannot be
+		told apart afterwards.
+	*/
+	ServiceInstance string
+
+	/*
 		PeersAllowPrivateAddresses is whether links between installations may
 		reach loopback and private-network addresses.
 
@@ -298,6 +324,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	logLevel, err := loadLogLevel()
+	if err != nil {
+		return Config{}, err
+	}
+
 	erasureWindow, err := loadBoundedDuration(erasureWindowEnvironment, defaultErasureWindow,
 		minimumErasureWindow, maximumErasureWindow)
 	if err != nil {
@@ -346,6 +377,8 @@ func Load() (Config, error) {
 
 		TenantRequestsPerMinute:    tenantRequests,
 		ErasureWindow:              erasureWindow,
+		LogLevel:                   logLevel,
+		ServiceInstance:            strings.TrimSpace(environmentOrDefault(serviceInstanceEnvironment, "")),
 		PeersAllowPrivateAddresses: peersAllowPrivate,
 		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil
@@ -669,6 +702,30 @@ window is neither. Both ways of getting it wrong are silent -- too short erases
 somebody before anybody could notice the mistake, too long never erases them at
 all -- so the bounds are checked rather than trusted.
 */
+/*
+loadLogLevel reads the lowest severity Convia writes.
+
+An unrecognised value stops startup rather than falling back to info. Somebody
+writing `verbose` meant something, and a deployment that silently ignored it
+would answer the next incident with fewer lines than whoever configured it
+believes they have.
+*/
+func loadLogLevel() (slog.Level, error) {
+	levels := map[string]slog.Level{
+		"debug": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
+	}
+
+	named := strings.ToLower(strings.TrimSpace(environmentOrDefault(logLevelEnvironment, "info")))
+	level, known := levels[named]
+	if !known {
+		return 0, fmt.Errorf("%s must be one of debug, info, warn or error", logLevelEnvironment)
+	}
+	return level, nil
+}
+
 func loadBoundedDuration(name string, fallback, minimum, maximum time.Duration) (time.Duration, error) {
 	value, err := time.ParseDuration(environmentOrDefault(name, fallback.String()))
 	if err != nil || value < minimum || value > maximum {

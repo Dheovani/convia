@@ -301,6 +301,62 @@ func (store *Store) Page(ctx context.Context, applicationID, roomID string,
 }
 
 /*
+ByAuthor pages everything one person wrote, across every room.
+
+It exists for export, which is the one question the rest of this store cannot
+answer: every other read is scoped to a room, because that is how a conversation
+is read, and what somebody asking for their own data wants is the opposite cut.
+
+The cursor is `(created_at, id)` rather than the sequence a room page uses, for
+the reason that page gives in reverse: a sequence orders one room and says
+nothing across rooms, so paging by it here would interleave two rooms into an
+order that is not an order.
+
+Withdrawn messages are included. A tombstone the person wrote is still something
+Convia holds about them, and leaving it out would export a conversation that
+looks like they never said the thing they took back.
+*/
+func (store *Store) ByAuthor(ctx context.Context, applicationID, userID string,
+	after *Written, limit int) ([]Message, bool, error) {
+	statement := `SELECT ` + columns + ` FROM messages
+	              WHERE application_id = $1 AND author_user_id = $2`
+	arguments := []any{applicationID, userID}
+
+	if after != nil {
+		arguments = append(arguments, after.CreatedAt, after.ID)
+		statement += ` AND (created_at, id) > ($` + strconv.Itoa(len(arguments)-1) +
+			`, $` + strconv.Itoa(len(arguments)) + `)`
+	}
+	statement += ` ORDER BY created_at, id LIMIT ` + strconv.Itoa(limit+1)
+
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
+	if err != nil {
+		return nil, false, fmt.Errorf("query what somebody wrote: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, false, fmt.Errorf("read what somebody wrote: %w", err)
+	}
+
+	page := make([]Message, 0, len(records))
+	for _, record := range records {
+		page = append(page, record.message())
+	}
+
+	if len(page) > limit {
+		return page[:limit], true, nil
+	}
+	return page, false, nil
+}
+
+// Written is where a walk through one person's messages had got to.
+type Written struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+/*
 Edit replaces the body of a message that has not been deleted.
 
 The deletion check is in the statement rather than in a prior read, so an edit

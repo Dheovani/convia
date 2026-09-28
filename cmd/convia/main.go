@@ -24,6 +24,7 @@ import (
 	"convia/internal/events/journal"
 	"convia/internal/events/redis"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/idempotency"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -37,6 +38,7 @@ import (
 	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/sessions"
+	"convia/internal/telemetry"
 	"convia/internal/users"
 	"convia/internal/web"
 	"convia/internal/webhooks"
@@ -85,6 +87,35 @@ func main() {
 }
 
 /*
+describing builds the logger every line goes through once configuration is read.
+
+**Four attributes on every line**, and each answers a question somebody asks
+during an incident: what is this, which build, which deployment, and which
+instance. The last is the one that is useless until a deployment is replicated
+and impossible to add afterwards — which is why it is here now rather than when
+it is needed.
+
+They are attached to the logger rather than passed at call sites, because an
+attribute somebody has to remember is one a new call site will forget, and there
+are already several hundred of those.
+*/
+func describing(cfg config.Config) *slog.Logger {
+	service := telemetry.Describing(string(cfg.Environment), cfg.ServiceInstance)
+
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+	return slog.New(handler).With(attributes(service.Describe())...)
+}
+
+// attributes widens a slice of attributes into the arguments With takes.
+func attributes(described []slog.Attr) []any {
+	widened := make([]any, 0, len(described))
+	for _, attribute := range described {
+		widened = append(widened, attribute)
+	}
+	return widened
+}
+
+/*
 run dispatches the requested command.
 
 The composition root loads configuration, builds dependencies, and owns the
@@ -110,6 +141,17 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	/*
+		The logger is rebuilt here, because until configuration is loaded there
+		is nothing to describe the process with and no level to obey.
+
+		Everything above this line logs at info with no service attributes,
+		which is correct: the only thing that can fail up there is reading the
+		configuration, and a line saying so is more use than a line saying so
+		in a deployment that could not be identified anyway.
+	*/
+	logger = describing(cfg)
 
 	switch {
 	case len(arguments) == 0 || arguments[0] == "serve":
@@ -302,6 +344,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		departure.NewService(accountService, peerService, roomService, messageService, userService, logger),
 		sessionService)
 
+	/*
+		Handing somebody their own data reaches four domains and owns none of
+		them, so it is assembled here like departure above — and it is
+		departure's opposite: what this writes out is what erasure takes away.
+	*/
+	exports := export.NewService(userService, rooms.NewStore(pool),
+		messages.NewStore(pool), participants.NewStore(pool))
+
 	dependencies := server.Dependencies{
 		Database:                pool,
 		TrustedProxies:          cfg.TrustedProxies,
@@ -339,6 +389,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
+		PersonalExport:       export.NewSessionHandler(logger, exports, applications.FirstPartyID),
+		TenantExport:         export.NewTenantHandler(logger, exports),
 		PersonalEvents: serving.NewPersonHandler(logger, broker, follower, sessionService, peerService,
 			peers.NewFollowing(peerService, peerService, sessionService, peerClient, logger), roomService),
 

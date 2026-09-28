@@ -15,6 +15,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/departure"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/invitations"
 	"convia/internal/messages"
 	"convia/internal/operator"
@@ -285,6 +286,17 @@ type Dependencies struct {
 	Sessions             *sessions.Handler
 	// Departures serves a person deleting their own account. See docs/adr/0016.
 	Departures *departure.Handler
+
+	/*
+		Exports hand somebody everything Convia holds about them, as newline-
+		delimited JSON. Two surfaces because the obligation exists twice: a
+		person asks because Convia holds their data, an application asks because
+		it is the controller for the person it resolved. See docs/users.md.
+
+		Leaving either out removes that route and nothing else.
+	*/
+	PersonalExport *export.SessionHandler
+	TenantExport   *export.TenantHandler
 
 	/*
 		Rooms shared between installations.
@@ -976,6 +988,31 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		table = append(table,
 			route{method: http.MethodPost, path: api.Prefix + "/me/delete", surface: surfaceSession,
 				handler: http.HandlerFunc(dependencies.Departures.Delete), guessable: true},
+		)
+	}
+
+	if dependencies.Authenticator != nil && dependencies.TenantExport != nil {
+		/*
+			An application asking for one of its own people, because it is the
+			controller for them and Convia is not. The user is named in the
+			path and the tenant comes from the key, so a caller reaches only
+			its own.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}/data", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantExport.Theirs)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalExport != nil {
+		/*
+			A person asking for their own data. It names no user, because the
+			session already does -- there is no request field that could name
+			somebody else.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/me/data", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalExport.Mine)},
 		)
 	}
 

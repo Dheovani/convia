@@ -349,6 +349,52 @@ func (store *Store) List(ctx context.Context, applicationID, callID string,
 }
 
 /*
+OfUser pages every call one person took part in, oldest first.
+
+[List] answers "who was in this call", which is a roster. This answers "which
+calls was this person in", which is the same table read the other way and is
+what somebody asking for their own data is owed.
+
+Guests are unreachable here by construction: the filter is the user, and a guest
+has none. That is not an omission — a guest is identified by the invitation they
+redeemed, and the application that sent it is the only party that knows who they
+were, so their export is the application's to give.
+*/
+func (store *Store) OfUser(ctx context.Context, applicationID, userID string,
+	cursor *Cursor, limit int) ([]Participant, bool, error) {
+	statement := `SELECT ` + columns + ` FROM participants
+	              WHERE application_id = $1 AND user_id = $2`
+	arguments := []any{applicationID, userID}
+
+	if cursor != nil {
+		arguments = append(arguments, cursor.CreatedAt, cursor.ID)
+		statement += ` AND (created_at, id) > ($` + strconv.Itoa(len(arguments)-1) +
+			`, $` + strconv.Itoa(len(arguments)) + `)`
+	}
+	statement += ` ORDER BY created_at, id LIMIT ` + strconv.Itoa(limit+1)
+
+	rows, err := store.db(ctx).Query(ctx, statement, arguments...)
+	if err != nil {
+		return nil, false, fmt.Errorf("query somebody's participations: %w", err)
+	}
+
+	records, err := pgx.CollectRows(rows, pgx.RowToStructByPos[row])
+	if err != nil {
+		return nil, false, fmt.Errorf("read somebody's participations: %w", err)
+	}
+
+	page := make([]Participant, 0, len(records))
+	for _, record := range records {
+		page = append(page, record.participant())
+	}
+
+	if len(page) > limit {
+		return page[:limit], true, nil
+	}
+	return page, false, nil
+}
+
+/*
 Leave records that someone left of their own accord.
 
 The write is conditional on the person still being present, so leaving twice

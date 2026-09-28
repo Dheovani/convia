@@ -112,6 +112,5 @@ So the responsibilities divide like this:
 
 - **No secret manager.** The media API secret, the database password and the LiveKit key are environment variables. `M23-005`.
 - **No defined rotation.** Nothing says how often a signing key or an API secret changes, or what happens to what was signed with the old one. `M23-006`.
-- **No export.** Nothing hands a person, or an application acting for one, everything Convia holds about them. The boundaries are defined in [`users.md`](users.md) and no endpoint serves them. `M23-017`.
 - **No retention policy for content**, and deliberately. A deleted **person** is erased thirty days later — see [`users.md`](users.md) — but a message nobody asked to remove is kept, because truncating a conversation nobody asked to truncate is worse than a large table.
 - **No classification of what an application writes into `users.metadata`**, because Convia cannot see it. `M23-018` is where somebody qualified decides what that obliges.

@@ -136,6 +136,34 @@ Convia's own product is an application like any other ([`applications.md`](appli
 
 This keeps one code path for participation. When the standalone interface is built in M18, it authenticates its own users, resolves them here, and joins calls through the same endpoints an external integration uses.
 
+## Export
+
+**Two routes, because the obligation exists twice.**
+
+```http
+GET /v1/me/data
+GET /v1/users/{user_id}/data
+```
+
+A person asks Convia because Convia holds their data. An application asks because **it is the controller** for the person it resolved, and answering a request one of them makes means asking Convia for its part. Serving only one would leave whichever party asked the other unable to answer.
+
+**The person's route names no user.** It comes from the session, so asking for somebody else's data is unrepresentable rather than refused — the same move the tenant surface makes with the application. The tenant route takes the user from the path and the application from the key, so a caller reaches only its own people.
+
+The answer is **newline-delimited JSON**, one object per line, streamed as it is read. The alternative was making somebody walk a paginated API to collect their own data, which is the opposite of what a data request is for. Each line carries a `type`:
+
+| Type | What it is |
+| --- | --- |
+| `export` | a header: when this was made, and for whom |
+| `user` | the user record, which is the whole of what the table above holds |
+| `room_membership` | one room, when they joined, whether they moderate it |
+| `message` | one message they wrote, with its room and its place in that room's order |
+| `call_participation` | one call they took part in, when they arrived and left |
+| `end` | the terminator, with a count of each kind |
+
+**What is deliberately not in it is other people.** A room's other members are not this person's data, so a membership line names the room and not the roster; a conversation is not one person's to export, so only their own messages appear. Withdrawn messages are included without bodies — that they wrote and then withdrew is still a thing Convia records, and the body is already gone.
+
+**An export with no `end` line is incomplete.** The status code goes out with the first byte, so a failure part-way through cannot be reported as one: the response has already said `200`. The terminator is the only thing separating a whole export from a connection that died.
+
 ## The Retention Window
 
 **A deleted user is kept for thirty days and then forgotten.** `CONVIA_ERASURE_WINDOW` sets it, between a day and ten years.
@@ -157,4 +185,3 @@ This is Convia's **only** retention rule. Everything else is kept until somebody
 ## Not Yet Implemented
 
 - suspension enforcement during calls, which needs the call domain in M09. Suspension currently records the state and withdraws nothing, because there is no call to withdraw from yet.
-- **export.** The boundaries are defined above and nothing serves them: there is no endpoint that hands a person, or an application acting for one, everything Convia holds. It is the half of `M23-017` that is still open.
