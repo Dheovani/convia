@@ -667,6 +667,7 @@ This document is the operational development plan for Convia. It tracks what exi
 - [ ] **M22-012:** Define SLOs for availability, latency, and media-join control operations.
 - [ ] **M22-013:** Create actionable alerts tied to runbooks.
 - [ ] **M22-014:** Define telemetry retention and sampling policies.
+- [ ] **M22-015:** Decide whether a signed-in person gets a request budget, now that `M22-006` can say what one actually costs. **Deferred here on purpose**, not forgotten: `M23-013` bounded a tenant and left a person unbounded, so a stolen session can read an installation faster than a person ever would and nothing slows it down. The reason it was not simply copied is that the number cannot be derived the way the others were — a budget sized for a backend refuses nobody, and one sized for a person is an outage for whoever legitimately reads a long history. Both failures are invisible until somebody hits them, which is exactly what this milestone makes visible. Decide it against measured request rates per session; until then the gap is stated in [`docs/threat-model.md`](docs/threat-model.md) rather than implied.
 
 **Exit criteria:** Operators can trace a failed request across dependencies, measure SLOs, and investigate without exposing sensitive data.
 

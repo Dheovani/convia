@@ -310,10 +310,9 @@ in [`authentication.md`](authentication.md): 3 000 requests a minute by default,
 successes included. Limiting posting alone would be arbitrary — an application
 flooding an installation does not have to do it through messages.
 
-**Per person is still open.** A signed-in person's requests carry no application
-and meet no budget while they succeed. The note M18 made applies: doing it
-properly across several instances needs shared state, which the Redis of M16
-makes possible.
+**Per person is still open**, and waits for `M22-015`. A signed-in person's
+requests carry no application and meet no budget while they succeed. The number
+has to be measured rather than reasoned out, which is what M22 is for.
 
 ## What a closed room does
 
