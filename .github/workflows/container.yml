@@ -36,6 +36,23 @@ jobs:
             exit 1
           fi
 
+      # The final stage is `FROM scratch`, so there is no distribution to scan:
+      # what this reads is the Go binary itself, and the module versions
+      # compiled into it. That overlaps govulncheck deliberately and does not
+      # replace it -- govulncheck asks whether the vulnerable code is reachable
+      # and reports fewer things; this asks what is present in the artefact
+      # somebody would actually run, which is the question an operator has.
+      #
+      # `--ignore-unfixed` because a finding with no fix available is not
+      # something this build can act on, and a gate that cannot be satisfied is
+      # a gate somebody turns off.
+      - name: Scan the image for known vulnerabilities
+        run: |
+          docker run --rm --volume /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969 \
+            image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress convia:ci
+
       - name: Start PostgreSQL
         shell: bash
         run: |

@@ -15,6 +15,72 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history. What this looks for is a credential that was
+          # committed and then deleted -- which is still in the history, still
+          # works, and is precisely the case nobody noticed at the time. A
+          # shallow checkout cannot see it.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan the history for secrets
+        # Pinned by digest rather than by tag, for the same reason every action
+        # above is: a tag is a name somebody else can move.
+        run: |
+          docker run --rm --volume "${PWD}:/repo" --workdir /repo \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source=. --config=.gitleaks.toml --redact --verbose
+
+  supply-chain:
+    name: Bill of materials and license policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # What is actually shipped: the service binary and the modules it links.
+      - name: Record what the release binary is made of
+        run: |
+          go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
+            app -json -licenses -main cmd/convia -output sbom-convia.json .
+
+      # And everything in the build list, which is a larger set: a module only
+      # the desktop application links is still a dependency of this repository,
+      # and a policy that saw only the service would miss it.
+      - name: Record what the repository depends on
+        run: |
+          go run github.com/CycloneDX/cyclonedx-gomod/cmd/cyclonedx-gomod@v1.9.0 \
+            mod -json -licenses -output sbom-modules.json .
+
+      - name: Check every dependency's license
+        run: python3 .github/scripts/check_licenses.py sbom-modules.json
+
+      - name: Publish the bill of materials
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sbom
+          path: |
+            sbom-convia.json
+            sbom-modules.json
+
   vulnerabilities:
     name: Go vulnerability scan
     runs-on: ubuntu-latest

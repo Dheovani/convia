@@ -6,7 +6,7 @@ It is organised by **trust boundary** — by who is on the other side and what t
 
 **It is a living document.** A change that adds a boundary, or changes what one is trusted for, changes this. A change that adds a route to a boundary that already exists usually does not.
 
-[`data-protection.md`](data-protection.md) is its companion: this one asks who is on the other side of each boundary, that one asks what is worth taking, what protects it on the way, and what protects it at rest.
+[`data-protection.md`](data-protection.md) is its companion: this one asks who is on the other side of each boundary, that one asks what is worth taking, what protects it on the way, and what protects it at rest. [`supply-chain.md`](supply-chain.md) is the third: what Convia is built from, and what would notice if that changed underneath it.
 
 ## What Convia is protecting
 
@@ -144,7 +144,7 @@ Convia's own interface and the desktop application are **one client among many**
 - **Somebody who holds the database.** They can read every conversation. Convia does not claim otherwise, and the one thing they cannot do is act as somebody — the private key is sealed by a password Convia never stores.
 - **Somebody who runs the installation.** An installation is trusted by the people who chose it. Federation is built so that trusting *your* installation does not mean trusting anybody else's.
 - **Denial of service by resources rather than by requests.** Budgets bound how often; they do not bound a deliberately expensive query.
-- **Supply chain.** `M23-007` onwards.
+- **Supply chain.** No longer out of scope: [`supply-chain.md`](supply-chain.md) is what is checked, what is not, and how long a known vulnerability may live.
 
 ## Open findings
 
