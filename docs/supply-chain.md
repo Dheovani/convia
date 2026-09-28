@@ -10,12 +10,25 @@ The threat model lists supply chain as out of scope. It is not any more.
 | --- | --- | --- |
 | Secret scanning | `security.yml`, every push and PR | a credential anywhere in the history |
 | Go vulnerabilities | `security.yml`, plus Mondays | a reachable known vulnerability |
-| CodeQL | `security.yml`, plus Mondays | a `security-extended` finding |
+| Interface dependencies | `security.yml`, plus Mondays | a `moderate` in the bundle, a `high` in the build |
+| CodeQL, Go and TypeScript | `security.yml`, plus Mondays | a `security-extended` finding |
 | License policy | `security.yml` | a dependency outside the policy below |
 | Bill of materials | `security.yml` | the scan not running at all |
 | Image vulnerabilities | `container.yml` | a fixable `HIGH` or `CRITICAL` in the image |
 
 The weekly schedule matters more than it looks. A dependency that was clean when it was merged does not stay clean, and nothing about the repository changes on the day somebody publishes an advisory — so a check that only runs on a push is a check that reports the news late.
+
+**Dependabot proposes updates weekly** for GitHub Actions, Go modules and the interface's npm packages, grouped so that a week's updates arrive as one pull request per ecosystem rather than as twenty.
+
+## The two halves, and which was covered
+
+Convia is written in two languages, and until `M23-016` the checks only knew about one. `govulncheck`, CodeQL and the module licence policy all stopped at the Go boundary; the interface's dependency tree — the half that **runs in somebody's browser, on the same origin as their session** — had no vulnerability scan, no static analysis and no update automation. The image scan did not reach it either, because the bundle is compiled into the binary before the image is built.
+
+That is the wrong way round, and it is closed rather than noted:
+
+- **`npm audit` at two levels.** What the bundle carries is held to `moderate`, because it reaches a person's browser. What only the build and the tests carry is held to `high`, which still refuses a build tool that takes arbitrary code while letting a path traversal in a test runner wait for its upstream fix.
+- **CodeQL analyses TypeScript as well as Go**, from source. It is the half that renders other people's names and messages into a page.
+- **Dependabot watches `web/`**, which it did not.
 
 ## Secrets
 
@@ -75,6 +88,6 @@ The clock starts when **CI reports it**, not when the advisory was published. Th
 ## What this leaves open
 
 - **No signing, no provenance** (`M23-010`). It is blocked rather than skipped: `container.yml` builds an image and throws it away, so there is no published artefact to sign. It arrives with the first release that pushes to a registry.
-- **No dependency update automation.** Nothing opens a pull request when a module moves, so the weekly schedule is what surfaces it and a person does the rest.
-- **No pinned toolchain hashes beyond `go.sum`.** Actions and container images are pinned by digest; the tools run with `go run` are pinned by version tag, which is weaker.
+- **No pinned toolchain hashes beyond `go.sum` and `package-lock.json`.** Actions and container images are pinned by digest; the tools run with `go run` are pinned by version tag, which is weaker.
+- **Nothing checks that a Dependabot pull request was reviewed.** The updates arrive; merging them is a person's habit rather than a deadline, and `M23-012`'s clock is what makes a missed one visible.
 - **No external review** (`M23-015`), and no intake for somebody outside reporting one (`M23-016`).
