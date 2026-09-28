@@ -204,3 +204,56 @@ func TestAMalformedDestinationIsRefusedBeforeAnythingElse(t *testing.T) {
 		})
 	}
 }
+
+/*
+TestAnAddressInAnIPv6CostumeIsStillWhatItIs is the classic way past a naive
+guard, and the one worth a test of its own.
+
+`::ffff:169.254.169.254` is the cloud metadata service written as IPv6. A check
+that asks `IsLinkLocalUnicast` of the address as it arrived gets `false`, because
+what arrived is an IPv6 address that merely contains an IPv4 one — so it has to
+be unwrapped before anything is asked about it.
+
+The IPv6 ranges are here for the same reason the IPv4 ones are: they exist,
+Convia refuses them, and nothing proved it.
+*/
+func TestAnAddressInAnIPv6CostumeIsStillWhatItIs(t *testing.T) {
+	guard := NewDestinations(false)
+
+	for address, why := range map[string]string{
+		/*
+			The one that actually depends on unwrapping.
+
+			The ranges with no predicate of their own are matched with
+			`Prefix.Contains`, and an IPv4-mapped IPv6 address is not considered
+			IPv4 by it — so without `Unmap` this one is matched by nothing at
+			all and is allowed. The addresses below it are refused by netip's own
+			predicates either way, which is why they are not enough on their own.
+		*/
+		"[::ffff:100.64.0.1]:80":      "carrier-grade NAT, written as IPv6",
+		"[::ffff:198.18.0.1]:80":      "a benchmarking range, written as IPv6",
+		"[::ffff:240.0.0.1]:80":       "a reserved range, written as IPv6",
+		"[::ffff:169.254.169.254]:80": "cloud metadata, written as IPv6",
+		"[::ffff:127.0.0.1]:80":       "loopback, written as IPv6",
+		"[::ffff:10.0.0.7]:80":        "a private address, written as IPv6",
+		"[::1]:80":                    "IPv6 loopback",
+		"[fc00::1]:80":                "an IPv6 unique-local address",
+		"[fe80::1]:80":                "an IPv6 link-local address",
+		"[::]:80":                     "the unspecified IPv6 address",
+		"[ff02::1]:80":                "IPv6 multicast",
+	} {
+		if err := guard.Control("tcp6", address, nil); !errors.Is(err, ErrUnsafeDestination) {
+			t.Errorf("%s (%s) error = %v, want it refused", address, why, err)
+		}
+	}
+}
+
+// TestAPublicIPv6AddressIsAllowed: the guard refuses what is not the public
+// internet, and an IPv6 address on it is the public internet.
+func TestAPublicIPv6AddressIsAllowed(t *testing.T) {
+	guard := NewDestinations(false)
+
+	if err := guard.Control("tcp6", "[2606:2800:220:1:248:1893:25c8:1946]:443", nil); err != nil {
+		t.Errorf("a public IPv6 address error = %v, want it allowed", err)
+	}
+}

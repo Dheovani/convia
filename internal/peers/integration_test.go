@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -710,5 +711,93 @@ func TestNobodyWithRoomsNowhereIsAskedAnything(t *testing.T) {
 
 	if counts := setup.service.About(context.Background(), identity, nil); counts != nil {
 		t.Errorf("Unread() = %v, want nothing asked at all", counts)
+	}
+}
+
+/*
+TestAHomeCannotChooseWhatThisInstallationPublishes is the finding the threat
+model turned up, fixed.
+
+A home's bytes put straight into this installation's own answer are a stranger
+choosing what this installation publishes: fields the contract forbids, fields
+it requires left out, or the room named by an identifier only that home owns.
+The rule for everything relayed is that it is decoded and built again, and this
+is the one place it was not.
+*/
+func TestAHomeCannotChooseWhatThisInstallationPublishes(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	target := "GET /v1/peer/rooms/" + room.RoomID + "/call"
+
+	// A home answering with more than a call, including a field that would
+	// make this installation's own answer fail its schema.
+	setup.relay.answers[target] = Response{Status: http.StatusOK, Body: []byte(`{
+		"id":"call_7KQZP4XN2VJH6TBWMDR3YAFC5E","room_id":"room_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		"status":"active","created_at":"2026-09-14T18:30:00Z","metadata":{"anything":"at all"}}`)}
+
+	said := setup.service.About(context.Background(), identity, []RemoteRoom{room})
+	call := said[room.ID].Call
+	if call == nil {
+		t.Fatal("a call the home really is holding was dropped")
+	}
+	if call.RoomID != room.ID {
+		t.Errorf("the call names room %q, want the pointer this installation keeps", call.RoomID)
+	}
+
+	// Nothing the home invented survives, because nothing is passed through:
+	// what is published is built from the four fields a call has.
+	published, err := json.Marshal(call)
+	if err != nil {
+		t.Fatalf("encode the call: %v", err)
+	}
+	if bytes.Contains(published, []byte("metadata")) || bytes.Contains(published, []byte("anything")) {
+		t.Errorf("the home chose part of this installation's answer: %s", published)
+	}
+}
+
+/*
+TestACallThisInstallationWouldNotHaveWrittenIsNotBelieved: a home that is newer,
+or hostile, or simply broken says something a call cannot be. It is treated as
+the home having said nothing, which is the answer a silent home gets anyway.
+*/
+func TestACallThisInstallationWouldNotHaveWrittenIsNotBelieved(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	target := "GET /v1/peer/rooms/" + room.RoomID + "/call"
+
+	for _, answer := range []string{
+		`{"id":"not-an-identifier","status":"active","created_at":"2026-09-14T18:30:00Z"}`,
+		`{"id":"call_7KQZP4XN2VJH6TBWMDR3YAFC5E","status":"ended","created_at":"2026-09-14T18:30:00Z"}`,
+		`{"id":"call_7KQZP4XN2VJH6TBWMDR3YAFC5E","status":"active","created_at":"whenever"}`,
+		`nonsense`,
+	} {
+		setup.relay.answers[target] = Response{Status: http.StatusOK, Body: []byte(answer)}
+
+		said := setup.service.About(context.Background(), identity, []RemoteRoom{room})
+		if call := said[room.ID].Call; call != nil {
+			t.Errorf("%s was believed: %+v", answer, call)
+		}
+	}
+}
+
+// TestAHomeSayingThereIsNoCallIsNotAHomeSayingNothing: one is a fact to show,
+// the other is a home that did not answer, and a row is drawn either way.
+func TestAHomeSayingThereIsNoCallIsNotAHomeSayingNothing(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	setup.relay.answers["GET /v1/peer/rooms/"+room.RoomID+"/call"] = Response{Status: http.StatusNoContent}
+
+	said := setup.service.About(context.Background(), identity, []RemoteRoom{room})
+	if !said[room.ID].Answered || said[room.ID].Call != nil {
+		t.Errorf("a home saying there is no call = %+v, want it answered and holding none", said[room.ID])
 	}
 }

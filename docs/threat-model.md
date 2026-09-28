@@ -129,6 +129,8 @@ The one place a person's browser or application talks to something other than th
 
 **Not covered:** encryption at rest is the deployment's (`M23-004`), and Convia has no secret manager (`M23-005`).
 
+**A log is an egress too.** Every secret type renders as `[redacted]` to `fmt` and to `slog`, with compile-time assertions that make dropping one a build error rather than a silent leak — including `secret.Value`, which is the type every application key, operator key, invitation and session passes through. Where the plaintext is needed it is converted explicitly, which is both unaffected and easy to find.
+
 ## The reference client → Convia
 
 Convia's own interface and the desktop application are **one client among many** ([ADR 0021](adr/0021-the-reference-client-is-one-client-among-many.md)), and cross the person boundary above with no privilege of any kind. The application's own process holds the session so it never enters the webview, refuses to carry the routes whose answer *is* a session, and strips the browser's headers from what it does carry.
@@ -144,7 +146,6 @@ Convia's own interface and the desktop application are **one client among many**
 
 | | |
 | --- | --- |
-| A home's `call` object is passed into this installation's own answer as the bytes it arrived as, which breaks the relay rule in [`peers.md`](peers.md) and can break this installation's published contract | `M33-009` |
 | No rate limit per tenant | `M13-008`, `M23-013` |
 | No audit trail an operator cannot write to | `M23` |
 | No secret manager, no defined rotation | `M23-005`, `M23-006` |
