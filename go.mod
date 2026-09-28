@@ -11,7 +11,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/pressly/goose/v3 v3.28.0
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/wailsapp/go-webview2 v1.0.22
+	github.com/wailsapp/go-webview2 v1.0.23
 	github.com/wailsapp/wails/v2 v2.16.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
