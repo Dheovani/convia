@@ -53,6 +53,28 @@ const (
 
 	trustedProxiesEnvironment = "CONVIA_TRUSTED_PROXIES"
 
+	erasureWindowEnvironment = "CONVIA_ERASURE_WINDOW"
+
+	/*
+		How long a deleted user is kept before Convia forgets them.
+
+		The window is a promise in both directions: how long a deletion stays
+		recoverable, and the outer bound on how long Convia keeps somebody it
+		was told to forget. Thirty days is the shape of the first promise --
+		long enough that an application which deleted the wrong person notices
+		and says so, short enough that "we still have them" is not the answer
+		months later.
+
+		The floor is a day, because a window of minutes makes the first promise
+		false: nobody notices a mistake that fast, and erasure cannot be undone.
+		The ceiling is ten years, which is not a number anybody should choose --
+		it is there so that a value meant as seconds and written as hours stops
+		startup instead of quietly never erasing anybody.
+	*/
+	defaultErasureWindow = 30 * 24 * time.Hour
+	minimumErasureWindow = 24 * time.Hour
+	maximumErasureWindow = 10 * 365 * 24 * time.Hour
+
 	tenantRequestsEnvironment = "CONVIA_TENANT_REQUESTS_PER_MINUTE"
 
 	/*
@@ -157,6 +179,18 @@ type Config struct {
 		failed attempts can see.
 	*/
 	TenantRequestsPerMinute int
+
+	/*
+		ErasureWindow is how long a deleted user is kept before Convia forgets
+		them: the subject freed, the name and the metadata gone, and what they
+		wrote redacted.
+
+		It is the one retention rule Convia has. Everything else is kept until
+		somebody asks for it to go, which is a decision rather than an
+		oversight: a conversation nobody asked to truncate is worse than a
+		large table. A person who was deleted **did** ask.
+	*/
+	ErasureWindow time.Duration
 
 	/*
 		PeersAllowPrivateAddresses is whether links between installations may
@@ -264,6 +298,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	erasureWindow, err := loadBoundedDuration(erasureWindowEnvironment, defaultErasureWindow,
+		minimumErasureWindow, maximumErasureWindow)
+	if err != nil {
+		return Config{}, err
+	}
+
 	peersAllowPrivate, err := loadBool(peersAllowPrivateAddressesEnvironment)
 	if err != nil {
 		return Config{}, err
@@ -305,6 +345,7 @@ func Load() (Config, error) {
 		TrustedProxies: trustedProxies,
 
 		TenantRequestsPerMinute:    tenantRequests,
+		ErasureWindow:              erasureWindow,
 		PeersAllowPrivateAddresses: peersAllowPrivate,
 		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil
@@ -615,6 +656,23 @@ func loadInt(name string, fallback, minimum, maximum int) (int, error) {
 	value, err := strconv.Atoi(environmentOrDefault(name, strconv.Itoa(fallback)))
 	if err != nil || value < minimum || value > maximum {
 		return 0, fmt.Errorf("%s must be an integer between %d and %d", name, minimum, maximum)
+	}
+	return value, nil
+}
+
+/*
+loadBoundedDuration reads a duration that has to sit inside a range.
+
+[loadDuration] refuses only a value that is not positive, which is right for a
+timeout: too short retries and too long waits, and both are visible. A retention
+window is neither. Both ways of getting it wrong are silent -- too short erases
+somebody before anybody could notice the mistake, too long never erases them at
+all -- so the bounds are checked rather than trusted.
+*/
+func loadBoundedDuration(name string, fallback, minimum, maximum time.Duration) (time.Duration, error) {
+	value, err := time.ParseDuration(environmentOrDefault(name, fallback.String()))
+	if err != nil || value < minimum || value > maximum {
+		return 0, fmt.Errorf("%s must be a duration between %s and %s", name, minimum, maximum)
 	}
 	return value, nil
 }

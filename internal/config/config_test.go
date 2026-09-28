@@ -366,6 +366,47 @@ func TestTheTenantBudgetHasNoOffPosition(t *testing.T) {
 }
 
 /*
+TestTheErasureWindowIsBoundedAtBothEnds.
+
+Both ways of getting this wrong are silent. Too short erases somebody before
+anybody could notice the deletion was a mistake, and erasure cannot be undone.
+Too long never erases them at all, and the symptom of that is a database that
+looks exactly like one where the janitor is working.
+*/
+func TestTheErasureWindowIsBoundedAtBothEnds(t *testing.T) {
+	useDefaults(t)
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.ErasureWindow != defaultErasureWindow {
+		t.Errorf("the default window = %s, want %s", config.ErasureWindow, defaultErasureWindow)
+	}
+
+	for what, value := range map[string]string{
+		"immediate":         "0s",
+		"negative":          "-1h",
+		"below the floor":   "23h",
+		"beyond the sky":    "87601h",
+		"not a duration":    "a month",
+		"a bare number":     "720",
+		"empty on purpose":  "",
+		"seconds, probably": "720s",
+	} {
+		t.Setenv(erasureWindowEnvironment, value)
+		if _, err := Load(); err == nil {
+			t.Errorf("Load() accepted a window that is %s: %q", what, value)
+		}
+	}
+
+	t.Setenv(erasureWindowEnvironment, "168h")
+	if config, err = Load(); err != nil || config.ErasureWindow != 168*time.Hour {
+		t.Errorf("Load() with a week = %s, %v, want 168h", config.ErasureWindow, err)
+	}
+}
+
+/*
 TestTrustedProxiesDefaultToNone proves the safe default.
 
 An empty list means Convia believes no forwarded header, which is what keeps a

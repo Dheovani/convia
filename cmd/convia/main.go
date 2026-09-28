@@ -19,6 +19,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/departure"
+	"convia/internal/erasure"
 	"convia/internal/events"
 	"convia/internal/events/journal"
 	"convia/internal/events/redis"
@@ -424,6 +425,16 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		with would be too old to accept — from then on it is a row nobody reads.
 	*/
 	go peers.NewJanitor(peers.NewStore(pool), logger).Run(delivering)
+
+	/*
+		The erasure janitor. Deleting a user keeps the row, so that the deletion
+		stays recoverable and the external subject stays taken — and until this
+		existed, nothing ever gave either of them back. It is the one retention
+		rule Convia has, and the only one it needs: everything else is kept
+		until somebody asks for it to go, and a deleted person asked.
+	*/
+	go erasure.NewJanitor(users.NewStore(pool), messageService, cfg.ErasureWindow, logger).
+		Run(delivering)
 
 	delivered := make(chan struct{})
 	go func() {

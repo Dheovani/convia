@@ -136,7 +136,25 @@ Convia's own product is an application like any other ([`applications.md`](appli
 
 This keeps one code path for participation. When the standalone interface is built in M18, it authenticates its own users, resolves them here, and joins calls through the same endpoints an external integration uses.
 
+## The Retention Window
+
+**A deleted user is kept for thirty days and then forgotten.** `CONVIA_ERASURE_WINDOW` sets it, between a day and ten years.
+
+The window is a promise in both directions, and that is why it is a window rather than either extreme. It is how long a deletion stays **recoverable** — an application that deleted the wrong person has until then to say so — and it is the outer bound on how long Convia keeps somebody it was **told to forget**. A window that is never enforced makes the first promise true and the second a sentence in a document, which is what this was until `M23-017`.
+
+At the end of it, a janitor running in every instance erases the person:
+
+- **the external subject goes**, which is what frees it — resolving that subject again creates a **new** user, because the old row is no longer in the index that would have matched it;
+- **the display name and the metadata go**, the metadata because Convia cannot see what an application wrote there and must assume it was personal;
+- **what they wrote is redacted**, the same operation a person's own account deletion performs: the message keeps its place in the room and loses its body and its author.
+
+**The row itself stays.** Messages point at it, rooms were owned by it, and a call recorded that it took part. Taking the row away would take those apart to remove one name from them, which is the mistake erasure refused for messages and refuses here for the same reason. What is left is an identifier with a date on it: enough to keep a conversation intact, not enough to say who anybody was.
+
+**What somebody wrote is erased before who they were.** The subject on the row is what puts a person on the list, so clearing it is what takes them off — doing that first and then failing would leave their messages attributed for ever with nothing left to notice. Failing the other way round costs one retry an hour later.
+
+This is Convia's **only** retention rule. Everything else is kept until somebody asks for it to go, which is a decision rather than an oversight: a conversation nobody asked to truncate is worse than a large table. A person who was deleted did ask.
+
 ## Not Yet Implemented
 
-- the erasure job that acts at the end of the retention window, which is what eventually frees a deleted subject;
 - suspension enforcement during calls, which needs the call domain in M09. Suspension currently records the state and withdraws nothing, because there is no call to withdraw from yet.
+- **export.** The boundaries are defined above and nothing serves them: there is no endpoint that hands a person, or an application acting for one, everything Convia holds. It is the half of `M23-017` that is still open.
