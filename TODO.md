@@ -673,11 +673,11 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M23 — Security and Privacy Hardening
 
 **Priority:** P2
-**Status:** Not started
+**Status:** In progress. `M23-001` is done and is [`docs/threat-model.md`](docs/threat-model.md); everything else is open.
 **Depends on:** Threat models for implemented features
 **Goal:** Systematically reduce application, infrastructure, supply-chain, and privacy risk.
 
-- [ ] **M23-001:** Maintain a living threat model for each trust boundary.
+- [x] **M23-001:** Maintain a living threat model for each trust boundary. [`docs/threat-model.md`](docs/threat-model.md), written **against the code rather than instead of it**: every claim names where it is enforced, so one that stops being true is one somebody can find. It is organised by who is on the other side rather than by feature, because a feature crossing three boundaries is three different questions. Nine inbound surfaces and four Convia crosses outwards, each with what it is trusted for, what it is **not**, what stops the obvious attack, and what is not covered — including what is out of scope on purpose, such as somebody who holds the database. Written now rather than later because federation had just finished: a boundary is modelled honestly while somebody still remembers building it. It found one thing, recorded under **Open findings**.
 - [ ] **M23-002:** Classify stored and transmitted data by sensitivity.
 - [ ] **M23-003:** Define encryption-in-transit requirements for every connection.
 - [ ] **M23-004:** Define encryption-at-rest responsibilities and key ownership.
