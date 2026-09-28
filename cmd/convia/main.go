@@ -79,9 +79,15 @@ sees. Whoever runs Convia can stop somebody signing in, and let them back:
 `
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if err := run(context.Background(), logger, os.Args[1:]); err != nil {
-		logger.Error("convia stopped", "error", err)
+	if err := run(context.Background(), os.Args[1:]); err != nil {
+		/*
+			The bootstrap logger, and the only thing it is for.
+
+			It carries no service attributes because the one failure that
+			reaches here without any is the configuration being unreadable —
+			and at that point there is nothing to describe the process with.
+		*/
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("convia stopped", "error", err)
 		os.Exit(1)
 	}
 }
@@ -122,7 +128,7 @@ The composition root loads configuration, builds dependencies, and owns the
 process lifecycle. Migrations are a separate command rather than a startup
 step, so that schema changes stay an explicit operational decision.
 */
-func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
+func run(ctx context.Context, arguments []string) error {
 	// Usage is answered before configuration is read, so that describing the
 	// commands never requires a configured database.
 	if len(arguments) > 0 {
@@ -143,15 +149,17 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 	}
 
 	/*
-		The logger is rebuilt here, because until configuration is loaded there
-		is nothing to describe the process with and no level to obey.
+		The logger is built here rather than handed in, because until
+		configuration is read there is nothing to describe the process with and
+		no level to obey.
 
-		Everything above this line logs at info with no service attributes,
-		which is correct: the only thing that can fail up there is reading the
-		configuration, and a line saying so is more use than a line saying so
-		in a deployment that could not be identified anyway.
+		Nothing above this line logs. What can fail up there is reading the
+		configuration, and that is returned to main — which has its own plain
+		logger for exactly this, since a line saying the configuration could not
+		be read is more use than the same line in a deployment that could not be
+		identified anyway.
 	*/
-	logger = describing(cfg)
+	logger := describing(cfg)
 
 	switch {
 	case len(arguments) == 0 || arguments[0] == "serve":
