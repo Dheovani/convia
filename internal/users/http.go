@@ -111,10 +111,9 @@ nothing, and logged so the mistake is visible.
 func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*OperatorAuthorized, bool) {
 	principal, found := operator.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("operator route reached without a principal",
+		handler.logger.ErrorContext(request.Context(), "operator route reached without a principal",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 			"The request did not carry a usable credential."))
@@ -363,11 +362,10 @@ func writeDomainError(logger *slog.Logger, response http.ResponseWriter, request
 				"The external subject belongs to a deleted user and stays reserved until erasure."))
 
 	default:
-		logger.Error("user request failed",
+		logger.ErrorContext(request.Context(), "user request failed",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
 			"The server encountered an unexpected condition."))
@@ -376,18 +374,16 @@ func writeDomainError(logger *slog.Logger, response http.ResponseWriter, request
 
 func writeFailure(logger *slog.Logger, response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write error response",
+		logger.ErrorContext(request.Context(), "write error response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
 
 func (handler *Handler) write(response http.ResponseWriter, request *http.Request, status int, body any) {
 	if err := api.Write(response, status, body); err != nil {
-		handler.logger.Error("write user response",
+		handler.logger.ErrorContext(request.Context(), "write user response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

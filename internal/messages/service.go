@@ -602,7 +602,6 @@ func (service *Service) record(ctx context.Context, event string, message Messag
 		"application_id", message.ApplicationID,
 		"room_id", message.RoomID,
 		"sequence", message.Sequence,
-		"request_id", api.RequestIDFromContext(ctx),
 	}
 
 	if message.Author.Guest() {

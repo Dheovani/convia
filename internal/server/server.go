@@ -1475,7 +1475,7 @@ belongs to readiness instead.
 func healthHandler(logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if err := api.Write(response, http.StatusOK, healthResponse{Status: "ok"}); err != nil {
-			logger.Error("write health response", "error", err, "request_id", api.RequestIDFromContext(request.Context()))
+			logger.ErrorContext(request.Context(), "write health response", "error", err)
 		}
 	})
 }
@@ -1509,17 +1509,16 @@ func readinessHandler(logger *slog.Logger, database Prober) http.Handler {
 		status := http.StatusOK
 
 		if err := database.Ping(probeContext); err != nil {
-			logger.Error("readiness probe failed",
+			logger.ErrorContext(request.Context(), "readiness probe failed",
 				"error", err,
 				"dependency", "database",
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			body = readinessResponse{Status: statusUnavailable, Checks: map[string]string{"database": statusUnavailable}}
 			status = http.StatusServiceUnavailable
 		}
 
 		if err := api.Write(response, status, body); err != nil {
-			logger.Error("write readiness response", "error", err, "request_id", api.RequestIDFromContext(request.Context()))
+			logger.ErrorContext(request.Context(), "write readiness response", "error", err)
 		}
 	})
 }

@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"time"
 
-	"convia/internal/api"
 	"convia/internal/users"
 )
 
@@ -453,8 +452,8 @@ func (service *Service) verify(ctx context.Context, stored Digest, password Pass
 			somebody needs to know a row is unusable; answered as a refusal
 			because that is what every other failure answers.
 		*/
-		service.logger.Error("a stored password digest could not be read",
-			"error", err, "request_id", api.RequestIDFromContext(ctx))
+		service.logger.ErrorContext(ctx, "a stored password digest could not be read",
+			"error", err)
 		return false, nil
 	}
 	return matches, err
@@ -492,8 +491,8 @@ func (service *Service) open(ctx context.Context, sealed SealedKey, public ed255
 		err = fmt.Errorf("%w: the password verified but does not open the key", ErrKeyUnreadable)
 	}
 	if err != nil {
-		service.logger.Error("a stored identity key could not be opened",
-			"error", err, "request_id", api.RequestIDFromContext(ctx))
+		service.logger.ErrorContext(ctx, "a stored identity key could not be opened",
+			"error", err)
 		return Identity{}, err
 	}
 	return identity, nil
@@ -518,9 +517,8 @@ func (service *Service) acquire(ctx context.Context) (func(), error) {
 			return nil, ctx.Err() // The caller went away; that is not busyness.
 		}
 
-		service.logger.Warn("passwords are being verified faster than they can be hashed",
-			"concurrency", maxConcurrentHashes,
-			"request_id", api.RequestIDFromContext(ctx))
+		service.logger.WarnContext(ctx, "passwords are being verified faster than they can be hashed",
+			"concurrency", maxConcurrentHashes)
 		return nil, ErrBusy
 	}
 }
@@ -557,12 +555,11 @@ derived says the same thing for an operator reading a log, without putting what
 a person chose to be called into a file that is shipped and retained.
 */
 func (service *Service) audit(ctx context.Context, event string, account Account) {
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", event,
 		"account_id", account.ID,
 		"user_id", account.UserID,
 		"account_status", string(account.Status),
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 
@@ -575,11 +572,10 @@ whether the password was wrong or the account suspended; the person at the form
 must not be able to tell the difference.
 */
 func (service *Service) refused(ctx context.Context, accountID, reason string) {
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", "account.refused",
 		"account_id", accountID,
 		"reason", reason,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 

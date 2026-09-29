@@ -165,11 +165,10 @@ func refuseOrigin(logger *slog.Logger, response http.ResponseWriter, request *ht
 	safePath := strings.ReplaceAll(request.URL.Path, "\n", "")
 	safePath = strings.ReplaceAll(safePath, "\r", "")
 
-	logger.Warn("a state-changing request was refused on its origin",
+	logger.WarnContext(request.Context(), "a state-changing request was refused on its origin",
 		"reason", safeReason,
 		"method", request.Method,
 		"path", safePath,
-		"request_id", api.RequestIDFromContext(request.Context()),
 	)
 
 	/*
@@ -184,9 +183,8 @@ func refuseOrigin(logger *slog.Logger, response http.ResponseWriter, request *ht
 	failure := api.NewFailure(http.StatusForbidden, api.CodeForbidden,
 		"This request did not come from Convia's own page.")
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write origin refusal",
+		logger.ErrorContext(request.Context(), "write origin refusal",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

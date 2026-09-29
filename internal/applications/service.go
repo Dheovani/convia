@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-
-	"convia/internal/api"
 )
 
 const (
@@ -353,11 +351,10 @@ audit storage. Once credentials exist in M07, the actor becomes the
 authenticated principal instead of a placeholder.
 */
 func (service *Service) audit(ctx context.Context, event string, application Application) {
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", event,
 		"application_id", application.ID,
 		"application_status", application.Status,
 		"actor", "unauthenticated",
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }

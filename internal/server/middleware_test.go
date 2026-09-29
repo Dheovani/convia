@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"convia/internal/api"
+	"convia/internal/telemetry"
 )
 
 func discardLogger() *slog.Logger {
@@ -99,7 +100,17 @@ func TestRecoverPanicKeepsAlreadyWrittenResponse(t *testing.T) {
 
 func TestLogRequestRecordsRequestOutcome(t *testing.T) {
 	logs := &bytes.Buffer{}
-	logger := slog.New(slog.NewJSONHandler(logs, nil))
+
+	/*
+		Wrapped, because that is where `request_id` comes from now.
+
+		The access log used to name it by hand. It does not any more — `M22-008`
+		moved correlation into the handler so that the 175 lines which carried
+		none would carry one too, and the cost is that a logger assembled
+		without the wrapper is a logger whose lines cannot be correlated. This
+		test is the one place that would otherwise not notice.
+	*/
+	logger := slog.New(telemetry.Correlate(slog.NewJSONHandler(logs, nil)))
 	handler := requestID(logRequest(logger, resolver{}, http.HandlerFunc(
 		func(response http.ResponseWriter, _ *http.Request) {
 			response.WriteHeader(http.StatusTeapot)

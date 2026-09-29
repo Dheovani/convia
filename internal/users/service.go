@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-
-	"convia/internal/api"
 )
 
 const (
@@ -440,13 +438,12 @@ absent: it is application-owned data that may identify a person, and an audit
 record does not need it to be useful.
 */
 func (service *Service) audit(ctx context.Context, event string, user User) {
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", event,
 		"user_id", user.ID,
 		"application_id", user.ApplicationID,
 		"user_status", user.Status,
 		"actor", "unauthenticated",
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 

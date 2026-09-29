@@ -59,8 +59,7 @@ func logRequest(logger *slog.Logger, resolve resolver, next http.Handler) http.H
 			a misconfigured proxy list looks exactly like a correct one until
 			the rate limiter starts refusing the wrong people.
 		*/
-		logger.Info("HTTP request",
-			"request_id", api.RequestIDFromContext(request.Context()),
+		logger.InfoContext(request.Context(), "HTTP request",
 			"method", request.Method,
 			"path", request.URL.Path,
 			"status", recorder.status,
@@ -507,8 +506,7 @@ func signed(
 
 			failures.Record(source)
 			if !errors.Is(err, peers.ErrUnauthenticated) {
-				logger.Error("verify signed request", "error", err,
-					"request_id", api.RequestIDFromContext(request.Context()))
+				logger.ErrorContext(request.Context(), "verify signed request", "error", err)
 			}
 			refuse(logger, response, request, "")
 			return
@@ -575,8 +573,7 @@ func reported(
 		}
 
 		if err != nil {
-			logger.Error("the media plane sent a report that could not be read", "error", err,
-				"request_id", api.RequestIDFromContext(request.Context()))
+			logger.ErrorContext(request.Context(), "the media plane sent a report that could not be read", "error", err)
 			failure := api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest, "The report could not be read.")
 			if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
 				logger.Error("write invalid report response", "error", writeErr)
@@ -669,10 +666,9 @@ func metered(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) ht
 				its safe half: serving would leave the route unbudgeted, which is
 				the thing this exists to prevent.
 			*/
-			logger.Error("metered route reached without a principal",
+			logger.ErrorContext(request.Context(), "metered route reached without a principal",
 				"method", request.Method,
 				"path", request.URL.Path,
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			refuse(logger, response, request, "")
 			return
@@ -758,9 +754,8 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 					because granting access when verification could not run
 					would be the worse mistake.
 				*/
-				logger.Error("verify credential",
+				logger.ErrorContext(request.Context(), "verify credential",
 					"error", err,
-					"request_id", api.RequestIDFromContext(request.Context()),
 				)
 			}
 			refuse(logger, response, request, verify.challenge())
@@ -819,9 +814,8 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 	failure := api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 		"The request did not carry a usable credential.")
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write unauthenticated response",
+		logger.ErrorContext(request.Context(), "write unauthenticated response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -859,9 +853,8 @@ func slowDown(logger *slog.Logger, response http.ResponseWriter, request *http.R
 
 	failure := api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited, message)
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write rate limited response",
+		logger.ErrorContext(request.Context(), "write rate limited response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

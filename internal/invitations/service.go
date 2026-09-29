@@ -400,12 +400,11 @@ func (service *Service) Redeem(ctx context.Context, invitation Invitation) (Invi
 			would tell them they are not in a conversation they are in, so the
 			gap is logged and the redemption stands.
 		*/
-		service.logger.Error("a redeemed invitation was not recorded",
+		service.logger.ErrorContext(ctx, "a redeemed invitation was not recorded",
 			"error", err,
 			"invitation_id", invitation.ID,
 			"participant_id", participant.ID,
 			"application_id", invitation.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 		redeemed = invitation
 	}
@@ -559,7 +558,7 @@ an invitation carries no free text, so there is nothing here that could say
 something about the person it was sent to.
 */
 func (service *Service) record(ctx context.Context, event string, invitation Invitation) {
-	service.logger.Info(event,
+	service.logger.InfoContext(ctx, event,
 		"invitation_id", invitation.ID,
 		"application_id", invitation.ApplicationID,
 		"call_id", invitation.CallID,
@@ -567,7 +566,6 @@ func (service *Service) record(ctx context.Context, event string, invitation Inv
 		"guest", invitation.Guest(),
 		"role", invitation.Role,
 		"status", string(invitation.Status(now())),
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 

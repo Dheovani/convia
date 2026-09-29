@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-
-	"convia/internal/api"
 )
 
 const (
@@ -302,13 +300,12 @@ secret, the digest, or the presented token. An audit trail that leaked key
 material would be a second copy of the thing it exists to protect.
 */
 func (service *Service) audit(ctx context.Context, event string, credential Credential) {
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", event,
 		"credential_id", credential.ID,
 		"application_id", credential.ApplicationID,
 		"scopes", texts(credential.Scopes),
 		"actor", "unauthenticated",
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 

@@ -274,7 +274,6 @@ func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID s
 			"application_id", applicationID,
 			"room_id", room.ID,
 			"user_id", userID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 	return removed, nil
@@ -298,7 +297,6 @@ func (service *Service) Unban(ctx context.Context, applicationID, roomID, userID
 			"application_id", applicationID,
 			"room_id", room.ID,
 			"user_id", userID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 	return lifted, nil
@@ -413,7 +411,6 @@ func (service *Service) ForgetMemberships(ctx context.Context, applicationID, us
 		"application_id", applicationID,
 		"user_id", userID,
 		"rooms", forgotten,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 	return forgotten, nil
 }
@@ -538,7 +535,6 @@ func (service *Service) TransferOwner(ctx context.Context, applicationID, roomID
 		"room_id", roomID,
 		"from_user_id", fromForLog,
 		"to_user_id", toForLog,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 	return nil
 }
@@ -579,7 +575,6 @@ func (service *Service) announceMembership(ctx context.Context, kind events.Type
 		"application_id", member.ApplicationID,
 		"room_id", member.RoomID,
 		"user_id", member.UserID,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 
 	return service.stream.Publish(ctx, events.New(kind, member.ApplicationID, member.RoomID,

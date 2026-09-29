@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"convia/internal/api"
 	"convia/internal/calls"
 	"convia/internal/events"
 	"convia/internal/media"
@@ -244,11 +243,10 @@ when the room's people have gone.
 func (service *Service) RoomDeleted(ctx context.Context, applicationID, roomID string) {
 	err := service.calls.EndInRoom(ctx, applicationID, roomID, calls.ActorSystem, deletedRoomReason)
 	if err != nil {
-		service.logger.Error("the call in a deleted room was not ended",
+		service.logger.ErrorContext(ctx, "the call in a deleted room was not ended",
 			"error", err,
 			"room_id", roomID,
 			"application_id", applicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 }
@@ -274,12 +272,11 @@ func (service *Service) MemberGone(ctx context.Context, applicationID, roomID, u
 	}
 
 	if err != nil {
-		service.logger.Error("somebody who lost their place in a room was not taken out of its call",
+		service.logger.ErrorContext(ctx, "somebody who lost their place in a room was not taken out of its call",
 			"error", err,
 			"room_id", roomID,
 			"user_id", userID,
 			"application_id", applicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 }
@@ -307,11 +304,10 @@ func (service *Service) settle(ctx context.Context, call calls.Call, by calls.Ac
 	}
 
 	if err != nil {
-		service.logger.Error("a call nobody is in was not ended",
+		service.logger.ErrorContext(ctx, "a call nobody is in was not ended",
 			"error", err,
 			"call_id", call.ID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 }

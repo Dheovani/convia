@@ -242,12 +242,11 @@ func (service *Service) Admit(ctx context.Context, call Call, participantID stri
 			return media.Credential{}, ErrMediaUnavailable
 		}
 
-		service.logger.Error("the media plane refused to admit a participant",
+		service.logger.ErrorContext(ctx, "the media plane refused to admit a participant",
 			"error", err,
 			"call_id", call.ID,
 			"participant_id", participantID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 
 		return media.Credential{}, fmt.Errorf("admit to call: %w", err)
@@ -397,12 +396,11 @@ func (service *Service) Disconnect(ctx context.Context, call Call, participantID
 	}
 
 	if err != nil {
-		service.logger.Error("a participant who is out of a call was not disconnected",
+		service.logger.ErrorContext(ctx, "a participant who is out of a call was not disconnected",
 			"error", err,
 			"call_id", call.ID,
 			"participant_id", participantID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 }
@@ -456,11 +454,10 @@ func (service *Service) realize(ctx context.Context, call Call) error {
 			caller to retry would be telling it to wait for something that
 			will not change on its own.
 		*/
-		service.logger.Error("the media plane refused to realize a call",
+		service.logger.ErrorContext(ctx, "the media plane refused to realize a call",
 			"error", err,
 			"call_id", call.ID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 		return fmt.Errorf("realize call: %w", err)
 	}
@@ -500,12 +497,11 @@ func (service *Service) abandon(ctx context.Context, call Call) {
 		return service.audit(ctx, events.CallEnded, ended)
 	})
 	if err != nil {
-		service.logger.Error("a room is held by a call whose media session failed",
+		service.logger.ErrorContext(ctx, "a room is held by a call whose media session failed",
 			"error", err,
 			"call_id", call.ID,
 			"room_id", call.RoomID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 }
@@ -526,11 +522,10 @@ func (service *Service) release(ctx context.Context, call Call, session media.Se
 	}
 
 	if err := service.media.CloseSession(ctx, session); err != nil {
-		service.logger.Error("a media session was not released",
+		service.logger.ErrorContext(ctx, "a media session was not released",
 			"error", err,
 			"call_id", call.ID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 }
@@ -667,11 +662,10 @@ session does not.
 func (service *Service) releaseSessionOf(ctx context.Context, call Call) {
 	reference, err := service.store.Session(ctx, call.ApplicationID, call.ID)
 	if err != nil {
-		service.logger.Error("could not read the media session of an ended call",
+		service.logger.ErrorContext(ctx, "could not read the media session of an ended call",
 			"error", err,
 			"call_id", call.ID,
 			"application_id", call.ApplicationID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 		return
 	}
@@ -756,14 +750,13 @@ func (service *Service) audit(ctx context.Context, kind events.Type, call Call) 
 		actor = *call.EndedBy
 	}
 
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", string(kind),
 		"call_id", call.ID,
 		"application_id", call.ApplicationID,
 		"room_id", call.RoomID,
 		"call_status", string(call.Status),
 		"actor", string(actor),
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 
 	return service.stream.Publish(ctx, events.New(kind, call.ApplicationID, call.ID,

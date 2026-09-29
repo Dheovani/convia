@@ -108,7 +108,17 @@ are already several hundred of those.
 func describing(cfg config.Config) *slog.Logger {
 	service := telemetry.Describing(string(cfg.Environment), cfg.ServiceInstance)
 
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+	/*
+		Correlation wraps the writer and the service attributes are attached
+		outside it, in that order and not the other way round: `With` returns a
+		handler from the one it is called on, so attaching first and wrapping
+		second would put the wrapper above attributes it can no longer see — and
+		wrapping the wrapper's result is what `Correlating.WithAttrs` exists to
+		survive.
+	*/
+	handler := telemetry.Correlate(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+
 	return slog.New(handler).With(attributes(service.Describe())...)
 }
 

@@ -649,18 +649,18 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M22 — OpenTelemetry and Structured Observability
 
 **Priority:** P2
-**Status:** Not started
+**Status:** In progress. The logs are done — every line says which build, which deployment and which process wrote it, and every line written while serving a request carries that request. [`docs/observability.md`](docs/observability.md) is what exists and what does not. Traces and metrics are next, and the metrics are what several other milestones are waiting on.
 **Depends on:** Meaningful domain and infrastructure behavior
 **Goal:** Make failures and performance understandable across HTTP, database, Redis, webhooks, and media adapters.
 
-- [ ] **M22-001:** Define service name, environment, version, and instance resource attributes.
-- [ ] **M22-002:** Add OpenTelemetry configuration with disabled-by-default local behavior if appropriate.
+- [x] **M22-001:** Define service name, environment, version, and instance resource attributes. A Convia log line said what happened and **nothing about where** — no service name, no version, no environment, and no way to tell two instances apart, which is survivable while an installation is one process on one machine and stops being survivable the moment it is not. All four are on every line now, named as OpenTelemetry names them so that the logs and the traces `M22-003` adds describe the same thing in the same words. **There was no version anywhere in the project**; it comes from the build information the toolchain embeds rather than a linker flag, so any build carries it without anybody remembering a flag, and a dirty tree is marked rather than claiming to be a commit it is not. `service.instance.id` defaults to the hostname and is the attribute that is useless until a deployment is replicated and **impossible to add afterwards**, which is why it is here before it is needed.
+- [x] **M22-002:** Add OpenTelemetry configuration with disabled-by-default local behavior if appropriate. `CONVIA_LOG_LEVEL`, which did not exist — the handler was built with no options at all, so debug lines were written in production and nothing could be turned down. **An unrecognised value stops startup** rather than falling back to info: somebody who wrote `verbose` meant something, and ignoring it silently answers the next incident with fewer lines than whoever configured it believes they have. The exporter half of this item waits for `M22-003`, which is where there is something to export.
 - [ ] **M22-003:** Trace inbound HTTP requests with safe route names.
 - [ ] **M22-004:** Propagate trace context to supported outbound calls.
 - [ ] **M22-005:** Instrument database, Redis, webhook, and media adapter boundaries.
 - [ ] **M22-006:** Define request, error, latency, and saturation metrics.
 - [ ] **M22-007:** Define call-control metrics without user or room IDs as metric labels.
-- [ ] **M22-008:** Correlate structured logs with trace and request IDs.
+- [x] **M22-008:** Correlate structured logs with trace and request IDs. Request IDs; trace IDs join the same handler when `M22-003` creates them. **The number is the argument:** the request identifier was written by hand on 162 log lines across 47 files, and 175 other warnings and errors carried nothing at all — correlation each call site has to remember is correlation that is missing exactly where somebody was in a hurry, which is the same place the interesting failures are. It is a `slog.Handler` wrapper now, so a line written while serving a request is correlated and one written by a janitor is not, which is the honest answer rather than an empty field. **The cost is that call sites say `ErrorContext(ctx, …)`**, and that is what made this a 150-call mechanical migration rather than a new file. `WithAttrs` and `WithGroup` are written out rather than embedded: the inherited method returns the *inner* handler, so the first `With` would silently unwrap correlation and the field would simply stop appearing — and `main` calls `With` to attach the service attributes, so the production logger is exactly the case that would break. A mutation proves it. A line that names its own request keeps what it says, so a partial migration never writes the field twice.
 - [ ] **M22-009:** Redact credentials, tokens, personal data, and sensitive metadata.
 - [ ] **M22-010:** Add telemetry tests with in-memory exporters.
 - [ ] **M22-011:** Create initial service and dependency dashboards.
