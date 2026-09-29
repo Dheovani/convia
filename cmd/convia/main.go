@@ -19,10 +19,12 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/database"
 	"convia/internal/departure"
+	"convia/internal/erasure"
 	"convia/internal/events"
 	"convia/internal/events/journal"
 	"convia/internal/events/redis"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/idempotency"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -36,6 +38,7 @@ import (
 	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/sessions"
+	"convia/internal/telemetry"
 	"convia/internal/users"
 	"convia/internal/web"
 	"convia/internal/webhooks"
@@ -76,11 +79,46 @@ sees. Whoever runs Convia can stop somebody signing in, and let them back:
 `
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if err := run(context.Background(), logger, os.Args[1:]); err != nil {
-		logger.Error("convia stopped", "error", err)
+	if err := run(context.Background(), os.Args[1:]); err != nil {
+		/*
+			The bootstrap logger, and the only thing it is for.
+
+			It carries no service attributes because the one failure that
+			reaches here without any is the configuration being unreadable —
+			and at that point there is nothing to describe the process with.
+		*/
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("convia stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+/*
+describing builds the logger every line goes through once configuration is read.
+
+**Four attributes on every line**, and each answers a question somebody asks
+during an incident: what is this, which build, which deployment, and which
+instance. The last is the one that is useless until a deployment is replicated
+and impossible to add afterwards — which is why it is here now rather than when
+it is needed.
+
+They are attached to the logger rather than passed at call sites, because an
+attribute somebody has to remember is one a new call site will forget, and there
+are already several hundred of those.
+*/
+func describing(cfg config.Config) *slog.Logger {
+	service := telemetry.Describing(string(cfg.Environment), cfg.ServiceInstance)
+
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+	return slog.New(handler).With(attributes(service.Describe())...)
+}
+
+// attributes widens a slice of attributes into the arguments With takes.
+func attributes(described []slog.Attr) []any {
+	widened := make([]any, 0, len(described))
+	for _, attribute := range described {
+		widened = append(widened, attribute)
+	}
+	return widened
 }
 
 /*
@@ -90,7 +128,7 @@ The composition root loads configuration, builds dependencies, and owns the
 process lifecycle. Migrations are a separate command rather than a startup
 step, so that schema changes stay an explicit operational decision.
 */
-func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
+func run(ctx context.Context, arguments []string) error {
 	// Usage is answered before configuration is read, so that describing the
 	// commands never requires a configured database.
 	if len(arguments) > 0 {
@@ -109,6 +147,19 @@ func run(ctx context.Context, logger *slog.Logger, arguments []string) error {
 	if err != nil {
 		return fmt.Errorf("load configuration: %w", err)
 	}
+
+	/*
+		The logger is built here rather than handed in, because until
+		configuration is read there is nothing to describe the process with and
+		no level to obey.
+
+		Nothing above this line logs. What can fail up there is reading the
+		configuration, and that is returned to main — which has its own plain
+		logger for exactly this, since a line saying the configuration could not
+		be read is more use than the same line in a deployment that could not be
+		identified anyway.
+	*/
+	logger := describing(cfg)
 
 	switch {
 	case len(arguments) == 0 || arguments[0] == "serve":
@@ -264,13 +315,31 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		than the environment's, because anybody who registers can make it follow
 		a link. See docs/peers.md.
 	*/
+	/*
+		The address other installations reach this one at, if an operator said.
+
+		It is checked here, once, rather than on the request that needs it: a
+		value nobody can make a link out of is a mistake in the configuration,
+		and a mistake in the configuration stops the process rather than
+		producing links that quietly name the wrong place.
+	*/
+	publicAddress := ""
+	if cfg.PublicAddress != "" {
+		publicAddress, err = peers.ParseHome(cfg.PublicAddress)
+		if err != nil {
+			return fmt.Errorf("CONVIA_PUBLIC_ADDRESS must be an http or https address with no path, such as https://convia.example: %w", err)
+		}
+		logger.Info("invitation links will name this installation by its configured address", "address", publicAddress)
+	}
+
 	peerDestinations := destinations.WithPrivateAddresses(cfg.PeersAllowPrivateAddresses)
 	if cfg.PeersAllowPrivateAddresses {
 		logger.Warn("links between installations may reach this server's private network, and anybody who registers can follow one",
 			"remedy", "unset CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES unless the installations you share rooms with are on that network")
 	}
+	peerClient := peers.NewClient(peerDestinations)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peers.NewClient(peerDestinations), applications.FirstPartyID, logger)
+		accountService, peerClient, applications.FirstPartyID, publicAddress, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -283,9 +352,18 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		departure.NewService(accountService, peerService, roomService, messageService, userService, logger),
 		sessionService)
 
+	/*
+		Handing somebody their own data reaches four domains and owns none of
+		them, so it is assembled here like departure above — and it is
+		departure's opposite: what this writes out is what erasure takes away.
+	*/
+	exports := export.NewService(userService, rooms.NewStore(pool),
+		messages.NewStore(pool), participants.NewStore(pool))
+
 	dependencies := server.Dependencies{
-		Database:       pool,
-		TrustedProxies: cfg.TrustedProxies,
+		Database:                pool,
+		TrustedProxies:          cfg.TrustedProxies,
+		TenantRequestsPerMinute: cfg.TenantRequestsPerMinute,
 
 		OperatorAuthenticator: operatorService,
 		Applications:          applications.NewHandler(logger, applicationService),
@@ -319,11 +397,14 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		SessionAuthenticator: sessionService,
 		Sessions:             sessions.NewHandler(logger, sessionService),
 		Departures:           departures,
-		PersonalEvents:       serving.NewPersonHandler(logger, broker, follower, sessionService, roomService),
+		PersonalExport:       export.NewSessionHandler(logger, exports, applications.FirstPartyID),
+		TenantExport:         export.NewTenantHandler(logger, exports),
+		PersonalEvents: serving.NewPersonHandler(logger, broker, follower, sessionService, peerService,
+			peers.NewFollowing(peerService, peerService, sessionService, peerClient, logger), roomService),
 
 		PeerAuthenticator: peerService,
 		Peers:             peers.NewPeerHandler(logger, peerService),
-		RoomInvitations:   peers.NewSessionHandler(logger, peerService, sessionService),
+		RoomInvitations:   peers.NewSessionHandler(logger, peerService, sessionService, publicAddress),
 
 		PersonalCalls: participants.NewSessionHandler(logger, participantService, roomService, userService),
 	}
@@ -397,6 +478,23 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		past its deadline.
 	*/
 	go presence.NewSweeper(presenceService, logger).Run(delivering)
+
+	/*
+		The nonce janitor. Every signed request between installations writes one
+		down, and a nonce stops refusing anything once the timestamp it came
+		with would be too old to accept — from then on it is a row nobody reads.
+	*/
+	go peers.NewJanitor(peers.NewStore(pool), logger).Run(delivering)
+
+	/*
+		The erasure janitor. Deleting a user keeps the row, so that the deletion
+		stays recoverable and the external subject stays taken — and until this
+		existed, nothing ever gave either of them back. It is the one retention
+		rule Convia has, and the only one it needs: everything else is kept
+		until somebody asks for it to go, and a deleted person asked.
+	*/
+	go erasure.NewJanitor(users.NewStore(pool), messageService, cfg.ErasureWindow, logger).
+		Run(delivering)
 
 	delivered := make(chan struct{})
 	go func() {

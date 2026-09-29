@@ -15,6 +15,7 @@ import (
 	"convia/internal/credentials"
 	"convia/internal/departure"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/invitations"
 	"convia/internal/messages"
 	"convia/internal/operator"
@@ -70,6 +71,44 @@ const (
 	authFailureKeys = 10_000
 
 	/*
+		tenantBurst and tenantPeriod ration what one application may ask of an
+		installation, successes included.
+
+		Every other budget above charges a mistake: a key that did not
+		authenticate, a password that was wrong. This one charges **work that
+		succeeded**, because what it bounds is not somebody guessing. It is one
+		tenant taking an installation's whole capacity while every other tenant
+		waits — and nothing it does on the way is a failure, so no budget of
+		failures can see it.
+
+		The unit is the application, not the address and not the key. An address
+		is wherever a tenant happens to deploy, and a tenant can mint itself more
+		keys, so budgeting by either lets it buy more by spreading. The
+		application is the one dimension it cannot widen without an operator.
+
+		Three thousand a minute, the same figure an installation gets on the
+		surface between installations and for the same reason: what is behind it
+		is a whole other system with many people in it rather than one person.
+		It is a ceiling rather than a throttle — fifty a second sustained is far
+		above what serving conversations needs, and far below what starving the
+		other tenants needs.
+
+		It is the default rather than the rule. The right number depends on the
+		deployment's size in a way none of the budgets above do, so an operator
+		can raise it; what they cannot do is turn it off, because the floor is
+		well above zero.
+	*/
+	tenantBurst  = 3_000
+	tenantPeriod = time.Minute
+
+	/*
+		tenantKeys bounds the applications remembered at once. A bucket exists
+		only for one that has asked recently, so this is far above the number of
+		applications an installation of this size serves.
+	*/
+	tenantKeys = 10_000
+
+	/*
 		signInFailureBurst and signInFailurePeriod budget failed sign-ins.
 
 		Ten a minute per address. A person who has mistyped their password ten
@@ -91,6 +130,39 @@ const (
 	*/
 	registrationBurst  = 20
 	registrationPeriod = time.Hour
+
+	/*
+		peerBurst and peerPeriod ration requests between installations,
+		successes included, per signer and per address at once.
+
+		**A signature proves who is asking and not that they may ask a thousand
+		times a minute.** Anybody who can register on any installation can make
+		one this one will verify, so verifying is not a reason to serve without
+		a limit; and each verification costs a database write for the nonce
+		before any handler runs.
+
+		Three hundred a minute per person is far above what taking part in rooms
+		needs — a stream costs one, and reading a conversation costs a handful —
+		and far below what makes flooding worth attempting.
+
+		**The address is allowed ten times that, and the ratio is the point.** An
+		address is a whole installation with many people behind it; a signer is
+		one of them. Equal budgets would mean one person could spend everything
+		their installation had, which is the thing the per-signer budget exists
+		to prevent.
+	*/
+	peerSignerBurst  = 300
+	peerAddressBurst = 3_000
+	peerPeriod       = time.Minute
+
+	/*
+		peerKeys bounds the signers and the addresses remembered at once.
+
+		A bucket exists only for somebody who has made a request recently, so
+		this is well above the number of people taking part from elsewhere at
+		any moment on an installation of the size this is built for.
+	*/
+	peerKeys = 10_000
 )
 
 /*
@@ -122,6 +194,13 @@ type Dependencies struct {
 		means trust nothing, which is the default and the only safe one.
 	*/
 	TrustedProxies []netip.Prefix
+
+	/*
+		TenantRequestsPerMinute is how often one application may ask, successes
+		included. Zero means [tenantBurst], which is what every caller that does
+		not care gets — the budget is never absent, only set.
+	*/
+	TenantRequestsPerMinute int
 
 	/*
 		The operator surface administers tenants: creating them, suspending
@@ -209,6 +288,17 @@ type Dependencies struct {
 	Departures *departure.Handler
 
 	/*
+		Exports hand somebody everything Convia holds about them, as newline-
+		delimited JSON. Two surfaces because the obligation exists twice: a
+		person asks because Convia holds their data, an application asks because
+		it is the controller for the person it resolved. See docs/users.md.
+
+		Leaving either out removes that route and nothing else.
+	*/
+	PersonalExport *export.SessionHandler
+	TenantExport   *export.TenantHandler
+
+	/*
 		Rooms shared between installations.
 
 		PeerAuthenticator verifies requests signed by a person's key on another
@@ -289,6 +379,32 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		spread its failed attempts across endpoints to buy more of them.
 	*/
 	failures := ratelimit.New(authFailureBurst, authFailurePeriod, authFailureKeys)
+	/*
+		What the surface between installations may cost, charged on every
+		request rather than only on refusals.
+
+		Two budgets, both charged: one keyed by the signer, so one person
+		cannot flood by spreading across addresses, and one keyed by the
+		address, so one installation cannot flood by minting accounts. Neither
+		alone covers the other.
+	*/
+	peerSigners := ratelimit.New(peerSignerBurst, peerPeriod, peerKeys)
+	peerAddresses := ratelimit.New(peerAddressBurst, peerPeriod, peerKeys)
+
+	/*
+		What one tenant may cost, charged on every request it makes.
+
+		One limiter for the whole surface, so a tenant cannot buy more by
+		spreading across endpoints — the same reason the failure budget above is
+		shared. An unset budget is the default rather than none: a Dependencies
+		somebody assembled by hand is limited exactly like one an operator
+		configured.
+	*/
+	perMinute := dependencies.TenantRequestsPerMinute
+	if perMinute <= 0 {
+		perMinute = tenantBurst
+	}
+	tenants := ratelimit.New(perMinute, tenantPeriod, tenantKeys)
 
 	/*
 		A budget of its own for the browser surface, and a much smaller one.
@@ -351,14 +467,16 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			// allowance of the person whose browser it is running in.
 			served = guardEntry(logger, rationed(logger, registering, resolve, served))
 		case surfacePeer:
-			served = signed(logger, dependencies.PeerAuthenticator, false, failures, resolve, served)
+			served = signed(logger, dependencies.PeerAuthenticator, false, failures, peerSigners, peerAddresses, resolve, served)
 		case surfaceVisitor:
-			served = signed(logger, dependencies.PeerAuthenticator, true, failures, resolve, served)
+			served = signed(logger, dependencies.PeerAuthenticator, true, failures, peerSigners, peerAddresses, resolve, served)
 		case surfaceMedia:
 			served = reported(logger, dependencies.MediaReporter, failures, resolve, served)
 		case surfaceTenant:
+			// Metered inside authentication, because there is no tenant to
+			// name until the key has been verified.
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
-				failures, resolve, served)
+				failures, resolve, metered(logger, tenants, served))
 		case surfaceOperator:
 			served = authenticate(logger, operatorVerifier{service: dependencies.OperatorAuthenticator},
 				failures, resolve, served)
@@ -873,6 +991,31 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		)
 	}
 
+	if dependencies.Authenticator != nil && dependencies.TenantExport != nil {
+		/*
+			An application asking for one of its own people, because it is the
+			controller for them and Convia is not. The user is named in the
+			path and the tenant comes from the key, so a caller reaches only
+			its own.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/users/{user_id}/data", surface: surfaceTenant,
+				handler: http.HandlerFunc(dependencies.TenantExport.Theirs)},
+		)
+	}
+
+	if dependencies.SessionAuthenticator != nil && dependencies.PersonalExport != nil {
+		/*
+			A person asking for their own data. It names no user, because the
+			session already does -- there is no request field that could name
+			somebody else.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/me/data", surface: surfaceSession,
+				handler: http.HandlerFunc(dependencies.PersonalExport.Mine)},
+		)
+	}
+
 	if dependencies.SessionAuthenticator != nil && dependencies.PersonalMessages != nil {
 		/*
 			A person reading and writing their own conversations.
@@ -1057,6 +1200,24 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(invitations.MarkRead)},
 			route{method: http.MethodGet, path: remote + "/members", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Members)},
+			/*
+				A call in a room that lives somewhere else.
+
+				Every one of these is relayed, and the answer to joining carries
+				the **home's** media address and a credential the home issued. The
+				page connects to that directly: this installation orchestrates and
+				carries no media, which is the boundary AGENTS.md draws.
+			*/
+			route{method: http.MethodGet, path: remote + "/call", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.Call)},
+			route{method: http.MethodGet, path: remote + "/call/participants", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.CallRoster)},
+			route{method: http.MethodPost, path: remote + "/call/join", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.JoinCall)},
+			route{method: http.MethodPost, path: remote + "/call/leave", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.LeaveCall)},
+			route{method: http.MethodDelete, path: remote + "/call/participants/{user_id}", surface: surfaceSession,
+				handler: http.HandlerFunc(invitations.RemoveFromCall)},
 			route{method: http.MethodPost, path: remote + "/leave", surface: surfaceSession,
 				handler: http.HandlerFunc(invitations.Leave)},
 			route{method: http.MethodDelete, path: remote, surface: surfaceSession,
@@ -1100,6 +1261,37 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(messagesHandler.Delete)},
 			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/members", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Members)},
+			/*
+				The room's call, for a member from another installation.
+
+				Served by the same handlers the session surface uses, because a
+				visitor is a user here and taking part in a call is decided by
+				membership either way. Joining answers with this installation's
+				media address and a credential it issued for this one person in
+				this one call, which their browser then uses directly — no media
+				crosses either control plane.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/call", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Call)},
+			route{method: http.MethodGet, path: api.Prefix + "/peer/rooms/{room_id}/call/participants",
+				surface: surfaceVisitor, handler: http.HandlerFunc(dependencies.PersonalCalls.Roster)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/call/join", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Join)},
+			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/call/leave", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalCalls.Leave)},
+			route{method: http.MethodDelete, path: api.Prefix + "/peer/rooms/{room_id}/call/participants/{user_id}",
+				surface: surfaceVisitor, handler: http.HandlerFunc(dependencies.PersonalCalls.Remove)},
+			/*
+				What happens here, to somebody taking part from elsewhere.
+
+				It is the same stream `/v1/me/events` serves, because a visitor is
+				a user here and what they may be told is decided by membership
+				either way. Their own installation holds it open and hands on what
+				arrives, which is why nothing here has to know how to reach them.
+				See internal/peers and docs/peers.md.
+			*/
+			route{method: http.MethodGet, path: api.Prefix + "/peer/events", surface: surfaceVisitor,
+				handler: http.HandlerFunc(dependencies.PersonalEvents.Visiting)},
 			route{method: http.MethodPost, path: api.Prefix + "/peer/rooms/{room_id}/leave", surface: surfaceVisitor,
 				handler: http.HandlerFunc(roomsHandler.Leave)},
 		)

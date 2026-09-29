@@ -43,9 +43,17 @@ row mirrors the projection so that a NULL display name maps to an empty string
 rather than forcing every caller to handle a pointer.
 */
 type row struct {
-	ID              string
-	ApplicationID   string
-	ExternalSubject string
+	ID            string
+	ApplicationID string
+	/*
+		ExternalSubject is a pointer because an erased user no longer has one.
+
+		Nulling it is what frees the subject for the application to resolve
+		again, so the empty string that reaches the domain is not a user whose
+		subject happened to be blank -- the column refuses those -- but a user
+		Convia has finished forgetting.
+	*/
+	ExternalSubject *string
 	DisplayName     *string
 	Metadata        map[string]string
 	Status          Status
@@ -55,13 +63,16 @@ type row struct {
 
 func (record row) user() User {
 	user := User{
-		ID:              record.ID,
-		ApplicationID:   record.ApplicationID,
-		ExternalSubject: record.ExternalSubject,
-		Metadata:        record.Metadata,
-		Status:          record.Status,
-		CreatedAt:       record.CreatedAt.UTC(),
-		UpdatedAt:       record.UpdatedAt.UTC(),
+		ID:            record.ID,
+		ApplicationID: record.ApplicationID,
+		Metadata:      record.Metadata,
+		Status:        record.Status,
+		CreatedAt:     record.CreatedAt.UTC(),
+		UpdatedAt:     record.UpdatedAt.UTC(),
+	}
+
+	if record.ExternalSubject != nil {
+		user.ExternalSubject = *record.ExternalSubject
 	}
 
 	if record.DisplayName != nil {
@@ -135,7 +146,12 @@ func (store *Store) resolve(ctx context.Context, candidate User) (User, bool, er
 		WITH inserted AS (
 		    INSERT INTO users (` + columns + `)
 		    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		    ON CONFLICT (application_id, external_subject) DO NOTHING
+		    -- The predicate is repeated because the index is partial: an erased
+		    -- user has no subject and is not in it, which is what frees that
+		    -- subject to be resolved into a new user. PostgreSQL will not infer
+		    -- a partial index from the columns alone.
+		    ON CONFLICT (application_id, external_subject)
+		        WHERE external_subject IS NOT NULL DO NOTHING
 		    RETURNING ` + columns + `
 		)
 		SELECT ` + columns + `, TRUE AS created FROM inserted
@@ -380,7 +396,15 @@ repeated delete must not fail; it reports that nothing changed, so that the
 audit trail records one deletion rather than one per attempt.
 */
 func (store *Store) Delete(ctx context.Context, applicationID, id string, updatedAt time.Time) (bool, error) {
-	_, err := store.SetStatus(ctx, applicationID, id, StatusDeleted, updatedAt, nil)
+	/*
+		Dated here rather than derived later. The retention window has to start
+		somewhere, and `updated_at` would have served only for as long as two
+		other rules hold -- that a deleted user cannot be updated, and that
+		nothing else touches the row. A window resting on that argument is a
+		window that quietly changes when either rule does.
+	*/
+	_, err := store.update(ctx, `UPDATE users SET status = $1, deleted_at = $2, updated_at = $2`,
+		[]any{StatusDeleted, updatedAt}, applicationID, id, nil)
 	if errors.Is(err, ErrNotFound) {
 		return false, store.confirmAlreadyDeleted(ctx, applicationID, id)
 	}
@@ -392,7 +416,8 @@ func (store *Store) Delete(ctx context.Context, applicationID, id string, update
 
 // Retire deletes a user and forgets the name they were shown by.
 func (store *Store) Retire(ctx context.Context, applicationID, id string, updatedAt time.Time) (bool, error) {
-	_, err := store.update(ctx, `UPDATE users SET status = $1, display_name = NULL, updated_at = $2`,
+	_, err := store.update(ctx,
+		`UPDATE users SET status = $1, display_name = NULL, deleted_at = $2, updated_at = $2`,
 		[]any{StatusDeleted, updatedAt}, applicationID, id, nil)
 	if errors.Is(err, ErrNotFound) {
 		return false, store.confirmAlreadyDeleted(ctx, applicationID, id)
@@ -416,6 +441,84 @@ func (store *Store) confirmAlreadyDeleted(ctx context.Context, applicationID, id
 		return ErrNotFound
 	}
 	return nil
+}
+
+/*
+Doomed is a user whose retention window has passed and nothing else.
+
+It carries the two identifiers erasing one needs, and deliberately not the
+person: a sweep that reported names would put into a log exactly what it is
+about to remove from the database.
+*/
+type Doomed struct {
+	ApplicationID string
+	ID            string
+}
+
+/*
+Expired lists deleted users whose retention window closed before a moment.
+
+**Already-erased users are not listed**, and the absence of the subject is what
+says so rather than a column recording that the work was done. There is nothing
+left to erase on a row that has no subject, no name and no metadata, so a second
+pass over one would be a write that changes nothing -- and a flag would be a
+second thing that could disagree with the first.
+
+The limit bounds one pass. An installation that has been deleting users for
+months without a sweeper running has a backlog, and taking it in one statement
+would hold a transaction open across all of it.
+*/
+func (store *Store) Expired(ctx context.Context, before time.Time, limit int) ([]Doomed, error) {
+	const statement = `SELECT application_id, id
+	                   FROM users
+	                   WHERE status = $1 AND deleted_at <= $2 AND external_subject IS NOT NULL
+	                   ORDER BY deleted_at
+	                   LIMIT $3`
+
+	rows, err := store.db(ctx).Query(ctx, statement, StatusDeleted, before, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list expired users: %w", err)
+	}
+
+	doomed, err := pgx.CollectRows(rows, pgx.RowToStructByPos[Doomed])
+	if err != nil {
+		return nil, fmt.Errorf("read expired users: %w", err)
+	}
+	return doomed, nil
+}
+
+/*
+Erase forgets everything this table holds about one deleted person.
+
+The subject goes, which is what frees it: an application that deletes somebody
+and later sees them again resolves that subject into a **new** user, because the
+old row is no longer in the index that would have matched it. The name and the
+metadata go with it, the metadata because Convia cannot see what an application
+wrote there and must assume it was personal.
+
+**The row itself stays.** Messages point at it, rooms were owned by it, and a
+call recorded that it took part -- taking the row away would take those apart,
+which is the mistake `00017` refused for messages and for the same reason. What
+is left is an identifier with a date on it: enough to keep a conversation
+intact, not enough to say who anybody was.
+
+It reports whether it changed anything, so a second pass over the same user is
+recognisable as having had nothing to do rather than as having worked.
+*/
+func (store *Store) Erase(ctx context.Context, applicationID, id string, at time.Time) (bool, error) {
+	const statement = `UPDATE users
+	                   SET external_subject = NULL,
+	                       display_name = NULL,
+	                       metadata = '{}'::jsonb,
+	                       updated_at = $1
+	                   WHERE application_id = $2 AND id = $3
+	                     AND status = $4 AND external_subject IS NOT NULL`
+
+	tag, err := store.db(ctx).Exec(ctx, statement, at, applicationID, id, StatusDeleted)
+	if err != nil {
+		return false, fmt.Errorf("erase user: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // Cursor is the position of a keyset page.

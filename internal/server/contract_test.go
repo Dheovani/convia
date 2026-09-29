@@ -983,11 +983,16 @@ func TestFailedAttemptsAreBudgeted(t *testing.T) {
 }
 
 /*
-TestSucceedingRequestsAreNotBudgeted is the property that keeps this limit from
-becoming an outage.
+TestSucceedingRequestsAreNotBudgeted is the property that keeps the **failure**
+budget from becoming an outage.
 
-A busy application presenting a working key must never be throttled, however
-many requests it makes, because only failures are charged.
+That budget is shared by every address behind a proxy, so a working key
+spending it would let one busy integration refuse everybody else's first
+attempt. Only failures are charged, and this walks far past the burst to say so.
+
+What a working key does spend is the tenant's own budget, which is a different
+limit for a different reason and is proved in tenant_budget_test.go. The count
+here stays well below it so that this test fails for one reason only.
 */
 func TestSucceedingRequestsAreNotBudgeted(t *testing.T) {
 	handler := New("127.0.0.1:0", slog.New(slog.NewTextHandler(io.Discard, nil)),

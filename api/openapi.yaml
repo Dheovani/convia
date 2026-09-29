@@ -7019,6 +7019,210 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/me/remote-rooms/{remote_room_id}/call:
+    get:
+      operationId: readRemoteRoomCall
+      tags: [Me]
+      summary: Read the call in a room somewhere else
+      description: |
+        Answers the call a room on another installation is holding, or `204 no content` when it is holding none.
+
+        Relayed to the room's home, signed with this person's key, and answered as the home answered. See `docs/peers.md`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      responses:
+        "200":
+          description: The call the room is holding.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCall"
+        "204":
+          description: The room is holding no call.
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/call/participants:
+    get:
+      operationId: listRemoteRoomCallParticipants
+      tags: [Me]
+      summary: Who is in the call in a room somewhere else
+      description: |
+        One page of who is in the call, as the home sees them.
+
+        Relayed to the room's home, signed with this person's key, and answered as the home answered. See `docs/peers.md`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of who is in the call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPresencePage"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/call/join:
+    post:
+      operationId: joinRemoteRoomCall
+      tags: [Me]
+      summary: Join the call in a room somewhere else
+      description: |
+        Seats this person in the call at the room's home and answers with what to connect with. `201` means this request started the call there; `200` that it joined one already running.
+
+        **The credential is the home's, for the home's media server, and the browser connects to it directly.** This is the one place a page talks to an installation other than the one it signed in to, and nothing about the session goes with it: what crosses is a media address and a token issued for this one person in this one call. Neither control plane carries any media.
+
+        A page served by a Convia must be allowed to reach that address by its content security policy; Convia's own application allows encrypted addresses for exactly this reason. See `docs/peers.md`.
+
+        Relayed to the room's home, signed with this person's key, and answered as the home answered. See `docs/peers.md`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      responses:
+        "200":
+          description: The person is in the call that was already running, and here is what to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "201":
+          description: This request started the call at the home, and here is what to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/call/leave:
+    post:
+      operationId: leaveRemoteRoomCall
+      tags: [Me]
+      summary: Leave the call in a room somewhere else
+      description: |
+        Takes this person out of the call at the room's home. When they were the last one in it, the call ends there.
+
+        Relayed to the room's home, signed with this person's key, and answered as the home answered. See `docs/peers.md`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+      responses:
+        "204":
+          description: The person is out of the call.
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/WrongOrigin"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/me/remote-rooms/{remote_room_id}/call/participants/{user_id}:
+    delete:
+      operationId: removeFromRemoteRoomCall
+      tags: [Me]
+      summary: Put somebody out of the call in a room somewhere else
+      description: |
+        Puts somebody out of the call at the room's home, on the authority of that room's moderator.
+
+        **Whether this person may is the home's to decide.** A visitor is no more a moderator there for being one here, and a home that says no answers `403 forbidden` through this installation.
+
+        Relayed to the room's home, signed with this person's key, and answered as the home answered. See `docs/peers.md`.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      parameters:
+        - $ref: "#/components/parameters/RemoteRoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: They are out of the call.
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/me/remote-rooms/{remote_room_id}:
     delete:
       operationId: forgetRemoteRoom
@@ -7412,6 +7616,70 @@ paths:
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
 
+  /v1/peer/events:
+    get:
+      operationId: streamPeerEvents
+      tags: [Peers]
+      summary: Listen to the rooms a visitor is in here
+      description: |
+        Upgrades the connection to a WebSocket and delivers the events about the rooms the signing person is in **on this installation**, as they happen. It is `GET /v1/me/events` for somebody taking part from elsewhere, and it carries exactly the same events under exactly the same rule: only those naming a room they are in.
+
+        **It is held open by the visitor's own installation, not by their browser.** A browser cannot sign a WebSocket handshake with the person's key, and it never talks to this installation at all. Their installation opens this, passes what arrives on to them, and closes it when they stop being connected - so a home holds one of these per visitor who is online, not one per room.
+
+        The signature covers the handshake, as it does any other request on this surface. What it proved is then rechecked every minute: somebody who has stopped being a user here, or whose user is suspended, ends the stream with close code `4001`. Which rooms it covers is read before the upgrade and again on that same interval.
+
+        A client that reconnects passes the `cursor` of the last event it received as `after`, exactly as `GET /v1/me/events` describes.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - name: Connection
+          in: header
+          required: true
+          description: Must be `Upgrade`.
+          schema:
+            type: string
+        - name: Upgrade
+          in: header
+          required: true
+          description: Must be `websocket`.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Version
+          in: header
+          required: true
+          description: Must be `13`, the version RFC 6455 defines.
+          schema:
+            type: string
+        - name: Sec-WebSocket-Key
+          in: header
+          required: true
+          description: The client's handshake nonce, as RFC 6455 requires.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/EventCursor"
+      responses:
+        "101":
+          description: |
+            The connection is now a WebSocket carrying `Event` objects as text messages, one event per message.
+
+            Convia sends a ping every 30 seconds and closes the connection if it is not answered within 10.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
   /v1/peer/rooms/{room_id}/members:
     get:
       operationId: listPeerRoomMembers
@@ -7437,6 +7705,193 @@ paths:
                 $ref: "#/components/schemas/PersonPage"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/call:
+    get:
+      operationId: readPeerRoomCall
+      tags: [Peers]
+      summary: The call a room is holding, for a member from another installation
+      description: |
+        Served exactly as the same route under `/v1/me/rooms/{room_id}` is: a visitor is a user here, and membership decides.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The call the room is holding.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomCall"
+        "204":
+          description: The room is holding no call.
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/call/participants:
+    get:
+      operationId: listPeerRoomCallParticipants
+      tags: [Peers]
+      summary: Who is in a room's call, for a member from another installation
+      description: |
+        Served exactly as the same route under `/v1/me/rooms/{room_id}` is: a visitor is a user here, and membership decides.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of who is in the call.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CallPresencePage"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/call/join:
+    post:
+      operationId: joinPeerRoomCall
+      tags: [Peers]
+      summary: Join a room's call from another installation
+      description: |
+        Seats the signing person in the room's call and answers with what to connect with, starting one when the room holds none.
+
+        **The credential is this installation's, for this installation's media server.** It is issued for one person in one call and expires like any other; the visitor's browser uses it directly, and their own installation neither holds it longer than the answer nor carries any media. What a visitor may do in the call is what any member may do.
+
+        Served exactly as the same route under `/v1/me/rooms/{room_id}` is: a visitor is a user here, and membership decides.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "200":
+          description: The person is in the call that was already running, and here is what to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "201":
+          description: This request started the call, and here is what to connect with.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinSession"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/call/leave:
+    post:
+      operationId: leavePeerRoomCall
+      tags: [Peers]
+      summary: Leave a room's call from another installation
+      description: |
+        Served exactly as the same route under `/v1/me/rooms/{room_id}` is: a visitor is a user here, and membership decides.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+      responses:
+        "204":
+          description: The person is out of the call.
+        "401":
+          $ref: "#/components/responses/SignatureRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /v1/peer/rooms/{room_id}/call/participants/{user_id}:
+    delete:
+      operationId: removeFromPeerRoomCall
+      tags: [Peers]
+      summary: Put somebody out of a room's call, from another installation
+      description: |
+        **Moderation is this installation's to decide, not the caller's.** A visitor who moderates a room on their own Convia moderates nothing here; only what this room says about them counts, and anybody else is refused with `403 forbidden`.
+
+        Served exactly as the same route under `/v1/me/rooms/{room_id}` is: a visitor is a user here, and membership decides.
+      x-lifecycle: experimental
+      security:
+        - PeerSignature: []
+      parameters:
+        - $ref: "#/components/parameters/RoomID"
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "204":
+          description: They are out of the call.
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "401":
           $ref: "#/components/responses/SignatureRequired"
         "404":
@@ -7654,6 +8109,94 @@ paths:
           $ref: "#/components/responses/InternalError"
         "503":
           $ref: "#/components/responses/HashingBusy"
+
+  /v1/me/data:
+    get:
+      operationId: exportOwnData
+      tags: [Sessions]
+      summary: Take everything Convia holds about you
+      description: |
+        Streams everything Convia holds about the signed-in person as newline-delimited JSON, one object per line.
+
+        **It names no user.** The person comes from the session, so there is no field that could ask for somebody else's data.
+
+        Each line carries a `type`:
+
+        - `export` — a header saying when this was made and for whom.
+        - `user` — the user record: identifier, external subject, display name, metadata, status and timestamps. This is the whole of what Convia's user table holds; it keeps no profile or contact detail beyond it.
+        - `room_membership` — one room the person is in, when they joined, and whether they moderate it. **Not who else is in it**: a room's other members are not this person's data.
+        - `message` — one message the person wrote, with the room it was said in and its place in that room's order. **Only their own**; a conversation is not one person's to export. Withdrawn messages appear without a body, because the body is already gone.
+        - `call_participation` — one call they took part in, when they arrived and when they left.
+        - `end` — the terminator, with a count of each kind.
+
+        **A response without an `end` line is incomplete.** The status is sent with the first byte, so a failure part-way through cannot be reported as one; the terminator is how a reader tells a whole export from a truncated one.
+
+        What Convia cannot give back is the application's own copy of this person, which lives in the application's database. See docs/users.md.
+      x-lifecycle: experimental
+      security:
+        - SessionCookie: []
+        - SessionToken: []
+      responses:
+        "200":
+          description: The export, as newline-delimited JSON.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                description: One JSON object per line, ending with a line whose type is `end`.
+        "401":
+          $ref: "#/components/responses/SessionRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/users/{user_id}/data:
+    get:
+      operationId: exportUserData
+      tags: [Users]
+      summary: Take everything Convia holds about one of your users
+      description: |
+        Streams everything Convia holds about one of the caller's own users, in the same newline-delimited format as `GET /v1/me/data`, which documents the line types.
+
+        **This exists because the obligation does.** An application is the controller for the people it resolves; answering a request one of them makes means asking Convia for its part. Convia holds only what this returns.
+
+        The application comes from the key and the user from the path, so a caller reaches only its own people: an identifier belonging to another tenant is reported as missing.
+      x-lifecycle: experimental
+      security:
+        - ApiKeyAuth: [users:read]
+      parameters:
+        - $ref: "#/components/parameters/UserID"
+      responses:
+        "200":
+          description: The export, as newline-delimited JSON.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/x-ndjson:
+              schema:
+                type: string
+                description: One JSON object per line, ending with a line whose type is `end`.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 
   /v1/presence:
     get:
@@ -9945,6 +10488,23 @@ components:
         name:
           type: string
           example: Standup
+        unread:
+          type: integer
+          format: int64
+          minimum: 0
+          description: |
+            How much of the room this person has not read, as its home counted it.
+
+            **Absent is not zero.** Zero is a home saying there is nothing unread; absent is a home that did not answer within the short budget this listing gives every home together. Both show nothing in a list, and only one of them is a number anybody could act on. A room whose home is unreachable therefore still appears, with its name and where it lives, which is the point.
+          example: 3
+        call:
+          description: |
+            The call the room is holding, as its home rendered it, or `null` when it is holding none.
+
+            **Absent is a home that did not say**, which is the distinction `unread` makes and for the same reason. It is the home's call, with the home's identifiers: joining it goes through `POST /v1/me/remote-rooms/{remote_room_id}/call/join`, never by addressing the home directly.
+          allOf:
+            - $ref: "#/components/schemas/RoomCall"
+          nullable: true
 
     RemoteRoomPage:
       type: object
@@ -11005,6 +11565,7 @@ components:
         - invalid_request
         - malformed_json
         - unsupported_media_type
+        - unsupported_version
         - payload_too_large
         - unauthenticated
         - wrong_password
@@ -11702,12 +12263,20 @@ components:
 
     RateLimited:
       description: |
-        Too many failed authentication attempts from this caller.
+        Too many requests. `Retry-After` says how long to wait, and the message
+        says which of two limits was reached.
 
-        Only failures are counted, so a client presenting a working key never
-        meets this. A client that does is presenting one that will not start
-        working by being repeated — a revoked or expired key in a retry loop,
-        most often — and should read `Retry-After` and back off.
+        **Too many failed attempts from this caller.** Only failures count
+        towards it, so a working key never meets it. A client that does is
+        presenting one that will not start working by being repeated — a
+        revoked or expired key in a retry loop, most often.
+
+        **Too many requests from this application.** Successes count towards
+        this one, because what it bounds is one tenant taking an installation's
+        whole capacity rather than anybody guessing. It is counted per
+        application, so another key for the same application meets it too;
+        back off rather than retrying, and ask the operator to raise it if the
+        integration genuinely needs more.
       headers:
         X-Request-ID:
           $ref: "#/components/headers/RequestId"

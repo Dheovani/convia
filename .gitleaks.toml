@@ -1,0 +1,79 @@
+title = "Convia"
+
+# The default rules carry what is somebody else's secret and would be
+# catastrophic in anybody's repository: private keys, cloud credentials,
+# provider tokens.
+[extend]
+useDefault = true
+
+# Three places carry credential-shaped strings on purpose, and every rule is
+# off in them.
+#
+# **This is a real gap, stated rather than hidden.** A fixture and a working
+# key are indistinguishable, because the format is designed so that a key looks
+# like a key -- so no rule can fire on one and stay quiet on the other. What
+# makes the trade acceptable is that these three are the only places such
+# strings belong, all three are reviewed as code, and a Convia credential that
+# does leak is revocable (docs/runbooks/credential-revocation.md). What would
+# close it properly is fixtures that cannot be valid credentials at all, which
+# is a change to fifteen files and their tests rather than a change here.
+#
+# The patterns are deliberately unanchored: gitleaks reports the path as it was
+# given, so a run rooted at the repository and a run rooted at a mount point
+# print different prefixes for the same file.
+[allowlist]
+description = "Fixtures, the published contract, and the documentation"
+paths = [
+  '''_test\.go$''',
+  '''(^|/)docs/''',
+  '''(^|/)api/openapi\.ya?ml$''',
+]
+
+# And the four credential families that are Convia's own.
+#
+# A credential is presented whole -- prefix, identifier, secret -- so the shape
+# is unmistakable and matching it costs one regex. What this catches is not an
+# attacker: it is somebody pasting a working key into a commit while
+# reproducing a problem, which is how credentials actually leak.
+[[rules]]
+id = "convia-credential"
+description = "A Convia credential of any family, presented whole"
+regex = '''cv[kios]_[A-Z2-7]{26}_[A-Z2-7]{26}'''
+tags = ["convia", "credential"]
+
+# A media API secret, a database password and a LiveKit key are long opaque
+# strings with no shape of their own, so they cannot be matched the way the
+# four families above can. What is matched instead is the one place they are
+# ever written down: an assignment to the variable that carries them.
+[[rules]]
+id = "convia-environment-secret"
+description = "A value assigned to one of Convia's secret-bearing variables"
+regex = '''(?i)CONVIA_(MEDIA_API_SECRET|MEDIA_API_KEY|DATABASE_URL|REDIS_URL)\s*=\s*["']?[^\s"'#]{16,}'''
+tags = ["convia", "configuration"]
+
+  # The example file carries placeholders and exists to be read; the workflows
+  # and the compose file carry the throwaway values CI and a laptop run on.
+  #
+  # `.env` is deliberately **not** listed. It is gitignored, which is what keeps
+  # a real one out of the history -- and if one is ever committed past that,
+  # this is what says so.
+  [rules.allowlist]
+  regexTarget = "match"
+  paths = [
+    '''(^|/)\.env\.example$''',
+    '''(^|/)README\.md$''',
+    '''(^|/)compose\.ya?ml$''',
+    '''(^|/)docker-compose\.ya?ml$''',
+    '''(^|/)\.github/''',
+  ]
+
+  # The development database and Redis, allowed by what they are rather than by
+  # where they are written. `convia:convia` on a loopback or compose address is
+  # the throwaway pair every contributor's machine runs on, and it is in
+  # CONTRIBUTING.md, the compose file and the runbooks for the same reason. A
+  # password that is published in the setup instructions is not a secret; one
+  # that is anything else on any other host still fires, wherever it appears.
+  regexes = [
+    '''postgres://convia:convia@''',
+    '''redis://(localhost|127\.0\.0\.1|redis)[:/]''',
+  ]

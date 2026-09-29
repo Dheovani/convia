@@ -67,10 +67,26 @@ Test only against an instance you run yourself. Do not test against another pers
 
 Reports that follow this policy are treated as good-faith research. The maintainers will not pursue action against a reporter who follows it, who acts only against their own instance, and who gives a reasonable window to publish a fix before disclosing publicly.
 
+## Remediation Targets
+
+Once a report is accepted, or a scanner raises a finding, the clock starts when it is **reported here** rather than when the advisory was published — that is the moment anybody on this side can act.
+
+| Severity | Fixed within |
+| -------- | ------------ |
+| Critical | 7 days       |
+| High     | 30 days      |
+| Medium   | 90 days      |
+| Low      | the next dependency update |
+
+A finding with no fix available does not stop the build, deliberately: a gate that cannot be satisfied is a gate somebody turns off. What replaces it is the first column. [`docs/supply-chain.md`](docs/supply-chain.md) explains the reasoning and what else is checked.
+
 ## Security Practices in This Repository
 
-- Every push and pull request runs vulnerability analysis with `govulncheck` and a weekly scheduled scan.
-- CodeQL analysis with extended security queries is available and runs when code scanning is enabled for the repository.
-- GitHub Actions are pinned to full commit SHAs, workflows declare minimal `GITHUB_TOKEN` permissions, and checkout credentials are not persisted.
-- Dependabot proposes weekly updates for GitHub Actions and Go modules.
+- Every push and pull request runs `govulncheck` on the Go code and `npm audit` on the interface, with a weekly scheduled run of both.
+- CodeQL with extended security queries analyses both languages — Go and TypeScript — and runs when code scanning is enabled for the repository.
+- The whole Git history is scanned for credentials on every push, with the exemptions and their reasoning recorded in `.gitleaks.toml`.
+- Every dependency's license is checked against the policy in `AGENTS.md`, and a CycloneDX bill of materials is produced for the release binary and for the module graph.
+- The container image is scanned for known vulnerabilities on every build.
+- GitHub Actions and scanner images are pinned to full digests, workflows declare minimal `GITHUB_TOKEN` permissions, and checkout credentials are not persisted.
+- Dependabot proposes weekly updates for GitHub Actions, Go modules, and the interface's npm packages.
 - Secrets, credentials, and signing keys must never be committed. Configuration comes from the environment, as described in `AGENTS.md`.

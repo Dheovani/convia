@@ -55,15 +55,15 @@ func TestAHomeIsTheOriginItWasReachedAt(t *testing.T) {
 		"http://192.168.1.10:8080/": "http://192.168.1.10:8080",
 		"http://[::1]:8080":         "http://[::1]:8080",
 	} {
-		home, err := HomeFromOrigin(origin)
+		home, err := ParseHome(origin)
 		if err != nil || home != want {
-			t.Errorf("HomeFromOrigin(%q) = %q, %v, want %q", origin, home, err, want)
+			t.Errorf("ParseHome(%q) = %q, %v, want %q", origin, home, err, want)
 		}
 	}
 
 	for _, origin := range []string{"", "null", "https://convia.example/somewhere", "file:///tmp"} {
-		if _, err := HomeFromOrigin(origin); err == nil {
-			t.Errorf("HomeFromOrigin(%q) was accepted", origin)
+		if _, err := ParseHome(origin); err == nil {
+			t.Errorf("ParseHome(%q) was accepted", origin)
 		}
 	}
 }

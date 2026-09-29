@@ -36,7 +36,7 @@ POST /v1/me/rooms/{room_id}/invitations
 - Somebody already in the room answers `409`.
 - Somebody the room's owner banned answers `403`, and a link already sent to them stops admitting them. Lifting the ban before the link expires makes it work again.
 - A visitor is never a room's owner, and never inherits one: moderation stays on the room's home ([ADR 0013](adr/0013-a-room-a-person-opens-has-an-owner.md)).
-- **The link lasts a day and is used once.** `DELETE /v1/me/room-invitations/{id}` withdraws it before then, and `GET /v1/me/rooms/{room_id}/invitations` lists the ones a person made into a room that still work, with their links. Only their own: the other people in the room did not send them. Both the link handed back when an invitation is made and the ones in that list name this installation the same way: by the `Origin` when the request carried one, and otherwise by the address the request reached. Two things send no `Origin` and both are ordinary — a page reading a list, and Convia’s own application, whose requests are carried with the browser taken off them on purpose ([ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md)).
+- **The link lasts a day and is used once.** `DELETE /v1/me/room-invitations/{id}` withdraws it before then, and `GET /v1/me/rooms/{room_id}/invitations` lists the ones a person made into a room that still work, with their links. Only their own: the other people in the room did not send them. Both the link handed back when an invitation is made and the ones in that list name this installation the same way, and **`CONVIA_PUBLIC_ADDRESS` is that way when it is set** — it is the address an operator says other installations reach this one at, and it outranks anything a request can offer, because every address a request offers is the address *this* person reached Convia at. Unset, the link is named by the `Origin` when the request carried one and otherwise by the address the request arrived at. Two things send no `Origin` and both are ordinary — a page reading a list, and Convia’s own application, whose requests are carried with the browser taken off them on purpose ([ADR 0019](adr/0019-a-session-travels-in-a-cookie-or-a-header.md)). That guess is right for one machine on one network and wrong behind a reverse proxy, or when an administrator opens Convia at an address nobody else can reach, which is what the setting is for.
 - **The link names this installation by the address the inviting browser used.** Opened as `localhost`, that is the inviter's own machine, and the interface says so: nobody elsewhere can follow it. Open Convia at an address others can reach.
 
 **The link is not a secret.** It can go through any channel. Accepting it needs a signature by the key whose fingerprint is Bia's identifier, and the username must be `bia`. A link forwarded to somebody else, or read on the way, lets nobody else in.
@@ -54,7 +54,7 @@ Looking shows the room's name, who invited her, and which installation it lives 
 
 Joining makes Bia a user of Ana's installation, identified by her account identifier and named `bia#7QK4` (her username and the first characters of her identifier, so two people named `bia` can be told apart), and a member of the room. Bia's Convia keeps a pointer: the home, the room, who Bia is there, and the room's name.
 
-If the link turns out to point at Bia's own installation, nothing is kept: she is simply a member of that room now, and it appears among her rooms. **That case never leaves the process.** A link whose home is the address the request reached is looked at and accepted here, against the same rows, rather than as a signed request this installation makes to itself — which would make the commonest invitation of all, two people on one Convia, depend on the server being able to dial its own address. Behind a private network, or on somebody's computer, it cannot, and `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` is a setting about *other people's* links, not a way to make your own work. Anything whose home is not that exact address travels, whatever it resolves to; guessing at which names mean this same machine is how the guard against reaching the private network gets talked out of its job.
+If the link turns out to point at Bia's own installation, nothing is kept: she is simply a member of that room now, and it appears among her rooms. **That case never leaves the process.** An installation answers to **both** of its addresses for this — the configured one and the one the request arrived at — and a link naming either is looked at and accepted here, against the same rows, rather than as a signed request this installation makes to itself — which would make the commonest invitation of all, two people on one Convia, depend on the server being able to dial its own address. Behind a private network, or on somebody's computer, it cannot, and `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` is a setting about *other people's* links, not a way to make your own work. Anything whose home is not that exact address travels, whatever it resolves to; guessing at which names mean this same machine is how the guard against reaching the private network gets talked out of its job.
 
 Every failure to use an invitation — unknown, expired, used, withdrawn, meant for somebody else — is one `404`. Two acceptances at once cannot both succeed.
 
@@ -70,12 +70,128 @@ Bia's Convia serves the room under `/v1/me/remote-rooms/{id}`, with the same sha
 | `GET/PUT …/read_state` | `GET/PUT /v1/peer/rooms/{room_id}/read_state` |
 | `GET …/members` | `GET /v1/peer/rooms/{room_id}/members` |
 | `POST …/leave` | `POST /v1/peer/rooms/{room_id}/leave` |
+| `GET …/call` | `GET /v1/peer/rooms/{room_id}/call` |
+| `GET …/call/participants` | `GET /v1/peer/rooms/{room_id}/call/participants` |
+| `POST …/call/join` | `POST /v1/peer/rooms/{room_id}/call/join` |
+| `POST …/call/leave` | `POST /v1/peer/rooms/{room_id}/call/leave` |
+| `DELETE …/call/participants/{user_id}` | `DELETE /v1/peer/rooms/{room_id}/call/participants/{user_id}` |
 
 The home serves those with **the same handlers** it serves its own signed-in people. Membership decides, a room Bia is not in answers `404`, and suspending Bia's user at the home stops her on her next request.
 
 What Bia's Convia relays is re-encoded from what it decoded, never forwarded as it arrived, and only the query parameters a route has are passed on.
 
 **A home that refuses Bia answers `403` on Bia's Convia, never `401`.** The page treats a `401` as its own session ending, and a room elsewhere turning Bia away says nothing about her session at home.
+
+### Being told, rather than asking
+
+Bia's Convia holds a **signed stream** open to each home she has a room on, for as long as she is connected to her own:
+
+```
+Bia's browser ── GET /v1/me/events ──▶ Bia's Convia ── GET /v1/peer/events ──▶ Ana's Convia
+                                                          signed with Bia's key
+```
+
+It runs this way round, and not the other, for the reason everything else here does: **there is no installation identity**. A home cannot prove itself to Bia's Convia — there is no key it could do it with — and it does not know where Bia's Convia is. What exists is Bia's own key, so her installation opens the connection and signs the handshake with it, exactly as it signs every other request it makes for her. The home serves that stream with the same handler it serves `/v1/me/events` with, because a visitor is a user there and membership decides what either is told.
+
+**What it costs a home is one connection per visitor who is connected**, not one per room and not one per visitor it has ever admitted. Bia's key is sealed by her password and opened from her session, so the stream cannot outlive her being signed in even if anybody wanted it to.
+
+What arrives is translated before Bia sees it. The home names its own rooms and knows nothing of the pointer Bia's Convia keeps, so an event about `room_X` there becomes an event about the `rrm_` that names it here; an event naming a room she has no pointer for is dropped. **The home's cursor is stripped**: a cursor is a position in the journal of the installation that gave it out, and passing one on would let Bia's page ask her own Convia to resume from a place in somebody else's journal. What she missed in a room elsewhere is read from its home instead, which is what her page already does after any gap.
+
+Which installations she has a room on is read again every thirty seconds, so a room she joins while the stream is open is followed without waiting for anything to reconnect.
+
+### Calls
+
+Bia joins the call in Ana's room through her own Convia, like everything else — and then her browser connects to **Ana's media server**, directly, with a credential **Ana's installation** issued for her.
+
+```
+Bia's browser ── POST /v1/me/remote-rooms/{id}/call/join ──▶ Bia's Convia
+                                                                │ signed
+                                                                ▼
+                                                          Ana's Convia
+                                                                │ issues a credential
+                                                                ▼
+Bia's browser ══════════ audio and video ══════════▶ Ana's media server
+```
+
+**This is the one time a person's browser talks to an installation other than their own**, and it is a media address rather than an API: no session, no cookie, nothing of Bia's Convia goes with it. The credential names one person in one call and expires like any other. Neither control plane carries a byte of audio or video, which is the boundary `AGENTS.md` draws and the reason it is not relayed like everything else.
+
+What Bia may do in the call is what any member of that room may do — **moderation is the home's**. A visitor who moderates a room on their own Convia moderates nothing here, and putting somebody out of Ana's call is refused unless Ana's installation says otherwise.
+
+A page must be allowed to reach that media address by its content security policy. Convia's own application allows encrypted addresses for exactly this reason; a Convia serving the interface as a page names its own media server exactly and no other, so a call in a room elsewhere is a thing the **application** does. See [`docs/interface.md`](interface.md).
+
+Whether a room elsewhere is holding a call is asked of its home with the unread count below, and it arrives on the stream as `call.started` and `call.ended` while somebody is connected.
+
+### Losing a place in a room elsewhere
+
+A home decides who is in its rooms, and Bia's Convia finds out on the stream: `room.member_removed` naming who Bia is **there**, or `room.deleted`. **The pointer goes with it.** Keeping one would leave a room in Bia's list answering `404` to everything she tried, until she noticed and forgot it by hand — which is a thing nobody should have to know how to do. The event is still passed on to her, because the screen showing that room has to stop showing it.
+
+That is the opposite of a home that merely does not answer, which keeps its pointer: silence is not a decision, and [forgetting a room](#leaving) is still hers to do when a home is gone for good.
+
+### The unread count
+
+`GET /v1/me/remote-rooms` carries an `unread` for each room, and every one of them is **asked of its home** — the home is the only place that knows both what was said and how far Bia has read. They are asked at once rather than in turn, under a budget of two seconds for all of them together.
+
+**A home that does not answer costs its own count and nothing else.** Its room still has a row, with its name and where it lives, and simply carries no number. That is why `unread` is absent rather than zero in that case: zero is a home saying there is nothing, absent is nobody having said. Both show no badge, and only one of them is a number anybody could act on.
+
+The trade is deliberate and runs the only way it can. A sidebar is how somebody sees they have rooms at all, and an installation they joined once and forgot about must not be able to take that view away by being slow.
+
+Nothing polls for it: the sidebar is read again when the stream carries something about a room, which is now true of rooms elsewhere too, so the badge follows what is said rather than a timer.
+
+## How this is checked
+
+A CI job starts **two installations against each other** — separate databases, reaching each other over the network and sharing nothing else — and drives four journeys between them: sharing a room and being told what happens in it, joining a call at its home, being taken out of a room elsewhere, and a room the visitor is not in staying private.
+
+They drive the **public surface and nothing else**: two addresses and a token each, which is all a third party has. So they run against any two things that answer as a Convia, including installations somebody else built.
+
+**Only one of the two has a media plane.** That asymmetry is the proof for a call: a visitor who joins one at the other installation is handed a credential the first could not possibly have issued.
+
+Run them yourself against two installations with `CONVIA_TEST_FEDERATION_A` and `CONVIA_TEST_FEDERATION_B`; without both, they skip.
+
+## Versions
+
+Two installations upgrade on their own schedules, so one will eventually sign in a protocol the other has never heard of. That is planned for rather than discovered.
+
+**The version is a header and the first thing the signature covers.** It has to be a header, because it decides what the canonical form is and a home cannot verify a signature without first knowing which one to build. It cannot be tampered with anyway: changing it without the key produces a signature over a different message.
+
+```
+Convia-Peer-Version: convia-peer-v1
+```
+
+It names the **arrangement**, not any one route: what the canonical form is, which headers carry what, and what the peer surface means. Adding a route does not change it; changing what a signature covers does.
+
+**An installation answers the current version and the one before it.** One is not enough — every upgrade would break every room shared with anybody who had not upgraded yet. More than two is a promise to keep code nobody can test against, because there is nowhere to find an installation that old. A version is answered for **at least six months** after its successor is released: somebody running an installation for a few friends does not watch for releases, and six months is long enough that the first they hear of it is not a room that stopped working.
+
+**Not speaking the same protocol is not a refused credential**, and is answered as its own thing:
+
+```
+HTTP/1.1 400 Bad Request
+Convia-Peer-Versions: convia-peer-v1
+
+{"error":{"code":"unsupported_version", …}}
+```
+
+A caller told its signature was rejected goes and looks at its keys, which are fine. A caller told the version is not spoken is told **what is**, and can sign the next one differently — which is the only thing that gets the two talking again. There is no endpoint to ask first: a caller signs with its newest and is told, which costs one request and no extra surface.
+
+To the person holding the screen this is a room that is not usable now, so it reaches them as the same `503` an unreachable home does. The log is where the two are told apart, because only somebody running an installation can act on the difference.
+
+## What it costs a home
+
+**A signature proves who is asking and not that they may ask three hundred times a minute.** Anybody who can register on any installation can make one this installation will verify, and verifying is itself work: a body read, a signature checked, and a nonce written down before any handler runs.
+
+So every request on the peer surface is charged against two budgets at once, successes included:
+
+| | |
+| --- | --- |
+| per **signer** | 300 a minute |
+| per **address** | 3 000 a minute |
+
+The ratio is the decision. An address is a whole installation with many people behind it; a signer is one of them. Equal budgets would mean the first person to ask three hundred times had spent everything their installation had, and somebody else there — doing nothing wrong — would be refused because of them.
+
+The address is charged before the signature is checked, because that check is the work a flood would be buying. The refusal says `429` and names neither dimension: saying which one ran out would tell a caller which to spread across.
+
+**An installation sending nonsense needs no separate answer.** It fails, and failing charges the failure budget every surface has. There is deliberately no blocklist: an address is somebody's whole installation, and shutting one out would take out every person on it for what one of them did.
+
+Nonces are forgotten on a schedule rather than by whoever happens to be verifying something — an installation that stops receiving requests would otherwise keep whatever a burst left behind for ever.
 
 ## Signatures
 
@@ -111,7 +227,7 @@ The home accepts it only when all of these hold:
 
 Nonces are claimed in `peer_nonces`, whose primary key decides, so a replay reaching two instances at once is still refused once. They expire with the window.
 
-The **authority** is signed so that a home cannot take a request Bia sent it and replay it to a third installation where Bia is also a member. It is compared with the `Host` the request arrived with, so a reverse proxy in front of the home must preserve `Host`.
+The **authority** is signed so that a home cannot take a request Bia sent it and replay it to a third installation where Bia is also a member. It is compared with the `Host` the request arrived with, so a reverse proxy in front of the home must preserve `Host`. **`CONVIA_PUBLIC_ADDRESS` is compared too, when it is set.** The caller signs the address it dialled, so behind a proxy that rewrites `Host` the home would otherwise compare it with an internal name and refuse every signed request. It is not a weakening: the caller must still have signed an address this installation actually answers to, and an operator is the one who says what that is.
 
 ## Where the key comes from
 
@@ -142,7 +258,6 @@ Turning it on in production still refuses plain `http`, so installations on a pr
 
 ## Known gaps
 
-- **A room elsewhere is not announced.** The page reads it on a five-second timer while it is open, and its row in the sidebar has no unread count.
 - **A home that does not answer cannot be left, only forgotten.** Leaving keeps the pointer until the home confirms, because dropping it silently would leave a membership nothing here remembers. Once leaving has failed, the interface offers to forget the room here anyway (`DELETE /v1/me/remote-rooms/{id}`), after saying that the person stays a member at the home and that nothing here can take them out later. It is how somebody gets rid of a room whose home is gone, has moved, or refuses them.
 - **No calls between installations yet.** The call interface itself is still to come (`M18-004`); when it arrives, a visitor will reach the home's media plane directly, with a token the home issues.
 - **No verification code on first contact.** Looking at a link shows the room, the inviter's handle and the home's address, and that is the check.

@@ -409,6 +409,8 @@ func signed(
 	verify peerAuthenticator,
 	visiting bool,
 	failures *ratelimit.Limiter,
+	signers *ratelimit.Limiter,
+	addresses *ratelimit.Limiter,
 	resolve resolver,
 	next http.Handler,
 ) http.Handler {
@@ -418,6 +420,20 @@ func signed(
 			slowDown(logger, response, request, "", failures.RetryAfter(source), failedAttempts)
 			return
 		}
+
+		/*
+			What this installation costs, charged before it is spent.
+
+			The address is charged first and unconditionally, because reading
+			the body and checking a signature are themselves work, and a flood
+			of nonsense is work an unbudgeted surface would do forever. The
+			signer is charged once there is one to name — see below.
+		*/
+		if !addresses.Allows(source) {
+			slowDown(logger, response, request, "", addresses.RetryAfter(source), tooManyRequests)
+			return
+		}
+		addresses.Record(source)
 
 		if !peers.Presented(request) {
 			failures.Record(source)
@@ -439,6 +455,20 @@ func signed(
 		ctx := request.Context()
 		signer, err := verify.Verify(ctx, request, body)
 		if err == nil {
+			/*
+				And what this **person** costs, now that there is one to name.
+
+				An address is a whole installation: budgeting only by it would
+				let one person there use up what everybody else on it needs.
+				Budgeting only by signer would let one installation mint
+				accounts to buy more. Both are charged, and either refuses.
+			*/
+			if !signers.Allows(signer.AccountID) {
+				slowDown(logger, response, request, "", signers.RetryAfter(signer.AccountID), tooManyRequests)
+				return
+			}
+			signers.Record(signer.AccountID)
+
 			ctx = peers.ContextWithSigner(ctx, signer)
 			if visiting {
 				var principal sessions.Principal
@@ -451,6 +481,27 @@ func signed(
 		if err != nil {
 			if abandoned(request) {
 				refuse(logger, response, request, "")
+				return
+			}
+
+			/*
+				Not speaking the same protocol is not a refused credential.
+
+				Answering it as one would send whoever runs the caller to look at
+				their keys, which are fine. What they need is **what this
+				installation does speak**, so that is what they are told — and it
+				costs the failure budget like any other refusal, because a caller
+				that keeps asking in a version nobody speaks is still a caller
+				that keeps asking.
+			*/
+			if errors.Is(err, peers.ErrUnsupportedVersion) {
+				failures.Record(source)
+				response.Header().Set(peers.HeaderVersions, strings.Join(peers.Spoken, ", "))
+				failure := api.NewFailure(http.StatusBadRequest, api.CodeUnsupportedVersion,
+					"This installation does not speak that version of the protocol between installations.")
+				if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
+					logger.Error("write unsupported version response", "error", writeErr)
+				}
 				return
 			}
 
@@ -590,6 +641,73 @@ func rationed(logger *slog.Logger, uses *ratelimit.Limiter, resolve resolver, ne
 }
 
 /*
+metered rations what one application may ask of an installation.
+
+It is the only budget in Convia charged for work that succeeded. [budgeted]
+charges failures, because a caller presenting a working key has done nothing
+worth limiting — which is true of one caller and false of one tenant. A tenant
+holding a valid key can take the whole of an installation's capacity while every
+other tenant waits, and not one request on the way is a failure, so a budget of
+failures never sees it.
+
+It is keyed by the application rather than by the credential or the address. A
+tenant can mint itself another key and can deploy behind another address, so
+either of those would be a budget it could widen by spreading; the application
+is the one it cannot change without an operator.
+
+It runs inside authentication, because there is no tenant to name until the key
+has been verified, and outside idempotency, so a refused request never claims a
+key it did not spend.
+*/
+func metered(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		principal, found := credentials.PrincipalFromContext(request.Context())
+		if !found {
+			/*
+				Reachable only by wiring this somewhere a tenant is not named,
+				which is a mistake at startup rather than a caller's. Refusing is
+				its safe half: serving would leave the route unbudgeted, which is
+				the thing this exists to prevent.
+			*/
+			logger.Error("metered route reached without a principal",
+				"method", request.Method,
+				"path", request.URL.Path,
+				"request_id", api.RequestIDFromContext(request.Context()),
+			)
+			refuse(logger, response, request, "")
+			return
+		}
+
+		/*
+			Charged before the work rather than after it, like registering and
+			unlike a failed key: what is being rationed is the work itself, so
+			counting it afterwards would mean doing all of it first.
+		*/
+		if !uses.Allows(principal.ApplicationID) {
+			slowDown(logger, response, request, "",
+				uses.RetryAfter(principal.ApplicationID), tooManyTenantRequests)
+			return
+		}
+		uses.Record(principal.ApplicationID)
+
+		next.ServeHTTP(response, request)
+	})
+}
+
+/*
+tooManyTenantRequests is what an application asking too often is told.
+
+Unlike [tooManyRequests] it names what ran out, and the difference is not an
+inconsistency. There the budget has two dimensions and naming one would tell a
+caller which to spread across. Here there is one, it is the caller's own
+application, and saying so is what separates "your key keeps failing" from "you
+are simply asking faster than this installation serves" — two problems with
+different fixes, which one message cannot distinguish. It says nothing about any
+other tenant or about the installation's total load.
+*/
+const tooManyTenantRequests = "This application has made too many requests. Retry later."
+
+/*
 authenticate refuses a request that does not carry a usable credential.
 
 It wraps every route that acts with someone's authority — an application's or
@@ -710,6 +828,15 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 
 // failedAttempts is what a caller that spent its budget for failures is told.
 const failedAttempts = "Too many failed authentication attempts. Retry later."
+
+/*
+tooManyRequests is what an installation asking too often is told.
+
+It says nothing about who or what was over the limit. The budget is per signer
+and per address at once, and naming which one was exhausted would tell a caller
+which dimension to spread across.
+*/
+const tooManyRequests = "Too many requests. Retry later."
 
 /*
 slowDown refuses a caller that has spent a budget.

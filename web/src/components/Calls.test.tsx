@@ -603,3 +603,81 @@ describe('what a call says as it goes', () => {
     expect(await within(notices).findByText('Bruno Alves left the call.')).toBeInTheDocument()
   })
 })
+
+/*
+A call in a room that lives on another installation, since `M33-002`.
+
+It is the home's call, on the home's media plane, with a credential the home
+issued — so what this installation does is carry the question and hand back the
+answer. The page then connects to that address directly, which is the one time
+it talks to a Convia other than its own.
+*/
+describe('a call in a room somewhere else', () => {
+  const remoteId = 'rrm_7KQZP4XN2VJH6TBWMDR3YAFC5E'
+  const remotePath = `/v1/me/remote-rooms/${remoteId}`
+  const theirCall: RoomCall = {
+    id: 'call_THEIRCALL7QK4XMZP2VJH6TBW',
+    room_id: room().id,
+    status: 'active',
+    created_at: '2026-09-14T18:30:00.000Z',
+  }
+  const theirSession: JoinSession = {
+    ...session,
+    call_id: theirCall.id,
+    media_url: 'wss://media.elsewhere.example',
+    media_token: 'a-credential-the-home-issued',
+  }
+
+  function visiting({ call = null as RoomCall | null } = {}) {
+    const server = new FakeConvia()
+      .on('GET', '/v1/me/rooms', { body: { data: [] } })
+      .on('GET', '/v1/me/calls', { body: { data: [] } })
+      .on('GET', '/v1/me/remote-rooms', {
+        body: {
+          data: [
+            {
+              id: remoteId,
+              home: 'https://elsewhere.example',
+              room_id: room().id,
+              user_id: 'usr_4XZQP7KN2VJH6TBWMDR3YAFC5E',
+              name: 'Their room',
+              call,
+            },
+          ],
+        },
+      })
+      .on('POST', `${remotePath}/call/join`, { status: call === null ? 201 : 200, body: theirSession })
+      .on('POST', `${remotePath}/call/leave`, { status: 204 })
+      .on('GET', `${remotePath}/call/participants`, { body: { data: [] } })
+    return quietRoom(server, remotePath)
+  }
+
+  it('joins through this installation and connects to the home’s media server', async () => {
+    const server = visiting({ call: theirCall })
+    open(server)
+    const person = userEvent.setup()
+
+    await joined(person, 'Join call')
+
+    expect(server.asked('POST', `${remotePath}/call/join`)).toBeDefined()
+    expect(server.asked('POST', `/v1/me/rooms/${room().id}/call/join`)).toBeUndefined()
+
+    const media = await connected()
+    expect(media.connect).toHaveBeenCalledWith(theirSession.media_url, theirSession.media_token)
+  })
+
+  /*
+  The home is the only thing that knows whether its room is holding a call, and
+  it says so when the rooms elsewhere are read. Nothing here could know it, so
+  the button reads from that and from nowhere else.
+  */
+  it('offers to start a call when the home says its room is holding none', async () => {
+    open(visiting())
+    expect(await screen.findByRole('button', { name: 'Start call' })).toBeInTheDocument()
+  })
+
+  it('offers to join when the home says one is running', async () => {
+    open(visiting({ call: theirCall }))
+    expect(await screen.findByRole('button', { name: 'Join call' })).toBeInTheDocument()
+  })
+})

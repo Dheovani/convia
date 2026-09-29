@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -121,7 +122,7 @@ func newFixture(t *testing.T) fixture {
 
 	return fixture{
 		service: NewService(store, roomService, userService, applicationService, accountService, relay,
-			applications.FirstPartyID, logger),
+			applications.FirstPartyID, "", logger),
 		store:    store,
 		users:    userService,
 		rooms:    roomService,
@@ -411,7 +412,15 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 	ctx := context.Background()
 
 	setup.relay.err = errNothingMayLeave
-	const home = "http://localhost:8080"
+
+	/*
+		The two addresses one installation answers to at once: the one an
+		operator configured for everybody else, and the one somebody on the
+		machine itself reached it at. A link naming either is ours.
+	*/
+	const configured = "https://convia.example"
+	const reached = "http://localhost:8080"
+	ours := []string{configured, reached}
 
 	bruno, identity, err := setup.accounts.Register(ctx, "bruno", "another good password")
 	if err != nil {
@@ -422,11 +431,11 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 		t.Fatalf("Invite() error = %v", err)
 	}
 
-	link := Link{Home: home, InvitationID: invitation.ID}.String()
+	link := Link{Home: reached, InvitationID: invitation.ID}.String()
 	brunoHere := sessions.Principal{AccountID: bruno.ID, UserID: bruno.UserID,
 		ApplicationID: applications.FirstPartyID}
 
-	_, preview, err := setup.service.Look(ctx, home, brunoHere, identity, link)
+	_, preview, err := setup.service.Look(ctx, ours, brunoHere, identity, link)
 	if err != nil {
 		t.Fatalf("Look() error = %v", err)
 	}
@@ -434,7 +443,17 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 		t.Errorf("Look() room = %q, want %q", preview.RoomName, setup.room.Name)
 	}
 
-	joined, err := setup.service.Join(ctx, home, bruno, identity, link)
+	/*
+		The configured address is ours too. It is checked before joining, because
+		joining claims the invitation and a claimed one is not found — which is a
+		different answer from the one this is looking for.
+	*/
+	configuredLink := Link{Home: configured, InvitationID: invitation.ID}.String()
+	if _, _, err := setup.service.Look(ctx, ours, brunoHere, identity, configuredLink); err != nil {
+		t.Errorf("Look() at our configured address error = %v, want it answered here", err)
+	}
+
+	joined, err := setup.service.Join(ctx, ours, bruno, identity, link)
 	if err != nil {
 		t.Fatalf("Join() error = %v", err)
 	}
@@ -443,7 +462,7 @@ func TestAnInvitationOnThisInstallationNeverLeavesIt(t *testing.T) {
 	}
 
 	elsewhere := Link{Home: "https://elsewhere.example", InvitationID: invitation.ID}.String()
-	if _, _, err := setup.service.Look(ctx, home, brunoHere, identity, elsewhere); !errors.Is(err, errNothingMayLeave) {
+	if _, _, err := setup.service.Look(ctx, ours, brunoHere, identity, elsewhere); !errors.Is(err, errNothingMayLeave) {
 		t.Errorf("Look() at another installation's link error = %v, want it to have travelled", err)
 	}
 }
@@ -490,7 +509,7 @@ func TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt(t *testing.T) {
 	}
 
 	for range 2 {
-		joined, err := setup.service.Join(ctx, "https://here.example", setup.ana, identity, link)
+		joined, err := setup.service.Join(ctx, []string{"https://here.example"}, setup.ana, identity, link)
 		if err != nil {
 			t.Fatalf("Join() error = %v", err)
 		}
@@ -521,7 +540,7 @@ func TestJoiningRemembersTheRoomOnceAndLeavingForgetsIt(t *testing.T) {
 	}
 
 	setup.relay.err = nil
-	if _, err := setup.service.Join(ctx, "https://here.example", setup.ana, identity, link); err != nil {
+	if _, err := setup.service.Join(ctx, []string{"https://here.example"}, setup.ana, identity, link); err != nil {
 		t.Fatalf("joining again error = %v", err)
 	}
 	rejoined, _ := setup.service.RemoteRooms(ctx, setup.ana.ID)
@@ -550,7 +569,7 @@ func TestAHomeThatAnswersNonsenseIsNotBelieved(t *testing.T) {
 		Body:   []byte(`{"room_id":"../../v1/users","room_name":"x","user_id":"usr_7KQZP4XN2VJH6TBWMDR3YAFC5E"}`),
 	}
 
-	if _, err := setup.service.Join(ctx, "https://here.example", setup.ana, identity,
+	if _, err := setup.service.Join(ctx, []string{"https://here.example"}, setup.ana, identity,
 		Link{Home: "https://elsewhere.example", InvitationID: sampleInvitationID}.String()); !errors.Is(err, ErrUnreachable) {
 		t.Errorf("Join() with a malformed room error = %v, want %v", err, ErrUnreachable)
 	}
@@ -626,5 +645,159 @@ func TestPendingListsOnlyWhatStillWorks(t *testing.T) {
 	setup.service.now = func() time.Time { return later }
 	if expired, err := setup.service.Pending(ctx, setup.inviter, setup.room.ID); err != nil || len(expired) != 0 {
 		t.Errorf("a day later Pending() = %v, %v, want nothing", expired, err)
+	}
+}
+
+/*
+TestAnUnreadCountIsAskedOfEachHomeAndSurvivesOneNotAnswering is the trade this
+count is built on.
+
+Every count lives at its room's home, so a sidebar with rooms on three
+installations depends on three of them. Making the list wait for all three, or
+fail with any of them, would mean an installation somebody joined once and
+forgot about could take away the view that tells them they have rooms at all.
+So a home that says nothing costs its own count and nothing else.
+*/
+func TestAnUnreadCountIsAskedOfEachHomeAndSurvivesOneNotAnswering(t *testing.T) {
+	setup := newFixture(t)
+	ctx := context.Background()
+	identity, _ := visitor(t)
+
+	answering := RemoteRoom{ID: sampleRemoteID, Home: "https://answering.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	silent := RemoteRoom{ID: "rrm_4XZQP7KN2VJH6TBWMDR3YAFC5E", Home: "https://silent.example",
+		RoomID: "room_4XZQP7KN2VJH6TBWMDR3YAFC5E"}
+
+	setup.relay.answers["GET /v1/peer/rooms/"+answering.RoomID+"/read_state"] = Response{
+		Status: http.StatusOK,
+		Body:   []byte(`{"room_id":"` + answering.RoomID + `","user_id":"usr_7KQZP4XN2VJH6TBWMDR3YAFC5E","sequence":4,"unread":3}`),
+	}
+
+	counts := setup.service.About(ctx, identity, []RemoteRoom{answering, silent})
+
+	if said := counts[answering.ID]; said.Unread == nil || *said.Unread != 3 {
+		t.Errorf("the answering home's count = %v, want 3", said.Unread)
+	}
+	if _, answered := counts[silent.ID]; answered {
+		t.Errorf("a home that said nothing was given a row: %v", counts)
+	}
+}
+
+// TestAHomeThatAnswersNonsenseIsGivenNoCount: a count is a number put in front
+// of somebody, and one this installation made up is worse than none.
+func TestAHomeThatAnswersNonsenseIsGivenNoCount(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+
+	for _, answer := range []string{`not json at all`, `{"unread":-4}`, `[]`} {
+		setup.relay.answers["GET /v1/peer/rooms/"+room.RoomID+"/read_state"] = Response{
+			Status: http.StatusOK, Body: []byte(answer),
+		}
+
+		if said := setup.service.About(context.Background(), identity, []RemoteRoom{room}); said[room.ID].Unread != nil {
+			t.Errorf("%s was believed: %v", answer, said[room.ID].Unread)
+		}
+	}
+}
+
+// TestNobodyWithRoomsNowhereIsAskedAnything: the cost of this for somebody in
+// no room elsewhere is no request and no goroutine.
+func TestNobodyWithRoomsNowhereIsAskedAnything(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	if counts := setup.service.About(context.Background(), identity, nil); counts != nil {
+		t.Errorf("Unread() = %v, want nothing asked at all", counts)
+	}
+}
+
+/*
+TestAHomeCannotChooseWhatThisInstallationPublishes is the finding the threat
+model turned up, fixed.
+
+A home's bytes put straight into this installation's own answer are a stranger
+choosing what this installation publishes: fields the contract forbids, fields
+it requires left out, or the room named by an identifier only that home owns.
+The rule for everything relayed is that it is decoded and built again, and this
+is the one place it was not.
+*/
+func TestAHomeCannotChooseWhatThisInstallationPublishes(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	target := "GET /v1/peer/rooms/" + room.RoomID + "/call"
+
+	// A home answering with more than a call, including a field that would
+	// make this installation's own answer fail its schema.
+	setup.relay.answers[target] = Response{Status: http.StatusOK, Body: []byte(`{
+		"id":"call_7KQZP4XN2VJH6TBWMDR3YAFC5E","room_id":"room_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		"status":"active","created_at":"2026-09-14T18:30:00Z","metadata":{"anything":"at all"}}`)}
+
+	said := setup.service.About(context.Background(), identity, []RemoteRoom{room})
+	call := said[room.ID].Call
+	if call == nil {
+		t.Fatal("a call the home really is holding was dropped")
+	}
+	if call.RoomID != room.ID {
+		t.Errorf("the call names room %q, want the pointer this installation keeps", call.RoomID)
+	}
+
+	// Nothing the home invented survives, because nothing is passed through:
+	// what is published is built from the four fields a call has.
+	published, err := json.Marshal(call)
+	if err != nil {
+		t.Fatalf("encode the call: %v", err)
+	}
+	if bytes.Contains(published, []byte("metadata")) || bytes.Contains(published, []byte("anything")) {
+		t.Errorf("the home chose part of this installation's answer: %s", published)
+	}
+}
+
+/*
+TestACallThisInstallationWouldNotHaveWrittenIsNotBelieved: a home that is newer,
+or hostile, or simply broken says something a call cannot be. It is treated as
+the home having said nothing, which is the answer a silent home gets anyway.
+*/
+func TestACallThisInstallationWouldNotHaveWrittenIsNotBelieved(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	target := "GET /v1/peer/rooms/" + room.RoomID + "/call"
+
+	for _, answer := range []string{
+		`{"id":"not-an-identifier","status":"active","created_at":"2026-09-14T18:30:00Z"}`,
+		`{"id":"call_7KQZP4XN2VJH6TBWMDR3YAFC5E","status":"ended","created_at":"2026-09-14T18:30:00Z"}`,
+		`{"id":"call_7KQZP4XN2VJH6TBWMDR3YAFC5E","status":"active","created_at":"whenever"}`,
+		`nonsense`,
+	} {
+		setup.relay.answers[target] = Response{Status: http.StatusOK, Body: []byte(answer)}
+
+		said := setup.service.About(context.Background(), identity, []RemoteRoom{room})
+		if call := said[room.ID].Call; call != nil {
+			t.Errorf("%s was believed: %+v", answer, call)
+		}
+	}
+}
+
+// TestAHomeSayingThereIsNoCallIsNotAHomeSayingNothing: one is a fact to show,
+// the other is a home that did not answer, and a row is drawn either way.
+func TestAHomeSayingThereIsNoCallIsNotAHomeSayingNothing(t *testing.T) {
+	setup := newFixture(t)
+	identity, _ := visitor(t)
+
+	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
+		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
+	setup.relay.answers["GET /v1/peer/rooms/"+room.RoomID+"/call"] = Response{Status: http.StatusNoContent}
+
+	said := setup.service.About(context.Background(), identity, []RemoteRoom{room})
+	if !said[room.ID].Answered || said[room.ID].Call != nil {
+		t.Errorf("a home saying there is no call = %+v, want it answered and holding none", said[room.ID])
 	}
 }

@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"net/url"
@@ -53,7 +54,53 @@ const (
 
 	trustedProxiesEnvironment = "CONVIA_TRUSTED_PROXIES"
 
+	logLevelEnvironment = "CONVIA_LOG_LEVEL"
+
+	serviceInstanceEnvironment = "CONVIA_SERVICE_INSTANCE"
+
+	erasureWindowEnvironment = "CONVIA_ERASURE_WINDOW"
+
+	/*
+		How long a deleted user is kept before Convia forgets them.
+
+		The window is a promise in both directions: how long a deletion stays
+		recoverable, and the outer bound on how long Convia keeps somebody it
+		was told to forget. Thirty days is the shape of the first promise --
+		long enough that an application which deleted the wrong person notices
+		and says so, short enough that "we still have them" is not the answer
+		months later.
+
+		The floor is a day, because a window of minutes makes the first promise
+		false: nobody notices a mistake that fast, and erasure cannot be undone.
+		The ceiling is ten years, which is not a number anybody should choose --
+		it is there so that a value meant as seconds and written as hours stops
+		startup instead of quietly never erasing anybody.
+	*/
+	defaultErasureWindow = 30 * 24 * time.Hour
+	minimumErasureWindow = 24 * time.Hour
+	maximumErasureWindow = 10 * 365 * 24 * time.Hour
+
+	tenantRequestsEnvironment = "CONVIA_TENANT_REQUESTS_PER_MINUTE"
+
+	/*
+		What one application may ask of an installation in a minute.
+
+		The default is a ceiling rather than a throttle: far above what serving
+		conversations needs, far below what starving the other tenants needs.
+		The bounds are the part that matters. The floor is what makes this a
+		setting an operator raises rather than one they switch off — sixty a
+		minute is still generous enough to be a limit somebody chose, and there
+		is no value below it that means "no limit". The ceiling is there so that
+		a mistyped number is refused at startup instead of quietly restoring
+		what this was added to end.
+	*/
+	defaultTenantRequestsPerMinute = 3_000
+	minimumTenantRequestsPerMinute = 60
+	maximumTenantRequestsPerMinute = 1_000_000
+
 	peersAllowPrivateAddressesEnvironment = "CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES"
+
+	publicAddressEnvironment = "CONVIA_PUBLIC_ADDRESS"
 
 	databaseURLEnvironment            = "CONVIA_DATABASE_URL"
 	databaseMaxConnectionsEnvironment = "CONVIA_DATABASE_MAX_CONNECTIONS"
@@ -127,6 +174,51 @@ type Config struct {
 	TrustedProxies []netip.Prefix
 
 	/*
+		TenantRequestsPerMinute is how often one application may ask, successes
+		included.
+
+		It is per application rather than per key or per address, because a
+		tenant can mint itself more of either. It exists because a valid key is
+		not a reason to serve without a limit: what it bounds is one tenant
+		taking the whole installation while the others wait, which no budget of
+		failed attempts can see.
+	*/
+	TenantRequestsPerMinute int
+
+	/*
+		ErasureWindow is how long a deleted user is kept before Convia forgets
+		them: the subject freed, the name and the metadata gone, and what they
+		wrote redacted.
+
+		It is the one retention rule Convia has. Everything else is kept until
+		somebody asks for it to go, which is a decision rather than an
+		oversight: a conversation nobody asked to truncate is worse than a
+		large table. A person who was deleted **did** ask.
+	*/
+	ErasureWindow time.Duration
+
+	/*
+		LogLevel is the lowest severity Convia writes.
+
+		It defaults to info. **Debug is not a setting to leave on**: the debug
+		lines in Convia name identifiers, addresses and the shape of what
+		somebody is doing, which is the social graph `docs/data-protection.md`
+		classifies. They are there to answer a question during an incident and
+		to be turned off afterwards.
+	*/
+	LogLevel slog.Level
+
+	/*
+		ServiceInstance tells two processes apart in the logs.
+
+		Empty means the hostname, which is right in a container and adequate
+		anywhere else. An operator running two instances on one host sets it,
+		because otherwise both answer to the same name and the logs cannot be
+		told apart afterwards.
+	*/
+	ServiceInstance string
+
+	/*
 		PeersAllowPrivateAddresses is whether links between installations may
 		reach loopback and private-network addresses.
 
@@ -134,6 +226,22 @@ type Config struct {
 		following a link is something anybody who registers can cause.
 	*/
 	PeersAllowPrivateAddresses bool
+
+	/*
+		PublicAddress is the address other installations reach this one at, as a
+		scheme and authority: "https://convia.example".
+
+		Empty means nobody said, and an invitation link is then named after the
+		address the request that made it arrived at. That guess is right for one
+		machine on one network and wrong everywhere else — behind a reverse
+		proxy, or when an administrator opens Convia at an address only that
+		machine can reach.
+
+		It is a string here rather than a parsed value because what counts as an
+		address an installation can be named by belongs to internal/peers, which
+		this package does not import.
+	*/
+	PublicAddress string
 }
 
 // Database contains the connection and pool settings of the PostgreSQL client.
@@ -210,6 +318,23 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	tenantRequests, err := loadInt(tenantRequestsEnvironment, defaultTenantRequestsPerMinute,
+		minimumTenantRequestsPerMinute, maximumTenantRequestsPerMinute)
+	if err != nil {
+		return Config{}, err
+	}
+
+	logLevel, err := loadLogLevel()
+	if err != nil {
+		return Config{}, err
+	}
+
+	erasureWindow, err := loadBoundedDuration(erasureWindowEnvironment, defaultErasureWindow,
+		minimumErasureWindow, maximumErasureWindow)
+	if err != nil {
+		return Config{}, err
+	}
+
 	peersAllowPrivate, err := loadBool(peersAllowPrivateAddressesEnvironment)
 	if err != nil {
 		return Config{}, err
@@ -250,7 +375,12 @@ func Load() (Config, error) {
 		Redis:          shared,
 		TrustedProxies: trustedProxies,
 
+		TenantRequestsPerMinute:    tenantRequests,
+		ErasureWindow:              erasureWindow,
+		LogLevel:                   logLevel,
+		ServiceInstance:            strings.TrimSpace(environmentOrDefault(serviceInstanceEnvironment, "")),
 		PeersAllowPrivateAddresses: peersAllowPrivate,
+		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil
 }
 
@@ -559,6 +689,47 @@ func loadInt(name string, fallback, minimum, maximum int) (int, error) {
 	value, err := strconv.Atoi(environmentOrDefault(name, strconv.Itoa(fallback)))
 	if err != nil || value < minimum || value > maximum {
 		return 0, fmt.Errorf("%s must be an integer between %d and %d", name, minimum, maximum)
+	}
+	return value, nil
+}
+
+/*
+loadBoundedDuration reads a duration that has to sit inside a range.
+
+[loadDuration] refuses only a value that is not positive, which is right for a
+timeout: too short retries and too long waits, and both are visible. A retention
+window is neither. Both ways of getting it wrong are silent -- too short erases
+somebody before anybody could notice the mistake, too long never erases them at
+all -- so the bounds are checked rather than trusted.
+*/
+/*
+loadLogLevel reads the lowest severity Convia writes.
+
+An unrecognised value stops startup rather than falling back to info. Somebody
+writing `verbose` meant something, and a deployment that silently ignored it
+would answer the next incident with fewer lines than whoever configured it
+believes they have.
+*/
+func loadLogLevel() (slog.Level, error) {
+	levels := map[string]slog.Level{
+		"debug": slog.LevelDebug,
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
+	}
+
+	named := strings.ToLower(strings.TrimSpace(environmentOrDefault(logLevelEnvironment, "info")))
+	level, known := levels[named]
+	if !known {
+		return 0, fmt.Errorf("%s must be one of debug, info, warn or error", logLevelEnvironment)
+	}
+	return level, nil
+}
+
+func loadBoundedDuration(name string, fallback, minimum, maximum time.Duration) (time.Duration, error) {
+	value, err := time.ParseDuration(environmentOrDefault(name, fallback.String()))
+	if err != nil || value < minimum || value > maximum {
+		return 0, fmt.Errorf("%s must be a duration between %s and %s", name, minimum, maximum)
 	}
 	return value, nil
 }

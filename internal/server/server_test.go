@@ -21,6 +21,7 @@ import (
 	"convia/internal/departure"
 	"convia/internal/events"
 	"convia/internal/events/serving"
+	"convia/internal/export"
 	"convia/internal/invitations"
 	"convia/internal/media"
 	"convia/internal/messages"
@@ -287,7 +288,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		PersonalRooms: rooms.NewSessionHandler(logger, stubRooms{room: sampleRoom(), member: sampleMember()}, user),
 		PersonalEvents: serving.NewPersonHandler(logger, events.NewBroker(), nil,
-			stubSessionAuthenticator{principal: samplePerson()}, stubRooms{room: sampleRoom(), member: sampleMember()}),
+			stubSessionAuthenticator{principal: samplePerson()}, stubVisitors{}, nil,
+			stubRooms{room: sampleRoom(), member: sampleMember()}),
 		/*
 			A real broker, because there is nothing to stub: it holds no
 			infrastructure, and a stream that nobody publishes into is exactly
@@ -311,13 +313,15 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		SessionAuthenticator: stubSessionAuthenticator{principal: samplePerson()},
 		Sessions:             sessions.NewHandler(logger, stubSessions{account: sampleAccount()}),
 		Departures:           departure.NewHandler(logger, stubDeparture{}, stubIdentities{}),
+		PersonalExport:       export.NewSessionHandler(logger, stubExport{}, sampleApplication().ID),
+		TenantExport:         export.NewTenantHandler(logger, stubExport{}),
 
 		InvitationAuthenticator: stubInvitationAuthenticator{invitation: sampleInvitation()},
 		Invitations:             invitations.NewHolderHandler(logger, stubInvitations{invitation: sampleInvitation()}),
 
 		PeerAuthenticator: stubPeerAuthenticator{err: peers.ErrUnauthenticated},
 		Peers:             peers.NewPeerHandler(logger, stubPeerHost{}),
-		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}),
+		RoomInvitations:   peers.NewSessionHandler(logger, stubPeerService{}, stubIdentities{}, ""),
 
 		PersonalCalls: participants.NewSessionHandler(logger, stubPersonalCalls{},
 			stubRooms{room: sampleRoom(), member: sampleMember()}, user),

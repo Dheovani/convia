@@ -13,6 +13,7 @@ import (
 	"convia/internal/api"
 	"convia/internal/messages"
 	"convia/internal/sessions"
+	"convia/internal/users"
 )
 
 // The bodies exchanged between installations. Both sides use these, so the two
@@ -101,9 +102,10 @@ type personalService interface {
 	Invite(ctx context.Context, principal sessions.Principal, roomID, handle string) (Invitation, error)
 	Revoke(ctx context.Context, principal sessions.Principal, id string) error
 	Pending(ctx context.Context, principal sessions.Principal, roomID string) ([]Invitation, error)
-	Look(ctx context.Context, here string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
-	Join(ctx context.Context, here string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
+	Look(ctx context.Context, ours []string, principal sessions.Principal, identity accounts.Identity, link string) (Link, Preview, error)
+	Join(ctx context.Context, ours []string, account accounts.Account, identity accounts.Identity, link string) (Joined, error)
 	RemoteRooms(ctx context.Context, accountID string) ([]RemoteRoom, error)
+	About(ctx context.Context, identity accounts.Identity, rooms []RemoteRoom) map[string]Elsewhere
 	RemoteRoom(ctx context.Context, accountID, id string) (RemoteRoom, error)
 	Relay(ctx context.Context, identity accounts.Identity, remote RemoteRoom, method, target string, body []byte) (Response, error)
 	Leave(ctx context.Context, identity accounts.Identity, remote RemoteRoom) error
@@ -130,10 +132,56 @@ type SessionHandler struct {
 	logger     *slog.Logger
 	service    personalService
 	identities identities
+	// public is the address an operator says other installations reach this one
+	// at, already checked, or "" when nobody said. See [SessionHandler.naming].
+	public string
 }
 
-func NewSessionHandler(logger *slog.Logger, service personalService, identities identities) *SessionHandler {
-	return &SessionHandler{logger: logger, service: service, identities: identities}
+func NewSessionHandler(
+	logger *slog.Logger,
+	service personalService,
+	identities identities,
+	public string,
+) *SessionHandler {
+	return &SessionHandler{logger: logger, service: service, identities: identities, public: public}
+}
+
+/*
+naming is the address this installation's links should name.
+
+A configured address wins over anything a request can say, because it is the
+only one that is true where the two differ: behind a reverse proxy, or when the
+person using Convia opened it at an address nobody else can reach. Without one,
+the address the request arrived at is the best guess available, and for one
+machine on one network it is right.
+*/
+func (handler *SessionHandler) naming(request *http.Request) (string, error) {
+	if handler.public != "" {
+		return handler.public, nil
+	}
+	return homeReached(request)
+}
+
+/*
+ours is every address that is this installation, for deciding whether a link
+somebody pasted leads back here.
+
+There can be two, and both are ordinary: the configured one that other people
+use, and the one this request arrived at, which is how somebody reaches their
+own Convia from the machine it runs on. A link naming either is answered here
+rather than fetched over the network from ourselves. Anything else travels —
+working out which *other* names might resolve to this same machine is how a
+guard against reaching the private network gets talked out of its job.
+*/
+func (handler *SessionHandler) ours(request *http.Request) []string {
+	addresses := make([]string, 0, 2)
+	if handler.public != "" {
+		addresses = append(addresses, handler.public)
+	}
+	if reached, err := homeReached(request); err == nil && reached != handler.public {
+		addresses = append(addresses, reached)
+	}
+	return addresses
 }
 
 type (
@@ -160,12 +208,41 @@ type (
 		ExpiresAt string `json:"expires_at"`
 	}
 
+	// callResponse is a call a room elsewhere is holding, in the shape every
+	// call is published in. See [Call] for why it is rebuilt rather than relayed.
+	callResponse struct {
+		ID        string `json:"id"`
+		RoomID    string `json:"room_id"`
+		Status    string `json:"status"`
+		CreatedAt string `json:"created_at"`
+	}
+
 	remoteRoomResponse struct {
 		ID     string `json:"id"`
 		Home   string `json:"home"`
 		RoomID string `json:"room_id"`
 		UserID string `json:"user_id"`
 		Name   string `json:"name"`
+		/*
+			Unread is how much of the room this person has not read, as its
+			home counted it.
+
+			It is a pointer because absent and zero are different answers:
+			zero is a home saying there is nothing, and absent is a home that
+			did not answer in time. Both show no badge; only one of them is
+			something anybody could act on.
+		*/
+		Unread *int64 `json:"unread,omitempty"`
+		/*
+			Call is the call the room is holding, as its home rendered it, or
+			null when it is holding none.
+
+			Absent is a home that did not say — the same distinction `unread`
+			makes, for the same reason. It is passed on rather than re-encoded
+			because it is the home's call, with the home's identifiers, and this
+			installation has nothing to add to it.
+		*/
+		Call *callResponse `json:"call,omitempty"`
 	}
 
 	joinedResponse struct {
@@ -213,7 +290,7 @@ func (handler *SessionHandler) Invite(response http.ResponseWriter, request *htt
 		return
 	}
 
-	home, err := homeReached(request)
+	home, err := handler.naming(request)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -241,7 +318,7 @@ func (handler *SessionHandler) Pending(response http.ResponseWriter, request *ht
 		return
 	}
 
-	home, err := homeReached(request)
+	home, err := handler.naming(request)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -264,17 +341,9 @@ func (handler *SessionHandler) Pending(response http.ResponseWriter, request *ht
 // reached by non-browser clients such as the desktop application.
 func homeReached(request *http.Request) (string, error) {
 	if origin := request.Header.Get("Origin"); origin != "" {
-		return HomeFromOrigin(origin)
+		return ParseHome(origin)
 	}
-	return HomeFromOrigin(requestOrigin(request))
-}
-
-func here(request *http.Request) string {
-	home, err := homeReached(request)
-	if err != nil {
-		return ""
-	}
-	return home
+	return ParseHome(requestOrigin(request))
 }
 
 // requestOrigin is the origin a request reached, from its Host and its scheme.
@@ -323,7 +392,7 @@ func (handler *SessionHandler) Look(response http.ResponseWriter, request *http.
 		return
 	}
 
-	link, preview, err := handler.service.Look(request.Context(), here(request), principal, identity, body.Link)
+	link, preview, err := handler.service.Look(request.Context(), handler.ours(request), principal, identity, body.Link)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -357,7 +426,7 @@ func (handler *SessionHandler) Join(response http.ResponseWriter, request *http.
 		return
 	}
 
-	joined, err := handler.service.Join(request.Context(), here(request), account, identity, body.Link)
+	joined, err := handler.service.Join(request.Context(), handler.ours(request), account, identity, body.Link)
 	if err != nil {
 		writeError(handler.logger, response, request, err)
 		return
@@ -373,7 +442,7 @@ func (handler *SessionHandler) Join(response http.ResponseWriter, request *http.
 
 // RemoteRooms lists the rooms elsewhere this person belongs to.
 func (handler *SessionHandler) RemoteRooms(response http.ResponseWriter, request *http.Request) {
-	principal, ok := handler.principal(response, request)
+	principal, identity, ok := handler.signingAs(response, request)
 	if !ok {
 		return
 	}
@@ -384,9 +453,21 @@ func (handler *SessionHandler) RemoteRooms(response http.ResponseWriter, request
 		return
 	}
 
+	// Asked of the homes, best-effort: see [Service.About]. What nobody
+	// answered for is left out rather than guessed at.
+	said := handler.service.About(request.Context(), identity, found)
+
 	body := remoteRoomsResponse{Data: make([]remoteRoomResponse, 0, len(found))}
 	for _, room := range found {
-		body.Data = append(body.Data, representRemoteRoom(room))
+		represented := representRemoteRoom(room)
+		if known, answered := said[room.ID]; answered {
+			represented.Unread = known.Unread
+			if known.Call != nil {
+				represented.Call = &callResponse{ID: known.Call.ID, RoomID: known.Call.RoomID,
+					Status: known.Call.Status, CreatedAt: known.Call.CreatedAt}
+			}
+		}
+		body.Data = append(body.Data, represented)
 	}
 	write(handler.logger, response, request, http.StatusOK, body)
 }
@@ -396,6 +477,72 @@ func (handler *SessionHandler) History(response http.ResponseWriter, request *ht
 	handler.relay(response, request, http.MethodGet, func(remote RemoteRoom) (string, bool) {
 		return roomTarget(remote, "/messages") + forwardQuery(request, "limit", "cursor", "direction"), true
 	}, nil)
+}
+
+/*
+Call reads what a remote room's call is, if it is holding one.
+
+**A call in a room elsewhere is the home's call.** It happens on the home's
+media plane, with a credential the home issues, and this installation never
+carries a byte of audio or video: what it carries is the question and the
+answer. See docs/peers.md and AGENTS.md on the media plane.
+*/
+func (handler *SessionHandler) Call(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodGet, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call"), true
+	}, nil)
+}
+
+// CallRoster is who is in a remote room's call.
+func (handler *SessionHandler) CallRoster(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodGet, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call/participants") + forwardQuery(request, "limit", "cursor"), true
+	}, nil)
+}
+
+/*
+JoinCall seats this person in a remote room's call and answers with what to
+connect with.
+
+The credential in that answer is the **home's**, for the home's media server,
+and the page connects to it directly. That is the one place a person's browser
+talks to an installation other than their own, and it is why it is a media
+address rather than an API: nothing about their session goes with it.
+*/
+func (handler *SessionHandler) JoinCall(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodPost, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call/join"), true
+	}, nil)
+}
+
+// LeaveCall takes this person out of a remote room's call.
+func (handler *SessionHandler) LeaveCall(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodPost, func(remote RemoteRoom) (string, bool) {
+		return roomTarget(remote, "/call/leave"), true
+	}, nil)
+}
+
+/*
+RemoveFromCall puts somebody out of a remote room's call.
+
+Whether this person may is the home's to decide, as everything about that room
+is: a visitor is no more a moderator there for being one here.
+*/
+func (handler *SessionHandler) RemoveFromCall(response http.ResponseWriter, request *http.Request) {
+	handler.relay(response, request, http.MethodDelete, func(remote RemoteRoom) (string, bool) {
+		return participantTarget(request, remote)
+	}, nil)
+}
+
+// participantTarget addresses one person in a remote room's call, if the
+// identifier has the shape one can have. Nothing else from the path reaches
+// the home's URL.
+func participantTarget(request *http.Request, remote RemoteRoom) (string, bool) {
+	id := request.PathValue("user_id")
+	if !users.ValidID(id) {
+		return "", false
+	}
+	return roomTarget(remote, "/call/participants/"+id), true
 }
 
 // Post says something in a remote room.
@@ -697,6 +844,20 @@ func writeError(logger *slog.Logger, response http.ResponseWriter, request *http
 	case errors.Is(err, ErrBanned):
 		writeFailure(logger, response, request,
 			api.NewFailure(http.StatusForbidden, api.CodeForbidden, "That person cannot be invited to this room."))
+	case errors.Is(err, ErrUnsupportedVersion):
+		/*
+			The two installations do not speak the same protocol.
+
+			It is a 503 like an unreachable home, because to the person holding
+			the screen it is the same thing — that room is not usable now — and
+			trying again is the only thing they can do. The log is where it says
+			which of the two it was, because only somebody running an
+			installation can act on the difference.
+		*/
+		logger.Warn("another installation does not speak this one's protocol", "error", err,
+			"speaks", Spoken, "request_id", api.RequestIDFromContext(request.Context()))
+		writeFailure(logger, response, request, api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
+			"The other Convia could not be reached. Try again in a moment."))
 	case errors.Is(err, ErrUnreachable):
 		logger.Warn("another installation could not be reached", "error", err,
 			"request_id", api.RequestIDFromContext(request.Context()))

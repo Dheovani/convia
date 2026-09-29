@@ -142,6 +142,6 @@ Joining, leaving, removal, a role change, and issuing a connection credential ar
 ## Not Yet Implemented
 
 - **Presence beyond a call is still out**, see below. What is no longer missing is guest participation: somebody with no Convia user takes part by redeeming an invitation, identified by that invitation and nothing else. See [`invitations.md`](invitations.md).
-- **Rate limits on issuing credentials** (`M13-008`). Every write endpoint is equally exposed to a caller holding a valid key, so limiting only this one would be arbitrary. It belongs with a general per-tenant limit rather than here.
+- **Rate limits on issuing credentials.** Not here, and deliberately so: every write endpoint is equally exposed to a caller holding a valid key, so limiting only this one would be arbitrary. Issuing a media credential spends the general per-tenant budget in [`authentication.md`](authentication.md) like every other request.
 - **Media capabilities.** What a participant may do with audio, video, or a screen is uniform today: everyone admitted may publish and subscribe, because that is what a call is. The role vocabulary will grow when a distinction exists that is worth enforcing — a listener-only room, or screen sharing in M28. A moderator deliberately gets no extra media permission: moderation is a control-plane decision, and a client able to act directly on the media plane would bypass Convia's authorization and audit trail.
 - **Presence beyond a call.** Whether someone is online, away, or busy is not participation and does not belong here.

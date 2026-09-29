@@ -16,6 +16,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -41,6 +43,41 @@ expected, and so that every place one is handled is easy to find.
 type Value string
 
 // New generates the plaintext half of a new key.
+/*
+String hides the secret from fmt and from anything that stringifies a value.
+
+**This is the widest-handled secret in Convia**: every application key, every
+operator key, every invitation and every session passes through this type. Four
+narrower secrets redacted themselves and this one did not, which is the wrong
+way round — a logged Value is the one that could be any of them.
+
+Where the plaintext is actually needed, it is converted explicitly, which is
+both unaffected by this and easy to find.
+*/
+func (Value) String() string { return redacted }
+
+// GoString hides it from the %#v verb, which does not consult String.
+func (Value) GoString() string { return redacted }
+
+// LogValue hides it from slog, which resolves this before formatting.
+func (Value) LogValue() slog.Value { return slog.StringValue(redacted) }
+
+// redacted is what a secret renders as everywhere except where it is used.
+const redacted = "[redacted]"
+
+/*
+The compile-time assertions below are the point of the methods above.
+
+If a future change drops one of them, the secret silently starts rendering
+itself and nothing else fails. Naming the interfaces here turns that into a
+build error.
+*/
+var (
+	_ fmt.Stringer   = Value("")
+	_ fmt.GoStringer = Value("")
+	_ slog.LogValuer = Value("")
+)
+
 func New() Value {
 	return Value(rand.Text())
 }
