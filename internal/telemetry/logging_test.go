@@ -147,6 +147,45 @@ func TestTheLevelIsStillObeyed(t *testing.T) {
 }
 
 /*
+TestNothingACallerWritesCanForgeALine.
+
+CodeQL reports "log entries created from user input" against Convia, and the
+finding is **moot for as long as the logger is built from a handler that quotes
+what it writes** — which both of the ones in the standard library do. A newline
+inside an attribute is escaped into the value rather than ending the line, so
+nothing a caller sends can become a second entry.
+
+That is a property of the handler the composition root builds, not of the three
+hundred call sites, which is why it is pinned here rather than defended at each
+of them. Defending per call site is what produced three different spellings of
+the same strip-the-newlines helper, none of which covers the others.
+
+**If this ever fails, the finding has become real** and the answer is the
+handler rather than a helper at every call.
+*/
+func TestNothingACallerWritesCanForgeALine(t *testing.T) {
+	written := &bytes.Buffer{}
+	logger := slog.New(Correlate(slog.NewJSONHandler(written, nil)))
+
+	forged := "boom\"}\n{\"level\":\"INFO\",\"msg\":\"nothing happened\",\"forged\":true"
+	logger.ErrorContext(serving(), "request failed", "error", forged, "path", "/v1/rooms\r\nFAKE")
+
+	body := strings.TrimRight(written.String(), "\n")
+	if strings.Contains(body, "\n") || strings.Contains(body, "\r") {
+		t.Fatalf("a caller's newline survived into the output, so it can write its own line:\n%s", body)
+	}
+
+	// And what it sent is still readable, because escaping is not redaction.
+	fields := line(t, written)
+	if fields["error"] != forged {
+		t.Errorf("the attribute was altered rather than escaped: %v", fields["error"])
+	}
+	if fields["forged"] != nil {
+		t.Error("the forged field became a field of its own")
+	}
+}
+
+/*
 TestAnExplicitRequestIsNotOverwritten.
 
 The migration removes the hand-written pairs, but not all at once and not from

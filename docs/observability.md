@@ -60,6 +60,21 @@ Two instruments, which is fewer than it looks:
 
 The gauge carries **no labels at all**. Saturation is a property of the process; cutting it by route makes a series per route that is almost always zero, and the sum is the only number anybody reads.
 
+### What Convia is carrying
+
+| Instrument | What it answers |
+| --- | --- |
+| `convia.calls.active` | how many calls are happening |
+| `convia.participants.active` | how many people are in one |
+
+**Both are asked of the database when somebody collects, not counted as calls start and end.** A number kept in memory starts at zero when a process starts, so an instance that restarts while ten calls are running would report zero — a graph showing an outage that did not happen. Asking gives the answer that is true whoever asks and however long they have been up.
+
+**Neither carries a label**, which is `M22-007` in its strongest form: there is no user, no room, no call and no tenant in either series. Anybody asking *which* room is asking a question the API answers, not one a time series should. The numbers cross applications on purpose — what they mean is "what is this installation carrying", which belongs to the installation rather than to any tenant on it.
+
+They are read together, in one callback, because an operator compares them: people per call is what says whether an installation is holding a few large calls or many small ones. Reporting one from this moment and the other from the last would make that ratio a number that was never true.
+
+**Not knowing is not zero.** A count that fails is logged and reported as no measurement, because zero is a claim that nothing is happening and a database that could not be reached is not that claim.
+
 ### The label is the route, never the path
 
 This is the part worth getting right, and it is about the bill as much as the graph.
@@ -85,6 +100,6 @@ The rule is older than this milestone and is enforced by types rather than by ca
 ## Not built
 
 - **Traces** (`M22-003`, `M22-004`, `M22-005`). No span is created and nothing is exported. Metrics came first because several other milestones are waiting on them and nothing is waiting on traces.
-- **Domain metrics** (`M22-007`). Calls, messages and presence are not measured yet — only the HTTP surface is. `M14-013`, `M16-010` and `M17-011` are the same missing piece under other names.
+- **The other domains.** Event streams (`M14-013`), the Redis pool (`M16-010`) and presence (`M17-011`) are still unmeasured. They are three separate instrument sets rather than one, so they arrive one at a time.
 - **Dashboards, SLOs and alerts** (`M22-011` to `M22-013`), which need more than the HTTP surface first.
 - **Telemetry retention and sampling** (`M22-014`).

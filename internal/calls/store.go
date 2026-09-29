@@ -302,6 +302,33 @@ func (store *Store) ActiveIn(ctx context.Context, applicationID string, roomIDs 
 BySession returns the call a media session realizes, whichever application it
 belongs to. See Service.BySession for why that is safe here and nowhere else.
 */
+/*
+CountActive reports how many calls are happening across the installation.
+
+It is asked by the metrics collector rather than accumulated as calls start and
+end, and that is the point: a counter kept in memory resets to zero when a
+process restarts while the calls it was counting are still going on, so the
+graph would show an outage that did not happen. Asking the database gives the
+answer that is true whoever is asking and however long they have been running.
+
+**It is not cut by application.** The number means "what is this installation
+carrying", which is a property of the installation; cutting it by tenant would
+make a series per tenant that is almost always zero and whose sum is the only
+figure anybody reads.
+
+The partial index on active calls is what keeps this cheap: ended calls are not
+in it, so the count is over the few rows that are live rather than over a
+history that only grows.
+*/
+func (store *Store) CountActive(ctx context.Context) (int64, error) {
+	var live int64
+	if err := store.db(ctx).QueryRow(ctx,
+		`SELECT count(*) FROM calls WHERE status = $1`, StatusActive).Scan(&live); err != nil {
+		return 0, fmt.Errorf("count active calls: %w", err)
+	}
+	return live, nil
+}
+
 func (store *Store) BySession(ctx context.Context, reference string) (Call, error) {
 	const statement = `SELECT ` + columns + ` FROM calls WHERE media_session = $1`
 

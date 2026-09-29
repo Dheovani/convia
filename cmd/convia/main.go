@@ -252,6 +252,16 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	defer pool.Close()
 
+	/*
+		What Convia is carrying right now, asked of the database when somebody
+		collects rather than counted as calls start and end — a number kept in
+		memory would start at zero on every restart while the calls it counts
+		are still going on.
+	*/
+	if err := telemetry.Watch(meters, calls.NewStore(pool), participants.NewStore(pool), logger); err != nil {
+		return fmt.Errorf("watch what Convia is carrying: %w", err)
+	}
+
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
 	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
