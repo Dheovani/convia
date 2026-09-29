@@ -39,6 +39,41 @@ A line written by a background janitor carries no `request_id`, because there is
 
 **Debug is not a setting to leave on.** Those lines name identifiers, addresses, and the shape of what somebody is doing, which is the class [`data-protection.md`](data-protection.md) calls the social graph and warns is frequently more revealing than any single message. They exist to answer a question during an incident and to be turned off afterwards.
 
+## Metrics
+
+```
+CONVIA_METRICS_ENDPOINT=https://collector.internal:4318
+```
+
+**Empty is off, and off is a real no-op** — no collection goroutine, no accumulation, no periodic flush. That is what makes it safe for the instruments to be called on every request unconditionally, and it is why a laptop and a test run pay nothing for telemetry they never asked for.
+
+The variable is named `CONVIA_` like everything else rather than reusing OpenTelemetry's own, because a deployment that sets the standard one is usually setting it for several processes at once, and Convia picking it up would be Convia joining a decision nobody made about it.
+
+Two instruments, which is fewer than it looks:
+
+| Instrument | What it answers |
+| --- | --- |
+| `http.server.request.duration` | how long, how many, and how many failed |
+| `http.server.active_requests` | whether Convia is keeping up |
+
+`M22-006` asks for request, error and latency separately. **A histogram carries its own count**, so all three are the one instrument cut by status — and there is no counter beside it that can disagree about the total. The second is saturation, which is a different question: not whether Convia is fast, but whether it is behind.
+
+The gauge carries **no labels at all**. Saturation is a property of the process; cutting it by route makes a series per route that is almost always zero, and the sum is the only number anybody reads.
+
+### The label is the route, never the path
+
+This is the part worth getting right, and it is about the bill as much as the graph.
+
+`/v1/rooms/{room_id}` is **one** series. `/v1/rooms/rom_ABC` is one series **per room** — an unbounded number, chosen by whoever can send a request. A metrics backend does not refuse that; it accepts it until it falls over, and the bill arrives either way.
+
+So the label comes from the router's matched pattern, which means the set of values is the route table. Three things collapse into a single `other`:
+
+- a request that **matched no route**, which anybody can send without a credential;
+- the **catch-all** the interface is served from, which is not a route in the sense this label means;
+- a **method Convia does not serve**, since the method is whatever bytes a client put on the request line.
+
+The measuring middleware sits outside the router, so this only works because the matched pattern survives back out of it. That is a property of `net/http` rather than of Convia, and there is a test for it: if it stopped being true, every series would silently collapse into `other` and the graphs would still draw.
+
 ## What is never written
 
 The rule is older than this milestone and is enforced by types rather than by care:
@@ -49,7 +84,7 @@ The rule is older than this milestone and is enforced by types rather than by ca
 
 ## Not built
 
-- **Traces** (`M22-003`, `M22-004`, `M22-005`). Nothing is exported and no span is created. The resource attributes above are the half that was worth having first, because they cost nothing and cannot be backfilled.
-- **Metrics** (`M22-006`, `M22-007`). Request rate, error rate, latency and saturation are not measured, which is also why `M14-013`, `M16-010` and `M17-011` are still open — they are all the same missing piece. It is the reason `M22-015` cannot yet decide what a signed-in person's request budget should be: the number has to be measured rather than reasoned out.
-- **Dashboards, SLOs and alerts** (`M22-011` to `M22-013`), which need the metrics first.
+- **Traces** (`M22-003`, `M22-004`, `M22-005`). No span is created and nothing is exported. Metrics came first because several other milestones are waiting on them and nothing is waiting on traces.
+- **Domain metrics** (`M22-007`). Calls, messages and presence are not measured yet — only the HTTP surface is. `M14-013`, `M16-010` and `M17-011` are the same missing piece under other names.
+- **Dashboards, SLOs and alerts** (`M22-011` to `M22-013`), which need more than the HTTP surface first.
 - **Telemetry retention and sampling** (`M22-014`).

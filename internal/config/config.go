@@ -58,6 +58,8 @@ const (
 
 	serviceInstanceEnvironment = "CONVIA_SERVICE_INSTANCE"
 
+	metricsEndpointEnvironment = "CONVIA_METRICS_ENDPOINT"
+
 	erasureWindowEnvironment = "CONVIA_ERASURE_WINDOW"
 
 	/*
@@ -217,6 +219,22 @@ type Config struct {
 		told apart afterwards.
 	*/
 	ServiceInstance string
+
+	/*
+		MetricsEndpoint is where measurements are sent, over OTLP/HTTP.
+
+		**Empty is off, and off is a real no-op**: no collection goroutine, no
+		accumulation, no periodic flush. That is what makes it safe for the
+		instruments to be called unconditionally everywhere else, and it is why
+		a laptop and a test run pay nothing for telemetry they never asked for.
+
+		It is named `CONVIA_` like everything else rather than reusing
+		OpenTelemetry's own variable, because a deployment that sets the
+		standard one is usually setting it for several processes at once, and
+		Convia picking it up would be Convia joining a decision nobody made
+		about it.
+	*/
+	MetricsEndpoint string
 
 	/*
 		PeersAllowPrivateAddresses is whether links between installations may
@@ -379,6 +397,7 @@ func Load() (Config, error) {
 		ErasureWindow:              erasureWindow,
 		LogLevel:                   logLevel,
 		ServiceInstance:            strings.TrimSpace(environmentOrDefault(serviceInstanceEnvironment, "")),
+		MetricsEndpoint:            strings.TrimSpace(environmentOrDefault(metricsEndpointEnvironment, "")),
 		PeersAllowPrivateAddresses: peersAllowPrivate,
 		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil

@@ -25,6 +25,7 @@ import (
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
 	"convia/internal/sessions"
+	"convia/internal/telemetry"
 	"convia/internal/users"
 	"convia/internal/webhooks"
 )
@@ -201,6 +202,15 @@ type Dependencies struct {
 		not care gets — the budget is never absent, only set.
 	*/
 	TenantRequestsPerMinute int
+
+	/*
+		Serving records how long each request took and whether it worked.
+
+		Leaving it out removes the measurement rather than measuring into
+		nothing, so a test or a command that assembles a server by hand does no
+		per-request work for telemetry it never configured.
+	*/
+	Serving *telemetry.Serving
 
 	/*
 		The operator surface administers tenants: creating them, suspending
@@ -497,7 +507,19 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		rt.handle(entry.method, entry.path, served)
 	}
 
-	return requestID(logRequest(logger, resolve, recoverPanic(logger, rt.handler())))
+	chain := logRequest(logger, resolve, recoverPanic(logger, rt.handler()))
+
+	/*
+		Measuring wraps the log rather than the other way round, so that a
+		panic recovered below is still measured as the 500 it became. It is
+		absent rather than inert when nothing was wired: a Dependencies without
+		metrics is a process that does no per-request measurement work at all.
+	*/
+	if dependencies.Serving != nil {
+		chain = measured(dependencies.Serving, chain)
+	}
+
+	return requestID(chain)
 }
 
 /*

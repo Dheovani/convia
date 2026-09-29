@@ -24,6 +24,7 @@ import (
 	"convia/internal/peers"
 	"convia/internal/ratelimit"
 	"convia/internal/sessions"
+	"convia/internal/telemetry"
 )
 
 /*
@@ -40,6 +41,33 @@ func requestID(next http.Handler) http.Handler {
 		response.Header().Set(api.RequestIDHeader, identifier)
 
 		next.ServeHTTP(response, request.WithContext(api.WithRequestID(request.Context(), identifier)))
+	})
+}
+
+/*
+measured records how long a request took and whether it worked.
+
+It is separate from [logRequest] rather than folded into it, because the two
+answer different questions and fail differently: a log line is read one at a
+time when somebody already suspects something, and a measurement is read in
+aggregate to find out whether they should. Putting them in one function would
+mean a change to either risked the other.
+
+**It is outside the router**, which is what lets it see the matched pattern: the
+router puts it on the request while serving, and reading it on the way out is
+how the measurement is labelled by route rather than by path. See routeOf.
+
+A nil recorder means metrics are not configured, and the middleware is not
+wrapped at all rather than wrapping with something that does nothing per
+request.
+*/
+func measured(serving *telemetry.Serving, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		recorder := &responseRecorder{ResponseWriter: response, status: http.StatusOK}
+
+		done := serving.Began(request.Context())
+		next.ServeHTTP(recorder, request)
+		done(request, recorder.status)
 	})
 }
 

@@ -46,6 +46,16 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
+/*
+measurementFlush bounds reporting the last interval on the way out.
+
+It is short because it happens after everything else has stopped, with a person
+or an orchestrator waiting: a collector that is unreachable should delay the
+exit by a couple of seconds and then be given up on, not hold the process open
+until something kills it.
+*/
+const measurementFlush = 3 * time.Second
+
 const usage = `Convia is a real-time communication service.
 
 Usage:
@@ -205,6 +215,36 @@ func migrate(ctx context.Context, logger *slog.Logger, cfg config.Config, argume
 func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	signalContext, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	/*
+		Measurement is built before anything it measures, and its shutdown is
+		deferred first so that it runs last.
+
+		The final interval's measurements are still in memory when a process is
+		asked to stop, and a deployment that reports nothing about its last
+		minute reports nothing about the minute that usually matters. The
+		shutdown context is deliberately not the signal one: it has already been
+		cancelled by the time this runs.
+	*/
+	service := telemetry.Describing(string(cfg.Environment), cfg.ServiceInstance)
+
+	meters, stopMeasuring, err := telemetry.Measuring(signalContext, service, cfg.MetricsEndpoint)
+	if err != nil {
+		return fmt.Errorf("start measuring: %w", err)
+	}
+	defer func() {
+		flushing, cancel := context.WithTimeout(context.WithoutCancel(ctx), measurementFlush)
+		defer cancel()
+
+		if err := stopMeasuring(flushing); err != nil {
+			logger.WarnContext(flushing, "the last measurements could not be reported", "error", err)
+		}
+	}()
+
+	requests, err := telemetry.Serve(meters)
+	if err != nil {
+		return fmt.Errorf("build the request instruments: %w", err)
+	}
 
 	pool, err := database.Open(signalContext, cfg.Database, logger)
 	if err != nil {
@@ -374,6 +414,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Database:                pool,
 		TrustedProxies:          cfg.TrustedProxies,
 		TenantRequestsPerMinute: cfg.TenantRequestsPerMinute,
+		Serving:                 requests,
 
 		OperatorAuthenticator: operatorService,
 		Applications:          applications.NewHandler(logger, applicationService),
