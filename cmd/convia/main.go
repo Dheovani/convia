@@ -291,6 +291,18 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 
 	/*
+		What the streams are doing. The ending counter is the one worth
+		watching: `behind` means somebody's view of a conversation had a hole
+		in it, which is invisible everywhere else — the subscriber reconnects
+		and everything looks healthy again.
+	*/
+	streams, err := telemetry.Follow(meters, broker)
+	if err != nil {
+		return fmt.Errorf("follow the event streams: %w", err)
+	}
+	broker.Watch(streams)
+
+	/*
 		Which addresses this instance is willing to reach is decided here, from
 		the environment and from nothing else. A development instance may deliver
 		to a receiver on localhost, because that is how anybody tests a webhook;

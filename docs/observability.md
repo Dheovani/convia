@@ -75,6 +75,20 @@ They are read together, in one callback, because an operator compares them: peop
 
 **Not knowing is not zero.** A count that fails is logged and reported as no measurement, because zero is a claim that nothing is happening and a database that could not be reached is not that claim.
 
+### The event streams
+
+| Instrument | What it answers |
+| --- | --- |
+| `convia.event.streams.active` | how many streams this instance is serving |
+| `convia.event.delivery.duration` | how long an event took to reach them |
+| `convia.event.streams.ended` | how many finished, and **why** |
+
+**The ending counter is the one worth watching.** `behind` means somebody's view of a conversation had a hole in it — and it is invisible in every other signal, because the subscriber reconnects, fills the gap from the journal, and everything looks healthy again. `reader` and `shutdown` are ordinary.
+
+`M14-013` asked for "dropped events". **Convia does not drop events and carry on**: a subscriber that falls behind is *ended*, with a reason saying its view is now incomplete, so that reconnecting with its last cursor fills the gap. The instrument is named for what happens rather than for what was asked, because counting "dropped events" would describe a design Convia deliberately does not have.
+
+**Delivery is timed from when the change happened**, not from when the event was published: the interesting delay is the transaction that had to commit first, not the microseconds spent fanning out afterwards. Events arriving from another instance are **not** timed — they were stamped by that instance's clock, and a latency computed across two clocks measures the skew between them at least as much as it measures Convia. A negative reading is discarded rather than recorded, because a delivery that arrived before the thing it describes happened is worse than a gap: somebody would believe it.
+
 ### The label is the route, never the path
 
 This is the part worth getting right, and it is about the bill as much as the graph.
@@ -100,6 +114,6 @@ The rule is older than this milestone and is enforced by types rather than by ca
 ## Not built
 
 - **Traces** (`M22-003`, `M22-004`, `M22-005`). No span is created and nothing is exported. Metrics came first because several other milestones are waiting on them and nothing is waiting on traces.
-- **The other domains.** Event streams (`M14-013`), the Redis pool (`M16-010`) and presence (`M17-011`) are still unmeasured. They are three separate instrument sets rather than one, so they arrive one at a time.
+- **The other domains.** The Redis pool (`M16-010`) and presence (`M17-011`) are still unmeasured.
 - **Dashboards, SLOs and alerts** (`M22-011` to `M22-013`), which need more than the HTTP surface first.
 - **Telemetry retention and sampling** (`M22-014`).
