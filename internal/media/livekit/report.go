@@ -65,6 +65,12 @@ than refused. A report that verifies and still cannot be read is an error, but
 not ErrUnverified: it came from the provider, and an operator has to find out
 why the provider said something unreadable.
 */
+func sanitizeForLog(value string) string {
+	value = strings.ReplaceAll(value, "\n", "")
+	value = strings.ReplaceAll(value, "\r", "")
+	return value
+}
+
 func (plane *Plane) Report(authorization string, body []byte) (media.Report, error) {
 	var claims reportClaims
 
@@ -106,7 +112,7 @@ func (plane *Plane) Report(authorization string, body []byte) (media.Report, err
 	}
 
 	if happened.Room.Name == "" || (kind != media.ReportFinished && happened.Participant.Identity == "") {
-		return media.Report{}, fmt.Errorf("a %s report names nothing: %w", happened.Event, media.ErrRejected)
+		return media.Report{}, fmt.Errorf("a %s report names nothing: %w", sanitizeForLog(happened.Event), media.ErrRejected)
 	}
 
 	return media.Report{
