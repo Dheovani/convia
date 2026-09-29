@@ -744,6 +744,66 @@ func metered(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) ht
 }
 
 /*
+personal rations what one signed-in session may ask of an installation.
+
+It is [metered]'s twin for a person, and it exists because the tenant budget
+names an application and a session names none — so a request that succeeds cost
+a person nothing however many they made.
+
+**It is keyed by the session, not by the account and not by the address**, and
+that is what makes it safe rather than the denial of service `M22-015` spent two
+milestones avoiding:
+
+  - An address is shared by a household or an office, so budgeting there lets
+    one person there refuse everybody else.
+  - An **account** is shared by that person's own devices, so a stolen session
+    flooding would throttle the phone of the person it was stolen from — the
+    attack would cost the victim twice.
+  - A **session** is held by exactly one holder. Exhausting it refuses that
+    holder and nobody else, and an attacker cannot mint more of somebody's
+    sessions, because making one needs the password.
+
+Refusals are visible without a new instrument: they are 429s on the request
+histogram, which already carries the status.
+*/
+func personal(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		principal, found := sessions.PrincipalFromContext(request.Context())
+		if !found {
+			/*
+				Reachable only by wiring this where a session is not named,
+				which is a startup mistake rather than a caller's. Refusing is
+				its safe half, as in [metered].
+			*/
+			logger.ErrorContext(request.Context(), "a rationed route was reached without a session",
+				"method", request.Method,
+				"path", request.URL.Path,
+			)
+			refuse(logger, response, request, "")
+			return
+		}
+
+		if !uses.Allows(principal.SessionID) {
+			slowDown(logger, response, request, "",
+				uses.RetryAfter(principal.SessionID), tooManyPersonalRequests)
+			return
+		}
+		uses.Record(principal.SessionID)
+
+		next.ServeHTTP(response, request)
+	})
+}
+
+/*
+tooManyPersonalRequests is what a session asking too often is told.
+
+It names the session rather than the person, because that is what ran out and
+because a message naming the account would invite a client to sign in again —
+which would work, and would be the wrong thing to have learnt.
+*/
+const tooManyPersonalRequests = "This session has made too many requests. Retry later."
+
+/*
 tooManyTenantRequests is what an application asking too often is told.
 
 Unlike [tooManyRequests] it names what ran out, and the difference is not an

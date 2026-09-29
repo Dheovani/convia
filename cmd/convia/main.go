@@ -252,7 +252,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		of whatever it was doing when it was asked to stop — which is the trace
 		somebody wanted.
 	*/
-	tracers, stopTracing, err := telemetry.Tracing(signalContext, service, cfg.TracesEndpoint)
+	tracers, stopTracing, err := telemetry.Tracing(signalContext, service, cfg.TracesEndpoint, cfg.TraceSample)
 	if err != nil {
 		return fmt.Errorf("start tracing: %w", err)
 	}
@@ -290,6 +290,17 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	mediaPlane, mediaReports, err := openMediaPlane(cfg.Media, logger)
 	if err != nil {
 		return err
+	}
+
+	/*
+		And the media plane, whose address is operator configuration — so
+		carrying Convia's trace there is carrying it somewhere the deployment
+		chose. A Convia with no media plane has nothing to wrap.
+	*/
+	if mediaReports != nil {
+		mediaReports.Trace(func(inner http.RoundTripper) http.RoundTripper {
+			return telemetry.Call(inner, tracers, "media.request", true)
+		})
 	}
 
 	/*
@@ -334,6 +345,22 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	webhookStore := webhooks.NewStore(pool)
 	webhookService := webhooks.NewService(webhookStore, applicationService, destinations, logger)
 	dispatcher := webhooks.NewDispatcher(webhookStore, destinations, logger)
+
+	/*
+		Webhook deliveries appear in the trace of the request that caused them,
+		and **carry Convia's trace outward**: an application receiving one can
+		join its own trace to the operation behind it, which is the point of
+		propagating at all and is that application's own data.
+
+		It is not done for requests to another installation. A home is chosen
+		by anybody who can send an invitation, and handing one a trace
+		identifier would let it correlate several of Convia's requests as one
+		operation — a small channel Convia gets nothing back for. See
+		docs/threat-model.md on what a signature does and does not prove.
+	*/
+	dispatcher.Trace(func(inner http.RoundTripper) http.RoundTripper {
+		return telemetry.Call(inner, tracers, "webhook.deliver", true)
+	})
 
 	/*
 		Events that must not be lost are recorded in the journal and queued for
@@ -492,6 +519,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Database:                pool,
 		TrustedProxies:          cfg.TrustedProxies,
 		TenantRequestsPerMinute: cfg.TenantRequestsPerMinute,
+		PersonRequestsPerMinute: cfg.PersonRequestsPerMinute,
 		Serving:                 httpMetrics,
 		Requests:                requests,
 

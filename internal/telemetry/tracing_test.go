@@ -152,7 +152,7 @@ tracing.
 */
 func TestNothingIsTracedWhenNothingIsConfigured(t *testing.T) {
 	provider, shutdown, err := Tracing(context.Background(),
-		Describing("development", "test"), "")
+		Describing("development", "test"), "", 1)
 	if err != nil {
 		t.Fatalf("Tracing() with no endpoint error = %v", err)
 	}

@@ -139,6 +139,24 @@ CONVIA_TENANT_REQUESTS_PER_MINUTE=3000
 
 The default is a ceiling rather than a throttle. Fifty requests a second sustained is far above what serving conversations needs and far below what starving the other tenants needs. **The right number depends on the deployment in a way the failure budgets do not**, so an operator can raise it — between 60 and 1 000 000 a minute. There is no value that turns it off, and a number outside those bounds stops the process at startup rather than quietly restoring what the limit was added to end.
 
+## Rate limiting a person
+
+```
+CONVIA_PERSON_REQUESTS_PER_MINUTE=600
+```
+
+A third budget, for the third unit. The tenant one above names an application and a session names none, so a request that succeeded used to cost a person nothing however many they made.
+
+**It is keyed by the session — not the account, and not the address.** That is the whole design, and it is why this took until `M22-015` to arrive:
+
+- an **address** is shared by a household or an office, so budgeting there lets one person refuse everybody behind it;
+- an **account** is shared by somebody's own devices, so a stolen session flooding would throttle the phone it was stolen from — the attack would cost the victim twice;
+- a **session** is held by exactly one holder. Exhausting it refuses that holder and nobody else, and nobody can mint more of somebody's sessions, because making one needs the password.
+
+**Six hundred a minute is deliberately generous.** Ten a second sustained is more than a person produces — a click is one request, opening a room is a handful, and the event stream is one request that lasts — so what this refuses is something that is not a person using Convia. What it is for is bounding a stolen session reading an installation faster than anybody could, and a number low enough to matter for anything else would be low enough to interrupt somebody scrolling a long conversation.
+
+Refusals need no instrument of their own: they are `429`s on the request histogram, which already carries the status. See [`observability.md`](observability.md).
+
 **The budget is per instance**, like every other in Convia: a deployment running four instances behind a load balancer grants four times the number configured. Making it exact needs shared state on the path whose whole purpose is to be cheaper than the work it guards. See [`events.md`](events.md), whose stream ceilings are per instance for the same reason.
 
 The reading is what makes the header safe to use at all. The chain is walked **from the right**, skipping trusted hops, because a proxy appends what it saw and anything a client invented sits further left. A caller connecting directly is charged to its own address whatever it claims, so the limiter cannot be turned into a weapon: a caller can neither escape its own budget by rotating the header nor spend someone else's by naming them. Both are asserted by tests.

@@ -147,6 +147,18 @@ func New(config Config) (*Plane, error) {
 }
 
 /*
+Trace wraps the transport this plane talks through.
+
+A method rather than a constructor argument, for the reason
+webhooks.Dispatcher.Trace gives. The media plane's address is operator
+configuration, so carrying Convia's trace there is carrying it somewhere the
+deployment chose.
+*/
+func (plane *Plane) Trace(wrap func(http.RoundTripper) http.RoundTripper) {
+	plane.client.Transport = wrap(plane.client.Transport)
+}
+
+/*
 ClientURL is the address a browser connects to.
 
 It is exported for the one other thing that has to know it: the page's

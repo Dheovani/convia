@@ -241,11 +241,17 @@ convia account activate acc_7KQZP4XN2VJH6TBWMDR3YAFC5E
 
 **Whoever has the machine has the database**, and can insert a row into `accounts` and sign in as it, or suspend anybody. What they cannot do is **use somebody's key**, because it is sealed by a password they do not have — which is what invitations between installations will depend on. argon2id makes guessing that password expensive, and a weak one is still a weak one.
 
+## What a session may ask for
+
+Every request a signed-in person makes is charged against a budget, successes included — six hundred a minute by default.
+
+**It is keyed by the session rather than the account**, which is what keeps it from being an attack of its own: exhausting one refuses that holder and nobody else, so a thief flooding with a stolen session never throttles the phone it was stolen from. Nobody can mint more of somebody's sessions either, because making one needs the password. See [`authentication.md`](authentication.md).
+
 ## Known gaps
 
 - **Signing in costs two argon2id derivations**: one to verify the password, one to open the key the session holds.
 - **No verification code on first contact.** Two people comparing a short code out of band would stop somebody in the middle substituting an invitation. Named, not adopted.
-- **No per-account rate limiting.** Failed sign-ins are budgeted per caller address. An attacker spread across many addresses is bounded only by the password's strength. A naive per-account lockout is a denial of service against a named person; doing it properly needs state shared between instances.
+- **Sign-ins are budgeted per address, not per account.** Failed sign-ins are budgeted per caller address. An attacker spread across many addresses is bounded only by the password's strength. A naive per-account lockout is a denial of service against a named person; doing it properly needs state shared between instances.
 - **Registration is rationed per address, per instance.** Several instances each allow twenty an hour, as every limiter in Convia does until it moves to Redis.
 - **Revocation reaches a person's live stream within a minute, not at once.** See [ADR 0010](adr/0010-a-persons-stream-is-authorized-per-room.md).
 - **Revocation does not reach an application's live stream.** `GET /v1/events` verifies its key once at the handshake. It predates the session surface.

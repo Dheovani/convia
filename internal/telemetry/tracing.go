@@ -29,8 +29,12 @@ spans are batched, so a process that exits without flushing loses the trace of
 whatever it was doing when it was asked to stop — which is the trace somebody
 wanted.
 */
-func Tracing(ctx context.Context, service Service, endpoint string) (
-	trace.TracerProvider, func(context.Context) error, error) {
+func Tracing(
+	ctx context.Context,
+	service Service,
+	endpoint string,
+	sample float64,
+) (trace.TracerProvider, func(context.Context) error, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
 		return noop.NewTracerProvider(), func(context.Context) error { return nil }, nil
@@ -51,8 +55,37 @@ func Tracing(ctx context.Context, service Service, endpoint string) (
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(described),
 		sdktrace.WithBatcher(exporter),
+		sdktrace.WithSampler(sampling(sample)),
 	)
 	return provider, provider.Shutdown, nil
+}
+
+/*
+sampling decides which traces are kept.
+
+**It is parent-based, and that is what makes a trace worth having.** If the
+caller already decided to record this operation, Convia records its part —
+otherwise a sampled trace would arrive at whoever is reading it with Convia
+missing from the middle, which is worse than not sampling at all because it
+looks like Convia did nothing.
+
+The consequence is worth stating: **a caller that samples everything makes
+Convia trace everything it asks for.** That is a lever somebody outside holds,
+and it is bounded by the one that already bounds them — `M23-013`'s per-tenant
+request budget caps how much they can ask for in the first place.
+
+A ratio of one is every trace, which is right while an installation is small
+and is the default. Zero keeps only what a caller asked to be kept.
+*/
+func sampling(ratio float64) sdktrace.Sampler {
+	switch {
+	case ratio >= 1:
+		return sdktrace.ParentBased(sdktrace.AlwaysSample())
+	case ratio <= 0:
+		return sdktrace.ParentBased(sdktrace.NeverSample())
+	default:
+		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(ratio))
+	}
 }
 
 /*

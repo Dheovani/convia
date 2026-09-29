@@ -79,7 +79,9 @@ Which surface a route is on is **declared in the route table** (`internal/server
 - **Stealing a session from the page.** The cookie is `HttpOnly` and `__Host-` prefixed, so a script in the page cannot read it and a compromised subdomain cannot write it.
 - **CSRF.** Three independent layers: `SameSite=Lax`, a JSON content type an HTML form cannot send, and an **exact-match `Origin` check that fails closed** on every state-changing request. A test walks the route table and proves no route on this surface changes state on a `GET`, which is what keeps `SameSite=Lax` meaningful.
 
-**Not covered:** there is no rate limit per *account*. Failed sign-ins are budgeted, and so is registering, but a request that succeeds costs a person nothing however many they make — the tenant budget above names an application, and a session names none. The reason it has not simply been copied is that the unit is wrong twice over: a budget sized for a backend would never refuse anybody, and one sized for a person is a denial of service against a named person as soon as somebody else shares their address. **It is an open question rather than a settled one, and it waits for `M22-015`** — the number cannot be derived the way the others were, and both ways of getting it wrong are invisible until somebody hits them, which is what measurement is for. The thing it would bound is a stolen session reading an installation faster than a person could. There is no password reset, by design: the account's private key is sealed by the password, so nobody without it can recover the account, including whoever runs the installation.
+- **A stolen session reading everything.** Every request a signed-in person makes is charged against a budget, successes included — 600 a minute by default. **It is keyed by the session, not the account and not the address**, and that is what makes it safe: an address is shared by a household, an account is shared by somebody's own devices, and a session is held by exactly one holder. So exhausting one refuses that holder and nobody else, a thief's flood does not throttle the phone it was stolen from, and nobody can mint more of somebody's sessions, because making one needs the password.
+
+**Not covered:** there is no limit on how *much* one request can cost, only on how often requests come. A deliberately expensive read is bounded by nothing here. There is no password reset, by design: the account's private key is sealed by the password, so nobody without it can recover the account, including whoever runs the installation.
 
 ## Another installation → Convia
 
@@ -150,6 +152,6 @@ Convia's own interface and the desktop application are **one client among many**
 
 | | |
 | --- | --- |
-| No rate limit per person, only per tenant and per address | `M22-015` |
+| No bound on how expensive one request may be, only on how often | `M24` |
 | No audit trail an operator cannot write to | `M23` |
 | No secret manager, no defined rotation | `M23-005`, `M23-006` |
