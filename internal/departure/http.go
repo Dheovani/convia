@@ -99,11 +99,10 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 	default:
 		path := strings.ReplaceAll(request.URL.Path, "\n", "")
 		path = strings.ReplaceAll(path, "\r", "")
-		handler.logger.Error("deleting an account failed",
+		handler.logger.ErrorContext(request.Context(), "deleting an account failed",
 			"error", err,
 			"method", request.Method,
 			"path", path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
@@ -112,9 +111,8 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 
 func (handler *Handler) writeFailure(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write error response",
+		handler.logger.ErrorContext(request.Context(), "write error response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

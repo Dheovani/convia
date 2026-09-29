@@ -52,8 +52,7 @@ func NewPersonalHandler(logger *slog.Logger, service service, rooms neighbours) 
 func (handler *PersonalHandler) principal(response http.ResponseWriter, request *http.Request) (sessions.Principal, bool) {
 	principal, found := sessions.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("presence reached without a session",
-			"request_id", api.RequestIDFromContext(request.Context()))
+		handler.logger.ErrorContext(request.Context(), "presence reached without a session")
 		handler.tenant.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable session."))
 		return sessions.Principal{}, false

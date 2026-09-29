@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"convia/internal/accounts"
-	"convia/internal/api"
 	"convia/internal/secret"
 	"convia/internal/users"
 )
@@ -348,11 +347,10 @@ func (service *Service) EndAll(ctx context.Context, accountID string) (int, erro
 		return 0, err
 	}
 
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", "session.ended_everywhere",
 		"account_id", accountID,
 		"sessions", ended,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 	return ended, nil
 }
@@ -409,11 +407,10 @@ func (service *Service) makeRoom(ctx context.Context, accountID string, at time.
 		if err := service.store.Revoke(ctx, live[index].ID, at); err != nil {
 			return err
 		}
-		service.logger.Info("audit event",
+		service.logger.InfoContext(ctx, "audit event",
 			"event", "session.evicted",
 			"account_id", accountID,
 			"session_id", live[index].ID,
-			"request_id", api.RequestIDFromContext(ctx),
 		)
 	}
 	return nil
@@ -448,7 +445,6 @@ func (service *Service) audit(ctx context.Context, event string, session Session
 	attributes := []any{
 		"event", event,
 		"session_id", session.ID,
-		"request_id", api.RequestIDFromContext(ctx),
 	}
 	if session.AccountID != "" {
 		attributes = append(attributes, "account_id", session.AccountID)

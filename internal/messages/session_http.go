@@ -91,10 +91,9 @@ func (handler *SessionHandler) personal(response http.ResponseWriter,
 	if !found {
 		pathForLog := strings.ReplaceAll(request.URL.Path, "\n", "")
 		pathForLog = strings.ReplaceAll(pathForLog, "\r", "")
-		handler.logger.Error("a session route was reached without a session",
+		handler.logger.ErrorContext(request.Context(), "a session route was reached without a session",
 			"method", request.Method,
 			"path", pathForLog,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
@@ -300,9 +299,8 @@ func (handler *SessionHandler) write(response http.ResponseWriter, request *http
 	status int, body any) {
 	private(response)
 	if err := api.Write(response, status, body); err != nil {
-		handler.logger.Error("write response",
+		handler.logger.ErrorContext(request.Context(), "write response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -311,9 +309,8 @@ func (handler *SessionHandler) writeFailure(response http.ResponseWriter,
 	request *http.Request, failure *api.Failure) {
 	private(response)
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write failure response",
+		handler.logger.ErrorContext(request.Context(), "write failure response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

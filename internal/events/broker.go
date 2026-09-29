@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 const (
@@ -118,6 +119,69 @@ const (
 )
 
 /*
+String names an ending for a log line or a metric label.
+
+The three are the whole set and always will be — an ending a subscriber cannot
+interpret would be an ending nobody could act on — so this is a safe label: the
+number of series it can produce is three.
+*/
+func (ending Ending) String() string {
+	switch ending {
+	case EndedByReader:
+		return "reader"
+	case EndedBehind:
+		return "behind"
+	case EndedByShutdown:
+		return "shutdown"
+	default:
+		return "unknown"
+	}
+}
+
+/*
+Watcher is told what the broker did, for whoever is measuring it.
+
+It is deliberately narrow and deliberately ignorant: it learns that a stream
+ended and why, and how long an event took to reach the streams open for it, and
+nothing about whose stream or which event. What is being counted is the
+installation's behaviour rather than anybody's use of it.
+
+**An implementation must not block and must not call back into the broker.**
+Ended is called while the broker's lock is held, because that is the only place
+every ending passes through — a counter is welcome there and a network call is
+not.
+*/
+type Watcher interface {
+	// Ended reports a stream finishing, named by [Ending.String].
+	Ended(reason string)
+	// Delivered reports how long an event took to reach the streams open for
+	// it, measured from when the change it describes happened.
+	Delivered(latency time.Duration)
+}
+
+/*
+Watch attaches a watcher, or replaces the one there.
+
+It is a method rather than a constructor argument because a broker is built in
+seventy places, nearly all of them tests that measure nothing — and a
+constructor that grew a parameter for their sake would be a parameter written
+`nil` seventy times.
+*/
+func (broker *Broker) Watch(watcher Watcher) {
+	broker.mutex.Lock()
+	defer broker.mutex.Unlock()
+	broker.watcher = watcher
+}
+
+// watching reads the watcher under the lock, for the one caller that is not
+// already holding it.
+func (broker *Broker) watching() Watcher {
+	broker.mutex.Lock()
+	defer broker.mutex.Unlock()
+	return broker.watcher
+}
+
+/*
 Broker fans control events out to whoever is listening right now.
 
 It holds nothing: an event is delivered to the streams open at the moment it is
@@ -156,6 +220,13 @@ type Broker struct {
 		serving it still has a close frame to write.
 	*/
 	serving sync.WaitGroup
+
+	/*
+		watcher is told what this broker did, and is nil unless somebody is
+		measuring. Nil is the common case: seventy of the places that build a
+		broker are tests.
+	*/
+	watcher Watcher
 
 	/*
 		relay carries events to and from the other instances of this
@@ -566,6 +637,21 @@ func (broker *Broker) Publish(event Event) {
 	broker.deliver(event)
 
 	/*
+		How long the change took to reach the streams open for it, measured
+		from when it happened rather than from when this was called: the
+		interesting delay is the transaction that had to commit first, not the
+		microseconds spent fanning out afterwards.
+
+		It is measured here rather than in [Receive], because an event that
+		arrived from another instance was timestamped by that instance's clock
+		— and a latency computed across two clocks measures the skew between
+		them at least as much as it measures Convia.
+	*/
+	if watcher := broker.watching(); watcher != nil && !event.OccurredAt.IsZero() {
+		watcher.Delivered(time.Since(event.OccurredAt))
+	}
+
+	/*
 		Carried to the other instances after this one's subscribers have it, so
 		that a slow or unreachable relay cannot delay the delivery it was meant
 		to widen. Broadcast is non-blocking, which is what makes that ordering
@@ -699,4 +785,18 @@ func (broker *Broker) endLocked(stream *Stream, ending Ending) {
 		stream.ending.Store(int32(ending))
 		close(stream.done)
 	})
+
+	/*
+		Reported here because this is the only place every ending passes
+		through — the three reasons reach it from three different callers, and
+		counting at each of them is counting somewhere one of them will be
+		added without.
+
+		It happens under the lock, which is why [Watcher] says an
+		implementation must not block: a counter is welcome here and anything
+		that waits is not.
+	*/
+	if broker.watcher != nil {
+		broker.watcher.Ended(ending.String())
+	}
 }

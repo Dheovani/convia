@@ -243,6 +243,17 @@ func (relay *Relay) Close() error {
 }
 
 /*
+PoolStats and AddHook are what measuring this client needs, and the whole of it.
+
+They are two lines rather than a telemetry dependency in this package: what a
+relay owes an observer is the numbers its client already keeps and a place to
+put a timer, and deciding what to do with either belongs somewhere else.
+*/
+func (relay *Relay) PoolStats() *goredis.PoolStats { return relay.client.PoolStats() }
+
+func (relay *Relay) AddHook(hook goredis.Hook) { relay.client.AddHook(hook) }
+
+/*
 carry publishes queued events until the relay stops.
 
 One goroutine, owned by the relay, ended by Close. Publishing here rather than

@@ -69,7 +69,7 @@ func newFixture(t *testing.T) fixture {
 		t.Fatalf("Migrate() error = %v", err)
 	}
 	pool, err := database.Open(ctx, config.Database{URL: parsed.String(), MaxConnections: 8,
-		ConnectTimeout: 10 * time.Second, QueryTimeout: 5 * time.Second}, logger)
+		ConnectTimeout: 10 * time.Second, QueryTimeout: 5 * time.Second}, logger, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

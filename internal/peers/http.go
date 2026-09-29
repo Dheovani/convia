@@ -716,8 +716,7 @@ func (handler *SessionHandler) writeRelayed(response http.ResponseWriter, reques
 		response.Header().Set("Content-Type", api.ContentTypeJSON)
 		response.WriteHeader(answer.Status)
 		if _, err := response.Write(answer.Body); err != nil {
-			handler.logger.Error("write relayed response", "error", err,
-				"request_id", api.RequestIDFromContext(request.Context()))
+			handler.logger.ErrorContext(request.Context(), "write relayed response", "error", err)
 		}
 		return
 	}
@@ -748,8 +747,8 @@ func (handler *SessionHandler) writeRelayed(response http.ResponseWriter, reques
 func (handler *SessionHandler) principal(response http.ResponseWriter, request *http.Request) (sessions.Principal, bool) {
 	principal, found := sessions.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("a session route was reached without a session",
-			"method", request.Method, "request_id", api.RequestIDFromContext(request.Context()))
+		handler.logger.ErrorContext(request.Context(), "a session route was reached without a session",
+			"method", request.Method)
 		writeFailure(handler.logger, response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
 		return sessions.Principal{}, false
@@ -812,13 +811,23 @@ func forwardQuery(request *http.Request, names ...string) string {
 func signerOf(logger *slog.Logger, response http.ResponseWriter, request *http.Request) (Signer, bool) {
 	signer, found := SignerFromContext(request.Context())
 	if !found {
-		logger.Error("a route between installations was reached without a signature",
-			"method", request.Method, "request_id", api.RequestIDFromContext(request.Context()))
+		logger.ErrorContext(request.Context(), "a route between installations was reached without a signature",
+			"method", request.Method)
 		writeFailure(logger, response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
 		return Signer{}, false
 	}
 	return signer, true
+}
+
+func safeLogError(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	message = strings.ReplaceAll(message, "\n", "")
+	message = strings.ReplaceAll(message, "\r", "")
+	return message
 }
 
 // writeError translates this package's errors into what a caller is told.
@@ -854,18 +863,16 @@ func writeError(logger *slog.Logger, response http.ResponseWriter, request *http
 			which of the two it was, because only somebody running an
 			installation can act on the difference.
 		*/
-		logger.Warn("another installation does not speak this one's protocol", "error", err,
-			"speaks", Spoken, "request_id", api.RequestIDFromContext(request.Context()))
+		logger.WarnContext(request.Context(), "another installation does not speak this one's protocol", "error", safeLogError(err),
+			"speaks", Spoken)
 		writeFailure(logger, response, request, api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
 			"The other Convia could not be reached. Try again in a moment."))
 	case errors.Is(err, ErrUnreachable):
-		logger.Warn("another installation could not be reached", "error", err,
-			"request_id", api.RequestIDFromContext(request.Context()))
+		logger.WarnContext(request.Context(), "another installation could not be reached", "error", safeLogError(err))
 		writeFailure(logger, response, request, api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
 			"The other Convia could not be reached. Try again in a moment."))
 	default:
-		logger.Error("request between installations failed", "error", err, "method", request.Method,
-			"request_id", api.RequestIDFromContext(request.Context()))
+		logger.ErrorContext(request.Context(), "request between installations failed", "error", safeLogError(err), "method", request.Method)
 		writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
 	}
@@ -874,15 +881,14 @@ func writeError(logger *slog.Logger, response http.ResponseWriter, request *http
 func write(logger *slog.Logger, response http.ResponseWriter, request *http.Request, status int, body any) {
 	private(response)
 	if err := api.Write(response, status, body); err != nil {
-		logger.Error("write response", "error", err, "request_id", api.RequestIDFromContext(request.Context()))
+		logger.ErrorContext(request.Context(), "write response", "error", err)
 	}
 }
 
 func writeFailure(logger *slog.Logger, response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	private(response)
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write failure response", "error", err,
-			"request_id", api.RequestIDFromContext(request.Context()))
+		logger.ErrorContext(request.Context(), "write failure response", "error", err)
 	}
 }
 

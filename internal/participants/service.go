@@ -776,7 +776,6 @@ func (service *Service) record(ctx context.Context, event string, participant Pa
 		"user_id", participant.UserID,
 		"participant_status", string(participant.Status),
 		"participant_role", string(participant.Role),
-		"request_id", api.RequestIDFromContext(ctx),
 	}
 	if participant.RemovedBy != nil {
 		attributes = append(attributes, "removed_by", string(*participant.RemovedBy))

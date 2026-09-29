@@ -107,6 +107,36 @@ type Store interface {
 		subscribers the announcement, not the answer.
 	*/
 	Lapse(ctx context.Context, limit int) ([]Change, error)
+
+	/*
+		Standing reports how much presence the deployment is holding.
+
+		It exists for `M17-011` and answers the two questions an operator has:
+		how much there is, and whether expiry is keeping up with it.
+	*/
+	Standing(ctx context.Context) (Standing, error)
+}
+
+/*
+Standing is how much presence there is, and how much of it has gone stale.
+
+**It counts claims rather than people**, and the distinction is the honest one:
+a person with a phone and a laptop holds two, and counting people would mean
+either walking every claim or keeping a second tally that can disagree with the
+first. `M17-011` asked for active users; what is cheap to know exactly is this,
+and a number named for what it counts is worth more than one named for what was
+asked.
+
+Overdue is the reading that says something is wrong. A claim past its deadline
+changes no answer — every read already ignores it — so this never affects what
+anybody sees. What it says is whether the sweeper is keeping up, and a number
+that climbs means subscribers are not being told that people went away.
+*/
+type Standing struct {
+	// Claims is how many device claims are held, overdue ones included.
+	Claims int64
+	// Overdue is how many of them are past their deadline and unswept.
+	Overdue int64
 }
 
 /*
@@ -261,6 +291,33 @@ serves one process, so what it walks is the presence one instance is holding,
 and a deployment large enough for that to matter is one that needs the shared
 store for reasons that have nothing to do with this.
 */
+/*
+Standing counts what this process is holding.
+
+It walks, which is right here and would not be in the shared store: a memory
+store is one instance's presence, and one instance holds what one instance can
+serve. The shared one answers the same question from an index instead.
+*/
+func (store *Memory) Standing(_ context.Context) (Standing, error) {
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+
+	now := store.now()
+	var counted Standing
+
+	for _, people := range store.users {
+		for _, devices := range people {
+			for _, device := range devices {
+				counted.Claims++
+				if !device.Live(now) {
+					counted.Overdue++
+				}
+			}
+		}
+	}
+	return counted, nil
+}
+
 func (store *Memory) Lapse(_ context.Context, limit int) ([]Change, error) {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()

@@ -79,7 +79,9 @@ Which surface a route is on is **declared in the route table** (`internal/server
 - **Stealing a session from the page.** The cookie is `HttpOnly` and `__Host-` prefixed, so a script in the page cannot read it and a compromised subdomain cannot write it.
 - **CSRF.** Three independent layers: `SameSite=Lax`, a JSON content type an HTML form cannot send, and an **exact-match `Origin` check that fails closed** on every state-changing request. A test walks the route table and proves no route on this surface changes state on a `GET`, which is what keeps `SameSite=Lax` meaningful.
 
-**Not covered:** there is no rate limit per *account*. Failed sign-ins are budgeted, and so is registering, but a request that succeeds costs a person nothing however many they make — the tenant budget above names an application, and a session names none. The reason it has not simply been copied is that the unit is wrong twice over: a budget sized for a backend would never refuse anybody, and one sized for a person is a denial of service against a named person as soon as somebody else shares their address. **It is an open question rather than a settled one, and it waits for `M22-015`** — the number cannot be derived the way the others were, and both ways of getting it wrong are invisible until somebody hits them, which is what measurement is for. The thing it would bound is a stolen session reading an installation faster than a person could. There is no password reset, by design: the account's private key is sealed by the password, so nobody without it can recover the account, including whoever runs the installation.
+- **A stolen session reading everything.** Every request a signed-in person makes is charged against a budget, successes included — 600 a minute by default. **It is keyed by the session, not the account and not the address**, and that is what makes it safe: an address is shared by a household, an account is shared by somebody's own devices, and a session is held by exactly one holder. So exhausting one refuses that holder and nobody else, a thief's flood does not throttle the phone it was stolen from, and nobody can mint more of somebody's sessions, because making one needs the password.
+
+**Not covered:** there is no limit on how *much* one request can cost, only on how often requests come. A deliberately expensive read is bounded by nothing here. There is no password reset, by design: the account's private key is sealed by the password, so nobody without it can recover the account, including whoever runs the installation.
 
 ## Another installation → Convia
 
@@ -106,6 +108,26 @@ This is the newest boundary and the largest.
 **Trusted for:** nothing. Following a link makes this installation connect somewhere from inside whatever network it runs in, on the word of anybody who can register.
 
 **What stops the obvious attack:** the same guard webhook delivery uses — the address is checked **at the socket on every attempt**, so a name that resolves to a public address once and a private one a second later cannot get past it. No proxy is consulted, no redirect is followed, the answer is size-bounded, and reaching private addresses is a setting an operator turns on rather than a side effect of the environment.
+
+## A home's answers → Convia
+
+The boundary above is about what another installation may **ask**. This one is about what it may **say**, and it is the direction with the least intuition behind it: the requests are signed and checked, so the answers feel trustworthy, and they are not.
+
+**A home is the authority on its own rooms**, so it can lie about anything inside one — who is in it, what was said, whether the visitor is still a member. That is not an escalation, because the home could make all of those true. What it must not be able to do is make this installation act on anything outside the rooms that visitor is in there, or publish something this installation would not have written.
+
+**One rule covers it:** anything a home says is decoded, checked for shape, and built again — never passed on as it arrived — and every identifier in the result is the one kept here, not the one the home sent.
+
+| What is asked | What is believed |
+| --- | --- |
+| An invitation preview | dates that parse, a room name and an inviter that are plain text within length |
+| An acceptance | identifiers of the right shape; the local pointer is generated **here**, never taken |
+| An unread count | a number between zero and a million; anything else reads as unknown |
+| A call in a room | a call identifier of the right shape, an active status, a timestamp that parses — and the room named by the local pointer |
+| An event on the stream | a room this person is actually in at that home, looked up in the pointers kept for them |
+
+**Two of those rows were findings rather than design.** A home's call object used to go into this installation's own answer as the bytes it arrived as, which let a stranger choose what this installation published — fields the contract forbids, fields it requires left out, or the room named by an identifier only that home owns. And the unread count had a floor and no ceiling, so a home could return the largest integer there is; the consequence was cosmetic and the principle was not.
+
+**Not covered:** a home that answers slowly rather than wrongly. Every request has a timeout and the fan-out has a budget, so a slow home costs a sidebar its counts rather than the process — but a home that is slow *and* is one of many is a deployment noticing its sidebar is slow, not an alert.
 
 ## Convia → an application's webhook destination
 
@@ -150,6 +172,6 @@ Convia's own interface and the desktop application are **one client among many**
 
 | | |
 | --- | --- |
-| No rate limit per person, only per tenant and per address | `M22-015` |
+| No bound on how expensive one request may be, only on how often | `M24` |
 | No audit trail an operator cannot write to | `M23` |
 | No secret manager, no defined rotation | `M23-005`, `M23-006` |

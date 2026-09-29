@@ -58,6 +58,10 @@ const (
 
 	serviceInstanceEnvironment = "CONVIA_SERVICE_INSTANCE"
 
+	metricsEndpointEnvironment = "CONVIA_METRICS_ENDPOINT"
+	tracesEndpointEnvironment  = "CONVIA_TRACES_ENDPOINT"
+	traceSampleEnvironment     = "CONVIA_TRACE_SAMPLE"
+
 	erasureWindowEnvironment = "CONVIA_ERASURE_WINDOW"
 
 	/*
@@ -81,6 +85,19 @@ const (
 	maximumErasureWindow = 10 * 365 * 24 * time.Hour
 
 	tenantRequestsEnvironment = "CONVIA_TENANT_REQUESTS_PER_MINUTE"
+	personRequestsEnvironment = "CONVIA_PERSON_REQUESTS_PER_MINUTE"
+
+	/*
+		What one signed-in session may ask for in a minute.
+
+		Far below a tenant's, because the unit is far smaller: a tenant is a
+		backend serving everybody and a session is one person on one device.
+		Ten a second sustained is more than a person can produce, so what
+		this refuses is something that is not a person using Convia.
+	*/
+	defaultPersonRequestsPerMinute = 600
+	minimumPersonRequestsPerMinute = 60
+	maximumPersonRequestsPerMinute = 100_000
 
 	/*
 		What one application may ask of an installation in a minute.
@@ -186,6 +203,18 @@ type Config struct {
 	TenantRequestsPerMinute int
 
 	/*
+		PersonRequestsPerMinute is how often one signed-in session may ask,
+		successes included.
+
+		It is per **session** rather than per account or per address, which is
+		what keeps it from being a denial of service against a named person: an
+		address is shared by a household, an account is shared by somebody's own
+		devices, and a session is held by exactly one holder. What it bounds is a
+		stolen session reading an installation faster than anybody could.
+	*/
+	PersonRequestsPerMinute int
+
+	/*
 		ErasureWindow is how long a deleted user is kept before Convia forgets
 		them: the subject freed, the name and the metadata gone, and what they
 		wrote redacted.
@@ -217,6 +246,51 @@ type Config struct {
 		told apart afterwards.
 	*/
 	ServiceInstance string
+
+	/*
+		MetricsEndpoint is where measurements are sent, over OTLP/HTTP.
+
+		**Empty is off, and off is a real no-op**: no collection goroutine, no
+		accumulation, no periodic flush. That is what makes it safe for the
+		instruments to be called unconditionally everywhere else, and it is why
+		a laptop and a test run pay nothing for telemetry they never asked for.
+
+		It is named `CONVIA_` like everything else rather than reusing
+		OpenTelemetry's own variable, because a deployment that sets the
+		standard one is usually setting it for several processes at once, and
+		Convia picking it up would be Convia joining a decision nobody made
+		about it.
+	*/
+	MetricsEndpoint string
+
+	/*
+		TracesEndpoint is where spans are sent, over OTLP/HTTP.
+
+		It is separate from MetricsEndpoint rather than one setting for both,
+		because the two are separate decisions: metrics are cheap and constant
+		and a deployment usually wants them always, while traces are voluminous
+		and are often turned on while somebody is looking at something. One
+		setting would make turning one off turn the other off with it.
+
+		Empty is off, and off is a real no-op: no batching goroutine and nothing
+		accumulated.
+	*/
+	TracesEndpoint string
+
+	/*
+		TraceSample is the share of traces Convia starts that it keeps, from
+		zero to one.
+
+		One is every trace, which is right while an installation is small and is
+		the default: sampling that throws away the trace somebody needed is worse
+		than a collector that costs a little more.
+
+		It applies only to traces Convia **starts**. A caller that already
+		decided to record an operation gets Convia's part of it whatever this
+		says, because a sampled trace with Convia missing from the middle looks
+		like Convia did nothing.
+	*/
+	TraceSample float64
 
 	/*
 		PeersAllowPrivateAddresses is whether links between installations may
@@ -324,6 +398,17 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	traceSample, err := loadRatio(traceSampleEnvironment)
+	if err != nil {
+		return Config{}, err
+	}
+
+	personRequests, err := loadInt(personRequestsEnvironment, defaultPersonRequestsPerMinute,
+		minimumPersonRequestsPerMinute, maximumPersonRequestsPerMinute)
+	if err != nil {
+		return Config{}, err
+	}
+
 	logLevel, err := loadLogLevel()
 	if err != nil {
 		return Config{}, err
@@ -376,9 +461,13 @@ func Load() (Config, error) {
 		TrustedProxies: trustedProxies,
 
 		TenantRequestsPerMinute:    tenantRequests,
+		PersonRequestsPerMinute:    personRequests,
 		ErasureWindow:              erasureWindow,
 		LogLevel:                   logLevel,
 		ServiceInstance:            strings.TrimSpace(environmentOrDefault(serviceInstanceEnvironment, "")),
+		MetricsEndpoint:            strings.TrimSpace(environmentOrDefault(metricsEndpointEnvironment, "")),
+		TracesEndpoint:             strings.TrimSpace(environmentOrDefault(tracesEndpointEnvironment, "")),
+		TraceSample:                traceSample,
 		PeersAllowPrivateAddresses: peersAllowPrivate,
 		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil
@@ -710,6 +799,22 @@ writing `verbose` meant something, and a deployment that silently ignored it
 would answer the next incident with fewer lines than whoever configured it
 believes they have.
 */
+/*
+loadRatio reads a share between zero and one.
+
+Out of range stops startup rather than being clamped. Somebody who wrote `50`
+meant half and would get every trace, and a deployment that quietly disagreed
+with its own configuration is the kind of thing nobody finds until they are
+looking for something else.
+*/
+func loadRatio(name string) (float64, error) {
+	value, err := strconv.ParseFloat(environmentOrDefault(name, "1"), 64)
+	if err != nil || value < 0 || value > 1 {
+		return 0, fmt.Errorf("%s must be a number between 0 and 1", name)
+	}
+	return value, nil
+}
+
 func loadLogLevel() (slog.Level, error) {
 	levels := map[string]slog.Level{
 		"debug": slog.LevelDebug,

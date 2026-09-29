@@ -81,10 +81,9 @@ func idempotent(logger *slog.Logger, keys keyRegistry, next http.Handler) http.H
 			refused as the misconfiguration it is.
 		*/
 		if keys == nil {
-			logger.Error("idempotent route reached without a key registry",
+			logger.ErrorContext(request.Context(), "idempotent route reached without a key registry",
 				"method", request.Method,
 				"path", request.URL.Path,
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError,
 				api.CodeInternal, "The server encountered an unexpected condition."))
@@ -107,10 +106,9 @@ func idempotent(logger *slog.Logger, keys keyRegistry, next http.Handler) http.H
 		*/
 		scope, found := scopeFor(request.Context())
 		if !found {
-			logger.Error("idempotent route reached without a principal",
+			logger.ErrorContext(request.Context(), "idempotent route reached without a principal",
 				"method", request.Method,
 				"path", request.URL.Path,
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			writeFailure(logger, response, request, api.NewFailure(http.StatusUnauthorized,
 				api.CodeUnauthenticated, "The request did not carry a usable credential."))
@@ -150,11 +148,10 @@ func idempotent(logger *slog.Logger, keys keyRegistry, next http.Handler) http.H
 				be protected from, and a caller that asked for the guarantee
 				would rather retry than discover it did not hold.
 			*/
-			logger.Error("claim idempotency key",
+			logger.ErrorContext(request.Context(), "claim idempotency key",
 				"error", err,
 				"method", request.Method,
 				"path", request.URL.Path,
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError,
 				api.CodeInternal, "The server encountered an unexpected condition."))
@@ -202,10 +199,9 @@ func serveAndRecord(logger *slog.Logger, keys keyRegistry, next http.Handler,
 	finished = true
 
 	if recorder.overflowed {
-		logger.Warn("idempotent response too large to replay",
+		logger.WarnContext(request.Context(), "idempotent response too large to replay",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		release(logger, keys, request, attempt)
 		return
@@ -226,11 +222,10 @@ func serveAndRecord(logger *slog.Logger, keys keyRegistry, next http.Handler,
 	defer cancel()
 
 	if err := keys.Complete(ctx, attempt.Scope, attempt.Key, result); err != nil {
-		logger.Error("store idempotent response",
+		logger.ErrorContext(request.Context(), "store idempotent response",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -241,11 +236,10 @@ func release(logger *slog.Logger, keys keyRegistry, request *http.Request, attem
 	defer cancel()
 
 	if err := keys.Release(ctx, attempt.Scope, attempt.Key); err != nil {
-		logger.Error("release idempotency key",
+		logger.ErrorContext(request.Context(), "release idempotency key",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -265,9 +259,8 @@ func replay(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 
 	response.WriteHeader(result.Status)
 	if _, err := response.Write(result.Body); err != nil {
-		logger.Error("write replayed response",
+		logger.ErrorContext(request.Context(), "write replayed response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -396,9 +389,8 @@ func (recorder *replayRecorder) Unwrap() http.ResponseWriter {
 func writeFailure(logger *slog.Logger, response http.ResponseWriter, request *http.Request,
 	failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write failure response",
+		logger.ErrorContext(request.Context(), "write failure response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

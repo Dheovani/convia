@@ -616,12 +616,11 @@ the people using them, so neither is recorded. What an operator needs is which
 room changed, for which tenant, and into what state.
 */
 func (service *Service) audit(ctx context.Context, event string, room Room) {
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", event,
 		"room_id", room.ID,
 		"application_id", room.ApplicationID,
 		"room_status", string(room.Status),
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 

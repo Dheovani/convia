@@ -23,7 +23,7 @@ func TestOpenRejectsInvalidConnectionString(t *testing.T) {
 		QueryTimeout:   time.Second,
 	}
 
-	_, err := Open(context.Background(), settings, discardLogger())
+	_, err := Open(context.Background(), settings, discardLogger(), nil)
 	if err == nil {
 		t.Fatal("Open() error = nil, want an invalid connection string error")
 	}
@@ -44,7 +44,7 @@ func TestOpenFailsWhenDatabaseIsUnreachable(t *testing.T) {
 		QueryTimeout:   time.Second,
 	}
 
-	_, err := Open(context.Background(), settings, discardLogger())
+	_, err := Open(context.Background(), settings, discardLogger(), nil)
 	if err == nil {
 		t.Fatal("Open() error = nil, want an unreachable database error")
 	}

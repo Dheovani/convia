@@ -303,10 +303,9 @@ func (handler *Handler) principal(response http.ResponseWriter, request *http.Re
 	if !found {
 		path := strings.ReplaceAll(request.URL.Path, "\n", "")
 		path = strings.ReplaceAll(path, "\r", "")
-		handler.logger.Error("authenticated route reached without a session",
+		handler.logger.ErrorContext(request.Context(), "authenticated route reached without a session",
 			"method", request.Method,
 			"path", path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable session."))
@@ -342,18 +341,16 @@ func represent(account accounts.Account) meResponse {
 
 func (handler *Handler) write(response http.ResponseWriter, request *http.Request, status int, body any) {
 	if err := api.Write(response, status, body); err != nil {
-		handler.logger.Error("write session response",
+		handler.logger.ErrorContext(request.Context(), "write session response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
 
 func (handler *Handler) writeFailure(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write error response",
+		handler.logger.ErrorContext(request.Context(), "write error response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -415,11 +412,10 @@ func (handler *Handler) writeError(response http.ResponseWriter, request *http.R
 	default:
 		path := strings.ReplaceAll(request.URL.Path, "\n", "")
 		path = strings.ReplaceAll(path, "\r", "")
-		handler.logger.Error("session request failed",
+		handler.logger.ErrorContext(request.Context(), "session request failed",
 			"error", err,
 			"method", request.Method,
 			"path", path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))

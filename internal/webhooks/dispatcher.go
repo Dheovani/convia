@@ -201,6 +201,21 @@ reports committed. See docs/adr/0017.
 It costs nothing for a tenant with no endpoints, which is every tenant until one
 registers: the first statement returns no rows and the second never runs.
 */
+/*
+Trace wraps the transport this dispatcher delivers through.
+
+It is a method rather than a constructor argument because whether Convia traces
+is a decision the composition root makes once, after everything is built, and a
+dispatcher should not carry a parameter for it. Calling it is a startup
+operation: the client is in use afterwards.
+
+The wrapping is applied to whatever transport is already there, so the address
+check and the refusal to follow redirects are untouched.
+*/
+func (dispatcher *Dispatcher) Trace(wrap func(http.RoundTripper) http.RoundTripper) {
+	dispatcher.client.Transport = wrap(dispatcher.client.Transport)
+}
+
 func (dispatcher *Dispatcher) Enqueue(ctx context.Context, event events.Event) error {
 	payload, err := json.Marshal(event)
 	if err != nil {

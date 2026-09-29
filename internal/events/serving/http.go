@@ -193,10 +193,9 @@ no way left to refuse anything, so nothing is left to decide there.
 func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http.Request) {
 	principal, found := credentials.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("authenticated route reached without a principal",
+		handler.logger.ErrorContext(request.Context(), "authenticated route reached without a principal",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.fail(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
@@ -228,17 +227,15 @@ func (handler *TenantHandler) Stream(response http.ResponseWriter, request *http
 	}
 	defer connection.CloseNow()
 
-	handler.logger.Info("event stream opened",
+	handler.logger.InfoContext(request.Context(), "event stream opened",
 		"application_id", principal.ApplicationID,
-		"request_id", api.RequestIDFromContext(request.Context()),
 		"active_streams", handler.broker.Active(),
 	)
 
 	status, reason := deliver(request.Context(), connection, stream, nil, nil, from)
 
-	handler.logger.Info("event stream closed",
+	handler.logger.InfoContext(request.Context(), "event stream closed",
 		"application_id", principal.ApplicationID,
-		"request_id", api.RequestIDFromContext(request.Context()),
 		"close_status", int(status),
 		"close_reason", reason,
 		"delivered", stream.Delivered(),
@@ -277,9 +274,8 @@ func accept(
 			a wrong Origin and a missing Upgrade header look identical from
 			outside.
 		*/
-		logger.Info("event stream upgrade refused", append([]any{
+		logger.InfoContext(request.Context(), "event stream upgrade refused", append([]any{
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		}, who...)...)
 		return nil, false
 	}
@@ -516,10 +512,9 @@ func (handler *TenantHandler) refuse(response http.ResponseWriter, request *http
 			"The credential does not carry the scopes an event stream requires."))
 
 	case errors.Is(err, events.ErrTooManyStreams):
-		handler.logger.Warn("event stream refused because a ceiling was reached",
+		handler.logger.WarnContext(request.Context(), "event stream refused because a ceiling was reached",
 			"application_id", principal.ApplicationID,
 			"active_streams", handler.broker.Active(),
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		response.Header().Set("Retry-After", retryAfterSeconds)
 		handler.fail(response, request, api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
@@ -530,10 +525,9 @@ func (handler *TenantHandler) refuse(response http.ResponseWriter, request *http
 			api.CodeUnavailable, "This instance is shutting down and is not accepting event streams."))
 
 	default:
-		handler.logger.Error("open event stream",
+		handler.logger.ErrorContext(request.Context(), "open event stream",
 			"error", err,
 			"application_id", principal.ApplicationID,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
@@ -542,8 +536,8 @@ func (handler *TenantHandler) refuse(response http.ResponseWriter, request *http
 
 func (handler *TenantHandler) fail(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write event stream failure",
-			"error", err, "request_id", api.RequestIDFromContext(request.Context()))
+		handler.logger.ErrorContext(request.Context(), "write event stream failure",
+			"error", err)
 	}
 }
 
@@ -671,9 +665,8 @@ func (handler *PersonHandler) Stream(response http.ResponseWriter, request *http
 		if err != nil {
 			// A stream about the rooms here is worth more than none at all, so
 			// this is said and the rest goes ahead.
-			handler.logger.Warn("the rooms somebody is in elsewhere could not be followed",
-				"error", err, "account_id", principal.AccountID,
-				"request_id", api.RequestIDFromContext(request.Context()))
+			handler.logger.WarnContext(request.Context(), "the rooms somebody is in elsewhere could not be followed",
+				"error", err, "account_id", principal.AccountID)
 		} else {
 			abroad = followed
 		}
@@ -719,10 +712,9 @@ func (handler *PersonHandler) Visiting(response http.ResponseWriter, request *ht
 // front of it was supposed to have proved, which is a mistake in the wiring.
 func (handler *PersonHandler) unrecognised(response http.ResponseWriter, request *http.Request) {
 	path := strings.ReplaceAll(strings.ReplaceAll(request.URL.Path, "\n", ""), "\r", "")
-	handler.logger.Error("a stream route was reached without anybody to serve it to",
+	handler.logger.ErrorContext(request.Context(), "a stream route was reached without anybody to serve it to",
 		"method", request.Method,
 		"path", path,
-		"request_id", api.RequestIDFromContext(request.Context()),
 	)
 	handler.fail(response, request, api.NewFailure(http.StatusUnauthorized,
 		api.CodeUnauthenticated, "The request did not carry a usable credential."))
@@ -761,10 +753,9 @@ func (handler *PersonHandler) serve(
 	defer stream.Close()
 
 	if err := stream.Reconcile(handler.roomsOf(request.Context(), principal)); err != nil {
-		handler.logger.Error("read the rooms a person's event stream covers",
+		handler.logger.ErrorContext(request.Context(), "read the rooms a person's event stream covers",
 			"error", err,
 			who, whom,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
@@ -782,9 +773,8 @@ func (handler *PersonHandler) serve(
 	}
 	defer connection.CloseNow()
 
-	handler.logger.Info("person event stream opened",
+	handler.logger.InfoContext(request.Context(), "person event stream opened",
 		who, whom,
-		"request_id", api.RequestIDFromContext(request.Context()),
 		"active_streams", handler.broker.Active(),
 	)
 
@@ -795,9 +785,8 @@ func (handler *PersonHandler) serve(
 		},
 	}, from)
 
-	handler.logger.Info("person event stream closed",
+	handler.logger.InfoContext(request.Context(), "person event stream closed",
 		who, whom,
-		"request_id", api.RequestIDFromContext(request.Context()),
 		"close_status", int(status),
 		"close_reason", reason,
 		"delivered", stream.Delivered(),
@@ -859,10 +848,9 @@ func (handler *PersonHandler) refuse(
 ) {
 	switch {
 	case errors.Is(err, events.ErrTooManyStreams):
-		handler.logger.Warn("person event stream refused because a ceiling was reached",
+		handler.logger.WarnContext(request.Context(), "person event stream refused because a ceiling was reached",
 			"session_id", principal.SessionID,
 			"active_streams", handler.broker.Active(),
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		response.Header().Set("Retry-After", retryAfterSeconds)
 		handler.fail(response, request, api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited,
@@ -873,10 +861,9 @@ func (handler *PersonHandler) refuse(
 			api.CodeUnavailable, "This instance is shutting down and is not accepting event streams."))
 
 	default:
-		handler.logger.Error("open person event stream",
+		handler.logger.ErrorContext(request.Context(), "open person event stream",
 			"error", err,
 			"session_id", principal.SessionID,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.fail(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
@@ -892,7 +879,7 @@ func (handler *PersonHandler) fail(response http.ResponseWriter, request *http.R
 	response.Header().Set("Cache-Control", "no-store")
 	response.Header().Add("Vary", "Cookie")
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write person event stream failure",
-			"error", err, "request_id", api.RequestIDFromContext(request.Context()))
+		handler.logger.ErrorContext(request.Context(), "write person event stream failure",
+			"error", err)
 	}
 }

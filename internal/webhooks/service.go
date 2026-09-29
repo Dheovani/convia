@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"convia/internal/api"
 	"convia/internal/events"
 )
 
@@ -422,7 +421,6 @@ func (service *Service) audit(ctx context.Context, event string, endpoint Endpoi
 		"event", event,
 		"endpoint_id", endpoint.ID,
 		"application_id", endpoint.ApplicationID,
-		"request_id", api.RequestIDFromContext(ctx),
 	}
 	if endpoint.URL != "" {
 		attributes = append(attributes, "url", endpoint.URL)

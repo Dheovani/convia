@@ -46,6 +46,16 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
+/*
+measurementFlush bounds reporting the last interval on the way out.
+
+It is short because it happens after everything else has stopped, with a person
+or an orchestrator waiting: a collector that is unreachable should delay the
+exit by a couple of seconds and then be given up on, not hold the process open
+until something kills it.
+*/
+const measurementFlush = 3 * time.Second
+
 const usage = `Convia is a real-time communication service.
 
 Usage:
@@ -108,7 +118,17 @@ are already several hundred of those.
 func describing(cfg config.Config) *slog.Logger {
 	service := telemetry.Describing(string(cfg.Environment), cfg.ServiceInstance)
 
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})
+	/*
+		Correlation wraps the writer and the service attributes are attached
+		outside it, in that order and not the other way round: `With` returns a
+		handler from the one it is called on, so attaching first and wrapping
+		second would put the wrapper above attributes it can no longer see — and
+		wrapping the wrapper's result is what `Correlating.WithAttrs` exists to
+		survive.
+	*/
+	handler := telemetry.Correlate(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
+
 	return slog.New(handler).With(attributes(service.Describe())...)
 }
 
@@ -196,11 +216,72 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	signalContext, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pool, err := database.Open(signalContext, cfg.Database, logger)
+	/*
+		Measurement is built before anything it measures, and its shutdown is
+		deferred first so that it runs last.
+
+		The final interval's measurements are still in memory when a process is
+		asked to stop, and a deployment that reports nothing about its last
+		minute reports nothing about the minute that usually matters. The
+		shutdown context is deliberately not the signal one: it has already been
+		cancelled by the time this runs.
+	*/
+	service := telemetry.Describing(string(cfg.Environment), cfg.ServiceInstance)
+
+	meters, stopMeasuring, err := telemetry.Measuring(signalContext, service, cfg.MetricsEndpoint)
+	if err != nil {
+		return fmt.Errorf("start measuring: %w", err)
+	}
+	defer func() {
+		flushing, cancel := context.WithTimeout(context.WithoutCancel(ctx), measurementFlush)
+		defer cancel()
+
+		if err := stopMeasuring(flushing); err != nil {
+			logger.WarnContext(flushing, "the last measurements could not be reported", "error", err)
+		}
+	}()
+
+	httpMetrics, err := telemetry.Serve(meters)
+	if err != nil {
+		return fmt.Errorf("build the request instruments: %w", err)
+	}
+
+	/*
+		Tracing, with the same shape and the same shutdown discipline. Spans
+		are batched, so a process that exits without flushing loses the trace
+		of whatever it was doing when it was asked to stop — which is the trace
+		somebody wanted.
+	*/
+	tracers, stopTracing, err := telemetry.Tracing(signalContext, service, cfg.TracesEndpoint, cfg.TraceSample)
+	if err != nil {
+		return fmt.Errorf("start tracing: %w", err)
+	}
+	defer func() {
+		flushing, cancel := context.WithTimeout(context.WithoutCancel(ctx), measurementFlush)
+		defer cancel()
+
+		if err := stopTracing(flushing); err != nil {
+			logger.WarnContext(flushing, "the last spans could not be reported", "error", err)
+		}
+	}()
+
+	requests := telemetry.Trace(tracers)
+
+	pool, err := database.Open(signalContext, cfg.Database, logger, telemetry.Query(tracers))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
 	defer pool.Close()
+
+	/*
+		What Convia is carrying right now, asked of the database when somebody
+		collects rather than counted as calls start and end — a number kept in
+		memory would start at zero on every restart while the calls it counts
+		are still going on.
+	*/
+	if err := telemetry.Watch(meters, calls.NewStore(pool), participants.NewStore(pool), logger); err != nil {
+		return fmt.Errorf("watch what Convia is carrying: %w", err)
+	}
 
 	applicationService := applications.NewService(applications.NewStore(pool), logger)
 	userService := users.NewService(users.NewStore(pool), applicationService, logger)
@@ -209,6 +290,17 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	mediaPlane, mediaReports, err := openMediaPlane(cfg.Media, logger)
 	if err != nil {
 		return err
+	}
+
+	/*
+		And the media plane, whose address is operator configuration — so
+		carrying Convia's trace there is carrying it somewhere the deployment
+		chose. A Convia with no media plane has nothing to wrap.
+	*/
+	if mediaReports != nil {
+		mediaReports.Trace(func(inner http.RoundTripper) http.RoundTripper {
+			return telemetry.Call(inner, tracers, "media.request", true)
+		})
 	}
 
 	/*
@@ -231,6 +323,18 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 
 	/*
+		What the streams are doing. The ending counter is the one worth
+		watching: `behind` means somebody's view of a conversation had a hole
+		in it, which is invisible everywhere else — the subscriber reconnects
+		and everything looks healthy again.
+	*/
+	streams, err := telemetry.Follow(meters, broker)
+	if err != nil {
+		return fmt.Errorf("follow the event streams: %w", err)
+	}
+	broker.Watch(streams)
+
+	/*
 		Which addresses this instance is willing to reach is decided here, from
 		the environment and from nothing else. A development instance may deliver
 		to a receiver on localhost, because that is how anybody tests a webhook;
@@ -241,6 +345,22 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	webhookStore := webhooks.NewStore(pool)
 	webhookService := webhooks.NewService(webhookStore, applicationService, destinations, logger)
 	dispatcher := webhooks.NewDispatcher(webhookStore, destinations, logger)
+
+	/*
+		Webhook deliveries appear in the trace of the request that caused them,
+		and **carry Convia's trace outward**: an application receiving one can
+		join its own trace to the operation behind it, which is the point of
+		propagating at all and is that application's own data.
+
+		It is not done for requests to another installation. A home is chosen
+		by anybody who can send an invitation, and handing one a trace
+		identifier would let it correlate several of Convia's requests as one
+		operation — a small channel Convia gets nothing back for. See
+		docs/threat-model.md on what a signature does and does not prove.
+	*/
+	dispatcher.Trace(func(inner http.RoundTripper) http.RoundTripper {
+		return telemetry.Call(inner, tracers, "webhook.deliver", true)
+	})
 
 	/*
 		Events that must not be lost are recorded in the journal and queued for
@@ -287,7 +407,42 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	defer closePresence()
 
+	/*
+		Both uses of Redis, measured through one set of instruments.
+
+		The question these answer is the one an operator has when Convia feels
+		slow: is it Convia, or is it Redis. Without them the answer is a guess,
+		because every symptom shows up somewhere else — a pool with no free
+		connections looks like a slow handler, and a Redis that times out looks
+		like presence being wrong.
+
+		A deployment with no Redis has nothing to attach, which is a single
+		instance rather than a failure.
+	*/
+	shared, err := telemetry.Connected(meters)
+	if err != nil {
+		return fmt.Errorf("measure the shared store: %w", err)
+	}
+	shared.Tracing(tracers)
+	shared.Measure("presence", presenceStore)
+	if relay != nil {
+		shared.Measure("events", relay)
+	}
+
 	presenceService := presence.NewService(presenceStore, applicationService, userService, announcer, logger)
+
+	/*
+		How much presence there is, and how much of it has gone stale. The
+		second is the one worth watching: a claim past its deadline changes no
+		answer, because every read already ignores it — what it says is whether
+		the sweeper is keeping up with telling subscribers somebody left.
+	*/
+	if err := telemetry.Attend(meters, func(ctx context.Context) (int64, int64, error) {
+		standing, err := presenceStore.Standing(ctx)
+		return standing.Claims, standing.Overdue, err
+	}, logger); err != nil {
+		return fmt.Errorf("attend to presence: %w", err)
+	}
 
 	/*
 		Convia's own product, which every installation serves.
@@ -364,6 +519,9 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Database:                pool,
 		TrustedProxies:          cfg.TrustedProxies,
 		TenantRequestsPerMinute: cfg.TenantRequestsPerMinute,
+		PersonRequestsPerMinute: cfg.PersonRequestsPerMinute,
+		Serving:                 httpMetrics,
+		Requests:                requests,
 
 		OperatorAuthenticator: operatorService,
 		Applications:          applications.NewHandler(logger, applicationService),

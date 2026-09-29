@@ -131,6 +131,6 @@ func (rt *routes) notFoundHandler() http.Handler {
 
 func (rt *routes) writeError(response http.ResponseWriter, request *http.Request, status int, code api.ErrorCode, message string) {
 	if err := api.WriteError(response, request, status, code, message); err != nil {
-		rt.logger.Error("write error response", "error", err, "request_id", api.RequestIDFromContext(request.Context()))
+		rt.logger.ErrorContext(request.Context(), "write error response", "error", err)
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"convia/internal/peers"
 	"convia/internal/ratelimit"
 	"convia/internal/sessions"
+	"convia/internal/telemetry"
 )
 
 /*
@@ -43,6 +44,58 @@ func requestID(next http.Handler) http.Handler {
 	})
 }
 
+/*
+measured records how long a request took and whether it worked.
+
+It is separate from [logRequest] rather than folded into it, because the two
+answer different questions and fail differently: a log line is read one at a
+time when somebody already suspects something, and a measurement is read in
+aggregate to find out whether they should. Putting them in one function would
+mean a change to either risked the other.
+
+**It is outside the router**, which is what lets it see the matched pattern: the
+router puts it on the request while serving, and reading it on the way out is
+how the measurement is labelled by route rather than by path. See routeOf.
+
+A nil recorder means metrics are not configured, and the middleware is not
+wrapped at all rather than wrapping with something that does nothing per
+request.
+*/
+func measured(serving *telemetry.Serving, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		recorder := &responseRecorder{ResponseWriter: response, status: http.StatusOK}
+
+		done := serving.Began(request.Context())
+		next.ServeHTTP(recorder, request)
+		done(request, recorder.status)
+	})
+}
+
+/*
+traced puts every request in a span, continuing the caller's trace when there
+is one.
+
+It wraps [measured] rather than the other way round, so that the span covers the
+measurement too: a trace that excluded the instrumentation would be a trace of
+slightly less than what happened, and the difference would only show up when
+somebody was chasing milliseconds.
+
+**The context it produces replaces the request's**, which is what puts the trace
+identifier on every log line written underneath — the same wrapper that adds the
+request identifier reads the span from there.
+*/
+func traced(requests *telemetry.Requests, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		ctx, done := requests.Began(request)
+		request = request.WithContext(ctx)
+
+		recorder := &responseRecorder{ResponseWriter: response, status: http.StatusOK}
+		next.ServeHTTP(recorder, request)
+
+		done(request, recorder.status)
+	})
+}
+
 // logRequest emits one structured access log entry per request and records the
 // response status and size for the rest of the chain.
 func logRequest(logger *slog.Logger, resolve resolver, next http.Handler) http.Handler {
@@ -59,8 +112,7 @@ func logRequest(logger *slog.Logger, resolve resolver, next http.Handler) http.H
 			a misconfigured proxy list looks exactly like a correct one until
 			the rate limiter starts refusing the wrong people.
 		*/
-		logger.Info("HTTP request",
-			"request_id", api.RequestIDFromContext(request.Context()),
+		logger.InfoContext(request.Context(), "HTTP request",
 			"method", request.Method,
 			"path", request.URL.Path,
 			"status", recorder.status,
@@ -507,8 +559,7 @@ func signed(
 
 			failures.Record(source)
 			if !errors.Is(err, peers.ErrUnauthenticated) {
-				logger.Error("verify signed request", "error", err,
-					"request_id", api.RequestIDFromContext(request.Context()))
+				logger.ErrorContext(request.Context(), "verify signed request", "error", err)
 			}
 			refuse(logger, response, request, "")
 			return
@@ -575,8 +626,7 @@ func reported(
 		}
 
 		if err != nil {
-			logger.Error("the media plane sent a report that could not be read", "error", err,
-				"request_id", api.RequestIDFromContext(request.Context()))
+			logger.ErrorContext(request.Context(), "the media plane sent a report that could not be read", "error", err)
 			failure := api.NewFailure(http.StatusBadRequest, api.CodeInvalidRequest, "The report could not be read.")
 			if writeErr := api.WriteFailure(response, request, failure); writeErr != nil {
 				logger.Error("write invalid report response", "error", writeErr)
@@ -669,10 +719,9 @@ func metered(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) ht
 				its safe half: serving would leave the route unbudgeted, which is
 				the thing this exists to prevent.
 			*/
-			logger.Error("metered route reached without a principal",
+			logger.ErrorContext(request.Context(), "metered route reached without a principal",
 				"method", request.Method,
 				"path", request.URL.Path,
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			refuse(logger, response, request, "")
 			return
@@ -693,6 +742,66 @@ func metered(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) ht
 		next.ServeHTTP(response, request)
 	})
 }
+
+/*
+personal rations what one signed-in session may ask of an installation.
+
+It is [metered]'s twin for a person, and it exists because the tenant budget
+names an application and a session names none — so a request that succeeds cost
+a person nothing however many they made.
+
+**It is keyed by the session, not by the account and not by the address**, and
+that is what makes it safe rather than the denial of service `M22-015` spent two
+milestones avoiding:
+
+  - An address is shared by a household or an office, so budgeting there lets
+    one person there refuse everybody else.
+  - An **account** is shared by that person's own devices, so a stolen session
+    flooding would throttle the phone of the person it was stolen from — the
+    attack would cost the victim twice.
+  - A **session** is held by exactly one holder. Exhausting it refuses that
+    holder and nobody else, and an attacker cannot mint more of somebody's
+    sessions, because making one needs the password.
+
+Refusals are visible without a new instrument: they are 429s on the request
+histogram, which already carries the status.
+*/
+func personal(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		principal, found := sessions.PrincipalFromContext(request.Context())
+		if !found {
+			/*
+				Reachable only by wiring this where a session is not named,
+				which is a startup mistake rather than a caller's. Refusing is
+				its safe half, as in [metered].
+			*/
+			logger.ErrorContext(request.Context(), "a rationed route was reached without a session",
+				"method", request.Method,
+				"path", strings.ReplaceAll(strings.ReplaceAll(request.URL.Path, "\n", ""), "\r", ""),
+			)
+			refuse(logger, response, request, "")
+			return
+		}
+
+		if !uses.Allows(principal.SessionID) {
+			slowDown(logger, response, request, "",
+				uses.RetryAfter(principal.SessionID), tooManyPersonalRequests)
+			return
+		}
+		uses.Record(principal.SessionID)
+
+		next.ServeHTTP(response, request)
+	})
+}
+
+/*
+tooManyPersonalRequests is what a session asking too often is told.
+
+It names the session rather than the person, because that is what ran out and
+because a message naming the account would invite a client to sign in again —
+which would work, and would be the wrong thing to have learnt.
+*/
+const tooManyPersonalRequests = "This session has made too many requests. Retry later."
 
 /*
 tooManyTenantRequests is what an application asking too often is told.
@@ -758,9 +867,8 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 					because granting access when verification could not run
 					would be the worse mistake.
 				*/
-				logger.Error("verify credential",
+				logger.ErrorContext(request.Context(), "verify credential",
 					"error", err,
-					"request_id", api.RequestIDFromContext(request.Context()),
 				)
 			}
 			refuse(logger, response, request, verify.challenge())
@@ -819,9 +927,8 @@ func refuse(logger *slog.Logger, response http.ResponseWriter, request *http.Req
 	failure := api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 		"The request did not carry a usable credential.")
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write unauthenticated response",
+		logger.ErrorContext(request.Context(), "write unauthenticated response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
@@ -859,9 +966,8 @@ func slowDown(logger *slog.Logger, response http.ResponseWriter, request *http.R
 
 	failure := api.NewFailure(http.StatusTooManyRequests, api.CodeRateLimited, message)
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write rate limited response",
+		logger.ErrorContext(request.Context(), "write rate limited response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

@@ -198,10 +198,9 @@ nothing, and logged so the mistake is visible.
 func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*OperatorAuthorized, bool) {
 	principal, found := operator.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("operator route reached without a principal",
+		handler.logger.ErrorContext(request.Context(), "operator route reached without a principal",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 			"The request did not carry a usable credential."))
@@ -383,11 +382,10 @@ func failureFor(err error, logger *slog.Logger, request *http.Request) *api.Fail
 			"The media plane is temporarily unavailable. Retry shortly.")
 
 	default:
-		logger.Error("participant request failed",
+		logger.ErrorContext(request.Context(), "participant request failed",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		return api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
 			"The server encountered an unexpected condition.")
@@ -396,18 +394,16 @@ func failureFor(err error, logger *slog.Logger, request *http.Request) *api.Fail
 
 func (handler *Handler) write(response http.ResponseWriter, request *http.Request, status int, body any) {
 	if err := api.Write(response, status, body); err != nil {
-		handler.logger.Error("write response",
+		handler.logger.ErrorContext(request.Context(), "write response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
 
 func (handler *Handler) writeFailure(response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write failure response",
+		handler.logger.ErrorContext(request.Context(), "write failure response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

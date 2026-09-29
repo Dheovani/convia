@@ -16,7 +16,6 @@ import (
 	"log/slog"
 
 	"convia/internal/accounts"
-	"convia/internal/api"
 	"convia/internal/messages"
 	"convia/internal/peers"
 	"convia/internal/rooms"
@@ -132,7 +131,6 @@ func (service *Service) Delete(ctx context.Context, principal sessions.Principal
 		"rooms_left", departure.Left,
 		"rooms_deleted", departure.Deleted,
 		"messages_redacted", erasure.Messages,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 	return nil
 }

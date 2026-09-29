@@ -37,10 +37,9 @@ nothing, and logged so the mistake is visible.
 func (handler *TenantHandler) authorized(response http.ResponseWriter, request *http.Request) (*Authorized, bool) {
 	principal, found := credentials.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("authenticated route reached without a principal",
+		handler.logger.ErrorContext(request.Context(), "authenticated route reached without a principal",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 			"The request did not carry a usable credential."))
@@ -205,9 +204,8 @@ func (handler *TenantHandler) writeError(response http.ResponseWriter, request *
 
 func (handler *TenantHandler) write(response http.ResponseWriter, request *http.Request, status int, body any) {
 	if err := api.Write(response, status, body); err != nil {
-		handler.logger.Error("write user response",
+		handler.logger.ErrorContext(request.Context(), "write user response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

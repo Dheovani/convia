@@ -25,6 +25,7 @@ import (
 	"convia/internal/ratelimit"
 	"convia/internal/rooms"
 	"convia/internal/sessions"
+	"convia/internal/telemetry"
 	"convia/internal/users"
 	"convia/internal/webhooks"
 )
@@ -107,6 +108,23 @@ const (
 		applications an installation of this size serves.
 	*/
 	tenantKeys = 10_000
+
+	/*
+		personBurst is how often one signed-in session may ask.
+
+		Far below the tenant's, because the unit is far smaller: a tenant is a
+		backend serving everybody, and a session is one person on one device.
+		Ten a second sustained is more than a person can produce — a click is
+		one request, a room opening is a handful, and the event stream is one
+		request that lasts — so what this refuses is something that is not a
+		person using Convia.
+
+		**It is deliberately generous rather than tight.** What it is for is
+		bounding a stolen session reading an installation faster than anybody
+		could, and a number low enough to matter for that would be low enough
+		to interrupt somebody scrolling a long conversation.
+	*/
+	personBurst = 600
 
 	/*
 		signInFailureBurst and signInFailurePeriod budget failed sign-ins.
@@ -201,6 +219,28 @@ type Dependencies struct {
 		not care gets — the budget is never absent, only set.
 	*/
 	TenantRequestsPerMinute int
+
+	/*
+		PersonRequestsPerMinute is how often one signed-in session may ask,
+		successes included. Zero means [personBurst], for the reason above.
+	*/
+	PersonRequestsPerMinute int
+
+	/*
+		Serving records how long each request took and whether it worked.
+
+		Leaving it out removes the measurement rather than measuring into
+		nothing, so a test or a command that assembles a server by hand does no
+		per-request work for telemetry it never configured.
+	*/
+	Serving *telemetry.Serving
+
+	/*
+		Requests puts each request in a span, continuing the caller's trace
+		when there is one. Leaving it out traces nothing rather than tracing
+		into a void, like Serving above.
+	*/
+	Requests *telemetry.Requests
 
 	/*
 		The operator surface administers tenants: creating them, suspending
@@ -407,6 +447,17 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	tenants := ratelimit.New(perMinute, tenantPeriod, tenantKeys)
 
 	/*
+		And what one signed-in session may cost. Keyed by the session rather
+		than the account or the address, which is what keeps it from being a
+		denial of service against a named person — see personal().
+	*/
+	perPerson := dependencies.PersonRequestsPerMinute
+	if perPerson <= 0 {
+		perPerson = personBurst
+	}
+	people := ratelimit.New(perPerson, tenantPeriod, tenantKeys)
+
+	/*
 		A budget of its own for the browser surface, and a much smaller one.
 
 		The sixty-a-minute figure above is justified by a secret nobody can
@@ -488,8 +539,14 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			if entry.guessable {
 				served = budgeted(logger, signingIn, resolve, served)
 			}
+			/*
+				Rationed inside authentication, because there is no session to
+				name until the cookie or the header has been verified — and
+				outside the origin guard, so another page cannot spend a
+				person's allowance before the guard refuses it.
+			*/
 			served = authenticate(logger, sessionVerifier{service: dependencies.SessionAuthenticator},
-				signingIn, resolve, guardCookie(logger, served))
+				signingIn, resolve, guardCookie(logger, personal(logger, people, served)))
 		default:
 			panic(fmt.Sprintf("server: route %s %s is on surface %d, which nothing authenticates",
 				entry.method, entry.path, entry.surface))
@@ -497,7 +554,30 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		rt.handle(entry.method, entry.path, served)
 	}
 
-	return requestID(logRequest(logger, resolve, recoverPanic(logger, rt.handler())))
+	chain := logRequest(logger, resolve, recoverPanic(logger, rt.handler()))
+
+	/*
+		Measuring wraps the log rather than the other way round, so that a
+		panic recovered below is still measured as the 500 it became. It is
+		absent rather than inert when nothing was wired: a Dependencies without
+		metrics is a process that does no per-request measurement work at all.
+	*/
+	if dependencies.Serving != nil {
+		chain = measured(dependencies.Serving, chain)
+	}
+
+	/*
+		Tracing wraps the measurement, so the span covers it: a trace that
+		excluded the instrumentation would be a trace of slightly less than
+		what happened. It is inside requestID, so that a line can carry both
+		identifiers — Convia's own, which is in the answer a client received,
+		and the caller's trace, which spans every service the request touched.
+	*/
+	if dependencies.Requests != nil {
+		chain = traced(dependencies.Requests, chain)
+	}
+
+	return requestID(chain)
 }
 
 /*
@@ -1475,7 +1555,7 @@ belongs to readiness instead.
 func healthHandler(logger *slog.Logger) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if err := api.Write(response, http.StatusOK, healthResponse{Status: "ok"}); err != nil {
-			logger.Error("write health response", "error", err, "request_id", api.RequestIDFromContext(request.Context()))
+			logger.ErrorContext(request.Context(), "write health response", "error", err)
 		}
 	})
 }
@@ -1509,17 +1589,16 @@ func readinessHandler(logger *slog.Logger, database Prober) http.Handler {
 		status := http.StatusOK
 
 		if err := database.Ping(probeContext); err != nil {
-			logger.Error("readiness probe failed",
+			logger.ErrorContext(request.Context(), "readiness probe failed",
 				"error", err,
 				"dependency", "database",
-				"request_id", api.RequestIDFromContext(request.Context()),
 			)
 			body = readinessResponse{Status: statusUnavailable, Checks: map[string]string{"database": statusUnavailable}}
 			status = http.StatusServiceUnavailable
 		}
 
 		if err := api.Write(response, status, body); err != nil {
-			logger.Error("write readiness response", "error", err, "request_id", api.RequestIDFromContext(request.Context()))
+			logger.ErrorContext(request.Context(), "write readiness response", "error", err)
 		}
 	})
 }

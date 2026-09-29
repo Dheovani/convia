@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
-
-	"convia/internal/api"
 )
 
 const (
@@ -236,12 +234,11 @@ func (service *Service) audit(ctx context.Context, event string, credential Cred
 		actor = principal.CredentialID
 	}
 
-	service.logger.Info("audit event",
+	service.logger.InfoContext(ctx, "audit event",
 		"event", event,
 		"operator_credential_id", credential.ID,
 		"scopes", texts(credential.Scopes),
 		"actor", actor,
-		"request_id", api.RequestIDFromContext(ctx),
 	)
 }
 

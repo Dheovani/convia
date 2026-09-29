@@ -349,6 +349,27 @@ func (store *Store) List(ctx context.Context, applicationID, callID string,
 }
 
 /*
+CountPresent reports how many people are in a call across the installation.
+
+Asked of the database on collection rather than accumulated, for the reason
+[calls.Store.CountActive] gives: a number kept in memory is wrong for as long as
+a process has been running less time than the calls it is counting.
+
+**Guests are included and nobody is named.** What this measures is load, and a
+guest costs an installation exactly what a member does. `M22-007` asks for call
+metrics without user or room identifiers as labels; this has no labels at all,
+which is the strongest form of that.
+*/
+func (store *Store) CountPresent(ctx context.Context) (int64, error) {
+	var present int64
+	if err := store.db(ctx).QueryRow(ctx,
+		`SELECT count(*) FROM participants WHERE status = $1`, StatusJoined).Scan(&present); err != nil {
+		return 0, fmt.Errorf("count present participants: %w", err)
+	}
+	return present, nil
+}
+
+/*
 OfUser pages every call one person took part in, oldest first.
 
 [List] answers "who was in this call", which is a roster. This answers "which

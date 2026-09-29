@@ -79,7 +79,7 @@ func openTestPool(t *testing.T, databaseURL string) *pgxpool.Pool {
 		MaxConnections: 4,
 		ConnectTimeout: 10 * time.Second,
 		QueryTimeout:   5 * time.Second,
-	}, discardLogger())
+	}, discardLogger(), nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

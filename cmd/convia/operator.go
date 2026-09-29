@@ -33,7 +33,7 @@ func operatorCommand(ctx context.Context, logger *slog.Logger, cfg config.Config
 		return errors.New("operator requires one of issue, list, or revoke")
 	}
 
-	pool, err := database.Open(ctx, cfg.Database, logger)
+	pool, err := database.Open(ctx, cfg.Database, logger, nil)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

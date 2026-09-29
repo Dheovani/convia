@@ -44,8 +44,7 @@ rather than Convia guessing. Anything else that fails is logged and answered
 func (handler *ReportHandler) Receive(response http.ResponseWriter, request *http.Request) {
 	report, found := media.ReportFromContext(request.Context())
 	if !found {
-		handler.logger.Error("a media report reached its handler without being verified",
-			"request_id", api.RequestIDFromContext(request.Context()))
+		handler.logger.ErrorContext(request.Context(), "a media report reached its handler without being verified")
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
 		return
@@ -59,10 +58,9 @@ func (handler *ReportHandler) Receive(response http.ResponseWriter, request *htt
 		handler.writeFailure(response, request, api.NewFailure(http.StatusServiceUnavailable,
 			api.CodeUnavailable, "The report could not be checked against the media plane. Send it again."))
 	default:
-		handler.logger.Error("a media report could not be applied",
+		handler.logger.ErrorContext(request.Context(), "a media report could not be applied",
 			"error", err,
 			"report", string(report.Kind),
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
@@ -75,9 +73,8 @@ func (handler *ReportHandler) writeFailure(
 	failure *api.Failure,
 ) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		handler.logger.Error("write failure response",
+		handler.logger.ErrorContext(request.Context(), "write failure response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

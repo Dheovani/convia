@@ -174,10 +174,9 @@ func representRedemption(invitation Invitation, participant participants.Partici
 func (handler *TenantHandler) authorized(response http.ResponseWriter, request *http.Request) (*Authorized, bool) {
 	principal, found := credentials.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("authenticated route reached without a principal",
+		handler.logger.ErrorContext(request.Context(), "authenticated route reached without a principal",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
@@ -290,10 +289,9 @@ middleware, which is a wiring mistake rather than a client error.
 func (handler *HolderHandler) holder(response http.ResponseWriter, request *http.Request) (Invitation, bool) {
 	invitation, found := HolderFromContext(request.Context())
 	if !found {
-		handler.logger.Error("invitation route reached without a verified invitation",
+		handler.logger.ErrorContext(request.Context(), "invitation route reached without a verified invitation",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable invitation."))
@@ -423,11 +421,10 @@ func failureFor(err error, logger *slog.Logger, request *http.Request) *api.Fail
 			"This deployment cannot carry media, so there is nothing to connect to.")
 
 	default:
-		logger.Error("invitation request failed",
+		logger.ErrorContext(request.Context(), "invitation request failed",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		return api.NewFailure(http.StatusInternalServerError, api.CodeInternal,
 			"The server encountered an unexpected condition.")
@@ -452,22 +449,20 @@ func (handler *HolderHandler) writeFailure(response http.ResponseWriter, request
 
 func writeBody(logger *slog.Logger, response http.ResponseWriter, request *http.Request, status int, body any) {
 	if err := api.Write(response, status, body); err != nil {
-		logger.Error("write response",
+		logger.ErrorContext(request.Context(), "write response",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }
 
 func writeFailureBody(logger *slog.Logger, response http.ResponseWriter, request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write failure",
+		logger.ErrorContext(request.Context(), "write failure",
 			"error", err,
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

@@ -85,10 +85,9 @@ than a filter applied afterwards.
 func (handler *TenantHandler) Theirs(response http.ResponseWriter, request *http.Request) {
 	principal, found := credentials.PrincipalFromContext(request.Context())
 	if !found {
-		handler.logger.Error("authenticated route reached without a principal",
+		handler.logger.ErrorContext(request.Context(), "authenticated route reached without a principal",
 			"method", request.Method,
 			"path", request.URL.Path,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		writeFailure(handler.logger, response, request, api.NewFailure(http.StatusUnauthorized,
 			api.CodeUnauthenticated, "The request did not carry a usable credential."))
@@ -136,10 +135,9 @@ func stream(logger *slog.Logger, service writer, response http.ResponseWriter,
 			would append valid-looking lines to an export that already has a
 			hole in it.
 		*/
-		logger.Error("an export failed after it had started",
+		logger.ErrorContext(request.Context(), "an export failed after it had started",
 			"error", err,
 			"user_id", userID,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 		return
 	}
@@ -152,11 +150,10 @@ func stream(logger *slog.Logger, service writer, response http.ResponseWriter,
 
 	path := strings.ReplaceAll(request.URL.Path, "\n", "")
 	path = strings.ReplaceAll(path, "\r", "")
-	logger.Error("an export could not be assembled",
+	logger.ErrorContext(request.Context(), "an export could not be assembled",
 		"error", err,
 		"method", request.Method,
 		"path", path,
-		"request_id", api.RequestIDFromContext(request.Context()),
 	)
 	writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError,
 		api.CodeInternal, "The server encountered an unexpected condition."))
@@ -197,9 +194,8 @@ func (recorder *firstByte) Write(payload []byte) (int, error) {
 func writeFailure(logger *slog.Logger, response http.ResponseWriter,
 	request *http.Request, failure *api.Failure) {
 	if err := api.WriteFailure(response, request, failure); err != nil {
-		logger.Error("write error response",
+		logger.ErrorContext(request.Context(), "write error response",
 			"error", err,
-			"request_id", api.RequestIDFromContext(request.Context()),
 		)
 	}
 }

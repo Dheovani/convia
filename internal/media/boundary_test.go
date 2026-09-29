@@ -81,6 +81,17 @@ var notMediaInfrastructure = map[string]string{
 		"words; it knows nothing about calls. See cmd/convia-desktop",
 	"github.com/godbus/dbus": "pulled in by systray, and used on Linux, which the application " +
 		"does not run on",
+	"go.opentelemetry.io/otel": "measures how long Convia takes to answer a request and how " +
+		"many it is answering at once. It records numbers about Convia's own work and never " +
+		"sees a call, let alone what is in one. See internal/telemetry and docs/observability.md",
+	"go.opentelemetry.io/proto":              "pulled in by the OpenTelemetry exporter",
+	"github.com/cenkalti/backoff":            "pulled in by the OpenTelemetry exporter",
+	"github.com/grpc-ecosystem/grpc-gateway": "pulled in by the OpenTelemetry exporter",
+	"google.golang.org/genproto":             "pulled in by the OpenTelemetry exporter",
+	"google.golang.org/grpc":                 "pulled in by the OpenTelemetry exporter",
+	"google.golang.org/protobuf":             "pulled in by the OpenTelemetry exporter",
+	"github.com/google/uuid":                 "pulled in by the OpenTelemetry exporter",
+	"github.com/go-logr":                     "pulled in by OpenTelemetry, which logs through it",
 }
 
 /*
