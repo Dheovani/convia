@@ -764,11 +764,35 @@ func (service *Service) unreadAt(
 	var state struct {
 		Unread int64 `json:"unread"`
 	}
-	if err := json.Unmarshal(response.Body, &state); err != nil || state.Unread < 0 {
+	if err := json.Unmarshal(response.Body, &state); err != nil {
+		return nil
+	}
+
+	/*
+		Bounded at both ends, and the upper one is the point.
+
+		A home is the authority on its own rooms, so it may say almost
+		anything about one — but this is a number this installation renders
+		beside a room's name, and nothing stopped a home returning the largest
+		integer there is. The consequence was cosmetic and the principle was
+		not: `docs/peers.md` says anything this installation would not have
+		written itself is treated as the home having said nothing, and a
+		million unread messages in one room is not a conversation.
+	*/
+	if state.Unread < 0 || state.Unread > mostUnread {
 		return nil
 	}
 	return &state.Unread
 }
+
+/*
+mostUnread is the largest unread count this installation will believe.
+
+It is far above any conversation and far below what a hostile home would send
+to see what breaks. A room genuinely past it reads as unknown rather than as a
+wrong number, which is the same answer an unreachable home gives.
+*/
+const mostUnread = 1_000_000
 
 /*
 callAt asks one home whether one of its rooms is holding a call.

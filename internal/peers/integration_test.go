@@ -692,7 +692,18 @@ func TestAHomeThatAnswersNonsenseIsGivenNoCount(t *testing.T) {
 	room := RemoteRoom{ID: sampleRemoteID, Home: "https://elsewhere.example",
 		RoomID: "room_7KQZP4XN2VJH6TBWMDR3YAFC5E"}
 
-	for _, answer := range []string{`not json at all`, `{"unread":-4}`, `[]`} {
+	/*
+		The last two are the upper bound, which was missing.
+
+		A home is the authority on its own rooms, so it may say almost anything
+		about one — but this number is rendered beside a room's name, and
+		nothing stopped a home returning the largest integer there is. The
+		consequence was cosmetic; the principle was not.
+	*/
+	for _, answer := range []string{
+		`not json at all`, `{"unread":-4}`, `[]`,
+		`{"unread":9223372036854775807}`, `{"unread":1000001}`,
+	} {
 		setup.relay.answers["GET /v1/peer/rooms/"+room.RoomID+"/read_state"] = Response{
 			Status: http.StatusOK, Body: []byte(answer),
 		}

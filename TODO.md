@@ -413,7 +413,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M13 — Client Session Bootstrap
 
 **Priority:** P1
-**Status:** In progress
+**Status:** In progress, with one item left and it is blocked rather than pending. `M13-010` is the WebRTC sequence an SDK author follows after receiving a credential, and `M19` is where a real client library will establish what actually needs saying — writing it first would be writing a narrative for a consumer that does not exist.
 **Depends on:** M10 and M12
 **Goal:** Provide clients one Convia endpoint for joining a call and receiving short-lived connection instructions.
 
@@ -421,7 +421,7 @@ This document is the operational development plan for Convia. It tracks what exi
 - [x] **M13-002:** Include only the connection data required by supported clients. The address is separately configurable because Convia routinely reaches the media plane on a private network a browser cannot resolve; publishing the address Convia uses would hand every client something that cannot work. Unset, it is derived by swapping the scheme, which is right when one server answers both.
 - [x] **M13-003:** Bind media grants to application, user, call, participant, and capabilities. The credential's identity is the Convia participant — opaque, unique, and already the handle removal uses — and its room is that call's own media session, which only the call package can read. The application and the user are bound by what Convia checked before issuing rather than by a claim in the token, since a claim nothing verifies would be decoration. Capabilities are uniform, and `M12-005` says why.
 - [x] **M13-004:** Set short expiration and document renewal behavior. Five minutes, and the trade is stated rather than hidden: the credential is presented once to open a connection and the connection outlives it, so what a short life bounds is how long a copy taken from a log or an old device still works. The cost is that a client which drops after expiry cannot reconnect with it and asks for another. Renewal is calling the same endpoint again.
-- [ ] **M13-005:** Prevent reuse after participant removal or call termination where technically possible. **Issuing stops immediately**, which is the enforcement that matters: eligibility is re-decided on every request, so someone removed, suspended, or whose call ended gets nothing however recently they were admitted. Both are asserted against the database and end to end. **A connection already open is not severed**, which is the remaining half: it needs the media plane to eject a live participant, and it is bounded meanwhile by the five-minute lifetime.
+- [x] **M13-005:** Prevent reuse after participant removal or call termination where technically possible. **Issuing stops immediately**, which is the enforcement that matters: eligibility is re-decided on every request, so someone removed, suspended, or whose call ended gets nothing however recently they were admitted. **And the connection already open is severed now too**, which this item recorded as the remaining half — the note was written before the media adapter could eject anybody and stayed stale after it could. Leaving and being removed both call `Disconnect` on the plane, asserted against a plane that records them; ending a call deletes the room at the provider, asserted separately, and deleting a room is how LiveKit disconnects everyone in it. What is left is not a gap but a bound: the two paths are best-effort against a provider that might be unreachable, and a credential outlives a severed connection by at most its five-minute lifetime.
 - [x] **M13-006:** Add idempotent join-session creation. Unlike the other participant operations, this one mints something new on every call, so a request that timed out would otherwise leave a usable credential behind that nobody received. Verifying it needed care: the token is a signature over claims whose finest resolution is one second, so two credentials issued in the same second are byte-identical for reasons that have nothing to do with idempotency, and an assertion without a second of separation passes either way.
 - [x] **M13-007:** Add authorization, capacity, suspended-user, and ended-call denial tests. Six denials against a real database — left, removed, suspended, ended, another tenant's participant, and one that never existed — each asserting the media plane was never even asked. Capacity is not among them because it is enforced on arrival rather than on issuing: someone already admitted is already counted, and refusing them a credential because the room later filled would put a person in a call who cannot hear it. Scope is covered by the shared table, which requires the write scope rather than the read one.
 - [x] **M13-008:** Add rate limits for token issuance. Answered where it said it belonged rather than here: issuing a media credential spends the general per-tenant budget `M23-013` added, like every other request an application makes. Limiting this endpoint alone would have been arbitrary — every write endpoint is equally exposed to a caller holding a valid key, and minting a second credential for a participant who already has one grants nothing the first did not, so the exposure was always resource exhaustion rather than privilege.
@@ -435,7 +435,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M14 — Real-Time Control Events
 
 **Priority:** P1
-**Status:** In progress
+**Status:** Complete. The last item was metrics, which `M22` built: active streams, delivery latency, and endings counted by reason — where `behind` is the reading that says somebody's view of a conversation had a hole in it, and is invisible in every other signal.
 **Depends on:** M09 and M10
 **Goal:** Use WebSocket only for control-plane events that materially require low-latency delivery.
 
@@ -459,7 +459,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M15 — Webhooks for External Applications
 
 **Priority:** P1
-**Status:** In progress
+**Status:** In progress, with one item left and it is blocked rather than pending. `M15-010` is manual redelivery, and what it lacks is not mechanism but **authority**: replaying is something an operator does on a tenant's behalf during an incident, and `M20` is where the operator surface and its audit requirements are defined. Building it now would invent that authority twice.
 **Depends on:** Stable domain events from M09 and M10
 **Goal:** Notify server-side consumers of durable Convia events reliably and securely.
 
@@ -485,7 +485,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M16 — Redis and Distributed Ephemeral State
 
 **Priority:** P1
-**Status:** In progress
+**Status:** Complete. The last item was metrics, which `M22` built: pool usage, command latency and failures, with the two uses of Redis counted apart so that "is it Convia or is it Redis" has an answer rather than a guess.
 **Depends on:** A demonstrated distributed-state requirement from M14, M15, or M17
 **Goal:** Introduce Redis for justified ephemeral coordination, never as the durable source of truth.
 
@@ -507,7 +507,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M17 — Presence
 
 **Priority:** P1
-**Status:** In progress
+**Status:** Complete. The last item was metrics, which `M22` built: how much presence the deployment holds and how much of it has gone stale, both unlabelled — presence is the signal with the most people in it, so a series per person would be the largest cardinality mistake available in Convia.
 **Depends on:** M14 and M16
 **Goal:** Expose useful, privacy-aware presence derived from ephemeral signals.
 
@@ -939,7 +939,7 @@ Everything here was found by building the first slice and recorded as a known li
 - [x] **M33-006:** Forget expired nonces on a schedule. Today whichever instance verifies a request prunes them, at most once a minute. It is a janitor now, on the presence sweeper's pattern: owned by the composition root, its lifetime the process, stopped by cancelling. Two things were wrong with the old way and only one of them was the interval — an installation that stops receiving requests stopped forgetting, so a burst was kept for ever, and an ordinary request paid for a delete it had no reason to.
 - [x] **M33-007:** Tell a visitor's installation when they were removed from or banned in a room elsewhere, so the room leaves their list instead of answering `404` until they forget it. It needed no new route: the stream `M33-001` opened already carries `room.member_removed` and `room.deleted`, and the pointer records who this person is **at the home**, which is the name that event uses. Removing and banning are one event on purpose — membership records no actor — so both are covered by the same line. The event is still passed on after the pointer goes, because the screen showing that room has to stop showing it. A home that merely stops answering keeps its pointer: silence is not a decision, and forgetting a room is still the person's to do.
 - [ ] **M33-008:** Carry friendship invitations between installations, with `M32`.
-- [ ] **M33-009:** Model the trust boundary between installations in `M23-001`'s threat model: what a malicious home can make a visitor's installation do, and what a malicious visitor's installation can make a home do.
+- [x] **M33-009:** Model the trust boundary between installations in `M23-001`'s threat model: what a malicious home can make a visitor's installation do, and what a malicious visitor's installation can make a home do. The second direction was already there — replay, redirecting to a third installation, being served without being anybody, flooding, and a protocol nobody speaks. **The first was scattered**, which matters because it is the direction with the least intuition behind it: the requests are signed and checked, so the answers *feel* trustworthy and are not. It is one section now, with a row per thing a home is asked and what is believed of each, under one rule — anything a home says is decoded, checked for shape and built again, and every identifier in the result is the one kept here rather than the one the home sent. **Two of those rows were findings rather than design.** A home's call object used to reach this installation's own answer as the bytes it arrived as, which `M23-001` found and fixed. And writing this turned up the second: the unread count had a floor and **no ceiling**, so a home could return the largest integer there is — cosmetic in consequence and not in principle, since `docs/peers.md` says anything this installation would not have written itself is treated as the home having said nothing. Bounded at a million now, with the two hostile answers added to the test that already covered the malformed ones; mutating the bound away makes both believed.
 - [x] **M33-010:** Run two installations against each other in CI, end to end, with the journeys that were checked by hand when `M18-023` was built. **It carries more weight since [ADR 0021](docs/adr/0021-the-reference-client-is-one-client-among-many.md):** the Playwright journeys that prove the platform works leave with the reference client at `V1`, and this is the proof that stays in Convia's own CI. Four journeys, in a job of their own: sharing a room and being told what happens in it, joining a call at its home, being taken out of a room elsewhere, and a room the visitor is not in staying private. **They drive the public surface and nothing else** — two addresses and a token each, which is all a third party has — so they run against anything that answers as a Convia, and they survive the client leaving. **Only the second installation has a media plane**, and that asymmetry is what proves a visitor's call credential came from the room's home: the first could not have issued one. Two databases on one server, so the two share nothing but the network. Checked by breaking things rather than by passing: reading a room event from `data` instead of the subject — the regression that was silent for a whole iteration — fails two of the four.
 
 **Exit criteria:** A visitor is told what happens in a room elsewhere as it happens, can call into it, and leaves it cleanly when removed or banned; installations of different supported versions keep working together; and the peer surface is budgeted, threat-modelled, and exercised across two installations on every push.

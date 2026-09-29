@@ -109,6 +109,26 @@ This is the newest boundary and the largest.
 
 **What stops the obvious attack:** the same guard webhook delivery uses — the address is checked **at the socket on every attempt**, so a name that resolves to a public address once and a private one a second later cannot get past it. No proxy is consulted, no redirect is followed, the answer is size-bounded, and reaching private addresses is a setting an operator turns on rather than a side effect of the environment.
 
+## A home's answers → Convia
+
+The boundary above is about what another installation may **ask**. This one is about what it may **say**, and it is the direction with the least intuition behind it: the requests are signed and checked, so the answers feel trustworthy, and they are not.
+
+**A home is the authority on its own rooms**, so it can lie about anything inside one — who is in it, what was said, whether the visitor is still a member. That is not an escalation, because the home could make all of those true. What it must not be able to do is make this installation act on anything outside the rooms that visitor is in there, or publish something this installation would not have written.
+
+**One rule covers it:** anything a home says is decoded, checked for shape, and built again — never passed on as it arrived — and every identifier in the result is the one kept here, not the one the home sent.
+
+| What is asked | What is believed |
+| --- | --- |
+| An invitation preview | dates that parse, a room name and an inviter that are plain text within length |
+| An acceptance | identifiers of the right shape; the local pointer is generated **here**, never taken |
+| An unread count | a number between zero and a million; anything else reads as unknown |
+| A call in a room | a call identifier of the right shape, an active status, a timestamp that parses — and the room named by the local pointer |
+| An event on the stream | a room this person is actually in at that home, looked up in the pointers kept for them |
+
+**Two of those rows were findings rather than design.** A home's call object used to go into this installation's own answer as the bytes it arrived as, which let a stranger choose what this installation published — fields the contract forbids, fields it requires left out, or the room named by an identifier only that home owns. And the unread count had a floor and no ceiling, so a home could return the largest integer there is; the consequence was cosmetic and the principle was not.
+
+**Not covered:** a home that answers slowly rather than wrongly. Every request has a timeout and the fan-out has a budget, so a slow home costs a sidebar its counts rather than the process — but a home that is slow *and* is one of many is a deployment noticing its sidebar is slow, not an alert.
+
 ## Convia → an application's webhook destination
 
 **Trusted for:** nothing. The URL is chosen by a tenant and fetched by Convia's own process.
