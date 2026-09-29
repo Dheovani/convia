@@ -777,7 +777,7 @@ func personal(logger *slog.Logger, uses *ratelimit.Limiter, next http.Handler) h
 			*/
 			logger.ErrorContext(request.Context(), "a rationed route was reached without a session",
 				"method", request.Method,
-				"path", request.URL.Path,
+				"path", strings.ReplaceAll(strings.ReplaceAll(request.URL.Path, "\n", ""), "\r", ""),
 			)
 			refuse(logger, response, request, "")
 			return
