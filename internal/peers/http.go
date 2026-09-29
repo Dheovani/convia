@@ -820,6 +820,16 @@ func signerOf(logger *slog.Logger, response http.ResponseWriter, request *http.R
 	return signer, true
 }
 
+func safeLogError(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	message = strings.ReplaceAll(message, "\n", "")
+	message = strings.ReplaceAll(message, "\r", "")
+	return message
+}
+
 // writeError translates this package's errors into what a caller is told.
 func writeError(logger *slog.Logger, response http.ResponseWriter, request *http.Request, err error) {
 	var validation ValidationError
@@ -853,16 +863,16 @@ func writeError(logger *slog.Logger, response http.ResponseWriter, request *http
 			which of the two it was, because only somebody running an
 			installation can act on the difference.
 		*/
-		logger.WarnContext(request.Context(), "another installation does not speak this one's protocol", "error", err,
+		logger.WarnContext(request.Context(), "another installation does not speak this one's protocol", "error", safeLogError(err),
 			"speaks", Spoken)
 		writeFailure(logger, response, request, api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
 			"The other Convia could not be reached. Try again in a moment."))
 	case errors.Is(err, ErrUnreachable):
-		logger.WarnContext(request.Context(), "another installation could not be reached", "error", err)
+		logger.WarnContext(request.Context(), "another installation could not be reached", "error", safeLogError(err))
 		writeFailure(logger, response, request, api.NewFailure(http.StatusServiceUnavailable, api.CodeUnavailable,
 			"The other Convia could not be reached. Try again in a moment."))
 	default:
-		logger.ErrorContext(request.Context(), "request between installations failed", "error", err, "method", request.Method)
+		logger.ErrorContext(request.Context(), "request between installations failed", "error", safeLogError(err), "method", request.Method)
 		writeFailure(logger, response, request, api.NewFailure(http.StatusInternalServerError,
 			api.CodeInternal, "The server encountered an unexpected condition."))
 	}
