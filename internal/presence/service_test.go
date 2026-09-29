@@ -61,6 +61,7 @@ func (unreachable) GetMany(context.Context, string, []string) ([]Presence, error
 	return nil, errNoStore
 }
 func (unreachable) Lapse(context.Context, int) ([]Change, error) { return nil, errNoStore }
+func (unreachable) Standing(context.Context) (Standing, error)   { return Standing{}, errNoStore }
 
 // serving builds a service over an in-process store, with the people and the
 // listener a test wants.

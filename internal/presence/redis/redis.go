@@ -155,6 +155,17 @@ func New(settings Config, logger *slog.Logger) (*Store, error) {
 func (store *Store) Close() error { return store.client.Close() }
 
 /*
+PoolStats and AddHook are what measuring this client needs, and the whole of it.
+
+They are two lines rather than a telemetry dependency in this package: what a
+store owes an observer is the numbers its client already keeps and a place to
+put a timer, and deciding what to do with either belongs somewhere else.
+*/
+func (store *Store) PoolStats() *goredis.PoolStats { return store.client.PoolStats() }
+
+func (store *Store) AddHook(hook goredis.Hook) { store.client.AddHook(hook) }
+
+/*
 Ping reports whether the shared store is reachable.
 
 The composition root calls it once at startup so an operator learns from a log
@@ -511,6 +522,33 @@ func (store *Store) Lapse(ctx context.Context, limit int) ([]presence.Change, er
 		changes = append(changes, merged[key])
 	}
 	return changes, nil
+}
+
+/*
+Standing counts what the deployment is holding, from the index the sweep uses.
+
+Both numbers come from the sorted set of deadlines rather than from the claims
+themselves: counting keys would mean scanning a keyspace that grows with the
+installation, on a schedule, for a number nobody needs to that precision. A
+cardinality and a range count are constant work.
+
+It counts claims rather than people for the reason [presence.Standing] gives,
+and here there is a second one: the index is keyed by claim, so distinct people
+is not a question it can answer without reading every entry.
+*/
+func (store *Store) Standing(ctx context.Context) (presence.Standing, error) {
+	held, err := store.client.ZCard(ctx, dueKey).Result()
+	if err != nil {
+		return presence.Standing{}, fmt.Errorf("count standing presence: %w", err)
+	}
+
+	overdue, err := store.client.ZCount(ctx, dueKey, "-inf",
+		strconv.FormatInt(time.Now().UTC().UnixMilli(), 10)).Result()
+	if err != nil {
+		return presence.Standing{}, fmt.Errorf("count overdue presence: %w", err)
+	}
+
+	return presence.Standing{Claims: held, Overdue: overdue}, nil
 }
 
 // userKey addresses one person's claims.

@@ -31,7 +31,7 @@ func accountCommand(ctx context.Context, logger *slog.Logger, cfg config.Config,
 		return errors.New("account requires one of suspend or activate")
 	}
 
-	pool, err := database.Open(ctx, cfg.Database, logger)
+	pool, err := database.Open(ctx, cfg.Database, logger, nil)
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}

@@ -89,6 +89,41 @@ They are read together, in one callback, because an operator compares them: peop
 
 **Delivery is timed from when the change happened**, not from when the event was published: the interesting delay is the transaction that had to commit first, not the microseconds spent fanning out afterwards. Events arriving from another instance are **not** timed — they were stamped by that instance's clock, and a latency computed across two clocks measures the skew between them at least as much as it measures Convia. A negative reading is discarded rather than recorded, because a delivery that arrived before the thing it describes happened is worse than a gap: somebody would believe it.
 
+### Presence
+
+| Instrument | What it answers |
+| --- | --- |
+| `convia.presence.claims` | how much presence the deployment holds |
+| `convia.presence.overdue` | how much of it has gone stale |
+
+**`overdue` is the one that says something is wrong.** A claim past its deadline changes no answer — every read already ignores it — so it never affects what anybody sees. What it says is whether the sweeper is keeping up, and a number that climbs means subscribers are not being told that people went away.
+
+The two are read together, from one moment, because overdue on its own is a number without a scale: a hundred stale claims mean nothing until somebody knows whether the deployment holds a hundred and one or a million.
+
+**They count claims, not people.** `M17-011` asked for active users; a person with a phone and a laptop holds two claims, and counting distinct people would mean either walking every claim on a schedule or keeping a second tally that can disagree with the first. A number named for what it counts is worth more than one named for what was asked.
+
+**Neither carries a label**, which matters most here: presence is the signal with the most people in it, so a series per person would be the largest cardinality mistake available in Convia.
+
+Where the count comes from follows where presence lives. One instance walks its own memory; several read the sorted set of deadlines that the sweeper already uses, with a cardinality and a range count — constant work rather than a scan of a keyspace that grows with the installation.
+
+### The shared store
+
+| Instrument | What it answers |
+| --- | --- |
+| `convia.redis.command.duration` | how long a command took, and whether it worked |
+| `convia.redis.pool.connections` | how many connections are idle and in use |
+| `convia.redis.pool.waits` | how often a caller waited for one, and how often waiting timed out |
+
+**These answer one question: is it Convia, or is it Redis.** Without them the answer is a guess, because every symptom appears somewhere else — a pool with no free connections looks like a slow handler, and a Redis that times out looks like presence being wrong.
+
+`pool.waits` with the `timed_out` outcome is the one worth alerting on. It is saturation: Convia asked for a connection and there was none.
+
+**Both uses are measured through one set of instruments**, labelled `presence` and `events`. They point at the same Redis, so the address cannot say which is slow; what Convia is doing with it can. The labels are Convia's own words, so the set is as large as the number of places Convia connects — two.
+
+**A missing key is an answer, not a failure.** `redis.Nil` is how Redis says a key is not there, and counting it as an error would put the error rate near a hundred percent while nothing was wrong — presence is mostly people who are not present.
+
+A pipeline is timed once, as `pipeline`. Its members were sent together and waited together, so the only honest duration is the round trip they shared. A dial is not timed at all: connection setup in the same histogram as the work it enables would make both unreadable.
+
 ### The label is the route, never the path
 
 This is the part worth getting right, and it is about the bill as much as the graph.
@@ -103,6 +138,45 @@ So the label comes from the router's matched pattern, which means the set of val
 
 The measuring middleware sits outside the router, so this only works because the matched pattern survives back out of it. That is a property of `net/http` rather than of Convia, and there is a test for it: if it stopped being true, every series would silently collapse into `other` and the graphs would still draw.
 
+## Traces
+
+```
+CONVIA_TRACES_ENDPOINT=https://collector.internal:4318
+```
+
+Separate from the metrics endpoint rather than one setting for both, because they are separate decisions: metrics are cheap and constant and a deployment usually wants them always, while traces are voluminous and are often turned on while somebody is looking at something. One setting would make turning one off turn the other off with it.
+
+**Every request is a span, named for the route and never the path.** Same rule as the metrics label and for the same reason: a span named `/v1/rooms/rom_ABC` is a distinct operation per room, which makes every aggregate across a route empty and every trace search a scan.
+
+**The caller's trace is continued, not replaced.** An application that traced its own call into Convia gets one trace across both, and Convia's work appears underneath the operation that asked for it rather than as an unrelated trace nobody can join. The propagation is W3C `traceparent` and **nothing else** — no vendor headers, because a second format is a second thing that can disagree about which trace a request belongs to.
+
+**Baggage is deliberately not propagated.** It carries arbitrary key-value pairs to every service a request touches and, with a careless exporter, into their telemetry — a channel for personal data to leave the boundary [`data-protection.md`](data-protection.md) draws, opened by default and closed by nobody.
+
+**Only a server fault marks a span as an error.** A `404` or a `401` is Convia answering correctly; marking those would make the error rate of every trace search the rate at which people mistype URLs and let sessions expire.
+
+### What a span says about the database
+
+Every query is a span underneath the request that made it, named `postgresql select` and so on — the first word, because the name is what somebody scans a trace by, and the whole statement as a name would be a heading per query.
+
+**The statement is recorded and the arguments are not.** This is the load-bearing distinction. Convia builds no SQL from caller data — nothing is interpolated, and the only string building in a statement is placeholder numbering — so the text is written by this repository and is safe in telemetry, and it is how somebody finds which query was slow. The **arguments** are the opposite: they are the message somebody wrote, the name they chose, the token they presented. A tracer that recorded them would ship every one of those to a collector.
+
+**No rows found is not a failure.** `pgx.ErrNoRows` is how a query says the thing is not there, which Convia acts on constantly — a resolve that creates, a lookup that reports missing. Marking it would make the error rate of every trace the rate at which people ask about things that do not exist.
+
+### What a span says about Redis
+
+The command name, and nothing else. A key here is `convia:presence:v1:<application>:<user>` — **it names a person**, and putting one in a span would ship the social graph to a collector one span at a time. Argument values are worse and equally absent.
+
+Measuring without tracing is a supported configuration rather than half of one, for the reason the two endpoints are separate.
+
+### Both identifiers, and why
+
+A log line written while serving carries `request_id` **and** `trace_id`. They are not redundant:
+
+- `request_id` is Convia's own and is in the answer a client received, so somebody holding a failed response can find its lines.
+- `trace_id` is the caller's and spans every service the request touched, so somebody holding a slow trace can find what Convia was doing inside it.
+
+Either alone leaves one of those searches impossible.
+
 ## What is never written
 
 The rule is older than this milestone and is enforced by types rather than by care:
@@ -113,7 +187,7 @@ The rule is older than this milestone and is enforced by types rather than by ca
 
 ## Not built
 
-- **Traces** (`M22-003`, `M22-004`, `M22-005`). No span is created and nothing is exported. Metrics came first because several other milestones are waiting on them and nothing is waiting on traces.
-- **The other domains.** The Redis pool (`M16-010`) and presence (`M17-011`) are still unmeasured.
+- **Outbound spans** (the rest of `M22-005`). PostgreSQL and Redis are in the picture; a webhook delivery and a call to the media plane are not. Those are also where the other half of `M22-004` lives — Convia should put its `traceparent` on what it sends, so an application receiving a webhook can join its trace to the request that caused it.
+- **The database.** PostgreSQL's pool and query latency are not measured; Redis is, and the same argument applies to the store Convia actually depends on.
 - **Dashboards, SLOs and alerts** (`M22-011` to `M22-013`), which need more than the HTTP surface first.
 - **Telemetry retention and sampling** (`M22-014`).

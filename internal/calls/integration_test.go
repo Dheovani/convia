@@ -94,7 +94,7 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 		MaxConnections: 8,
 		ConnectTimeout: 10 * time.Second,
 		QueryTimeout:   5 * time.Second,
-	}, logger)
+	}, logger, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

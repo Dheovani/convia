@@ -63,7 +63,7 @@ func newTestService(t *testing.T) (*Service, *bytes.Buffer) {
 		MaxConnections: 4,
 		ConnectTimeout: 10 * time.Second,
 		QueryTimeout:   5 * time.Second,
-	}, logger)
+	}, logger, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

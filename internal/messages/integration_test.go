@@ -88,7 +88,7 @@ func newFixture(t *testing.T) fixture {
 		MaxConnections: 24,
 		ConnectTimeout: 10 * time.Second,
 		QueryTimeout:   5 * time.Second,
-	}, logger)
+	}, logger, nil)
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}

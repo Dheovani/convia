@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"convia/internal/api"
 )
 
@@ -54,12 +56,31 @@ func (handler Correlating) Handle(ctx context.Context, record slog.Record) error
 	if id != "" && !carries(record, requestID) {
 		record.AddAttrs(slog.String(requestID, id))
 	}
+
+	/*
+		And the trace, when there is one.
+
+		The two are not redundant. A request identifier is Convia's own and is
+		in the answer a client received, so somebody holding a failed response
+		can find its lines; a trace identifier is the caller's and spans every
+		service the request touched, so somebody holding a slow trace can find
+		what Convia was doing inside it. Either alone leaves one of those
+		searches impossible.
+	*/
+	if span := trace.SpanContextFromContext(ctx); span.IsValid() && !carries(record, traceID) {
+		record.AddAttrs(slog.String(traceID, span.TraceID().String()))
+	}
+
 	return handler.Handler.Handle(ctx, record)
 }
 
 // requestID is the field correlation is expressed in, and the same name the
 // hand-written pairs used, so a reader's queries do not change.
 const requestID = "request_id"
+
+// traceID is the caller's trace, in the field name every OpenTelemetry
+// backend already looks for.
+const traceID = "trace_id"
 
 // carries reports whether a record already names an attribute. slog walks
 // attributes with a function that returns false to stop, which is why this is

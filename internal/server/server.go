@@ -213,6 +213,13 @@ type Dependencies struct {
 	Serving *telemetry.Serving
 
 	/*
+		Requests puts each request in a span, continuing the caller's trace
+		when there is one. Leaving it out traces nothing rather than tracing
+		into a void, like Serving above.
+	*/
+	Requests *telemetry.Requests
+
+	/*
 		The operator surface administers tenants: creating them, suspending
 		them, and issuing their first keys. It is authenticated by an operator
 		credential, which no application can hold.
@@ -517,6 +524,17 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 	*/
 	if dependencies.Serving != nil {
 		chain = measured(dependencies.Serving, chain)
+	}
+
+	/*
+		Tracing wraps the measurement, so the span covers it: a trace that
+		excluded the instrumentation would be a trace of slightly less than
+		what happened. It is inside requestID, so that a line can carry both
+		identifiers — Convia's own, which is in the answer a client received,
+		and the caller's trace, which spans every service the request touched.
+	*/
+	if dependencies.Requests != nil {
+		chain = traced(dependencies.Requests, chain)
 	}
 
 	return requestID(chain)

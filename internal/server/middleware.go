@@ -71,6 +71,31 @@ func measured(serving *telemetry.Serving, next http.Handler) http.Handler {
 	})
 }
 
+/*
+traced puts every request in a span, continuing the caller's trace when there
+is one.
+
+It wraps [measured] rather than the other way round, so that the span covers the
+measurement too: a trace that excluded the instrumentation would be a trace of
+slightly less than what happened, and the difference would only show up when
+somebody was chasing milliseconds.
+
+**The context it produces replaces the request's**, which is what puts the trace
+identifier on every log line written underneath — the same wrapper that adds the
+request identifier reads the span from there.
+*/
+func traced(requests *telemetry.Requests, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		ctx, done := requests.Began(request)
+		request = request.WithContext(ctx)
+
+		recorder := &responseRecorder{ResponseWriter: response, status: http.StatusOK}
+		next.ServeHTTP(recorder, request)
+
+		done(request, recorder.status)
+	})
+}
+
 // logRequest emits one structured access log entry per request and records the
 // response status and size for the rest of the chain.
 func logRequest(logger *slog.Logger, resolve resolver, next http.Handler) http.Handler {

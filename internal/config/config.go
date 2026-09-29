@@ -59,6 +59,7 @@ const (
 	serviceInstanceEnvironment = "CONVIA_SERVICE_INSTANCE"
 
 	metricsEndpointEnvironment = "CONVIA_METRICS_ENDPOINT"
+	tracesEndpointEnvironment  = "CONVIA_TRACES_ENDPOINT"
 
 	erasureWindowEnvironment = "CONVIA_ERASURE_WINDOW"
 
@@ -237,6 +238,20 @@ type Config struct {
 	MetricsEndpoint string
 
 	/*
+		TracesEndpoint is where spans are sent, over OTLP/HTTP.
+
+		It is separate from MetricsEndpoint rather than one setting for both,
+		because the two are separate decisions: metrics are cheap and constant
+		and a deployment usually wants them always, while traces are voluminous
+		and are often turned on while somebody is looking at something. One
+		setting would make turning one off turn the other off with it.
+
+		Empty is off, and off is a real no-op: no batching goroutine and nothing
+		accumulated.
+	*/
+	TracesEndpoint string
+
+	/*
 		PeersAllowPrivateAddresses is whether links between installations may
 		reach loopback and private-network addresses.
 
@@ -398,6 +413,7 @@ func Load() (Config, error) {
 		LogLevel:                   logLevel,
 		ServiceInstance:            strings.TrimSpace(environmentOrDefault(serviceInstanceEnvironment, "")),
 		MetricsEndpoint:            strings.TrimSpace(environmentOrDefault(metricsEndpointEnvironment, "")),
+		TracesEndpoint:             strings.TrimSpace(environmentOrDefault(tracesEndpointEnvironment, "")),
 		PeersAllowPrivateAddresses: peersAllowPrivate,
 		PublicAddress:              strings.TrimSpace(environmentOrDefault(publicAddressEnvironment, "")),
 	}, nil

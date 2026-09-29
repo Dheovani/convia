@@ -42,10 +42,10 @@ In memory, every one of these passes through `secret.Value` or `accounts.Passwor
 | `accounts.username`, `users.display_name` | what somebody is called |
 | `room_members`, `room_bans`, `participants` | who is in a room, who was put out of one |
 | `remote_rooms` | which installations somebody has rooms on |
-| presence (in this process, not a table) | whether somebody is around |
+| presence (never a table: this process, or Redis) | whether somebody is around |
 | `messages` minus the body | who spoke, when, how often |
 
-Presence is the one thing here that is never written down: it is held in the process, with Redis carrying changes between instances when a deployment runs more than one, and it expires on a clock rather than being deleted.
+Presence is the one thing here that never reaches PostgreSQL. **Where it does live depends on the deployment**: one instance keeps it in its own memory, and several keep it in Redis, which is the same decision the event stream makes and from the same setting. Either way it expires on a clock rather than being deleted, so forgetting it is the default rather than an operation somebody has to run — and either way it is **personal data in a store that is not the database**, which is why Redis must be `rediss` in production and why encrypting it is named below as the deployment's.
 
 **This is the class that is easy to underrate.** Nothing here is a conversation, and all of it together says who somebody talks to, how often, and on which installations — which is frequently more revealing than any single message. `remote_rooms` in particular is the only place that records that two installations have anything to do with each other.
 

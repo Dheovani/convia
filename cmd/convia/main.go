@@ -241,12 +241,33 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		}
 	}()
 
-	requests, err := telemetry.Serve(meters)
+	httpMetrics, err := telemetry.Serve(meters)
 	if err != nil {
 		return fmt.Errorf("build the request instruments: %w", err)
 	}
 
-	pool, err := database.Open(signalContext, cfg.Database, logger)
+	/*
+		Tracing, with the same shape and the same shutdown discipline. Spans
+		are batched, so a process that exits without flushing loses the trace
+		of whatever it was doing when it was asked to stop — which is the trace
+		somebody wanted.
+	*/
+	tracers, stopTracing, err := telemetry.Tracing(signalContext, service, cfg.TracesEndpoint)
+	if err != nil {
+		return fmt.Errorf("start tracing: %w", err)
+	}
+	defer func() {
+		flushing, cancel := context.WithTimeout(context.WithoutCancel(ctx), measurementFlush)
+		defer cancel()
+
+		if err := stopTracing(flushing); err != nil {
+			logger.WarnContext(flushing, "the last spans could not be reported", "error", err)
+		}
+	}()
+
+	requests := telemetry.Trace(tracers)
+
+	pool, err := database.Open(signalContext, cfg.Database, logger, telemetry.Query(tracers))
 	if err != nil {
 		return fmt.Errorf("open database: %w", err)
 	}
@@ -359,7 +380,42 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	defer closePresence()
 
+	/*
+		Both uses of Redis, measured through one set of instruments.
+
+		The question these answer is the one an operator has when Convia feels
+		slow: is it Convia, or is it Redis. Without them the answer is a guess,
+		because every symptom shows up somewhere else — a pool with no free
+		connections looks like a slow handler, and a Redis that times out looks
+		like presence being wrong.
+
+		A deployment with no Redis has nothing to attach, which is a single
+		instance rather than a failure.
+	*/
+	shared, err := telemetry.Connected(meters)
+	if err != nil {
+		return fmt.Errorf("measure the shared store: %w", err)
+	}
+	shared.Tracing(tracers)
+	shared.Measure("presence", presenceStore)
+	if relay != nil {
+		shared.Measure("events", relay)
+	}
+
 	presenceService := presence.NewService(presenceStore, applicationService, userService, announcer, logger)
+
+	/*
+		How much presence there is, and how much of it has gone stale. The
+		second is the one worth watching: a claim past its deadline changes no
+		answer, because every read already ignores it — what it says is whether
+		the sweeper is keeping up with telling subscribers somebody left.
+	*/
+	if err := telemetry.Attend(meters, func(ctx context.Context) (int64, int64, error) {
+		standing, err := presenceStore.Standing(ctx)
+		return standing.Claims, standing.Overdue, err
+	}, logger); err != nil {
+		return fmt.Errorf("attend to presence: %w", err)
+	}
 
 	/*
 		Convia's own product, which every installation serves.
@@ -436,7 +492,8 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Database:                pool,
 		TrustedProxies:          cfg.TrustedProxies,
 		TenantRequestsPerMinute: cfg.TenantRequestsPerMinute,
-		Serving:                 requests,
+		Serving:                 httpMetrics,
+		Requests:                requests,
 
 		OperatorAuthenticator: operatorService,
 		Applications:          applications.NewHandler(logger, applicationService),

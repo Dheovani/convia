@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/config"
@@ -24,7 +25,8 @@ A pool that cannot reach PostgreSQL is an explicit startup failure rather than
 a process that starts and fails later on its first query. The connection URL is
 never logged or wrapped into an error, because it carries the password.
 */
-func Open(ctx context.Context, settings config.Database, logger *slog.Logger) (*pgxpool.Pool, error) {
+func Open(ctx context.Context, settings config.Database, logger *slog.Logger,
+	tracer pgx.QueryTracer) (*pgxpool.Pool, error) {
 	poolConfig, err := pgxpool.ParseConfig(settings.URL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database URL: invalid connection string")
@@ -32,6 +34,17 @@ func Open(ctx context.Context, settings config.Database, logger *slog.Logger) (*
 
 	poolConfig.MaxConns = settings.MaxConnections
 	poolConfig.ConnConfig.ConnectTimeout = settings.ConnectTimeout
+
+	/*
+		The query tracer, when there is one. It is a parameter rather than a
+		setting read here because whether Convia traces is a decision the
+		composition root makes once, and this package should not have to know
+		how that decision is expressed.
+
+		Nil is the common case in tests, and pgx treats it as no tracing at
+		all rather than as a tracer that does nothing per query.
+	*/
+	poolConfig.ConnConfig.Tracer = tracer
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
