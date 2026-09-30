@@ -569,6 +569,27 @@ jobs:
       - name: Build Convia
         run: go build -o convia ./cmd/convia
 
+      # The runner ships a PostgreSQL 16 client and the service is 17, and
+      # pg_dump refuses to dump a server newer than itself. Rather than pin a
+      # client version that has to be remembered every time the server moves,
+      # the tools come from the server's own image: they cannot drift, because
+      # there is only one version in play.
+      #
+      # The archive travels on stdin and stdout, so nothing is shared but the
+      # network -- the host's, so that 127.0.0.1:5432 is the service.
+      - name: Take the PostgreSQL client from the server's own image
+        run: |
+          mkdir -p "$HOME/.pgbin"
+          for tool in pg_dump pg_restore psql; do
+            cat > "$HOME/.pgbin/$tool" <<EOF
+          #!/usr/bin/env bash
+          exec docker run --rm --interactive --network host \
+            --env PGPASSWORD --env PGSSLMODE postgres:17-alpine $tool "\$@"
+          EOF
+            chmod +x "$HOME/.pgbin/$tool"
+          done
+          echo "$HOME/.pgbin" >> "$GITHUB_PATH"
+
       - name: Make a database to lose and an empty one to restore into
         run: |
           psql "$URL/postgres" --quiet --command 'CREATE DATABASE convia_origin'

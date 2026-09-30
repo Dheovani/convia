@@ -22,6 +22,8 @@ pg_dump --format=custom --no-owner --no-privileges --file=convia-$(date +%Y%m%d%
 
 `--format=custom` so it can be restored selectively and in parallel. `--no-owner --no-privileges` so it restores into a database whose roles are named differently, which is the normal case when restoring somewhere new.
 
+**`pg_dump` refuses a server newer than itself.** Check `pg_dump --version` against `SHOW server_version` before you need this in a hurry; a machine that has been upgraded around an old client will tell you only when you try to take the backup. CI sidesteps it by running the client out of the server's own image, so the two cannot drift.
+
 **Where the dump is kept is a deployment decision Convia does not make**, and it is the one thing this runbook cannot check for you. A dump on the same disk as the database is not a backup.
 
 ## Restoring

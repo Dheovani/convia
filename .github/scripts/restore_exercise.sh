@@ -96,6 +96,22 @@ ask() {
 
 at="http://127.0.0.1:$CONVIA_RESTORE_PORT"
 
+# pg_dump refuses a server newer than itself, and it refuses it after the work
+# above rather than before, so this asks first. A GitHub runner ships a
+# PostgreSQL 16 client while the service here is 17, which is why CI takes the
+# client from the server's own image instead of from the machine.
+client="$(pg_dump --version | grep -oE '[0-9]+' | head -n1)"
+server="$(psql "$CONVIA_RESTORE_ORIGIN_URL" --tuples-only --no-align \
+  --command 'SHOW server_version' | grep -oE '^[0-9]+')"
+
+if [ "$client" != "$server" ]; then
+  echo "the PostgreSQL client is $client and the server is $server."
+  echo "pg_dump cannot dump a server of a different major version. Use the"
+  echo "client from the server's own image, as .github/workflows/ci.yml does."
+  exit 1
+fi
+echo "client and server are both PostgreSQL $client"
+
 echo "== what is lost =="
 
 CONVIA_ENVIRONMENT=development CONVIA_DATABASE_URL="$CONVIA_RESTORE_ORIGIN_URL" \
@@ -140,7 +156,11 @@ fi
 echo "an account, a room, and a message exist"
 
 echo "== the backup =="
-pg_dump --format=custom --no-owner --no-privileges --file="$dump" "$CONVIA_RESTORE_ORIGIN_URL"
+# The archive travels on stdout and the shell running this owns the file. That
+# is one less thing to get wrong when the client is not on this machine -- CI
+# runs it out of a container, and a --file there would be written by whatever
+# user that container happens to be, into a directory owned by this one.
+pg_dump --format=custom --no-owner --no-privileges "$CONVIA_RESTORE_ORIGIN_URL" > "$dump"
 echo "dumped $(du -h "$dump" | cut -f1)"
 
 stop
@@ -153,7 +173,7 @@ echo "the original database is gone"
 
 echo "== the restore =="
 pg_restore --no-owner --no-privileges --exit-on-error \
-  --dbname="$CONVIA_RESTORE_TARGET_URL" "$dump"
+  --dbname="$CONVIA_RESTORE_TARGET_URL" < "$dump"
 echo "restored without error, which proves nothing yet"
 
 # The schema version the binary expects. A restore that brings back an older
