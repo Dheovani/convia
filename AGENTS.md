@@ -445,6 +445,8 @@ Avoid tests that require external network access unless they are explicitly inte
 
 Bug fixes should generally include a regression test when practical.
 
+Two gates run in CI, and both refuse rather than warn. **Every package that ships code has tests** -- not a percentage, because a percentage rewards covering whatever is cheapest; a package with no tests is a package where nothing would notice a change. And **no test is switched off without an owner, an issue, and a date in the future**, the date being the part with teeth: when it passes, the build fails until somebody fixes the test, extends the date deliberately, or deletes it and admits the coverage is gone. Every other skip has to be one of the shapes the gate recognises, so hiding a flake behind `t.Skip("TODO")` needs a diff a reviewer reads. The reasoning and the conventions are in [`docs/testing.md`](docs/testing.md).
+
 ---
 
 ## Observability

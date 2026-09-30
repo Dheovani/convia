@@ -130,7 +130,20 @@ var (
 	_ slog.LogValuer = Secret("")
 )
 
-// NewSecret generates a signing key for a destination.
+/*
+NewSecret generates a signing key for a destination.
+
+**Every secret comes from here**, at creation and at rotation, and no caller
+supplies one. That is worth stating because [Sign] rests on it: HMAC zero-pads
+a key shorter than its block size, so it cannot tell two keys apart when they
+differ only by trailing NUL bytes — `"a"` and `"a\x00"` are one key. Fuzzing
+found it, and what makes it unreachable is this function rather than anything
+in the signing: a secret is a prefix and twenty-six characters of one base32
+alphabet, so no two Convia secrets can collide that way.
+
+A secret arriving from somewhere else — a hand-edited row, a future import —
+would put that back in play.
+*/
 func NewSecret() Secret {
 	return Secret("whsec_" + string(secret.New()))
 }

@@ -6,6 +6,7 @@
 
 # Test and coverage output
 coverage.out
+test-events.json
 
 # Local environment
 .env

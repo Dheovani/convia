@@ -65,7 +65,11 @@ A rollback cannot restore data that a migration destroyed. Dropping a column is 
 
 ## Query Timeouts and Cancellation
 
-Every query takes a `context.Context`. Request-scoped work inherits the request's context, so a client that disconnects stops the work it caused. `CONVIA_DATABASE_QUERY_TIMEOUT` bounds queries that have no tighter deadline of their own.
+Every query takes a `context.Context`. Request-scoped work inherits the request's context, so a client that disconnects stops the work it caused.
+
+`CONVIA_DATABASE_QUERY_TIMEOUT` is **PostgreSQL's own `statement_timeout`**, set on every pooled connection. It is the server that ends a query past it, not Convia that stops waiting — which is the difference that matters, because abandoning a call leaves the work running and the connection held. A query that hangs otherwise costs a connection and a goroutine until something else gives up, and that is how one slow dependency becomes an installation that is up and answering nothing.
+
+**Migrations are not bounded by it.** They open their own connection, so a schema change is not cut off by a number chosen for requests.
 
 Cancellation reaches PostgreSQL: pgx cancels the in-flight query rather than only abandoning the Go call, which is what keeps a stalled database from exhausting the pool. This behavior is covered by an integration test.
 
