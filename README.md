@@ -119,7 +119,7 @@ Configuration is available through these environment variables:
 - `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
 - `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
 - `CONVIA_DATABASE_CONNECT_TIMEOUT` bounds establishing a connection. The default is `5s`.
-- `CONVIA_DATABASE_QUERY_TIMEOUT` bounds a single query. The default is `5s`.
+- `CONVIA_DATABASE_QUERY_TIMEOUT` bounds a single query. The default is `5s`. It is applied as PostgreSQL's own `statement_timeout`, so a query past it is ended at the server rather than merely abandoned by Convia. Migrations open their own connection and are not bounded by it.
 
 In production, `CONVIA_DATABASE_URL` must request a verified TLS mode. [`docs/database.md`](docs/database.md) documents the database setup, the migration workflow, and the testing model.
 
@@ -193,6 +193,8 @@ docker build -t convia .
 GitHub Actions validates the project through three workflows:
 
 - `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package. It builds the interface first, so the tests covering how it is served run rather than skip, and validates the interface's own types and tests in a job of its own. A further job starts **two installations against each other** — separate databases, and a media plane on only one of them — and drives the journeys that cross between them over the public API alone.
+- Two gates guard the tests themselves, both described in [`docs/testing.md`](docs/testing.md): **every package that ships code has tests** (not a percentage — a percentage rewards covering whatever is cheapest), and **no test is switched off without an owner, an issue, and a date in the future**, so a quarantine expires rather than becoming a deletion nobody argued for. The suite runs with `-json` and prints where the time went, and the failures, in a form somebody can read.
+- A further job **loses an installation on purpose**: it populates a Convia through the real API, drops the schema, restores from a `pg_dump` into an empty database, and starts a new installation against it with an empty Redis and no media plane. It does not check that the dump exists — it signs in as somebody who existed before the loss, reads back what they wrote, and writes something new, because **the failure to expect is the restore that looks like it worked**. The procedure is [`docs/runbooks/restoring-from-a-backup.md`](docs/runbooks/restoring-from-a-backup.md).
 - `Security` runs Go vulnerability analysis and CodeQL with extended security queries on pushes, pull requests, a weekly schedule, and manual requests.
 - `Container` builds the production image, verifies its non-root user, and smoke tests the health and readiness endpoints against a real PostgreSQL instance.
 

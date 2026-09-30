@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -34,6 +35,29 @@ func Open(ctx context.Context, settings config.Database, logger *slog.Logger,
 
 	poolConfig.MaxConns = settings.MaxConnections
 	poolConfig.ConnConfig.ConnectTimeout = settings.ConnectTimeout
+
+	/*
+		The query timeout, which was configured, validated, documented and not
+		applied — a failure-injection test found a query outlasting it by three
+		times and finishing.
+
+		It is PostgreSQL's own `statement_timeout` rather than a context at
+		each call site, and that is the better half of the fix: a context
+		abandons the caller and leaves the server working, while this ends the
+		work as well as the wait. A query that hangs otherwise holds a
+		connection and a goroutine until something else gives up, which is how
+		one slow dependency becomes an installation that is up and answering
+		nothing.
+
+		Migrations do not come through here. They open their own connection, so
+		a schema change that takes longer than a request may is not cut off by
+		a number meant for requests.
+	*/
+	if poolConfig.ConnConfig.RuntimeParams == nil {
+		poolConfig.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] =
+		strconv.FormatInt(settings.QueryTimeout.Milliseconds(), 10)
 
 	/*
 		The query tracer, when there is one. It is a parameter rather than a

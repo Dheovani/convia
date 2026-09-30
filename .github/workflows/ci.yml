@@ -68,8 +68,28 @@ jobs:
       - name: Run Staticcheck
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
 
+      # Before the suite rather than after it, because this reads source and
+      # nothing else: a quarantine whose deadline passed should cost seconds,
+      # not the eight minutes the tests take.
+      - name: Check no test is switched off without an owner and a date
+        run: python3 .github/scripts/check_quarantine.py
+
       - name: Run tests with race detection and coverage
-        run: go test -count=1 -race -shuffle=on -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -count=1 -race -shuffle=on -covermode=atomic -coverprofile=coverage.out -json ./... > test-events.json
+
+      # `-json` above keeps the exit code and ruins the log, so this puts the
+      # log back: the failures in a form somebody can read, then where the
+      # time went. It always exits zero -- the test step decides the verdict.
+      - name: Say where the time went
+        if: always()
+        run: python3 .github/scripts/report_durations.py < test-events.json
+
+      # Not a percentage, deliberately: a package with no tests is not a number
+      # to argue about, it is a package where nothing would notice a change.
+      # The script says why, and docs/testing.md holds the per-package numbers
+      # for the judgement a person makes.
+      - name: Check every package has tests
+        run: python3 .github/scripts/check_tested.py
 
       - name: Report coverage
         run: go tool cover -func=coverage.out
@@ -118,7 +138,7 @@ jobs:
         run: npm test
 
   e2e:
-    name: End-to-end call journeys
+    name: End-to-end journeys
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -319,7 +339,11 @@ jobs:
           exit 1
 
       - name: Run tests against PostgreSQL, LiveKit, and Redis
-        run: go test -count=1 -race -shuffle=on ./...
+        run: go test -count=1 -race -shuffle=on -json ./... > test-events.json
+
+      - name: Say where the time went
+        if: always()
+        run: python3 .github/scripts/report_durations.py < test-events.json
 
       - name: Verify migrations apply to an empty database
         run: go run ./cmd/convia migrate up
@@ -495,3 +519,69 @@ jobs:
       - name: Show what each installation logged
         if: failure()
         run: tail --lines=100 convia-convia_a.log convia-convia_b.log
+
+  restore:
+    name: Losing an installation and putting it back
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: convia
+          POSTGRES_PASSWORD: convia
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      # New, and empty. A recovery does not get its cache back, and an
+      # installation that only works because presence survived has not been
+      # recovered -- so the exercise is given a Redis that never saw the
+      # original.
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build Convia
+        run: go build -o convia ./cmd/convia
+
+      - name: Make a database to lose and an empty one to restore into
+        run: |
+          psql "$URL/postgres" --quiet --command 'CREATE DATABASE convia_origin'
+          psql "$URL/postgres" --quiet --command 'CREATE DATABASE convia_target'
+        env:
+          URL: postgres://convia:convia@127.0.0.1:5432
+          PGSSLMODE: disable
+
+      # No media plane: the LiveKit that held the calls in the backup is not
+      # coming back either, and Convia has to serve without it.
+      - name: Lose it, and put it back
+        run: bash .github/scripts/restore_exercise.sh
+        env:
+          CONVIA_RESTORE_ORIGIN_URL: postgres://convia:convia@127.0.0.1:5432/convia_origin?sslmode=disable
+          CONVIA_RESTORE_TARGET_URL: postgres://convia:convia@127.0.0.1:5432/convia_target?sslmode=disable
+          CONVIA_RESTORE_REDIS_URL: redis://127.0.0.1:6379/0
