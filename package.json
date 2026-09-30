@@ -1,0 +1,23 @@
+{
+  "name": "convia",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Convia's TypeScript packages: the published SDK, and the reference client that is its first consumer.",
+  "workspaces": [
+    "sdk",
+    "web"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace convia-sdk && npm run build --workspace convia-web",
+    "test": "npm run test --workspaces --if-present",
+    "generate": "npm run generate --workspace convia-sdk"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "jsdom": "^27.0.0",
+    "vitest": "^3.2.4"
+  }
+}

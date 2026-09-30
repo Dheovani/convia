@@ -1,0 +1,31 @@
+{
+  "name": "convia-sdk",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Talk to a Convia installation as a signed-in person, without implementing its HTTP and event protocols.",
+  "license": "SEE LICENSE IN ../LICENSE.md",
+  "files": [
+    "dist",
+    "LICENSE.md"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../api/openapi.yaml --output src/contract.ts",
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

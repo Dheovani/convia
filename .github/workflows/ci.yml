@@ -54,13 +54,12 @@ jobs:
         with:
           node-version-file: web/.nvmrc
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Build the interface
-        working-directory: web
         run: |
           npm ci
-          npm run build
+          npm run build --workspace convia-web
 
       - name: Run go vet
         run: go vet ./...
@@ -121,21 +120,19 @@ jobs:
         with:
           node-version-file: web/.nvmrc
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
+      # At the root, because web and sdk share one lockfile.
       - name: Install dependencies
-        working-directory: web
         run: npm ci
 
       # `npm run build` type-checks before it bundles, so a type error fails
       # here rather than at the next person's editor.
       - name: Type-check and build
-        working-directory: web
-        run: npm run build
+        run: npm run build --workspace convia-web
 
       - name: Run tests
-        working-directory: web
-        run: npm test
+        run: npm run test --workspace convia-web
 
   e2e:
     name: End-to-end journeys
@@ -188,12 +185,12 @@ jobs:
         with:
           node-version-file: web/.nvmrc
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       - name: Build the interface and Convia
         run: |
-          npm ci --prefix web
-          npm run build --prefix web
+          npm ci
+          npm run build --workspace convia-web
           go build -o convia ./cmd/convia
 
       # The media server reports who connected and who left to the Convia on the
@@ -253,6 +250,46 @@ jobs:
             web/playwright-report
             web/test-results
           retention-days: 14
+
+  sdk:
+    name: Validate the TypeScript SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # sdk/src/contract.ts is api/openapi.yaml in TypeScript, committed so that
+      # consumers and the type-checker do not need the generator and so that a
+      # change to the contract is a diff somebody reads. The cost of committing
+      # it is that the copy can fall behind and nothing about it looks wrong:
+      # the types compile, the tests pass, and the SDK describes a Convia that
+      # no longer exists. This is the same shape as `gofmt -l`, and for the same
+      # reason it checks rather than rewrites.
+      - name: Check the generated contract still matches the contract
+        run: python3 .github/scripts/check_generated.py
+
+      # The build type-checks, and the type-check is where the vocabularies are
+      # held to the contract: a name the contract has and a list does not stops
+      # it, and says which name.
+      - name: Type-check and build
+        run: npm run build --workspace convia-sdk
+
+      - name: Run tests
+        run: npm run test --workspace convia-sdk
 
   integration:
     name: Integration tests
@@ -376,16 +413,15 @@ jobs:
         with:
           node-version-file: web/.nvmrc
           cache: npm
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # The application shows the interface out of its own binary, so a build
       # without one is a window with nothing in it -- which the application
       # refuses to open, and which this job would otherwise not notice.
       - name: Build the interface
-        working-directory: web
         run: |
           npm ci
-          npm run build
+          npm run build --workspace convia-web
 
       # Everything else runs on Linux, where the window, the WebView2 check and
       # the Credential Manager are all excluded from the build or skipped. This
