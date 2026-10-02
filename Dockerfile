@@ -5,13 +5,21 @@
 # a change to source code does not invalidate the cached dependency install.
 FROM node:24.11-alpine AS interface
 
-WORKDIR /src/web
+WORKDIR /src
 
-COPY web/package.json web/package-lock.json ./
+# The workspace is installed whole, because `npm ci` resolves all of it or none.
+#
+# One lockfile lives at the root and each member's package.json has to be
+# present for it to match, so all three manifests are copied before any source.
+# Only the interface's source follows: the SDK is a sibling the interface does
+# not import yet, and copying it would make a change to it rebuild this.
+COPY package.json package-lock.json ./
+COPY web/package.json ./web/package.json
+COPY sdk/package.json ./sdk/package.json
 RUN npm ci
 
-COPY web ./
-RUN npm run build
+COPY web ./web
+RUN npm run build --workspace convia-web
 
 FROM golang:1.26.6-alpine AS build
 

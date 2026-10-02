@@ -27,6 +27,13 @@ paths = [
   '''_test\.go$''',
   '''(^|/)docs/''',
   '''(^|/)api/openapi\.ya?ml$''',
+  # The contract again, in TypeScript. `sdk/src/contract.ts` is generated from
+  # api/openapi.yaml and carries its `@example` credentials unchanged, byte for
+  # byte, so allowing one and refusing the other would refuse the same strings
+  # for being in a different file. It is listed by its exact path rather than by
+  # a pattern: nothing else under sdk/ is generated, and a hand-written file
+  # there should be scanned like any other.
+  '''(^|/)sdk/src/contract\.ts$''',
 ]
 
 # And the four credential families that are Convia's own.
