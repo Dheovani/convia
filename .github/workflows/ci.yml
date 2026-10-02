@@ -81,7 +81,12 @@ jobs:
       # time went. It always exits zero -- the test step decides the verdict.
       - name: Say where the time went
         if: always()
-        run: python3 .github/scripts/report_durations.py < test-events.json
+        run: |
+          if [ ! -f test-events.json ]; then
+            echo "The suite did not run, so there is nothing to report."
+            exit 0
+          fi
+          python3 .github/scripts/report_durations.py < test-events.json
 
       # Not a percentage, deliberately: a package with no tests is not a number
       # to argue about, it is a package where nothing would notice a change.
@@ -238,8 +243,12 @@ jobs:
       - name: Show what Convia and LiveKit said
         if: failure()
         run: |
-          cat convia.log
-          docker logs convia-livekit
+          if [ -f convia.log ]; then
+            cat convia.log
+          else
+            echo "Convia was never started, so it said nothing."
+          fi
+          docker logs convia-livekit || echo "LiveKit was never started."
 
       - name: Upload the journeys' report
         if: failure()
@@ -380,7 +389,12 @@ jobs:
 
       - name: Say where the time went
         if: always()
-        run: python3 .github/scripts/report_durations.py < test-events.json
+        run: |
+          if [ ! -f test-events.json ]; then
+            echo "The suite did not run, so there is nothing to report."
+            exit 0
+          fi
+          python3 .github/scripts/report_durations.py < test-events.json
 
       - name: Verify migrations apply to an empty database
         run: go run ./cmd/convia migrate up
