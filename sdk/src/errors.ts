@@ -10,6 +10,18 @@ lie -- so they are different types rather than one type with a flag, and a
 import type { ErrorCode, Failure } from './vocabulary.js'
 
 /*
+Refusal is a Failure whose code may be one this package does not know.
+
+`Failure` is the contract's shape and its code is the closed list, which is
+right for describing what Convia answers with. It is wrong for *reading* one: a
+newer installation names codes this version has never heard of, and a proxy
+that refused before reaching Convia names none at all. Both still have to
+arrive as refusals rather than as parse failures, so this is the shape the
+constructor takes and `Failure` is the shape the contract promises.
+*/
+export type Refusal = Omit<Failure, 'code'> & { code: ErrorCode | (string & {}) }
+
+/*
 ConviaError carries a refusal Convia explained.
 
 `status` and `code` answer different questions and both are kept: the status
@@ -31,7 +43,7 @@ export class ConviaError extends Error {
 
   readonly requestId: string | undefined
 
-  constructor(status: number, failure: Failure) {
+  constructor(status: number, failure: Refusal) {
     super(failure.message)
     this.name = 'ConviaError'
     this.status = status

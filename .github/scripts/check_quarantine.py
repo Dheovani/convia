@@ -47,7 +47,21 @@ ALLOWED = [
     (re.compile(r"no bundle is compiled in"), "the interface is not built"),
 ]
 
-SKIP = re.compile(r"\bt\.Skipf?\(")
+# What switching a test off looks like, in each language this repository tests in.
+#
+# TypeScript was the gap this gate had when it was written: it read `*_test.go`
+# and nothing else, so a flaky interface test could be switched off with nothing
+# saying so. That is exactly what happened, and it is how `M24-017` was found.
+SKIP = re.compile(
+    r"\bt\.Skipf?\("
+    r"|\b(?:it|test|describe)\.skip\b"
+    r"|\b(?:it|test|describe)\.todo\b"
+    r"|\bx(?:it|test|describe)\("
+)
+
+# The files this reads. A skip in a Go test and a skip in a component test are
+# the same decision, so they answer to the same rule.
+SUITES = ("*_test.go", "*.test.ts", "*.test.tsx", "*.spec.ts", "*.spec.tsx")
 
 MARKER = re.compile(
     r"QUARANTINE\(\s*owner:\s*(?P<owner>[^,]+?)\s*,"
@@ -90,8 +104,13 @@ def check(path, lines, today):
                 complaints.append(
                     "{}  says it is quarantined and carries no QUARANTINE marker".format(where))
             elif not any(shape.search(line) for shape, _ in ALLOWED):
+                # A Go skip states a reason and a TypeScript one does not, so
+                # quoting an empty string at somebody would be noise where the
+                # whole complaint is that nothing was stated.
                 complaints.append(
-                    '{}  skips for a reason this gate does not recognise: "{}"'.format(where, said))
+                    '{}  is switched off with no QUARANTINE marker{}'.format(
+                        where, ' and a reason this gate does not recognise: "{}"'.format(said)
+                        if said else ''))
             continue
 
         until = datetime.date.fromisoformat(marker.group("until"))
@@ -112,8 +131,8 @@ def main():
     complaints = []
     quarantined = 0
 
-    for path in sorted(pathlib.Path(".").rglob("*_test.go")):
-        if "node_modules" in path.parts:
+    for path in sorted(one for shape in SUITES for one in pathlib.Path(".").rglob(shape)):
+        if "node_modules" in path.parts or "dist" in path.parts:
             continue
         lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
         quarantined += len(MARKER.findall("\n".join(lines)))

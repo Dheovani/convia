@@ -87,9 +87,11 @@ t.Skip("quarantined: see QUARANTINE above")
 
 `.github/scripts/check_quarantine.py` refuses the build without all three, and the date is the part with teeth: **it has to be in the future, and no more than ninety days out.** When it passes, CI fails until somebody fixes the test, extends the date deliberately, or deletes the test and admits the coverage is gone. All three are acceptable answers. Silence is not — a quarantine without a deadline is a deletion nobody had to argue for, and the test goes on existing so that nobody notices it went.
 
+**The gate reads Go and TypeScript alike** — `*_test.go`, `*.test.ts(x)` and `*.spec.ts(x)` — and it reads TypeScript because of what happened when it did not. It was written covering Go only, and the first flaky test found afterwards was a component test, which it could not see: `it.skip`, `xit` and `it.todo` were all ways to switch a test off with nothing saying so. That is `M24-017`, and it is the only thing quarantined today.
+
 **Every other skip has to be a declared shape.** Convia's integration tests skip when their dependency is unset, which is a different thing, so the script carries a short list of recognised shapes and refuses anything else. Hiding a flake behind `t.Skip("TODO")` therefore needs somebody to widen that list in a diff a reviewer reads. Proved by injecting five bad shapes — a bare skip, a quarantine with no marker, a marker whose date had passed, a deadline five years out, and a marker missing its issue — and watching each one refused.
 
-Nothing is quarantined today.
+**One test is quarantined**: `Peers.test.tsx > offers to forget a room it could not leave`, until 2026-11-15. It failed about half of full-suite runs and never on its own; two races were found and fixed and it still fails roughly one run in five, so the cause is not either of those. The behaviour it covers is uncovered while it is quarantined, which is what the deadline is for.
 
 ## Where the time goes
 

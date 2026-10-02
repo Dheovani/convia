@@ -28,4 +28,13 @@ export {
   Unreachable,
   isConviaError,
   isUnreachable,
+  type Refusal,
 } from './errors.js'
+
+export {
+  Convia,
+  Timeout,
+  isTimeout,
+  type ClientOptions,
+  type RequestOptions,
+} from './transport.js'
