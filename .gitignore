@@ -17,14 +17,23 @@ test-events.json
 .DS_Store
 Thumbs.db
 
-# The frontend
+# The TypeScript workspace: the SDK and the interface
 #
-# node_modules is restored from package-lock.json. The built bundle is not
-# committed either: it is generated from web/ by `npm run build` and compiled
-# into the binary from there, so committing it would be committing the same
-# source twice and inviting the two to disagree. The page served when it is
-# absent is committed, because the embed pattern has to match something.
-web/node_modules/
+# One rule covers the root, web/ and sdk/, because a pattern with no leading
+# slash matches at any depth. They are restored from the one package-lock.json
+# the workspace has.
+#
+# The built bundle is not committed either: it is generated from web/ by
+# `npm run build` and compiled into the binary from there, so committing it
+# would be committing the same source twice and inviting the two to disagree.
+# The page served when it is absent is committed, because the embed pattern
+# has to match something.
+node_modules/
+# The SDK's compiled output. `sdk/src/contract.ts` is NOT here: it is
+# generated but committed, so the type-checker and consumers do not need
+# the generator and a contract change is a diff somebody reads.
+sdk/dist/
+sdk/*.tsbuildinfo
 # What the end-to-end journeys leave behind when they run.
 web/test-results/
 web/playwright-report/
