@@ -38,3 +38,11 @@ export {
   type ClientOptions,
   type RequestOptions,
 } from './transport.js'
+
+export {
+  newIdempotencyKey,
+  checkIdempotencyKey,
+  withRetries,
+  type Attempt,
+  type RetryPolicy,
+} from './idempotency.js'
