@@ -97,6 +97,37 @@ export class Unreachable extends Error {
 }
 
 /*
+Unreadable is an answer Convia gave that cannot be read.
+
+It is separate from both of the above because it means something neither does:
+the request arrived, Convia answered, and the answer is not what it claimed to
+be -- a truncated body, or a proxy that replaced it with a page of its own.
+
+**Returning undefined for this is the alternative, and it is worse.** It hands
+back a value typed as the thing the caller asked for, and they find out when
+they read a field: a TypeError with nothing in it about where the answer went
+wrong. A short piece of what arrived is kept, because what a proxy put there is
+usually the whole explanation.
+*/
+export class Unreadable extends Error {
+  readonly status: number
+
+  /* The first of what arrived, enough to recognise a proxy's page. */
+  readonly body: string
+
+  constructor(status: number, body: string) {
+    super(`Convia answered ${status} with something that is not JSON.`)
+    this.name = 'Unreadable'
+    this.status = status
+    this.body = body.slice(0, 200)
+  }
+}
+
+export function isUnreadable(value: unknown): value is Unreadable {
+  return value instanceof Unreadable
+}
+
+/*
 isConviaError and isUnreachable are for `catch`, where the value is `unknown`.
 
 `instanceof` works and is what these do, but a caller writing it has to import

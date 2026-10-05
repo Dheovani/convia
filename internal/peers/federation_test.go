@@ -40,8 +40,23 @@ const (
 	firstEnvironment  = "CONVIA_TEST_FEDERATION_A"
 	secondEnvironment = "CONVIA_TEST_FEDERATION_B"
 
-	// waitFor bounds every wait, so a broken expectation fails rather than hangs.
-	federationWaitFor = 20 * time.Second
+	/*
+		federationWaitFor bounds every wait, so a broken expectation fails
+		rather than hangs.
+
+		It is longer than it looks like it needs to be, and deliberately: a
+		visitor's installation follows a home over a connection it opens
+		itself, and `following.go` leaves a home that did not answer alone for
+		`backoff(attempt)` -- one second doubling to a ceiling of a minute. A
+		budget shorter than that ceiling can run out while the system is
+		behaving exactly as designed, which is a test failing for a reason that
+		is not a defect.
+
+		Three failed attempts already put the next one past twenty seconds.
+		On an idle machine none of them fail and the event arrives in
+		milliseconds; on a loaded one they can, which is where this was found.
+	*/
+	federationWaitFor = 75 * time.Second
 )
 
 // installation is one Convia, reached the way any client reaches one.

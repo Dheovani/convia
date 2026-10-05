@@ -96,6 +96,34 @@ describe('what the client sends', () => {
   })
 })
 
+/*
+A browser's `fetch` refuses to be called detached from `window`, and Node's does
+not care -- so every other test here passes against a client that would fail on
+its first request in the one environment this package is for.
+
+This simulates the browser by making the global throw exactly as it does. It was
+written after a real browser found it, which is the honest order: no unit test
+could have, because they all supply a fetch of their own.
+*/
+describe('calling the fetch it did not make', () => {
+  it('calls the global fetch bound to the global, not detached', async () => {
+    const real = globalThis.fetch
+    try {
+      const picky = function (this: unknown) {
+        if (this !== globalThis) {
+          throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation")
+        }
+        return Promise.resolve(new Response('{}', { status: 200 }))
+      }
+      globalThis.fetch = picky as unknown as typeof globalThis.fetch
+
+      await expect(new Convia().get('/me')).resolves.toEqual({})
+    } finally {
+      globalThis.fetch = real
+    }
+  })
+})
+
 describe('what the client makes of an answer', () => {
   it('reads an empty answer as nothing rather than failing to parse it', async () => {
     const { client } = answering(() => new Response(null, { status: 204 }))

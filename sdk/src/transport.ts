@@ -13,7 +13,7 @@ would otherwise write again: a deadline, cancellation that composes with the
 caller's own, and a refusal turned into something to branch on.
 */
 
-import { ConviaError, Unreachable } from './errors.js'
+import { ConviaError, Unreachable, Unreadable } from './errors.js'
 import { checkIdempotencyKey } from './idempotency.js'
 import type { FailureBody } from './vocabulary.js'
 
@@ -156,7 +156,17 @@ export class Convia {
 
   constructor(options: ClientOptions = {}) {
     this.#origin = options.origin ?? ''
-    this.#fetch = options.fetch ?? globalThis.fetch
+    /*
+    Bound, because a browser's `fetch` refuses to be called detached.
+    *
+    Holding the function and calling it as `this.#fetch(...)` loses the
+    `window` it belongs to, and the browser answers `Illegal invocation` --
+    which arrives here as a failed request and is reported as a Convia that
+    could not be reached. **Node does not care**, so every unit test passes:
+    they all supply a fetch of their own and never touch the global one. It
+    was a browser that found this.
+    */
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.#timeout = options.timeout ?? howLongToWait
   }
 
@@ -229,7 +239,29 @@ export class Convia {
       return undefined as T
     }
 
-    const payload: unknown = await response.json().catch(() => undefined)
+    const text = await response.text()
+    let payload: unknown
+    let readable = true
+
+    if (text !== '') {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        readable = false
+      }
+    }
+
+    /*
+    A success whose body cannot be read is not a success the caller can use.
+    *
+    Returning undefined for it -- which is what parsing into a swallowed
+    catch does -- hands back a value typed as the thing that was asked for,
+    and the caller finds out when it reads a field: a TypeError with nothing
+    in it about a truncated answer or a proxy that replaced the body.
+    */
+    if (response.ok && !readable) {
+      throw new Unreadable(response.status, text)
+    }
 
     if (!response.ok) {
       /*

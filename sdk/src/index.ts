@@ -26,8 +26,10 @@ export {
 export {
   ConviaError,
   Unreachable,
+  Unreadable,
   isConviaError,
   isUnreachable,
+  isUnreadable,
   type Refusal,
 } from './errors.js'
 
@@ -46,3 +48,24 @@ export {
   type Attempt,
   type RetryPolicy,
 } from './idempotency.js'
+
+export {
+  EventStream,
+  addressOf,
+  type Condition,
+  type ConviaEvent,
+  type Listener,
+  type StreamOptions,
+  type Watcher,
+} from './events.js'
+
+export {
+  MediaToken,
+  invitationFrom,
+  longestWait,
+  usable,
+  type JoinSession,
+  type MediaInvitation,
+} from './media.js'
+
+export { Calls, type Call, type Participant } from './calls.js'

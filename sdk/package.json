@@ -21,9 +21,14 @@
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:e2e": "esbuild e2e/inject.ts --bundle --format=iife --target=es2023 --outfile=e2e/.built/sdk.js",
+    "typecheck:e2e": "tsc -p e2e/tsconfig.json",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "esbuild": "^0.28.2",
     "openapi-typescript": "7.13.0",
     "typescript": "^5.9.3",
     "vitest": "^3.2.4"

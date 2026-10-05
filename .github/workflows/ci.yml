@@ -240,6 +240,22 @@ jobs:
         working-directory: web
         run: npm run test:e2e
 
+      # The SDK against the same Convia. Its unit tests fake the network, which
+      # is right for deciding what it sends and useless for whether any of it
+      # works: a fake fetch records `credentials: 'same-origin'` without a
+      # cookie existing, and a fake WebSocket never upgrades. A real browser is
+      # what found that the client called the global `fetch` detached from
+      # `window`, which Node does not mind and a browser refuses outright.
+      - name: Type-check the SDK's browser tests
+        working-directory: sdk
+        run: npm run typecheck:e2e
+
+      - name: Run the SDK against the same Convia
+        working-directory: sdk
+        run: |
+          npm run build:e2e
+          npm run test:e2e
+
       - name: Show what Convia and LiveKit said
         if: failure()
         run: |
