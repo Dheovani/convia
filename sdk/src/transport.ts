@@ -156,7 +156,17 @@ export class Convia {
 
   constructor(options: ClientOptions = {}) {
     this.#origin = options.origin ?? ''
-    this.#fetch = options.fetch ?? globalThis.fetch
+    /*
+    Bound, because a browser's `fetch` refuses to be called detached.
+    *
+    Holding the function and calling it as `this.#fetch(...)` loses the
+    `window` it belongs to, and the browser answers `Illegal invocation` --
+    which arrives here as a failed request and is reported as a Convia that
+    could not be reached. **Node does not care**, so every unit test passes:
+    they all supply a fetch of their own and never touch the global one. It
+    was a browser that found this.
+    */
+    this.#fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.#timeout = options.timeout ?? howLongToWait
   }
 

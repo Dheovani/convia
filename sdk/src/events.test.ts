@@ -194,6 +194,24 @@ describe('delivering what arrives', () => {
 })
 
 describe('coming back', () => {
+  /*
+  Reconnecting within one stream resumes by itself. This is the other case: a
+  consumer that kept the cursor somewhere surviving the process -- a page
+  reload, an application restarting -- and wants what happened while nothing was
+  connected at all.
+  */
+  it('resumes from a cursor it was given, on its very first connection', () => {
+    FakeSocket.opened = []
+    const stream = new EventStream({
+      origin: 'https://convia.test',
+      WebSocket: FakeSocket as unknown as typeof globalThis.WebSocket,
+      after: 'from-last-time',
+    })
+
+    expect(FakeSocket.opened[0]?.url).toBe('wss://convia.test/v1/me/events?after=from-last-time')
+    stream.close()
+  })
+
   it('resumes from the last cursor it saw', async () => {
     vi.useFakeTimers()
     try {

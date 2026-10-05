@@ -97,6 +97,19 @@ export interface StreamOptions {
 
   /* The longest wait between reconnections, in milliseconds. */
   longestBackoff?: number
+
+  /*
+  A cursor to resume from on the first connection.
+  *
+  Reconnecting within one stream resumes by itself. This is for the other
+  case: a consumer that kept the last cursor somewhere it survives the
+  process -- a page reload, a desktop application restarting -- and wants
+  what happened while nothing was connected at all.
+  *
+  A cursor older than Convia keeps closes the stream with `4002`, which
+  reports `restarted` and connects again from nothing.
+  */
+  after?: string
 }
 
 /*
@@ -143,6 +156,7 @@ export class EventStream {
     this.#firstRetry = options.backoff ?? firstRetry
     this.#lastRetry = options.longestBackoff ?? lastRetry
     this.#delay = this.#firstRetry
+    this.#cursor = options.after
     this.#open()
   }
 

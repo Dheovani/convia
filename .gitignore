@@ -34,6 +34,11 @@ node_modules/
 # the generator and a contract change is a diff somebody reads.
 sdk/dist/
 sdk/*.tsbuildinfo
+# The SDK bundled for its browser tests, built by `npm run build:e2e`.
+sdk/e2e/.built/
+# What the SDK's browser tests leave behind when they run.
+sdk/test-results/
+sdk/playwright-report/
 # What the end-to-end journeys leave behind when they run.
 web/test-results/
 web/playwright-report/
