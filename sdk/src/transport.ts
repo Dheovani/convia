@@ -13,7 +13,7 @@ would otherwise write again: a deadline, cancellation that composes with the
 caller's own, and a refusal turned into something to branch on.
 */
 
-import { ConviaError, Unreachable } from './errors.js'
+import { ConviaError, Unreachable, Unreadable } from './errors.js'
 import { checkIdempotencyKey } from './idempotency.js'
 import type { FailureBody } from './vocabulary.js'
 
@@ -229,7 +229,29 @@ export class Convia {
       return undefined as T
     }
 
-    const payload: unknown = await response.json().catch(() => undefined)
+    const text = await response.text()
+    let payload: unknown
+    let readable = true
+
+    if (text !== '') {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        readable = false
+      }
+    }
+
+    /*
+    A success whose body cannot be read is not a success the caller can use.
+    *
+    Returning undefined for it -- which is what parsing into a swallowed
+    catch does -- hands back a value typed as the thing that was asked for,
+    and the caller finds out when it reads a field: a TypeError with nothing
+    in it about a truncated answer or a proxy that replaced the body.
+    */
+    if (response.ok && !readable) {
+      throw new Unreadable(response.status, text)
+    }
 
     if (!response.ok) {
       /*

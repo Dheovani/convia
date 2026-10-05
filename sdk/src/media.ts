@@ -114,12 +114,31 @@ contract's shape, which is data off a socket, and what it returns is this
 package's: the boundary is worth naming.
 */
 export function invitationFrom(answered: JoinSession): MediaInvitation {
+  const expiresAt = new Date(answered.expires_at)
+
+  /*
+  A timestamp that will not parse is refused here rather than carried.
+  *
+  `new Date` answers an Invalid Date instead of failing, and arithmetic on
+  one is NaN rather than an error -- so `usable` quietly reads false and the
+  time left is NaN. A caller scheduling a refresh from that gets a
+  `setTimeout` that fires at once and keeps firing, which is the loop the
+  bound on the wait exists to prevent. The contract promises RFC 3339, so
+  one that is not means something upstream is wrong and saying so is the
+  only useful answer.
+  */
+  if (Number.isNaN(expiresAt.getTime())) {
+    throw new TypeError(
+      `Convia gave an expiry that is not a timestamp: ${JSON.stringify(answered.expires_at)}.`,
+    )
+  }
+
   return {
     participantId: answered.participant_id,
     callId: answered.call_id,
     url: answered.media_url,
     token: new MediaToken(answered.media_token),
-    expiresAt: new Date(answered.expires_at),
+    expiresAt,
   }
 }
 

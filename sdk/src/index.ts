@@ -26,8 +26,10 @@ export {
 export {
   ConviaError,
   Unreachable,
+  Unreadable,
   isConviaError,
   isUnreachable,
+  isUnreadable,
   type Refusal,
 } from './errors.js'
 
