@@ -14,7 +14,18 @@ caller's own, and a refusal turned into something to branch on.
 */
 
 import { ConviaError, Unreachable } from './errors.js'
+import { checkIdempotencyKey } from './idempotency.js'
 import type { FailureBody } from './vocabulary.js'
+
+/*
+changes reports a method that does something, as opposed to reading.
+
+Only these carry an idempotency key, because only these have anything to
+perform at most once.
+*/
+function changes(method: string): boolean {
+  return method === 'POST' || method === 'PATCH' || method === 'PUT' || method === 'DELETE'
+}
 
 /* The version prefix every route carries. */
 const prefix = '/v1'
@@ -60,6 +71,14 @@ export interface RequestOptions {
 
   /* A deadline for this request alone, in milliseconds. 0 waits forever. */
   timeout?: number
+
+  /*
+  A key that makes a repeat of this request safe.
+  *
+  Sent only on a method that changes something: a GET carrying one would
+  ask Convia to remember an answer nothing is going to repeat.
+  */
+  idempotencyKey?: string
 }
 
 /*
@@ -151,6 +170,11 @@ export class Convia {
     if (options.body !== undefined) {
       body = JSON.stringify(options.body)
       headers['Content-Type'] = 'application/json'
+    }
+
+    if (options.idempotencyKey !== undefined && changes(method)) {
+      checkIdempotencyKey(options.idempotencyKey)
+      headers['Idempotency-Key'] = options.idempotencyKey
     }
 
     const waiting = options.timeout ?? this.#timeout
