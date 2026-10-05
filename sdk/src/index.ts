@@ -56,3 +56,14 @@ export {
   type StreamOptions,
   type Watcher,
 } from './events.js'
+
+export {
+  MediaToken,
+  invitationFrom,
+  longestWait,
+  usable,
+  type JoinSession,
+  type MediaInvitation,
+} from './media.js'
+
+export { Calls, type Call, type Participant } from './calls.js'
