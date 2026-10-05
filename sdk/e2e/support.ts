@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 import { expect, type Browser, type Page } from '@playwright/test'
@@ -47,7 +48,8 @@ export function theSamePerson(): Promise<Person> {
 }
 
 export async function register(prefix: string): Promise<Person> {
-  const username = `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+  const randomSuffix = randomBytes(4).toString('hex').slice(0, 4)
+  const username = `${prefix}${Date.now().toString(36)}${randomSuffix}`
   const response = await fetch(`${base}/v1/accounts`, {
     method: 'POST',
     headers: { Origin: base, 'Content-Type': 'application/json' },
