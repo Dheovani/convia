@@ -46,3 +46,13 @@ export {
   type Attempt,
   type RetryPolicy,
 } from './idempotency.js'
+
+export {
+  EventStream,
+  addressOf,
+  type Condition,
+  type ConviaEvent,
+  type Listener,
+  type StreamOptions,
+  type Watcher,
+} from './events.js'
