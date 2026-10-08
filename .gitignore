@@ -43,3 +43,11 @@ sdk/playwright-report/
 web/test-results/
 web/playwright-report/
 internal/web/assets/dist/
+
+# Python bytecode from the scripts under .github/scripts.
+#
+# One was committed by accident and sat there until a script imported the
+# module beside it and Git noticed the file change. Compiled output of
+# anything is not source, and this one is not even reproducible across
+# interpreter versions.
+__pycache__/

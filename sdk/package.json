@@ -1,6 +1,7 @@
 {
   "name": "convia-sdk",
   "version": "0.0.0",
+  "private": true,
   "type": "module",
   "description": "Talk to a Convia installation as a signed-in person, without implementing its HTTP and event protocols.",
   "license": "SEE LICENSE IN ../LICENSE.md",
@@ -19,7 +20,7 @@
   "scripts": {
     "generate": "openapi-typescript ../api/openapi.yaml --output src/contract.ts",
     "build": "tsc --build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.examples.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "build:e2e": "esbuild e2e/inject.ts --bundle --format=iife --target=es2023 --outfile=e2e/.built/sdk.js",
