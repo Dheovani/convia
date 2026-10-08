@@ -115,6 +115,18 @@ jobs:
       - name: Audit what the build and the tests carry
         run: npm audit --audit-level=high
 
+      # Every Go module's licence has been checked since `M23-008`; the two
+      # hundred npm packages the workspace pulls were checked by nothing. The
+      # rule in AGENTS.md is about what Convia depends on, not about which
+      # language it is written in.
+      #
+      # It holds what ships to the policy and only records what builds, which
+      # is the split the two audits above already make: a CSS compiler under
+      # weak copyleft is a tool Convia uses, while a library under one compiled
+      # into the page is a term Convia would be passing on.
+      - name: Check every shipped package's license
+        run: python3 .github/scripts/check_npm_licenses.py
+
   vulnerabilities:
     name: Go vulnerability scan
     runs-on: ubuntu-latest

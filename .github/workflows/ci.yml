@@ -74,19 +74,17 @@ jobs:
         run: python3 .github/scripts/check_quarantine.py
 
       - name: Run tests with race detection and coverage
-        run: go test -count=1 -race -shuffle=on -covermode=atomic -coverprofile=coverage.out -json ./... > test-events.json
-
-      # `-json` above keeps the exit code and ruins the log, so this puts the
-      # log back: the failures in a form somebody can read, then where the
-      # time went. It always exits zero -- the test step decides the verdict.
-      - name: Say where the time went
-        if: always()
         run: |
-          if [ ! -f test-events.json ]; then
-            echo "The suite did not run, so there is nothing to report."
-            exit 0
+          if ! go test -count=1 -race -shuffle=on -covermode=atomic             -coverprofile=coverage.out -json ./... > test-events.json; then
+            python3 .github/scripts/report_durations.py < test-events.json
+            exit 1
           fi
-          python3 .github/scripts/report_durations.py < test-events.json
+
+      # `-json` above keeps the exit code and ruins the log. The step that
+      # failed puts the failures back itself, so this one is what it was
+      # always for: where the time went on a run that worked.
+      - name: Say where the time went
+        run: python3 .github/scripts/report_durations.py < test-events.json
 
       # Not a percentage, deliberately: a package with no tests is not a number
       # to argue about, it is a package where nothing would notice a change.
@@ -401,16 +399,14 @@ jobs:
           exit 1
 
       - name: Run tests against PostgreSQL, LiveKit, and Redis
-        run: go test -count=1 -race -shuffle=on -json ./... > test-events.json
+        run: |
+          if ! go test -count=1 -race -shuffle=on -json ./... > test-events.json; then
+            python3 .github/scripts/report_durations.py < test-events.json
+            exit 1
+          fi
 
       - name: Say where the time went
-        if: always()
-        run: |
-          if [ ! -f test-events.json ]; then
-            echo "The suite did not run, so there is nothing to report."
-            exit 0
-          fi
-          python3 .github/scripts/report_durations.py < test-events.json
+        run: python3 .github/scripts/report_durations.py < test-events.json
 
       - name: Verify migrations apply to an empty database
         run: go run ./cmd/convia migrate up
