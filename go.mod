@@ -1,6 +1,6 @@
 module convia
 
-go 1.26.6
+go 1.26.9
 
 require (
 	fyne.io/systray v1.12.2
