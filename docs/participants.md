@@ -131,6 +131,26 @@ A deployment configured with no media plane answers `503 unavailable`. That is n
 
 The response names no provider. A contract test asserts the schema publishes only Convia-owned connection data, and an end-to-end test confirms a real media server accepts what Convia issues. See [`media.md`](media.md).
 
+### The sequence a client follows
+
+What is above is what Convia guarantees. This is the order a client does things in, which `M19` settled by building one: it is the shape of `convia-sdk`, and an SDK in another language has the same seven steps.
+
+1. **Ask to join.** `POST /v1/me/rooms/{room_id}/call/join` for a person, or `POST /v1/participants/{participant_id}/session` for an application acting on somebody's behalf. The answer carries a participant identifier, a call identifier, an address and a credential.
+
+2. **Use the address exactly as given.** It is frequently not the address Convia itself answers on, because a deployment commonly reaches its media infrastructure over a private network. An address derived from Convia's own works in development and fails in production.
+
+3. **Present the credential once, and let it go.** It is a bearer credential: never log it, never store it, never share it between people. A client that keeps it is keeping the one thing that opens a conversation. `convia-sdk` makes this hard to get wrong by wrapping it in a value that renders as `[redacted]` to everything except the call that presents it.
+
+4. **Do not tear anything down when it expires.** The expiry bounds when a connection may be *opened*, not how long it may last; a connection already established is unaffected, and a client that disconnects at that moment is ending a call for no reason.
+
+5. **Reconnecting after the expiry means joining again.** There is no renewal: the credential is minted per join, so a client that lost its connection asks for a new one. That is one request against an endpoint it already calls.
+
+6. **Match the media plane's participants to Convia's roster by the participant identifier.** It is the identity the person appears under to other clients, which is why it is in the answer at all. Nothing else in what the media plane reports is a Convia identifier.
+
+7. **Tell Convia when leaving, as well as disconnecting.** Convia also learns from the media plane, but later: the difference between a roster that is right at once and one that lags is the difference between somebody disappearing and somebody lingering.
+
+**A client never speaks to Convia's media infrastructure about anything else.** It receives an address and a credential and opens one connection; it does not ask the provider about rooms, participants, or state. Everything it needs to know, Convia answers — which is what lets the infrastructure be replaced without any external consumer noticing.
+
 ## Audit
 
 Joining, leaving, removal, a role change, and issuing a connection credential are audited. The record names the participant, the call, the application, the person, the new state and role, and the removing authority.

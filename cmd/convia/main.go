@@ -274,6 +274,35 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	defer pool.Close()
 
 	/*
+		What the pool is doing, beside what each query does.
+
+		The tracer above answers "why was this request slow" and says
+		nothing about "are requests slow": a trace is one occurrence. The
+		one that matters here is waiting -- a pool that has handed out every
+		connection makes the next query queue, and the symptom is a slow
+		handler with nothing in its own timings to explain it.
+	*/
+	pools, err := telemetry.Holding(meters)
+	if err != nil {
+		return fmt.Errorf("measure the database pool: %w", err)
+	}
+	/*
+		Read when the exporter asks, and translated here rather than in the
+		telemetry package: what that package needs is five numbers, and
+		having it import the driver would make every future pool a pgx one.
+	*/
+	pools.Attach("primary", func() telemetry.PoolStats {
+		counted := pool.Stat()
+		return telemetry.PoolStats{
+			Idle:    int64(counted.IdleConns()),
+			Used:    int64(counted.AcquiredConns()),
+			Limit:   int64(counted.MaxConns()),
+			Waits:   counted.EmptyAcquireCount(),
+			Waiting: counted.EmptyAcquireWaitTime(),
+		}
+	})
+
+	/*
 		What Convia is carrying right now, asked of the database when somebody
 		collects rather than counted as calls start and end — a number kept in
 		memory would start at zero on every restart while the calls it counts

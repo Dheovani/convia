@@ -1,6 +1,6 @@
 # Failing or slow requests
 
-**Alerts:** the `5xx` share above 1% for five minutes; `convia.redis.pool.waits{outcome="timed_out"}` rising; join latency above a second for ten minutes.
+**Alerts:** the `5xx` share above 1% for five minutes; `convia.redis.pool.waits{outcome="timed_out"}` or `convia.database.pool.waits` rising; join latency above a second for ten minutes.
 
 Three conditions and one runbook, because they are usually the same incident seen from three places.
 
@@ -25,7 +25,11 @@ Then read the dashboard's rows in order, which is the order they were put in:
 
 ## Is it the database
 
-There is no pool metric for PostgreSQL yet, which is a gap worth knowing while reading this. What there is, is a span per query inside the trace of the request that made it: open a slow trace and the query is in it, named `postgresql select` and so on, with the statement on the span.
+`convia.database.pool.waits` is the one to act on, and it is the same signal as the Redis one above for the same reason: a pool that has handed out every connection makes the next query queue, and the symptom is a slow handler with nothing in its own timings to explain it.
+
+Read it beside `convia.database.pool.limit`. **Ten connections in use means nothing on its own** — it is a healthy pool of fifty and an exhausted one of twelve, and the count without the ceiling cannot tell them apart. `convia.database.pool.wait.duration` says what the waiting cost: a thousand waits of a microsecond is a pool running warm, and ten waits of a second each is ten requests somebody noticed.
+
+Beneath that is a span per query inside the trace of the request that made it: open a slow trace and the query is in it, named `postgresql select` and so on, with the statement on the span. **The metrics say whether requests are slow and the traces say why this one was** — a trace is one occurrence, and a pool filling up is a distribution.
 
 **The statement is there and the arguments are not.** If the statement alone is not enough to identify which call site it was, the trace's parent span says which route it was serving.
 
