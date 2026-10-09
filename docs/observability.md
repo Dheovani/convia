@@ -118,6 +118,21 @@ Where the count comes from follows where presence lives. One instance walks its 
 
 `pool.waits` with the `timed_out` outcome is the one worth alerting on. It is saturation: Convia asked for a connection and there was none.
 
+### The database
+
+| Instrument | What it answers |
+| --- | --- |
+| `convia.database.pool.connections` | how many connections are idle and in use |
+| `convia.database.pool.limit` | the most this pool may open |
+| `convia.database.pool.waits` | how often a query found none free and had to wait |
+| `convia.database.pool.wait.duration` | what that waiting cost in total |
+
+**They are shaped like the Redis ones on purpose.** An operator asking whether Convia is waiting on a connection should not have to learn two shapes of answer for the two pools it keeps — and the pool that saturates first is rarely the one anybody was watching.
+
+The ceiling is reported because without it the count says nothing: ten connections in use is a healthy pool of fifty and an exhausted one of twelve. **Nothing is read until an exporter asks**; `pgxpool` keeps these counters itself, so measuring them costs nothing on the path of a query.
+
+This is the half the tracing beneath it cannot give. A span per query answers "why was *this* request slow"; a pool filling up is a distribution, and a trace is one occurrence of it.
+
 **Both uses are measured through one set of instruments**, labelled `presence` and `events`. They point at the same Redis, so the address cannot say which is slow; what Convia is doing with it can. The labels are Convia's own words, so the set is as large as the number of places Convia connects — two.
 
 **A missing key is an answer, not a failure.** `redis.Nil` is how Redis says a key is not there, and counting it as an error would put the error rate near a hundred percent while nothing was wrong — presence is mostly people who are not present.
@@ -252,6 +267,7 @@ Each condition is written over the instruments named above, so it can be express
 | `5xx` share above 1% for 5 minutes | the availability objective is being spent | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) |
 | `convia.event.streams.ended{reason="behind"}` above zero | **somebody's view of a conversation had a hole in it** | [`runbooks/subscribers-falling-behind.md`](runbooks/subscribers-falling-behind.md) |
 | `convia.redis.pool.waits{outcome="timed_out"}` rising | Convia is waiting for connections it cannot get | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) |
+| `convia.database.pool.waits` rising | queries are queueing for a connection | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) |
 | `convia.presence.overdue` climbing over 15 minutes | the sweeper is not keeping up, so people appear present after they left | [`runbooks/presence-not-lapsing.md`](runbooks/presence-not-lapsing.md) |
 | join latency above 1 s for 10 minutes | people are waiting to get into calls | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) |
 
