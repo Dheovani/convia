@@ -75,6 +75,22 @@ const (
 	*/
 	CodeConflict ErrorCode = "conflict"
 	/*
+		CodeInProgress reports a request that is refused only because the
+		same one is still running, and that the same request will satisfy
+		once it finishes.
+
+		It is its own code because `conflict` says the opposite in its own
+		description: that retrying unchanged will not fix it. The two
+		arrive at the same status for different reasons -- one is a caller
+		who must change something, the other is a caller who must wait --
+		and telling them apart by the message was the only way a client had,
+		which the contract forbids: the code is what may be branched on and
+		the message is prose that may be reworded.
+
+		It is accompanied by a Retry-After header saying how long.
+	*/
+	CodeInProgress ErrorCode = "in_progress"
+	/*
 		CodeRateLimited reports a caller that has repeated a refused operation
 		too often and must wait before trying again.
 
@@ -114,6 +130,7 @@ func ErrorCodes() []ErrorCode {
 		CodeMethodNotAllowed,
 		CodePreconditionFailed,
 		CodeConflict,
+		CodeInProgress,
 		CodeRateLimited,
 		CodeInternal,
 		CodeUnavailable,

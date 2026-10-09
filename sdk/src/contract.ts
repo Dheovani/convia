@@ -5807,7 +5807,7 @@ export interface components {
          *     additive change; changing the meaning of an existing code is breaking.
          * @enum {string}
          */
-        ErrorCode: "invalid_request" | "malformed_json" | "unsupported_media_type" | "unsupported_version" | "payload_too_large" | "unauthenticated" | "wrong_password" | "forbidden" | "not_found" | "method_not_allowed" | "precondition_failed" | "conflict" | "rate_limited" | "internal_error" | "unavailable";
+        ErrorCode: "invalid_request" | "malformed_json" | "unsupported_media_type" | "unsupported_version" | "payload_too_large" | "unauthenticated" | "wrong_password" | "forbidden" | "not_found" | "method_not_allowed" | "precondition_failed" | "conflict" | "in_progress" | "rate_limited" | "internal_error" | "unavailable";
         /**
          * @description The single error representation used by every Convia failure, including
          *     failures produced by routing and middleware.
@@ -6393,9 +6393,14 @@ export interface components {
          *
          *     - The key is opaque to Convia and at most 255 characters.
          *     - A repeat of the same request replays the original response.
-         *     - A repeat carrying a different body is refused with `409 conflict`.
+         *     - A repeat carrying a different body is refused with `409 conflict`, and
+         *       will be refused the same way however often it is sent.
          *     - A repeat arriving while the first is still running is refused with
-         *       `409 conflict`, and succeeds once the first has finished.
+         *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+         *       has finished. **The two are different codes because they call for
+         *       opposite actions** -- one is a caller who must change something, the
+         *       other is a caller who must wait -- and `conflict` says in its own
+         *       description that retrying unchanged will not fix it.
          *     - Keys are remembered for at least 24 hours. Past that window, the same
          *       key is treated as a new request.
          *     - Keys belong to the caller that presented them, so two callers using
@@ -7904,9 +7909,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -8215,9 +8225,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -8874,9 +8889,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -9197,9 +9217,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -9773,9 +9798,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -9833,9 +9863,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -10013,9 +10048,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using
@@ -10529,7 +10569,37 @@ export interface operations {
     createMyRoom: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A client-generated key that makes a retry safe.
+                 *
+                 *     A client that receives no response cannot tell whether its request was
+                 *     lost on the way out or on the way back. Presenting a key means the
+                 *     operation is performed at most once: a repeat of the same request
+                 *     returns the original response, including its original status.
+                 *
+                 *     - The key is opaque to Convia and at most 255 characters.
+                 *     - A repeat of the same request replays the original response.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
+                 *     - A repeat arriving while the first is still running is refused with
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
+                 *     - Keys are remembered for at least 24 hours. Past that window, the same
+                 *       key is treated as a new request.
+                 *     - Keys belong to the caller that presented them, so two callers using
+                 *       the same value never meet.
+                 *
+                 *     A response the server may give differently on the next attempt -- an
+                 *     internal error, or a rate-limited refusal -- is not stored, so a retry
+                 *     after one is a real attempt rather than a replayed failure.
+                 * @example 6f1a7b3e-2c4d-4e8a-9f01-2b3c4d5e6f70
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -11417,7 +11487,37 @@ export interface operations {
     sayInMyRoom: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A client-generated key that makes a retry safe.
+                 *
+                 *     A client that receives no response cannot tell whether its request was
+                 *     lost on the way out or on the way back. Presenting a key means the
+                 *     operation is performed at most once: a repeat of the same request
+                 *     returns the original response, including its original status.
+                 *
+                 *     - The key is opaque to Convia and at most 255 characters.
+                 *     - A repeat of the same request replays the original response.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
+                 *     - A repeat arriving while the first is still running is refused with
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
+                 *     - Keys are remembered for at least 24 hours. Past that window, the same
+                 *       key is treated as a new request.
+                 *     - Keys belong to the caller that presented them, so two callers using
+                 *       the same value never meet.
+                 *
+                 *     A response the server may give differently on the next attempt -- an
+                 *     internal error, or a rate-limited refusal -- is not stored, so a retry
+                 *     after one is a real attempt rather than a replayed failure.
+                 * @example 6f1a7b3e-2c4d-4e8a-9f01-2b3c4d5e6f70
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 /** @description The room's opaque identifier. */
                 room_id: components["parameters"]["RoomID"];
@@ -11641,7 +11741,37 @@ export interface operations {
     inviteToMyRoom: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A client-generated key that makes a retry safe.
+                 *
+                 *     A client that receives no response cannot tell whether its request was
+                 *     lost on the way out or on the way back. Presenting a key means the
+                 *     operation is performed at most once: a repeat of the same request
+                 *     returns the original response, including its original status.
+                 *
+                 *     - The key is opaque to Convia and at most 255 characters.
+                 *     - A repeat of the same request replays the original response.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
+                 *     - A repeat arriving while the first is still running is refused with
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
+                 *     - Keys are remembered for at least 24 hours. Past that window, the same
+                 *       key is treated as a new request.
+                 *     - Keys belong to the caller that presented them, so two callers using
+                 *       the same value never meet.
+                 *
+                 *     A response the server may give differently on the next attempt -- an
+                 *     internal error, or a rate-limited refusal -- is not stored, so a retry
+                 *     after one is a real attempt rather than a replayed failure.
+                 * @example 6f1a7b3e-2c4d-4e8a-9f01-2b3c4d5e6f70
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 /** @description The room's opaque identifier. */
                 room_id: components["parameters"]["RoomID"];
@@ -11862,7 +11992,37 @@ export interface operations {
     sayInRemoteRoom: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /**
+                 * @description A client-generated key that makes a retry safe.
+                 *
+                 *     A client that receives no response cannot tell whether its request was
+                 *     lost on the way out or on the way back. Presenting a key means the
+                 *     operation is performed at most once: a repeat of the same request
+                 *     returns the original response, including its original status.
+                 *
+                 *     - The key is opaque to Convia and at most 255 characters.
+                 *     - A repeat of the same request replays the original response.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
+                 *     - A repeat arriving while the first is still running is refused with
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
+                 *     - Keys are remembered for at least 24 hours. Past that window, the same
+                 *       key is treated as a new request.
+                 *     - Keys belong to the caller that presented them, so two callers using
+                 *       the same value never meet.
+                 *
+                 *     A response the server may give differently on the next attempt -- an
+                 *     internal error, or a rate-limited refusal -- is not stored, so a retry
+                 *     after one is a real attempt rather than a replayed failure.
+                 * @example 6f1a7b3e-2c4d-4e8a-9f01-2b3c4d5e6f70
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
             path: {
                 /** @description The identifier of this person's pointer to a room on another installation. */
                 remote_room_id: components["parameters"]["RemoteRoomID"];
@@ -13428,9 +13588,14 @@ export interface operations {
                  *
                  *     - The key is opaque to Convia and at most 255 characters.
                  *     - A repeat of the same request replays the original response.
-                 *     - A repeat carrying a different body is refused with `409 conflict`.
+                 *     - A repeat carrying a different body is refused with `409 conflict`, and
+                 *       will be refused the same way however often it is sent.
                  *     - A repeat arriving while the first is still running is refused with
-                 *       `409 conflict`, and succeeds once the first has finished.
+                 *       `409 in_progress` and a `Retry-After`, and succeeds once the first
+                 *       has finished. **The two are different codes because they call for
+                 *       opposite actions** -- one is a caller who must change something, the
+                 *       other is a caller who must wait -- and `conflict` says in its own
+                 *       description that retrying unchanged will not fix it.
                  *     - Keys are remembered for at least 24 hours. Past that window, the same
                  *       key is treated as a new request.
                  *     - Keys belong to the caller that presented them, so two callers using

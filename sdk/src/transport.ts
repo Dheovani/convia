@@ -77,6 +77,12 @@ export interface RequestOptions {
   *
   Sent only on a method that changes something: a GET carrying one would
   ask Convia to remember an answer nothing is going to repeat.
+
+  Not every route reads it either. On the session surface the ones that do
+  are the four where a repeat would otherwise make a second thing -- a room,
+  a message here or elsewhere, an invitation. The rest are already
+  repeatable: joining a call twice is joining it once, and so is accepting
+  an invitation twice.
   */
   idempotencyKey?: string
 }

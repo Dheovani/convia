@@ -5138,6 +5138,8 @@ paths:
           $ref: "#/components/responses/ServiceUnavailable"
 
     post:
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       operationId: createMyRoom
       tags: [Me]
       summary: Open a room
@@ -6211,6 +6213,7 @@ paths:
         - SessionCookie: []
         - SessionToken: []
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RoomID"
       requestBody:
         required: true
@@ -6504,6 +6507,7 @@ paths:
         - SessionCookie: []
         - SessionToken: []
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RoomID"
       requestBody:
         required: true
@@ -6761,6 +6765,7 @@ paths:
         - SessionCookie: []
         - SessionToken: []
       parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/RemoteRoomID"
       requestBody:
         required: true
@@ -11574,6 +11579,7 @@ components:
         - method_not_allowed
         - precondition_failed
         - conflict
+        - in_progress
         - rate_limited
         - internal_error
         - unavailable
@@ -11664,9 +11670,14 @@ components:
 
         - The key is opaque to Convia and at most 255 characters.
         - A repeat of the same request replays the original response.
-        - A repeat carrying a different body is refused with `409 conflict`.
+        - A repeat carrying a different body is refused with `409 conflict`, and
+          will be refused the same way however often it is sent.
         - A repeat arriving while the first is still running is refused with
-          `409 conflict`, and succeeds once the first has finished.
+          `409 in_progress` and a `Retry-After`, and succeeds once the first
+          has finished. **The two are different codes because they call for
+          opposite actions** -- one is a caller who must change something, the
+          other is a caller who must wait -- and `conflict` says in its own
+          description that retrying unchanged will not fix it.
         - Keys are remembered for at least 24 hours. Past that window, the same
           key is treated as a new request.
         - Keys belong to the caller that presented them, so two callers using

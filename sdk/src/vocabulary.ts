@@ -71,6 +71,7 @@ export const errorCodes = [
   'method_not_allowed',
   'precondition_failed',
   'conflict',
+  'in_progress',
   'rate_limited',
   'internal_error',
   'unavailable',

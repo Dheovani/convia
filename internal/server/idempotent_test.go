@@ -19,6 +19,7 @@ import (
 	"convia/internal/idempotency"
 	"convia/internal/operator"
 	"convia/internal/rooms"
+	"convia/internal/sessions"
 )
 
 /*
@@ -377,6 +378,32 @@ func TestAKeyStillInProgressIsRefused(t *testing.T) {
 	if service.creations() != 0 {
 		t.Error("the operation ran while another request holding the same key was still running")
 	}
+
+	/*
+		The code is the whole point of the refusal.
+
+		Both conflicts answer 409, and for a while both answered `conflict`
+		too -- so a client could tell "wait and ask again" from "this will
+		never work" only by reading the message, which the contract forbids
+		branching on. A client that took the permanent reading gave up on an
+		operation that was about to succeed.
+	*/
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("read the refusal: %v", err)
+	}
+	if body.Error.Code != string(api.CodeInProgress) {
+		t.Errorf("code = %q, want %q", body.Error.Code, api.CodeInProgress)
+	}
+
+	// And how long to wait, so a client has something better than a guess.
+	if response.Header().Get("Retry-After") == "" {
+		t.Error("no Retry-After, so a client asking again has only a guess to go on")
+	}
 }
 
 /*
@@ -592,6 +619,57 @@ func TestKeysBelongToTheCallerThatPresentedThem(t *testing.T) {
 	}
 	if !strings.Contains(operatorScope, sampleOperatorCredential().ID) {
 		t.Errorf("operator scope = %q, want it to name the credential that presented the key", operatorScope)
+	}
+
+	/*
+		A person's keys are their own, and this is the case most easily got
+		wrong.
+
+		Every person on an installation belongs to the same first-party
+		application, so scoping there would put all of them in one key space:
+		two people picking the same value would meet, and one would be handed
+		the other's answer to a request they never made. That is somebody
+		else's room, or somebody else's message, arriving as if it were
+		theirs.
+	*/
+	first := sessions.ContextWithPrincipal(context.Background(), sessions.Principal{
+		SessionID: "ses_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+		AccountID: "acc_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+		UserID:    "usr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+	})
+	second := sessions.ContextWithPrincipal(context.Background(), sessions.Principal{
+		SessionID: "ses_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+		AccountID: "acc_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+		UserID:    "usr_BBBBBBBBBBBBBBBBBBBBBBBBBB",
+	})
+
+	mine, found := scopeFor(first)
+	if !found {
+		t.Fatal("a signed-in person produced no scope")
+	}
+	theirs, _ := scopeFor(second)
+	if mine == theirs {
+		t.Error("two people share a key scope, so one can be handed the other's answer")
+	}
+	if mine == tenantScope || mine == operatorScope {
+		t.Error("a person shares a key scope with an application or an operator")
+	}
+	if !strings.Contains(mine, "acc_AAAAAAAAAAAAAAAAAAAAAAAAAA") {
+		t.Errorf("person scope = %q, want it to name the account that signed in", mine)
+	}
+
+	/*
+		The same person on a second device is the same caller repeating one
+		intent, which is what the key is for -- so the session is not what
+		decides it.
+	*/
+	elsewhere := sessions.ContextWithPrincipal(context.Background(), sessions.Principal{
+		SessionID: "ses_CCCCCCCCCCCCCCCCCCCCCCCCCC",
+		AccountID: "acc_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+		UserID:    "usr_AAAAAAAAAAAAAAAAAAAAAAAAAA",
+	})
+	if again, _ := scopeFor(elsewhere); again != mine {
+		t.Error("the same person on another device got a different key scope")
 	}
 
 	if _, found := scopeFor(context.Background()); found {
