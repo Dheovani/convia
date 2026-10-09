@@ -76,18 +76,19 @@ trying again is how one room becomes two. Nothing here takes a key as a
 condition, because `withRetries` mints one when it is not given -- there is no
 unkeyed path for this to guard.
 
-`409 conflict` is deliberately **not** retried, and that is a compromise rather
-than a decision. Convia answers two different things with it: a key reused for a
-different request, which will never succeed, and a request with this key still
-running, which succeeds as soon as the first finishes. They carry the same code
-and differ only in the message -- and a client that branches on message text is
-a client that breaks when somebody rewords it. So the permanent reading is
-taken, because retrying the permanent one forever is worse than not collecting
-the other one's result.
+**The two conflicts are told apart by their code**, which they were not always.
+Convia answers `409 conflict` for a key reused with a different body, which will
+never succeed however often it is sent, and `409 in_progress` for a request with
+this key still running, which succeeds as soon as the first finishes. One is a
+caller who must change something; the other is a caller who must wait.
+
+Only the second is retried. While they shared a code, neither could be: reading
+them apart meant branching on the message, which the contract forbids, so the
+permanent reading was taken and an operation about to succeed was given up on.
 */
 function worthRetrying(thrown: unknown): boolean {
   if (thrown instanceof ConviaError) {
-    return thrown.retryable
+    return thrown.retryable || thrown.code === 'in_progress'
   }
 
   if (thrown instanceof Unreachable || thrown instanceof Timeout) {

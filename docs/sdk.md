@@ -79,7 +79,9 @@ What is retried is what Convia said could end differently — `429` and `503` �
 
 **`409 conflict` is not retried**, and that is a compromise rather than a decision: Convia answers two different things with it, and they differ only in the message. See `M19-014`.
 
-> **Today, no route under `/v1/me` accepts `Idempotency-Key`.** Every one that does is on the tenant surface, so on the surface this package covers, sending the header changes nothing. Whether the person-facing routes should take it is `M19-015`.
+**Four routes under `/v1/me` read the key**: opening a room, posting a message here or in a room elsewhere, and inviting somebody. They are the ones where a repeat would otherwise make a second thing. The rest are already repeatable — joining a call twice is joining it once, and so is accepting an invitation twice — so a key there would ask Convia to remember an answer nothing is going to repeat.
+
+**A person's keys are scoped to their account**, not to the first-party application every person on an installation shares. Scoping there would put them all in one key space, where two people picking the same value meet and one is handed the other's answer.
 
 ### Being told what happens
 

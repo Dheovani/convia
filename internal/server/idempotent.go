@@ -8,13 +8,27 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"convia/internal/api"
 	"convia/internal/credentials"
 	"convia/internal/idempotency"
 	"convia/internal/operator"
+	"convia/internal/sessions"
 )
+
+/*
+inProgressRetryAfter is how long a caller is asked to wait for a request with
+the same idempotency key to finish, in seconds.
+
+One second, because what it is waiting for is another request to this same
+installation rather than a dependency that is down: the first attempt is
+already running and almost always finishes in far less. It is a hint and not
+a promise -- asking again sooner is answered with the first attempt's result
+if it has one, and with this again if it has not.
+*/
+const inProgressRetryAfter = 1
 
 /*
 maxReplayableBytes bounds the response body kept for a replay.
@@ -137,7 +151,19 @@ func idempotent(logger *slog.Logger, keys keyRegistry, next http.Handler) http.H
 			return
 
 		case errors.Is(err, idempotency.ErrInProgress):
-			writeFailure(logger, response, request, api.NewFailure(http.StatusConflict, api.CodeConflict,
+			/*
+				Its own code, because `conflict` says in its own description
+				that retrying unchanged will not fix it -- and this is fixed by
+				exactly that. The two were told apart only by the message, which
+				the contract forbids branching on, so a client had no way to know
+				whether to wait or to give up.
+
+				Retry-After is how long the first attempt may still take. It is a
+				hint rather than a promise: the first may finish sooner, and a
+				client asking again before then is answered with its result.
+			*/
+			response.Header().Set("Retry-After", strconv.Itoa(inProgressRetryAfter))
+			writeFailure(logger, response, request, api.NewFailure(http.StatusConflict, api.CodeInProgress,
 				"A request with this Idempotency-Key is still in progress. Retry to collect its result."))
 			return
 
@@ -271,6 +297,17 @@ scopeFor names who a key belongs to.
 An application's keys are scoped to the application, which is the guarantee
 docs/api-compatibility.md states. An operator's are scoped to its credential,
 because an operator acts on many applications and its keys are its own.
+
+**A person's are scoped to the account, and not to the first-party
+application they belong to.** Every person on an installation shares that
+application, so scoping there would put them all in one key space: two of
+them picking the same value would meet, and one would be handed the other's
+answer to a request they never made. The guarantee is that keys belong to
+the caller, and on this surface the caller is a person.
+
+The account rather than the session, because the same person retrying from
+a second device is the same caller repeating one intent -- which is what
+the key is for.
 */
 func scopeFor(ctx context.Context) (string, bool) {
 	if principal, found := credentials.PrincipalFromContext(ctx); found {
@@ -278,6 +315,9 @@ func scopeFor(ctx context.Context) (string, bool) {
 	}
 	if principal, found := operator.PrincipalFromContext(ctx); found {
 		return "operator:" + principal.CredentialID, true
+	}
+	if principal, found := sessions.PrincipalFromContext(ctx); found {
+		return "account:" + principal.AccountID, true
 	}
 	return "", false
 }

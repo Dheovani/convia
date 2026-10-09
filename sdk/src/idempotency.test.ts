@@ -170,8 +170,23 @@ describe('what is worth attempting again', () => {
   only in the message, so the permanent reading is taken -- retrying the
   permanent one forever is worse than not collecting the other one's result.
   */
-  it('does not attempt a conflict again, because it cannot tell which conflict it is', async () => {
+  it('does not attempt a conflict again, because no later attempt would differ', async () => {
     expect(await counting(refusal(409, 'conflict'))).toBe(1)
+  })
+
+  /*
+  The other conflict, which clears on its own.
+
+  **These two shared a code until `M19-014`**, and while they did, neither
+  could be retried: telling them apart meant reading the message, which the
+  contract forbids branching on. The permanent reading was taken, so an
+  operation that was about to succeed was given up on instead of collected.
+
+  Both are 409, so the status cannot decide it. The code is the whole of what
+  distinguishes them, which is why this asserts on the code and not on it.
+  */
+  it('attempts again a conflict that is only the same request still running', async () => {
+    expect(await counting(refusal(409, 'in_progress'))).toBe(3)
   })
 
   /*

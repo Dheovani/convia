@@ -93,18 +93,81 @@ test('an unauthenticated request says the session is gone rather than that the n
 })
 
 /*
-There is no idempotency test here, and that is a finding rather than a gap.
+The key doing its job against a real Convia, which it could not until `M19-015`.
 
-**No route under `/v1/me` accepts `Idempotency-Key`.** Every one that does is on
-the tenant surface -- `/v1/rooms`, `/v1/rooms/{id}/messages`, `/v1/webhooks` --
-which this package deliberately does not reach. So on the surface the SDK does
-cover, sending the header changes nothing, and a test asserting that it did
-would have been asserting something untrue.
-
-The machinery is unit-tested and correct, and it matters the moment either the
-tenant surface is covered or the session surface gains the parameter. Which of
-those should happen is `M19-015`.
+Until then no route under `/v1/me` read the header, so a test asserting that it
+worked would have been asserting something untrue -- and the one that stood here
+said so instead.
 */
+test('the same key across attempts makes one room, not two', async ({ browser }) => {
+  const ana = await theSamePerson()
+  const page = await signedIn(browser, ana)
+  const name = `Repeated ${Date.now().toString(36)}`
+
+  const made = await page.evaluate(async (called) => {
+    const convia = new window.sdk.Convia()
+    const key = window.sdk.newIdempotencyKey()
+
+    const first = await convia.post<{ id: string }>('/me/rooms', {
+      body: { name: called },
+      idempotencyKey: key,
+    })
+
+    /*
+    The same request again, as a client that lost the first answer would send
+    it. Convia performs it at most once and replays the original response, so
+    what comes back is the room that already exists.
+    */
+    const again = await convia.post<{ id: string }>('/me/rooms', {
+      body: { name: called },
+      idempotencyKey: key,
+    })
+
+    const rooms = await convia.get<{ data: { id: string; name: string }[] }>('/me/rooms')
+    return {
+      first: first.id,
+      again: again.id,
+      named: rooms.data.filter((room) => room.name === called).length,
+    }
+  }, name)
+
+  expect(made.again).toBe(made.first)
+  expect(made.named).toBe(1)
+})
+
+/*
+And the refusal that will never clear, which is the other half of the key.
+
+A different body under a key already used is a client bug -- two intents sharing
+one key -- and no later attempt changes it. It is `conflict`, not `in_progress`,
+and the SDK's retry tells them apart by exactly that.
+*/
+test('a different body under the same key is refused for good', async ({ browser }) => {
+  const ana = await theSamePerson()
+  const page = await signedIn(browser, ana)
+
+  const refused = await page.evaluate(async () => {
+    const convia = new window.sdk.Convia()
+    const key = window.sdk.newIdempotencyKey()
+
+    await convia.post('/me/rooms', { body: { name: 'First' }, idempotencyKey: key })
+    try {
+      await convia.post('/me/rooms', { body: { name: 'Different' }, idempotencyKey: key })
+      return { thrown: false, status: 0, code: '' }
+    } catch (error) {
+      const refusal = window.sdk.isConviaError(error)
+      return {
+        thrown: true,
+        status: refusal ? (error as InstanceType<typeof window.sdk.ConviaError>).status : 0,
+        code: refusal ? String((error as InstanceType<typeof window.sdk.ConviaError>).code) : '',
+      }
+    }
+  })
+
+  expect(refused.thrown).toBe(true)
+  expect(refused.status).toBe(409)
+  expect(refused.code).toBe('conflict')
+})
 
 test('the stream opens, carries what happens, and says it is live', async ({ browser }) => {
   const ana = await theSamePerson()
