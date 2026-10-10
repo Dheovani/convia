@@ -20,6 +20,13 @@ room. So the list is read again whenever the stream carries something about a
 room, which is the same signal the rooms here are read again on, and nothing
 asks on a timer.
 
+**A change made here outranks a read already on its way.** Forgetting a room or
+joining one changes the list at once, and a read that left before that change
+would land after it carrying the list from before -- putting back the room just
+forgotten, or taking away the one just joined, until the next read. So every
+change here abandons the read in flight and reads again, and the answer the
+list ends with was asked for after the change.
+
 A failure to read it leaves what was there. An old list is a smaller wrong than
 an empty one, and the next read corrects it: the person's own rooms are the ones
 that must work, and a sidebar that reports an error about something they may not
@@ -39,7 +46,13 @@ export function useRemoteRooms(onExpired: () => void): RemoteRooms {
 
     api
       .remoteRooms(controller.signal)
-      .then((page) => setRemoteRooms(page.data))
+      .then((page) => {
+        // Abandoned reads are dropped here as well as cancelled, because an
+        // answer can already be in hand when the abort arrives.
+        if (!controller.signal.aborted) {
+          setRemoteRooms(page.data)
+        }
+      })
       .catch((error: unknown) => {
         if (!controller.signal.aborted && error instanceof ApiError && error.unauthenticated) {
           expired.current()
@@ -49,13 +62,21 @@ export function useRemoteRooms(onExpired: () => void): RemoteRooms {
     return () => controller.abort()
   }, [reloads])
 
-  const remember = useCallback((room: RemoteRoom) => {
-    setRemoteRooms((current) => [...current.filter((known) => known.id !== room.id), room])
-  }, [])
+  const remember = useCallback(
+    (room: RemoteRoom) => {
+      setRemoteRooms((current) => [...current.filter((known) => known.id !== room.id), room])
+      refresh()
+    },
+    [refresh],
+  )
 
-  const forget = useCallback((remoteRoomId: string) => {
-    setRemoteRooms((current) => current.filter((known) => known.id !== remoteRoomId))
-  }, [])
+  const forget = useCallback(
+    (remoteRoomId: string) => {
+      setRemoteRooms((current) => current.filter((known) => known.id !== remoteRoomId))
+      refresh()
+    },
+    [refresh],
+  )
 
   return { remoteRooms, refresh, remember, forget }
 }

@@ -139,6 +139,11 @@ const (
 	mediaAPISecretEnvironment = "CONVIA_LIVEKIT_API_SECRET"
 	mediaTimeoutEnvironment   = "CONVIA_LIVEKIT_TIMEOUT"
 
+	// The pair being rotated away from, for reports signed before LiveKit
+	// switched; see docs/runbooks/rotating-secrets.md.
+	mediaPreviousAPIKeyEnvironment    = "CONVIA_LIVEKIT_PREVIOUS_API_KEY"
+	mediaPreviousAPISecretEnvironment = "CONVIA_LIVEKIT_PREVIOUS_API_SECRET"
+
 	/*
 	   mediaClientURLEnvironment is where a browser reaches the media plane.
 
@@ -343,6 +348,10 @@ type Media struct {
 	APIKey    string
 	APISecret media.APISecret
 	Timeout   time.Duration
+
+	// PreviousAPIKey and PreviousAPISecret are set only while rotating.
+	PreviousAPIKey    string
+	PreviousAPISecret media.APISecret
 }
 
 // Configured reports whether a media plane was configured at all.
@@ -533,12 +542,25 @@ func loadMedia(environment Environment) (Media, error) {
 		return Media{}, err
 	}
 
+	previousKey := strings.TrimSpace(os.Getenv(mediaPreviousAPIKeyEnvironment))
+	previousSecret := strings.TrimSpace(os.Getenv(mediaPreviousAPISecretEnvironment))
+	if (previousKey == "") != (previousSecret == "") {
+		return Media{}, fmt.Errorf("%s and %s are set together or not at all",
+			mediaPreviousAPIKeyEnvironment, mediaPreviousAPISecretEnvironment)
+	}
+
+	if previousKey != "" && previousKey == key {
+		return Media{}, fmt.Errorf("%s is the current key, so nothing is being rotated", mediaPreviousAPIKeyEnvironment)
+	}
+
 	return Media{
-		URL:       endpoint,
-		ClientURL: clientURL,
-		APIKey:    key,
-		APISecret: media.APISecret(secret),
-		Timeout:   timeout,
+		URL:               endpoint,
+		ClientURL:         clientURL,
+		APIKey:            key,
+		APISecret:         media.APISecret(secret),
+		Timeout:           timeout,
+		PreviousAPIKey:    previousKey,
+		PreviousAPISecret: media.APISecret(previousSecret),
 	}, nil
 }
 

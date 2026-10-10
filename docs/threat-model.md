@@ -175,4 +175,4 @@ Convia's own interface and the desktop application are **one client among many**
 | | |
 | --- | --- |
 | No bound on how expensive one request may be, only on how often | `M24` |
-| No secret manager, no defined rotation | `M23-005`, `M23-006` |
+| No secret manager | `M23-005` |

@@ -857,3 +857,37 @@ func TestAnUnusableSharedChannelAddressIsRefused(t *testing.T) {
 		})
 	}
 }
+
+/*
+TestARotationIsStatedWholeOrNotAtAll loads the pair being rotated away from,
+and refuses half of one: a previous key with no secret is a typo, and starting
+with it would refuse every report LiveKit signs with the old pair.
+*/
+func TestARotationIsStatedWholeOrNotAtAll(t *testing.T) {
+	useDefaults(t)
+	useMedia(t)
+	t.Setenv(mediaPreviousAPIKeyEnvironment, "APIretiring")
+	t.Setenv(mediaPreviousAPISecretEnvironment, "the secret being rotated away from")
+
+	config, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if config.Media.PreviousAPIKey != "APIretiring" || config.Media.PreviousAPISecret.Reveal() != "the secret being rotated away from" {
+		t.Errorf("the previous pair was not loaded: %q", config.Media.PreviousAPIKey)
+	}
+
+	for name, unset := range map[string]string{"the key": mediaPreviousAPIKeyEnvironment, "the secret": mediaPreviousAPISecretEnvironment} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(unset, "")
+			if _, err := Load(); err == nil {
+				t.Errorf("a rotation without %s was accepted", name)
+			}
+		})
+	}
+
+	t.Setenv(mediaPreviousAPIKeyEnvironment, testMediaKey)
+	if _, err := Load(); err == nil {
+		t.Error("a previous key equal to the current one was accepted")
+	}
+}

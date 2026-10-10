@@ -802,6 +802,9 @@ func openMediaPlane(settings config.Media, logger *slog.Logger) (calls.MediaPlan
 		APIKey:    settings.APIKey,
 		APISecret: settings.APISecret,
 		Timeout:   settings.Timeout,
+
+		PreviousAPIKey:    settings.PreviousAPIKey,
+		PreviousAPISecret: settings.PreviousAPISecret,
 	})
 
 	if err != nil {

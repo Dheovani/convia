@@ -91,7 +91,7 @@ t.Skip("quarantined: see QUARANTINE above")
 
 **Every other skip has to be a declared shape.** Convia's integration tests skip when their dependency is unset, which is a different thing, so the script carries a short list of recognised shapes and refuses anything else. Hiding a flake behind `t.Skip("TODO")` therefore needs somebody to widen that list in a diff a reviewer reads. Proved by injecting five bad shapes — a bare skip, a quarantine with no marker, a marker whose date had passed, a deadline five years out, and a marker missing its issue — and watching each one refused.
 
-**One test is quarantined**: `Peers.test.tsx > offers to forget a room it could not leave`, until 2026-11-15. It failed about half of full-suite runs and never on its own; two races were found and fixed and it still fails roughly one run in five, so the cause is not either of those. The behaviour it covers is uncovered while it is quarantined, which is what the deadline is for.
+**Nothing is quarantined.** The one test that was — `Peers.test.tsx > offers to forget a room it could not leave` — turned out to be right. It failed only in full-suite runs because only there was a read of the rooms elsewhere likely to be in flight at the moment of forgetting one, and that read then landed and put the forgotten room back on screen, as it would have for a person. The cause was in the interface, not the test: a change made here now abandons any read in flight and reads again, and `useRemoteRooms.test.tsx` holds that order open on purpose so it happens every run rather than one in five. The lesson worth keeping is the one the quarantine gate exists for: a flake is a report until it is shown to be noise.
 
 ## Where the time goes
 
