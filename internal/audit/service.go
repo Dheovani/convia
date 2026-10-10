@@ -126,12 +126,18 @@ func (service *Service) Record(ctx context.Context, written Written) (Entry, err
 			"subject_id", entry.Subject.ID,
 		}
 		for _, name := range sortedKeys(entry.Details) {
-			attributes = append(attributes, name, entry.Details[name])
+			attributes = append(attributes, name, sanitizeLogValue(entry.Details[name]))
 		}
 		service.logger.InfoContext(ctx, "audit event", attributes...)
 	})
 
 	return entry, nil
+}
+
+// sanitizeLogValue removes line breaks so one attribute cannot forge log lines.
+func sanitizeLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", "")
+	return strings.ReplaceAll(value, "\r", "")
 }
 
 // SearchOptions is one request to read the trail.
