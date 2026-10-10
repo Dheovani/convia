@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"convia/internal/api"
@@ -84,12 +85,18 @@ the authentication middleware, which is a wiring mistake rather than a client
 error. It is refused as unauthenticated, because that is the answer that grants
 nothing, and logged so the mistake is visible.
 */
+func sanitizeLogValue(value string) string {
+	value = strings.ReplaceAll(value, "\n", "")
+	value = strings.ReplaceAll(value, "\r", "")
+	return value
+}
+
 func (handler *Handler) authorized(response http.ResponseWriter, request *http.Request) (*OperatorAuthorized, bool) {
 	principal, found := operator.PrincipalFromContext(request.Context())
 	if !found {
 		handler.logger.ErrorContext(request.Context(), "operator route reached without a principal",
 			"method", request.Method,
-			"path", request.URL.Path,
+			"path", sanitizeLogValue(request.URL.Path),
 		)
 		handler.writeFailure(response, request, api.NewFailure(http.StatusUnauthorized, api.CodeUnauthenticated,
 			"The request did not carry a usable credential."))
