@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -14,6 +15,46 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
+
+/*
+signalURL is where one signal is sent, given the address of a collector.
+
+**Until `M25` found it, nothing Convia measured reached a collector.** The
+exporter is handed a URL and posts to exactly that URL, path included, so the
+address an operator configures -- `https://collector.internal:4318`, the shape
+.env.example shows and every collector documents -- had every export posted to
+`/`, where a collector answers 404. OTLP/HTTP puts each signal at a path of its
+own under the collector's address, and this is that rule: an address with no
+path gets the signal's, and an address that names one is used as it is, for the
+collector behind a proxy that routes on something else.
+*/
+func signalURL(endpoint, signal string) string {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || (parsed.Path != "" && parsed.Path != "/") {
+		return endpoint
+	}
+	parsed.Path = signal
+	return parsed.String()
+}
+
+/*
+seconds are the bucket boundaries of every duration Convia measures, in seconds.
+
+**Without them every duration histogram was unreadable**, which nothing noticed
+until `M25` tried to read one. The SDK's default boundaries -- 0, 5, 10, 25, 50
+and on -- were chosen for milliseconds, and these instruments are in seconds,
+as OpenTelemetry's conventions say they should be: so every request faster than
+five seconds landed in the first bucket, and a p95 read from them said only that
+it was somewhere under five seconds.
+
+These are the conventions' recommended boundaries for HTTP durations, with 200,
+250 and 300 milliseconds added because those are three of the targets in
+docs/scaling.md: a percentile is only as precise as the bucket it falls in, and
+whether a target is met should be read off a boundary rather than estimated
+between two distant ones.
+*/
+var seconds = metric.WithExplicitBucketBoundaries(
+	0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.2, 0.25, 0.3, 0.5, 0.75, 1, 2.5, 5, 7.5, 10)
 
 /*
 Measuring builds the meter provider, which is a no-op unless one is configured.
@@ -38,7 +79,7 @@ func Measuring(
 		return noop.NewMeterProvider(), func(context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpointURL(endpoint))
+	exporter, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpointURL(signalURL(endpoint, "/v1/metrics")))
 	if err != nil {
 		return nil, nil, fmt.Errorf("build the metrics exporter: %w", err)
 	}
@@ -84,7 +125,7 @@ func Serve(provider metric.MeterProvider) (*Serving, error) {
 
 	duration, err := meter.Float64Histogram("http.server.request.duration",
 		metric.WithDescription("How long Convia took to answer a request."),
-		metric.WithUnit("s"))
+		metric.WithUnit("s"), seconds)
 	if err != nil {
 		return nil, fmt.Errorf("build the request duration histogram: %w", err)
 	}

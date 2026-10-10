@@ -63,7 +63,7 @@ func Follow(provider metric.MeterProvider, open Open) (*Streams, error) {
 	latency, err := meter.Float64Histogram("convia.event.delivery.duration",
 		metric.WithDescription("How long an event took to reach the streams open for it, "+
 			"measured from when the change it describes happened."),
-		metric.WithUnit("s"))
+		metric.WithUnit("s"), seconds)
 	if err != nil {
 		return nil, fmt.Errorf("build the delivery histogram: %w", err)
 	}

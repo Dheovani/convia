@@ -72,6 +72,7 @@ func deliveries(t *testing.T, reader *sdkmetric.ManualReader) []metricdata.Histo
 			if !ok {
 				t.Fatalf("the delivery duration is %T, want a float histogram", recorded.Data)
 			}
+			inSeconds(t, recorded.Name, histogram.DataPoints)
 			return histogram.DataPoints
 		}
 	}

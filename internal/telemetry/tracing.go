@@ -40,7 +40,7 @@ func Tracing(
 		return noop.NewTracerProvider(), func(context.Context) error { return nil }, nil
 	}
 
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(endpoint))
+	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpointURL(signalURL(endpoint, "/v1/traces")))
 	if err != nil {
 		return nil, nil, fmt.Errorf("build the trace exporter: %w", err)
 	}
