@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -1126,7 +1127,25 @@ The stub verifier accepts any token, so this proves routing, handler behavior,
 and contract conformance rather than verification. Whether a real key verifies
 is settled by the operator package tests.
 */
+/*
+asOperator presents an operator key, and says why and what, the way a careful
+operator does.
+
+The reason and the confirmation are set on every request so that tests about
+something else are not refused for not explaining themselves; the confirmation
+repeats the last path segment, which is the identifier every destructive route
+confirms. deliberate_test.go is where their absence is tested, through
+asOperatorWithoutSaying.
+*/
 func asOperator(request *http.Request) *http.Request {
+	request = asOperatorWithoutSaying(request)
+	request.Header.Set(reasonHeader, "contract test")
+	request.Header.Set(confirmHeader, path.Base(request.URL.Path))
+	return request
+}
+
+// asOperatorWithoutSaying presents an operator key and nothing else.
+func asOperatorWithoutSaying(request *http.Request) *http.Request {
 	request.Header.Set("Authorization", "Bearer cvo_4XZQP7KN2VJH6TBWMDR3YAFC5E_YH3TKPQ2MWZC7NVJ6BXRD4FGA5")
 	return request
 }

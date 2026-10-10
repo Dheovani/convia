@@ -324,6 +324,155 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/applications/{application_id}/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a tenant's webhook endpoints
+         * @description Returns where a tenant asked to be told, newest first, as the tenant
+         *     itself would read it. The signing key is never part of an endpoint.
+         *
+         *     An operator reads endpoints and cannot change them. Registering,
+         *     changing, rotating, enabling and disabling decide where a tenant's
+         *     events go and who can verify them, and an operator doing that would be
+         *     redirecting somebody else's data.
+         */
+        get: operations["operatorListWebhookEndpoints"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/applications/{application_id}/webhooks/{endpoint_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve a tenant's webhook endpoint
+         * @description Returns one of a tenant's endpoints, never its signing key.
+         */
+        get: operations["operatorGetWebhookEndpoint"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/applications/{application_id}/webhooks/{endpoint_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List one of a tenant's endpoints' deliveries
+         * @description Returns what Convia tried to send to one of a tenant's destinations,
+         *     newest first. It is the listing to read when a tenant says their
+         *     receiver missed something.
+         */
+        get: operations["operatorListWebhookEndpointDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/applications/{application_id}/deliveries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List a tenant's webhook deliveries
+         * @description Returns everything Convia tried to send a tenant, newest first,
+         *     optionally narrowed to one endpoint.
+         */
+        get: operations["operatorListWebhookDeliveries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/applications/{application_id}/deliveries/{delivery_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve a tenant's webhook delivery
+         * @description Returns one of a tenant's deliveries: which event it carried, how many
+         *     attempts it took, and what happened. The body that was sent is not
+         *     included, here as on the tenant's own route.
+         */
+        get: operations["operatorGetWebhookDelivery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/applications/{application_id}/deliveries/{delivery_id}/redeliver": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Send a delivery again
+         * @description Queues the event of one delivery again, to the same destination, as a
+         *     new delivery due now, and answers with it. The new delivery names the
+         *     one it repeats in `redelivery_of` and carries the same bytes.
+         *
+         *     **To the consumer it is a new delivery.** It arrives with its own
+         *     `Convia-Delivery` header, so a consumer that deduplicates on that
+         *     header handles it again, which is what a redelivery is for when the
+         *     original failed. A consumer that must never handle one event twice
+         *     deduplicates on the event's own `id` in the body, which is unchanged.
+         *
+         *     The original is left as it was: it is the record of what happened.
+         *
+         *     - A delivery still being attempted, or an event already on its way
+         *       again to that destination, is refused with `409 conflict`. It clears
+         *       once the attempt finishes.
+         *     - A delivery to a disabled endpoint is refused with `409 conflict`,
+         *       because nothing would be sent. Enabling it is the tenant's decision.
+         *     - The reason is required, and it is recorded in the audit trail beside
+         *       the operator who asked.
+         */
+        post: operations["redeliverWebhookDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/applications/{application_id}/credentials": {
         parameters: {
             query?: never;
@@ -5689,6 +5838,11 @@ export interface components {
              * @description When a destination accepted it. Present only once delivered.
              */
             delivered_at?: string;
+            /**
+             * @description The delivery this one repeats, when an operator sent it again.
+             *     Absent on a delivery made because an event happened.
+             */
+            redelivery_of?: string;
         };
         WebhookDeliveryPage: {
             data: components["schemas"]["WebhookDelivery"][];
@@ -6489,6 +6643,32 @@ export interface components {
         /** @description Opaque identifier of a webhook delivery. */
         WebhookDeliveryID: components["schemas"]["WebhookDeliveryId"];
         /**
+         * @description Why this is being done, in the operator's own words.
+         *
+         *     It is required on the operations somebody will later ask about --
+         *     suspending, deleting, revoking, ending a call, removing somebody,
+         *     minting authority -- because the person who could answer is the one
+         *     making the request now. It is stored beside the audit entry and read
+         *     back by `GET /v1/audit`.
+         *
+         *     - At most 500 characters, after surrounding whitespace is removed.
+         *     - No control characters, so one reason cannot pretend to be two lines.
+         *     - Missing or unusable, the request is refused with `400
+         *       invalid_request` before anything is done.
+         * @example Chargeback fraud reported in ticket 4411
+         */
+        ConviaReason: string;
+        /**
+         * @description The identifier of what is being deleted, again.
+         *
+         *     The path says what to delete and this has to agree with it. It is
+         *     there for the mistake a key cannot catch: a script with the wrong
+         *     variable in a path, a command re-run against the wrong tenant. A
+         *     request whose confirmation is missing or names something else is
+         *     refused with `400 invalid_request` and nothing is deleted.
+         */
+        ConviaConfirm: string;
+        /**
          * @description A client-generated key that makes a retry safe.
          *
          *     A client that receives no response cannot tell whether its request was
@@ -6890,7 +7070,34 @@ export interface operations {
     deleteApplication: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+                /**
+                 * @description The identifier of what is being deleted, again.
+                 *
+                 *     The path says what to delete and this has to agree with it. It is
+                 *     there for the mistake a key cannot catch: a script with the wrong
+                 *     variable in a path, a command re-run against the wrong tenant. A
+                 *     request whose confirmation is missing or names something else is
+                 *     refused with `400 invalid_request` and nothing is deleted.
+                 */
+                "Convia-Confirm": components["parameters"]["ConviaConfirm"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -6970,7 +7177,24 @@ export interface operations {
     suspendApplication: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -7146,7 +7370,34 @@ export interface operations {
     deleteUser: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+                /**
+                 * @description The identifier of what is being deleted, again.
+                 *
+                 *     The path says what to delete and this has to agree with it. It is
+                 *     there for the mistake a key cannot catch: a script with the wrong
+                 *     variable in a path, a command re-run against the wrong tenant. A
+                 *     request whose confirmation is missing or names something else is
+                 *     refused with `400 invalid_request` and nothing is deleted.
+                 */
+                "Convia-Confirm": components["parameters"]["ConviaConfirm"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -7233,7 +7484,24 @@ export interface operations {
     suspendUser: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -7249,6 +7517,251 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    operatorListWebhookEndpoints: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum number of items to return in one page. Values above the maximum
+                 *     are rejected with `invalid_request` rather than silently clamped.
+                 */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Opaque continuation token returned by a previous page. Clients must not
+                 *     construct, decode, or persist cursors beyond the paging sequence.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                /** @description Identifier of the application. */
+                application_id: components["parameters"]["ApplicationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of endpoints. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpointPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    operatorGetWebhookEndpoint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identifier of the application. */
+                application_id: components["parameters"]["ApplicationID"];
+                /** @description Opaque identifier of a webhook endpoint. */
+                endpoint_id: components["parameters"]["WebhookEndpointID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested endpoint. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookEndpoint"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    operatorListWebhookEndpointDeliveries: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum number of items to return in one page. Values above the maximum
+                 *     are rejected with `invalid_request` rather than silently clamped.
+                 */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Opaque continuation token returned by a previous page. Clients must not
+                 *     construct, decode, or persist cursors beyond the paging sequence.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path: {
+                /** @description Identifier of the application. */
+                application_id: components["parameters"]["ApplicationID"];
+                /** @description Opaque identifier of a webhook endpoint. */
+                endpoint_id: components["parameters"]["WebhookEndpointID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of deliveries. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    operatorListWebhookDeliveries: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Maximum number of items to return in one page. Values above the maximum
+                 *     are rejected with `invalid_request` rather than silently clamped.
+                 */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Opaque continuation token returned by a previous page. Clients must not
+                 *     construct, decode, or persist cursors beyond the paging sequence.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Narrows the listing to one endpoint. */
+                endpoint_id?: components["schemas"]["WebhookEndpointId"];
+            };
+            header?: never;
+            path: {
+                /** @description Identifier of the application. */
+                application_id: components["parameters"]["ApplicationID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of deliveries. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDeliveryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    operatorGetWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Identifier of the application. */
+                application_id: components["parameters"]["ApplicationID"];
+                /** @description Opaque identifier of a webhook delivery. */
+                delivery_id: components["parameters"]["WebhookDeliveryID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The requested delivery. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    redeliverWebhookDelivery: {
+        parameters: {
+            query?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
+            path: {
+                /** @description Identifier of the application. */
+                application_id: components["parameters"]["ApplicationID"];
+                /** @description Opaque identifier of a webhook delivery. */
+                delivery_id: components["parameters"]["WebhookDeliveryID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The new delivery, queued and not yet attempted. */
+            202: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookDelivery"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];
         };
@@ -7298,7 +7811,24 @@ export interface operations {
     issueCredential: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -7376,7 +7906,34 @@ export interface operations {
     revokeCredential: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+                /**
+                 * @description The identifier of what is being deleted, again.
+                 *
+                 *     The path says what to delete and this has to agree with it. It is
+                 *     there for the mistake a key cannot catch: a script with the wrong
+                 *     variable in a path, a command re-run against the wrong tenant. A
+                 *     request whose confirmation is missing or names something else is
+                 *     refused with `400 invalid_request` and nothing is deleted.
+                 */
+                "Convia-Confirm": components["parameters"]["ConviaConfirm"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -7907,7 +8464,24 @@ export interface operations {
     issueOperatorCredential: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -7982,7 +8556,34 @@ export interface operations {
     revokeOperatorCredential: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+                /**
+                 * @description The identifier of what is being deleted, again.
+                 *
+                 *     The path says what to delete and this has to agree with it. It is
+                 *     there for the mistake a key cannot catch: a script with the wrong
+                 *     variable in a path, a command re-run against the wrong tenant. A
+                 *     request whose confirmation is missing or names something else is
+                 *     refused with `400 invalid_request` and nothing is deleted.
+                 */
+                "Convia-Confirm": components["parameters"]["ConviaConfirm"];
+            };
             path: {
                 /** @description The operator credential's opaque identifier. */
                 credential_id: components["parameters"]["OperatorCredentialID"];
@@ -8173,7 +8774,34 @@ export interface operations {
     deleteRoom: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+                /**
+                 * @description The identifier of what is being deleted, again.
+                 *
+                 *     The path says what to delete and this has to agree with it. It is
+                 *     there for the mistake a key cannot catch: a script with the wrong
+                 *     variable in a path, a command re-run against the wrong tenant. A
+                 *     request whose confirmation is missing or names something else is
+                 *     refused with `400 invalid_request` and nothing is deleted.
+                 */
+                "Convia-Confirm": components["parameters"]["ConviaConfirm"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -8767,7 +9395,24 @@ export interface operations {
     endCall: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];
@@ -9652,7 +10297,24 @@ export interface operations {
     removeParticipant: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /**
+                 * @description Why this is being done, in the operator's own words.
+                 *
+                 *     It is required on the operations somebody will later ask about --
+                 *     suspending, deleting, revoking, ending a call, removing somebody,
+                 *     minting authority -- because the person who could answer is the one
+                 *     making the request now. It is stored beside the audit entry and read
+                 *     back by `GET /v1/audit`.
+                 *
+                 *     - At most 500 characters, after surrounding whitespace is removed.
+                 *     - No control characters, so one reason cannot pretend to be two lines.
+                 *     - Missing or unusable, the request is refused with `400
+                 *       invalid_request` before anything is done.
+                 * @example Chargeback fraud reported in ticket 4411
+                 */
+                "Convia-Reason": components["parameters"]["ConviaReason"];
+            };
             path: {
                 /** @description Identifier of the application. */
                 application_id: components["parameters"]["ApplicationID"];

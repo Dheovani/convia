@@ -629,6 +629,8 @@ paths:
       security:
         - OperatorKey: ["applications:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
+        - $ref: "#/components/parameters/ConviaConfirm"
         - $ref: "#/components/parameters/ApplicationID"
       responses:
         "204":
@@ -664,6 +666,7 @@ paths:
       security:
         - OperatorKey: ["applications:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
         - $ref: "#/components/parameters/ApplicationID"
       responses:
         "200":
@@ -962,6 +965,8 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
+        - $ref: "#/components/parameters/ConviaConfirm"
         - $ref: "#/components/parameters/ApplicationID"
         - $ref: "#/components/parameters/UserID"
       responses:
@@ -1001,6 +1006,7 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
         - $ref: "#/components/parameters/ApplicationID"
         - $ref: "#/components/parameters/UserID"
       responses:
@@ -1014,6 +1020,271 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/webhooks:
+    get:
+      operationId: operatorListWebhookEndpoints
+      tags: [Webhooks]
+      summary: List a tenant's webhook endpoints
+      description: |
+        Returns where a tenant asked to be told, newest first, as the tenant
+        itself would read it. The signing key is never part of an endpoint.
+
+        An operator reads endpoints and cannot change them. Registering,
+        changing, rotating, enabling and disabling decide where a tenant's
+        events go and who can verify them, and an operator doing that would be
+        redirecting somebody else's data.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of endpoints.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpointPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/webhooks/{endpoint_id}:
+    get:
+      operationId: operatorGetWebhookEndpoint
+      tags: [Webhooks]
+      summary: Retrieve a tenant's webhook endpoint
+      description: Returns one of a tenant's endpoints, never its signing key.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/WebhookEndpointID"
+      responses:
+        "200":
+          description: The requested endpoint.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookEndpoint"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/webhooks/{endpoint_id}/deliveries:
+    get:
+      operationId: operatorListWebhookEndpointDeliveries
+      tags: [Webhooks]
+      summary: List one of a tenant's endpoints' deliveries
+      description: |
+        Returns what Convia tried to send to one of a tenant's destinations,
+        newest first. It is the listing to read when a tenant says their
+        receiver missed something.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/WebhookEndpointID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of deliveries.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/deliveries:
+    get:
+      operationId: operatorListWebhookDeliveries
+      tags: [Webhooks]
+      summary: List a tenant's webhook deliveries
+      description: |
+        Returns everything Convia tried to send a tenant, newest first,
+        optionally narrowed to one endpoint.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+        - name: endpoint_id
+          in: query
+          required: false
+          description: Narrows the listing to one endpoint.
+          schema:
+            $ref: "#/components/schemas/WebhookEndpointId"
+      responses:
+        "200":
+          description: One page of deliveries.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/deliveries/{delivery_id}:
+    get:
+      operationId: operatorGetWebhookDelivery
+      tags: [Webhooks]
+      summary: Retrieve a tenant's webhook delivery
+      description: |
+        Returns one of a tenant's deliveries: which event it carried, how many
+        attempts it took, and what happened. The body that was sent is not
+        included, here as on the tenant's own route.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:read"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/WebhookDeliveryID"
+      responses:
+        "200":
+          description: The requested delivery.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /v1/applications/{application_id}/deliveries/{delivery_id}/redeliver:
+    post:
+      operationId: redeliverWebhookDelivery
+      tags: [Webhooks]
+      summary: Send a delivery again
+      description: |
+        Queues the event of one delivery again, to the same destination, as a
+        new delivery due now, and answers with it. The new delivery names the
+        one it repeats in `redelivery_of` and carries the same bytes.
+
+        **To the consumer it is a new delivery.** It arrives with its own
+        `Convia-Delivery` header, so a consumer that deduplicates on that
+        header handles it again, which is what a redelivery is for when the
+        original failed. A consumer that must never handle one event twice
+        deduplicates on the event's own `id` in the body, which is unchanged.
+
+        The original is left as it was: it is the record of what happened.
+
+        - A delivery still being attempted, or an event already on its way
+          again to that destination, is refused with `409 conflict`. It clears
+          once the attempt finishes.
+        - A delivery to a disabled endpoint is refused with `409 conflict`,
+          because nothing would be sent. Enabling it is the tenant's decision.
+        - The reason is required, and it is recorded in the audit trail beside
+          the operator who asked.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["tenants:write"]
+      parameters:
+        - $ref: "#/components/parameters/ApplicationID"
+        - $ref: "#/components/parameters/WebhookDeliveryID"
+        - $ref: "#/components/parameters/ConviaReason"
+      responses:
+        "202":
+          description: The new delivery, queued and not yet attempted.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -1038,6 +1309,7 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
         - $ref: "#/components/parameters/ApplicationID"
       requestBody:
         required: true
@@ -1173,6 +1445,8 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
+        - $ref: "#/components/parameters/ConviaConfirm"
         - $ref: "#/components/parameters/ApplicationID"
         - $ref: "#/components/parameters/CredentialID"
       responses:
@@ -1848,6 +2122,8 @@ paths:
             example:
               name: deployment pipeline
               scopes: [applications:read, tenants:write]
+      parameters:
+        - $ref: "#/components/parameters/ConviaReason"
       responses:
         "201":
           description: |
@@ -1968,6 +2244,8 @@ paths:
       security:
         - OperatorKey: ["operators:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
+        - $ref: "#/components/parameters/ConviaConfirm"
         - $ref: "#/components/parameters/OperatorCredentialID"
       responses:
         "204":
@@ -2225,6 +2503,8 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
+        - $ref: "#/components/parameters/ConviaConfirm"
         - $ref: "#/components/parameters/ApplicationID"
         - $ref: "#/components/parameters/RoomID"
       responses:
@@ -2840,6 +3120,7 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
         - $ref: "#/components/parameters/ApplicationID"
         - $ref: "#/components/parameters/CallID"
       requestBody:
@@ -3933,6 +4214,7 @@ paths:
       security:
         - OperatorKey: ["tenants:write"]
       parameters:
+        - $ref: "#/components/parameters/ConviaReason"
         - $ref: "#/components/parameters/ApplicationID"
         - $ref: "#/components/parameters/ParticipantID"
       requestBody:
@@ -11448,6 +11730,12 @@ components:
           type: string
           format: date-time
           description: When a destination accepted it. Present only once delivered.
+        redelivery_of:
+          type: string
+          pattern: "^whd_[A-Z2-7]{26}$"
+          description: |
+            The delivery this one repeats, when an operator sent it again.
+            Absent on a delivery made because an event happened.
 
     WebhookDeliveryPage:
       type: object
@@ -11860,6 +12148,43 @@ components:
       schema:
         $ref: "#/components/schemas/WebhookDeliveryId"
 
+    ConviaReason:
+      name: Convia-Reason
+      in: header
+      required: true
+      description: |
+        Why this is being done, in the operator's own words.
+
+        It is required on the operations somebody will later ask about --
+        suspending, deleting, revoking, ending a call, removing somebody,
+        minting authority -- because the person who could answer is the one
+        making the request now. It is stored beside the audit entry and read
+        back by `GET /v1/audit`.
+
+        - At most 500 characters, after surrounding whitespace is removed.
+        - No control characters, so one reason cannot pretend to be two lines.
+        - Missing or unusable, the request is refused with `400
+          invalid_request` before anything is done.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 500
+      example: "Chargeback fraud reported in ticket 4411"
+
+    ConviaConfirm:
+      name: Convia-Confirm
+      in: header
+      required: true
+      description: |
+        The identifier of what is being deleted, again.
+
+        The path says what to delete and this has to agree with it. It is
+        there for the mistake a key cannot catch: a script with the wrong
+        variable in a path, a command re-run against the wrong tenant. A
+        request whose confirmation is missing or names something else is
+        refused with `400 invalid_request` and nothing is deleted.
+      schema:
+        type: string
     IdempotencyKey:
       name: Idempotency-Key
       in: header

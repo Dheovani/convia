@@ -301,6 +301,8 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		TenantEvents: serving.NewTenantHandler(logger, events.NewBroker(), nil),
 		TenantWebhooks: webhooks.NewTenantHandler(logger, stubWebhooks{
 			endpoint: sampleWebhookEndpoint(), delivery: sampleWebhookDelivery()}),
+		Webhooks: webhooks.NewOperatorHandler(logger, stubWebhooks{
+			endpoint: sampleWebhookEndpoint(), delivery: sampleWebhookDelivery()}),
 		/*
 			A real presence service over the in-process store, for the same
 			reason the broker is real: there is no infrastructure in it. What
@@ -1262,6 +1264,10 @@ func (stub stubWebhooks) GetDelivery(context.Context, string, string) (webhooks.
 
 func (stub stubWebhooks) ListDeliveries(context.Context, string, webhooks.DeliveryListOptions) (webhooks.DeliveryPage, error) {
 	return webhooks.DeliveryPage{Deliveries: []webhooks.Delivery{stub.delivery}}, stub.err
+}
+
+func (stub stubWebhooks) Redeliver(context.Context, string, string) (webhooks.Delivery, error) {
+	return stub.delivery, stub.err
 }
 
 func (stub stubRooms) AddMember(context.Context, string, string, string) (rooms.Member, bool, error) {

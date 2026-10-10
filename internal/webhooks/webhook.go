@@ -64,6 +64,27 @@ var (
 
 	// ErrApplicationNotFound reports work asked for a tenant Convia does not serve.
 	ErrApplicationNotFound = errors.New("application not found")
+
+	/*
+		ErrDeliveryOutstanding reports a redelivery asked for an event that is
+		already on its way to that destination.
+
+		Convia is still trying, either the original or an earlier redelivery,
+		and a second one would only mean the destination receives it twice once
+		it answers. It clears by itself, which is why it is a conflict and not a
+		refusal for good.
+	*/
+	ErrDeliveryOutstanding = errors.New("the event is already being delivered to that destination")
+
+	/*
+		ErrEndpointDisabled reports a redelivery asked for a destination Convia
+		has stopped sending to.
+
+		The worker does not attempt anything for a disabled endpoint, so the
+		redelivery would sit in the queue with nothing to say why. Enabling the
+		endpoint is the application's decision, and it is the one to make first.
+	*/
+	ErrEndpointDisabled = errors.New("the webhook endpoint is disabled")
 )
 
 /*
@@ -240,6 +261,10 @@ type Delivery struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeliveredAt *time.Time
+
+	// RedeliveryOf names the delivery this one repeats, and is empty on a
+	// delivery Convia made because an event happened.
+	RedeliveryOf string
 }
 
 // Done reports whether Convia has finished with a delivery, either way.

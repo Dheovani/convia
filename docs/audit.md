@@ -20,7 +20,7 @@ It was also **wrong**. Applications, credentials and users wrote `actor=unauthen
 | `actor_kind`, `actor_id` | the authority, and whose it was |
 | `application_id` | the tenant it touched, if it touched one |
 | `subject_kind`, `subject_id` | what was acted on |
-| `reason` | why, in the actor's words, where Convia required one |
+| `reason` | why, in the actor's words, where the route required one |
 | `details` | the few facts nothing else in the entry can say |
 | `request_id` | the request, which joins the entry to the access log and the trace |
 
@@ -46,6 +46,26 @@ There is one kind for each caller Convia verifies, plus Convia itself.
 `system` is what an entry says when nobody presented a credential: a call ended because the media plane reported the last connection gone, a person forgotten at the end of the retention window, a key minted by `convia operator issue`, whose authority is access to the database.
 
 A visitor acting through their home is recorded as `peer`, not `person`, even where they resolve to a local session. What this installation verified is a signature from another one, and the trail says what was verified.
+
+## Saying why
+
+**The operations somebody will later ask about require a reason.** On the operator surface, suspending a tenant or a user, deleting one, revoking a key, minting one, ending a call and removing somebody from it all refuse a request without a `Convia-Reason` header, before anything is done:
+
+```
+POST /v1/applications/app_.../suspend
+Authorization: Bearer cvo_...
+Convia-Reason: Chargeback fraud reported in ticket 4411
+```
+
+The reason is stored beside the entry and comes back from `GET /v1/audit`. It is at most 500 characters once trimmed, and a control character is refused, so one reason cannot pretend to be two lines of a log.
+
+**Which operations ask is the route's decision, not the service's.** The same service suspends a tenant whoever asks, and a reason is a question for the person holding the key, so the route's middleware asks, refuses without it, and puts it beside the actor where the trail reads it. A service cannot invent a reason any more than it can invent an actor, and a route off the operator surface marked to ask stops the process at startup: an application acting on its own data owes nobody an explanation.
+
+**Deleting something takes naming it twice.** The five operator deletions — an application, a user, a room, an application's key, an operator key — also require `Convia-Confirm` to repeat the identifier in the path. It catches what a key cannot: a script with the wrong variable in a path, a command re-run against the wrong tenant. A missing or different confirmation is refused, and nothing is deleted.
+
+**Re-authenticating is deliberately not asked for.** An operator key is presented on every request, so asking for it again proves nothing the first presentation did not. What would prove more is a second factor or a second person, and both need operators to be people Convia knows rather than holders of a key; who administers an installation is `M34-003`'s question.
+
+The command line acts with the authority of the database rather than a key, and records no reason.
 
 ## Written with the change
 

@@ -30,7 +30,7 @@ const endpointColumns = `id, application_id, name, url, event_types, status,
 // deliveryColumns is the projection every delivery read shares.
 const deliveryColumns = `id, endpoint_id, application_id, event_id, event_type, payload,
                          status, attempts, next_attempt_at, last_status_code, last_error,
-                         created_at, updated_at, delivered_at`
+                         created_at, updated_at, delivered_at, redelivery_of`
 
 /*
 Store persists webhook endpoints and the deliveries owed to them.

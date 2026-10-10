@@ -592,6 +592,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		PersonalRooms:      rooms.NewSessionHandler(logger, roomService, userService),
 		TenantEvents:       serving.NewTenantHandler(logger, broker, follower),
 		TenantWebhooks:     webhooks.NewTenantHandler(logger, webhookService),
+		Webhooks:           webhooks.NewOperatorHandler(logger, webhookService),
 		TenantPresence:     presence.NewTenantHandler(logger, presenceService),
 		PersonalPresence:   presence.NewPersonalHandler(logger, presenceService, roomService),
 

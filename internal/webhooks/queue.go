@@ -362,6 +362,7 @@ type deliveryRow struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	DeliveredAt    *time.Time
+	RedeliveryOf   *string
 }
 
 func (row deliveryRow) delivery() Delivery {
@@ -392,7 +393,52 @@ func (row deliveryRow) delivery() Delivery {
 		delivered := row.DeliveredAt.UTC()
 		delivery.DeliveredAt = &delivered
 	}
+	if row.RedeliveryOf != nil {
+		delivery.RedeliveryOf = *row.RedeliveryOf
+	}
 	return delivery
+}
+
+/*
+Redeliver queues the event of one delivery again, as a new delivery due now,
+and answers with it.
+
+The original is copied rather than reopened: it is the record of what happened,
+and the copy says where it came from. The bytes are the same bytes, so the event
+inside keeps its identifier; the delivery is new, and so is the Convia-Delivery
+header a consumer deduplicates on.
+
+**An event already on its way to that destination is not queued twice.** The
+check is part of the insert, so it holds between the read and the write; two
+operators asking in the same instant can still both succeed, and what they
+cause is a destination receiving one event twice, which is what at-least-once
+delivery already asks every consumer to survive.
+*/
+func (store *Store) Redeliver(ctx context.Context, applicationID, id, newID string, at time.Time) (Delivery, error) {
+	rows, err := store.db(ctx).Query(ctx, `
+        INSERT INTO webhook_deliveries (id, endpoint_id, application_id, event_id, event_type,
+                                        payload, status, attempts, next_attempt_at,
+                                        created_at, updated_at, redelivery_of)
+        SELECT $3, original.endpoint_id, original.application_id, original.event_id, original.event_type,
+               original.payload, 'pending', 0, $4, $4, $4, original.id
+        FROM webhook_deliveries original
+        WHERE original.application_id = $1 AND original.id = $2
+          AND NOT EXISTS (
+              SELECT 1 FROM webhook_deliveries outstanding
+              WHERE outstanding.endpoint_id = original.endpoint_id
+                AND outstanding.event_id = original.event_id
+                AND outstanding.status = 'pending')
+        RETURNING `+deliveryColumns,
+		applicationID, id, newID, at)
+	if err != nil {
+		return Delivery{}, fmt.Errorf("redeliver webhook delivery: %w", err)
+	}
+
+	delivery, err := collectDelivery(rows)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Delivery{}, ErrDeliveryOutstanding
+	}
+	return delivery, err
 }
 
 func collectDelivery(rows pgx.Rows) (Delivery, error) {

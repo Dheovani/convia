@@ -326,6 +326,62 @@ func (service *Service) GetDelivery(ctx context.Context, applicationID, id strin
 	return service.store.GetDelivery(ctx, applicationID, id)
 }
 
+/*
+Redeliver sends the event of one delivery again, to the same destination.
+
+It is `M15-010`, and what it waited for was never mechanism: the delivery row
+keeps the exact bytes that were signed, and the worker already knows how to
+send them. What it waited for was **authority**. Replaying is something done
+on a tenant's behalf during an incident -- their receiver was down for an hour
+and they want the hour back -- and that needed an operator surface that records
+who did it and why, which `M21` built. The reason is required by the route and
+travels to the trail beside the actor; this records the entry with the new
+delivery, in one transaction.
+
+A delivery still being attempted is not redelivered, and neither is one for a
+disabled endpoint. The first would arrive twice, and the store refuses it as
+part of the insert, so the rule holds between reading and writing; the second
+would sit in the queue with nothing to say why.
+*/
+func (service *Service) Redeliver(ctx context.Context, applicationID, id string) (Delivery, error) {
+	original, err := service.GetDelivery(ctx, applicationID, id)
+	if err != nil {
+		return Delivery{}, err
+	}
+
+	endpoint, err := service.store.Get(ctx, applicationID, original.EndpointID)
+	if err != nil {
+		return Delivery{}, err
+	}
+	if endpoint.Status != StatusEnabled {
+		return Delivery{}, ErrEndpointDisabled
+	}
+
+	var redelivered Delivery
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		redelivered, err = service.store.Redeliver(ctx, applicationID, original.ID, NewDeliveryID(), now())
+		if err != nil {
+			return err
+		}
+		_, err = service.trail.Record(ctx, audit.Written{
+			Action:        "webhook_delivery.redelivered",
+			Subject:       audit.Subject{Kind: "webhook_delivery", ID: original.ID},
+			ApplicationID: applicationID,
+			Details: map[string]string{
+				"redelivery_id": redelivered.ID,
+				"endpoint_id":   original.EndpointID,
+				"event_id":      original.EventID,
+			},
+		})
+		return err
+	})
+	if err != nil {
+		return Delivery{}, err
+	}
+
+	return redelivered, nil
+}
+
 // ListDeliveries returns one page of what Convia tried to tell an application.
 func (service *Service) ListDeliveries(ctx context.Context, applicationID string,
 	options DeliveryListOptions) (DeliveryPage, error) {

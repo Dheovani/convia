@@ -49,22 +49,17 @@ Written is one change to record.
 The actor is not here, because the actor is not the caller's to choose: it is
 read from the context, where the middleware that verified a credential put it.
 A service that could name its own actor could name somebody else's.
+
+Nor is the reason, for a related one. Which operations need a reason is decided
+by the route an operator called -- the same service suspends a tenant for an
+operator and, one day, for nobody at all -- so the route's middleware asks for
+it, refuses without it, and puts it beside the actor. A service cannot invent
+a reason any more than it can invent an actor.
 */
 type Written struct {
 	Action        string
 	Subject       Subject
 	ApplicationID string
-
-	/*
-		Reason is why, where Convia required an answer.
-
-		Required is separate from the reason being present, because the two
-		failures are different: an action that demands a reason and was given
-		none must be refused, and an action that demands none must not start
-		storing whatever a caller felt like sending.
-	*/
-	Reason   string
-	Required bool
 
 	/*
 		Details are the few facts the rest of the entry cannot reconstruct.
@@ -88,18 +83,10 @@ difference between "nobody did this" and "the row did not get written". ADR
 miss one.
 */
 func (service *Service) Record(ctx context.Context, written Written) (Entry, error) {
-	if written.Required && strings.TrimSpace(written.Reason) == "" {
-		return Entry{}, ErrReasonRequired
-	}
-	if !written.Required && written.Reason != "" {
-		return Entry{}, ValidationError{
-			Field:   "reason",
-			Message: "This action does not take a reason.",
-		}
-	}
+	reason, _ := ReasonFromContext(ctx)
 
 	entry, err := Record(written.Action, ActorOrSystem(ctx), written.Subject,
-		written.ApplicationID, written.Reason, written.Details,
+		written.ApplicationID, reason, written.Details,
 		api.RequestIDFromContext(ctx), time.Now())
 	if err != nil {
 		return Entry{}, err

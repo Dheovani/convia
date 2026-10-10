@@ -166,6 +166,24 @@ Each says which event it carried, how many attempts it took, when the next one i
 
 Deleting an endpoint deletes its deliveries with it. An application that wants to keep the history disables the endpoint instead.
 
+## Sending something again
+
+**Convia does not resend on its own once it has given up**, and an application cannot ask it to. What it can do is ask the operator running Convia, who can send one delivery again:
+
+```
+POST /v1/applications/{application_id}/deliveries/{delivery_id}/redeliver
+Authorization: Bearer cvo_...
+Convia-Reason: Receiver was down 14:00-15:00, ticket 812
+```
+
+A redelivery is a **new delivery** of the same event, due at once and attempted like any other. The original stays as it was, because it is the record of what happened; the new one names it in `redelivery_of`.
+
+**To your receiver it is a new delivery.** It carries its own `Convia-Delivery`, so a receiver that deduplicates on that header handles it again, which is the point when the original failed. A receiver that must never act on one event twice deduplicates on the event's `id` in the body instead, which a redelivery does not change.
+
+It is refused while the event is still on its way to that destination, so asking twice does not send twice, and refused for a disabled endpoint, because nothing would be sent until you enable it. Each redelivery is recorded in the [audit trail](audit.md) with the operator who asked and why.
+
+Operators read your endpoints and deliveries at `/v1/applications/{application_id}/webhooks` and `/v1/applications/{application_id}/deliveries`. They cannot register, change, rotate, enable or disable an endpoint: where your events go, and who can verify them, is yours.
+
 ## Scopes
 
 | Scope | Permits |

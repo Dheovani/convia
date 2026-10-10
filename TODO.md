@@ -459,7 +459,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M15 — Webhooks for External Applications
 
 **Priority:** P1
-**Status:** In progress, with one item left and it is blocked rather than pending. `M15-010` is manual redelivery, and what it lacks is not mechanism but **authority**: replaying is something an operator does on a tenant's behalf during an incident, and `M21` is where the operator surface and its audit requirements are defined. Building it now would invent that authority twice.
+**Status:** Complete
 **Depends on:** Stable domain events from M09 and M10
 **Goal:** Notify server-side consumers of durable Convia events reliably and securely.
 
@@ -472,7 +472,7 @@ This document is the operational development plan for Convia. It tracks what exi
 - [x] **M15-007:** Define retry schedule, maximum age, and terminal failure behavior. Seven waits — 30s, 1m, 2m, 5m, 15m, 30m, 1h — so eight attempts over roughly two hours, and no jitter, because `M15-014` asks for deterministic tests and a schedule nobody can predict is one nobody can assert on. A delivery outstanding for more than four hours is given up on regardless of attempts: a webhook that late is worse than none, because a consumer would act on it. Which failures are worth retrying is a decision rather than a default — a destination answering `400` is refusing, and repeating it for two hours would be Convia insisting.
 - [x] **M15-008:** Add idempotency guidance for consumers. Delivery is at-least-once and `docs/webhooks.md` says so before it says anything else, because a destination that received a body and failed to answer is indistinguishable from one that never received it. Ordering is not guaranteed either, and that is stated rather than left to be discovered.
 - [x] **M15-009:** Add endpoint disablement after sustained failures. Twenty consecutive give-ups, reset by any success, so this is a statement about a destination that has stopped working rather than one having a bad afternoon. Disabling finishes whatever was queued for it, which is what keeps the worker's index free of work that is never going to happen and keeps an application from reading outstanding deliveries that are not.
-- [ ] **M15-010:** Add manual redelivery with authorization and audit logging. **Deferred.** Everything it needs exists — the delivery rows, the payload as it was signed, the endpoint — so what is missing is not mechanism but authority: replaying is the kind of operation an operator performs on a tenant's behalf during an incident, and M21 is where the operator surface and its audit requirements are defined. Doing it now would mean inventing that authority twice.
+- [x] **M15-010:** Add manual redelivery with authorization and audit logging. **Deferred.** Everything it needs exists — the delivery rows, the payload as it was signed, the endpoint — so what is missing is not mechanism but authority: replaying is the kind of operation an operator performs on a tenant's behalf during an incident, and M21 is where the operator surface and its audit requirements are defined. Doing it now would mean inventing that authority twice.
 - [x] **M15-011:** Protect against SSRF and unsafe destination networks. The attack is worth naming: a destination is chosen by a tenant and fetched by Convia's own process from inside Convia's own network, so without this an application could point Convia at a cloud metadata service and read the recorded status code as an oracle. Three things answer it. The check is on **addresses, not names**, because a name an attacker controls resolves to whatever it likes. It runs **in the dialer**, at every attempt, so there is no earlier answer to race. And **no proxy is consulted**, because through one the connected address is the proxy's and the destination becomes a header nothing inspects — a single `HTTPS_PROXY` would have disabled all of it. Private destinations are reachable only in development, and that is not a setting: the only reason to want one is the reason not to have one.
 - [x] **M15-012:** Apply connection, response-size, redirect, and timeout limits. Ten seconds an attempt end to end, five to connect, at most 8 KiB read back and discarded, and **redirects are not followed** — a `3xx` is a failed delivery. Following one would let a destination point Convia somewhere else after registration, which is the same attack as `M15-011` wearing a different hat.
 - [x] **M15-013:** Redact secrets and sensitive payloads from logs. The signing key is a redacting type with compile-time assertions, exactly as the media secret is, so dropping a method becomes a build error rather than a silent leak. It is also absent from every read projection, so no value a handler holds carries one. The other half is what Convia refuses to store: a destination's response body is text Convia did not write, and only its status code is kept.
@@ -625,7 +625,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M21 — Administration and Operations Surface
 
 **Priority:** P2
-**Status:** In progress. The audit trail exists and every domain writes to it; what remains is acting on it: reasons, re-authentication, webhook redelivery, credential rotation, and the incident actions that are not yet routes.
+**Status:** In progress. The audit trail, reasons for high-impact actions, confirmation of deletions and webhook redelivery are in place. What remains is credential rotation, re-authentication, and checking the inspection and incident routes that already exist against what these items ask.
 **Depends on:** M05 through M17 as applicable
 **Goal:** Give authorized operators safe visibility and control without direct database manipulation.
 
@@ -635,11 +635,11 @@ This document is the operational development plan for Convia. It tracks what exi
 - [ ] **M21-004:** Add credential revocation and rotation controls.
 - [ ] **M21-005:** Add room and call inspection using redacted data.
 - [ ] **M21-006:** Add participant removal and emergency call termination.
-- [ ] **M21-007:** Add webhook delivery inspection and redelivery.
+- [x] **M21-007:** Add webhook delivery inspection and redelivery.
 - [x] **M21-008:** Add audit-log search with strict access controls.
-- [ ] **M21-009:** Require reasons for high-impact operator actions.
+- [x] **M21-009:** Require reasons for high-impact operator actions.
 - [ ] **M21-010:** Add tests preventing privilege escalation.
-- [ ] **M21-011:** Add confirmation and re-authentication for destructive actions.
+- [ ] **M21-011:** Add confirmation and re-authentication for destructive actions. Confirmation is in place. Re-authentication waits for operators who are people Convia knows rather than holders of a key, which is `M34-003`.
 - [ ] **M21-012:** Document operational ownership and escalation paths.
 
 **Exit criteria:** Routine support and incident actions can be performed through audited, least-privilege operations rather than database access.

@@ -191,3 +191,26 @@ func TestACursorSurvivesTheRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+/*
+TestAReasonIsWordsAndNotMuchOfThem is the rule the middleware refuses by and
+the trail stores by, held in one place so the two cannot disagree.
+*/
+func TestAReasonIsWordsAndNotMuchOfThem(t *testing.T) {
+	accepted := map[string]string{
+		"  chargeback fraud  ":       "chargeback fraud",
+		"pedido de remoção, LGPD 12": "pedido de remoção, LGPD 12",
+	}
+	for given, want := range accepted {
+		got, err := NormalizeReason(given)
+		if err != nil || got != want {
+			t.Errorf("NormalizeReason(%q) = %q, %v; want %q", given, got, err, want)
+		}
+	}
+
+	for _, refused := range []string{"", "   ", "two\nlines", "bell\a", strings.Repeat("x", maxReasonLength+1), "\xff\xfe"} {
+		if _, err := NormalizeReason(refused); err == nil {
+			t.Errorf("NormalizeReason(%q) was accepted", refused)
+		}
+	}
+}
