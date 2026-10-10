@@ -71,15 +71,38 @@ func sanitizeForLog(value string) string {
 	return value
 }
 
+/*
+reportSecret chooses the secret a report is checked against, by the key it says
+it was signed with.
+
+The issuer is read before the signature is checked, which is what a key
+identifier is for and all it is used for: it picks one of at most two secrets
+this deployment holds, and the signature is then checked against that one. An
+issuer naming neither key is refused without a secret being tried, so a token
+cannot be checked against a secret it did not claim.
+*/
+func (plane *Plane) reportSecret(token *jwt.Token) (any, error) {
+	issuer, err := token.Claims.GetIssuer()
+	switch {
+	case err != nil:
+		return nil, err
+	case issuer == plane.apiKey:
+		return []byte(plane.apiSecret.Reveal()), nil
+	case plane.previousKey != "" && issuer == plane.previousKey:
+		return []byte(plane.previousSecret.Reveal()), nil
+	default:
+		return nil, media.ErrUnverified
+	}
+}
+
 func (plane *Plane) Report(authorization string, body []byte) (media.Report, error) {
 	var claims reportClaims
 
 	_, err := jwt.ParseWithClaims(
 		strings.TrimSpace(authorization),
 		&claims,
-		func(*jwt.Token) (any, error) { return []byte(plane.apiSecret.Reveal()), nil },
+		plane.reportSecret,
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
-		jwt.WithIssuer(plane.apiKey),
 		jwt.WithExpirationRequired(),
 		jwt.WithLeeway(reportLeeway),
 		jwt.WithTimeFunc(plane.now),

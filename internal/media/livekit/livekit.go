@@ -86,6 +86,20 @@ type Config struct {
 		same, which is the local case.
 	*/
 	ClientURL string
+
+	/*
+		PreviousAPIKey and PreviousAPISecret are the pair being rotated away
+		from, and are empty when nothing is being rotated.
+
+		They are honoured in one direction only. A report the media plane
+		signed with the previous pair is still believed, because LiveKit signs
+		with whichever key its own configuration names and the two are
+		restarted at different moments; a credential Convia mints is never
+		signed with it, because a key being retired should stop being handed
+		out first. See docs/runbooks/rotating-secrets.md.
+	*/
+	PreviousAPIKey    string
+	PreviousAPISecret media.APISecret
 }
 
 /*
@@ -103,6 +117,10 @@ type Plane struct {
 	apiSecret media.APISecret
 	client    *http.Client
 	now       func() time.Time
+
+	// previousKey and previousSecret verify reports during a rotation; see Config.
+	previousKey    string
+	previousSecret media.APISecret
 }
 
 /*
@@ -136,13 +154,24 @@ func New(config Config) (*Plane, error) {
 		return nil, err
 	}
 
+	previousKey := strings.TrimSpace(config.PreviousAPIKey)
+	if (previousKey == "") != config.PreviousAPISecret.Empty() {
+		return nil, errors.New("a previous media API key and secret are set together or not at all")
+	}
+
+	if previousKey != "" && previousKey == strings.TrimSpace(config.APIKey) {
+		return nil, errors.New("the previous media API key is the current one, so nothing is being rotated")
+	}
+
 	return &Plane{
-		endpoint:  endpoint,
-		clientURL: clientURL,
-		apiKey:    config.APIKey,
-		apiSecret: config.APISecret,
-		client:    &http.Client{Timeout: config.Timeout},
-		now:       time.Now,
+		endpoint:       endpoint,
+		clientURL:      clientURL,
+		apiKey:         config.APIKey,
+		apiSecret:      config.APISecret,
+		client:         &http.Client{Timeout: config.Timeout},
+		now:            time.Now,
+		previousKey:    previousKey,
+		previousSecret: config.PreviousAPISecret,
 	}, nil
 }
 

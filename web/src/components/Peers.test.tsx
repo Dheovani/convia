@@ -153,6 +153,8 @@ describe('a room on another Convia', () => {
         .on('POST', '/v1/me/remote-rooms', {
           status: 201,
           body: { room_id: room().id, room_name: 'Their room', remote_room: remoteRoom },
+          // Once joined, the room is one this person is in, and the list says so.
+          then: () => server.on('GET', '/v1/me/remote-rooms', { body: { data: [remoteRoom] } }),
         }),
     )
     open(server)
@@ -225,11 +227,7 @@ describe('a room on another Convia', () => {
   is offered then and only then, and only after saying that the person stays a
   member there.
   */
-  // QUARANTINE(owner: @Dheovani, issue: TODO.md M24-017, until: 2026-11-15)
-  // Fails about one full-suite run in five and never on its own. Two races were
-  // found and fixed and it still fails, so the cause is not one of those: remote
-  // rooms are re-read on a timer and the next thing to try is freezing it.
-  it.skip('offers to forget a room it could not leave, and says what that leaves behind', async () => {
+  it('offers to forget a room it could not leave, and says what that leaves behind', async () => {
     const server = readingElsewhere(
       new FakeConvia()
         .on('GET', '/v1/me/rooms', { body: { data: [] } })
@@ -238,7 +236,10 @@ describe('a room on another Convia', () => {
           status: 503,
           failure: { code: 'unavailable', message: 'The other Convia could not be reached.' },
         })
-        .on('DELETE', `/v1/me/remote-rooms/${remoteId}`, { status: 204 }),
+        .on('DELETE', `/v1/me/remote-rooms/${remoteId}`, {
+          status: 204,
+          then: () => server.on('GET', '/v1/me/remote-rooms', { body: { data: [] } }),
+        }),
     )
     open(server)
     const person = await openPeople()
@@ -252,16 +253,18 @@ describe('a room on another Convia', () => {
     expect(server.asked('DELETE', `/v1/me/remote-rooms/${remoteId}`)).toBeUndefined()
 
     /*
-    The room is clicked while it is still listed, and the list is emptied after.
+    The server forgets the room when it is asked to, and not before or after.
 
-    Emptying it first was a race: remote rooms are re-read on a timer, so a
-    refresh could land between the stub and the click, take the room out of the
-    list and the button with it, and leave the click hitting nothing. The screen
-    then says nothing is open -- correctly, for the wrong reason -- so the
-    failure arrived as a DELETE that was never sent.
+    This test was quarantined for a month as flaky, and the flakiness was a real
+    defect it had been reporting all along. The list was emptied by hand after
+    the click, so a read that left before the room was forgotten here could land
+    after it and put the room back: the screen said nothing was open and then,
+    a moment later, showed the forgotten room again -- which a person would have
+    seen too. The list now reads again after every change made here, and the
+    server stops listing the room once it has answered the DELETE, as the real
+    one does.
     */
     await person.click(screen.getByRole('button', { name: 'Forget it here' }))
-    server.on('GET', '/v1/me/remote-rooms', { body: { data: [] } })
 
     expect(await screen.findByText('Nothing is open.')).toBeInTheDocument()
 

@@ -14,6 +14,14 @@ export interface Route {
   status?: number
   body?: unknown
   failure?: { code: string; message: string }
+
+  /*
+  then changes what the server answers from now on, as the real one does when a
+  request changes something: a DELETE that is answered and leaves the list it
+  removed from unchanged is a server that never existed, and a test reading
+  through one tests a race nobody can have.
+  */
+  then?: () => void
 }
 
 export interface Call {
@@ -47,6 +55,7 @@ export class FakeConvia {
       if (route === undefined) {
         return Promise.resolve(answer(404, { error: { code: 'not_found', message: 'No route.' } }))
       }
+      route.then?.()
       if (route.failure !== undefined) {
         return Promise.resolve(answer(route.status ?? 400, { error: route.failure }))
       }

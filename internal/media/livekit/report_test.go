@@ -210,3 +210,69 @@ func TestASignedReportThatCannotBeReadIsNotAForgery(t *testing.T) {
 		})
 	}
 }
+
+/*
+TestARotationBelievesTheOldKeyAndHandsOutOnlyTheNew is the overlap a rotation
+needs, in both directions.
+
+LiveKit and Convia are restarted at different moments, so for a while reports
+arrive signed with the key being retired, and refusing them would lose who left
+a call. A credential Convia mints in that time is signed with the new key only:
+a key being retired stops being handed out first.
+*/
+func TestARotationBelievesTheOldKeyAndHandsOutOnlyTheNew(t *testing.T) {
+	const newKey = "APIrotatedkey"
+	newSecret := media.APISecret("the secret the deployment is rotating to")
+
+	plane, err := New(Config{URL: "http://127.0.0.1:7880", APIKey: newKey, APISecret: newSecret,
+		Timeout: time.Second, PreviousAPIKey: testKey, PreviousAPISecret: testSecret})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	body := providerEvent("participant_left")
+	for name, signing := range map[string]signature{
+		"the old key": honestSignature(body),
+		"the new key": func() signature {
+			s := honestSignature(body)
+			s.issuer, s.secret = newKey, newSecret.Reveal()
+			return s
+		}(),
+	} {
+		if report, err := plane.Report(signing.sign(t), []byte(body)); err != nil || report.Kind != media.ReportDisconnected {
+			t.Errorf("a report signed with %s: %+v, %v", name, report, err)
+		}
+	}
+
+	crossed := honestSignature(body)
+	crossed.issuer = newKey
+	if _, err := plane.Report(crossed.sign(t), []byte(body)); !errors.Is(err, media.ErrUnverified) {
+		t.Errorf("a report naming the new key and signed with the old secret: error = %v, want ErrUnverified", err)
+	}
+
+	token, _, err := plane.mint("part_X", grant{}, time.Minute)
+	if err != nil {
+		t.Fatalf("mint() error = %v", err)
+	}
+	parsed, _, err := jwt.NewParser().ParseUnverified(token, jwt.MapClaims{})
+	if err != nil {
+		t.Fatalf("read the minted token: %v", err)
+	}
+	if issuer, _ := parsed.Claims.GetIssuer(); issuer != newKey {
+		t.Errorf("a credential minted during a rotation names %q, want only the new key", issuer)
+	}
+}
+
+// TestAHalfStatedRotationIsRefused keeps a typo from looking like a rotation.
+func TestAHalfStatedRotationIsRefused(t *testing.T) {
+	for name, config := range map[string]Config{
+		"a key with no secret": {PreviousAPIKey: "APIold"},
+		"a secret with no key": {PreviousAPISecret: media.APISecret("an old secret long enough")},
+		"the same key twice":   {PreviousAPIKey: testKey, PreviousAPISecret: media.APISecret("an old secret long enough")},
+	} {
+		config.URL, config.APIKey, config.APISecret, config.Timeout = "http://127.0.0.1:7880", testKey, testSecret, time.Second
+		if _, err := New(config); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
