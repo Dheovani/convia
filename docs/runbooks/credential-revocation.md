@@ -49,10 +49,10 @@ cvk_2TJII6LYZUSXAHXBDCNAWMHTMV_TRALCBUFFUOBKUWWWEXZNKH2Z4
 ```
 
 ```bash
-curl -X DELETE   "https://convia.example/v1/applications/$APP_ID/credentials/cred_2TJII6LYZUSXAHXBDCNAWMHTMV"   -H "Authorization: Bearer $OPERATOR_KEY"
+curl -X DELETE   "https://convia.example/v1/applications/$APP_ID/credentials/cred_2TJII6LYZUSXAHXBDCNAWMHTMV"   -H "Authorization: Bearer $OPERATOR_KEY"   -H "Convia-Reason: Key leaked in a public repository, incident 2041"   -H "Convia-Confirm: cred_2TJII6LYZUSXAHXBDCNAWMHTMV"
 ```
 
-**Expected:** `204`. A `404` means the identifier is wrong or belongs to a different application. A `403` means your operator key lacks `tenants:write`.
+**Expected:** `204`. A `404` means the identifier is wrong or belongs to a different application. A `403` means your operator key lacks `tenants:write`. A `400` names the header that is missing: the reason is recorded in the [audit trail](../audit.md) beside your key, and the confirmation must repeat the identifier in the path, which is what stops a pasted command revoking the wrong key.
 
 Revoking an already-revoked credential also answers `204` and changes nothing, so a repeated request is safe and the original revocation time is preserved.
 
@@ -79,7 +79,7 @@ RETURNING id, name, application_id, revoked_at;
 This withdraws **every** credential the application holds at once, without revoking any of them.
 
 ```bash
-curl -X POST "https://convia.example/v1/applications/$APP_ID/suspend"   -H "Authorization: Bearer $OPERATOR_KEY"
+curl -X POST "https://convia.example/v1/applications/$APP_ID/suspend"   -H "Authorization: Bearer $OPERATOR_KEY"   -H "Convia-Reason: Compromised, leaked key not yet identified, incident 2041"
 ```
 
 To restore service once the leak is identified and the affected keys are revoked:
@@ -147,7 +147,7 @@ convia operator revoke oper_2UTZFUADKBY6HL7ZR4HLKLXQJI
 Or, holding an operator key with `operators:write`:
 
 ```bash
-curl -X DELETE   "https://convia.example/v1/operator/credentials/oper_2UTZFUADKBY6HL7ZR4HLKLXQJI"   -H "Authorization: Bearer $OPERATOR_KEY"
+curl -X DELETE   "https://convia.example/v1/operator/credentials/oper_2UTZFUADKBY6HL7ZR4HLKLXQJI"   -H "Authorization: Bearer $OPERATOR_KEY"   -H "Convia-Reason: Operator key exposed in a shared terminal log"   -H "Convia-Confirm: oper_2UTZFUADKBY6HL7ZR4HLKLXQJI"
 ```
 
 **Mint the replacement before revoking the last one.** `convia operator issue <name>` needs database access and always works, but an instance with no active operator credential answers `401` on the entire operator surface until one exists. Convia warns about that state at startup; during an incident nobody is reading startup logs.

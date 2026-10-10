@@ -46,6 +46,24 @@ func NewService(store *Store, entries trail) *Service {
 	return &Service{store: store, trail: entries}
 }
 
+/*
+MaxLifetime is the longest an operator credential may work, and how long one
+works when nobody says.
+
+It is `M21-002`. An operator key is already hard to guess -- 130 random bits,
+kept only as a digest, refused on its shape anywhere else -- so what strong
+authentication had left to ask for was a bound on how long a stolen one is
+worth. A key with no expiry is a key that works for whoever finds it in a
+backup, a shell history or a former colleague's laptop, for as long as the
+installation lives.
+
+Ninety days is long enough that rotating is a quarterly chore rather than a
+weekly one, and short enough that a key nobody noticed leaving stops on its
+own. Rotation is what [Service.Issue] and [Service.Revoke] already compose
+into; see docs/authentication.md.
+*/
+const MaxLifetime = 90 * 24 * time.Hour
+
 // Request is what an operator asks for when issuing an operator credential.
 type Request struct {
 	Name      string
@@ -87,6 +105,16 @@ func (service *Service) Issue(ctx context.Context, request Request) (Credential,
 			Field:   "expires_at",
 			Message: "The expiry must be in the future.",
 		}
+	}
+	if request.ExpiresAt != nil && request.ExpiresAt.After(created.Add(MaxLifetime)) {
+		return Credential{}, "", ValidationError{
+			Field:   "expires_at",
+			Message: "An operator credential works for at most 90 days.",
+		}
+	}
+	if request.ExpiresAt == nil {
+		bounded := created.Add(MaxLifetime)
+		request.ExpiresAt = &bounded
 	}
 
 	credential := Credential{
@@ -220,6 +248,27 @@ being refused.
 */
 func (service *Service) CountActive(ctx context.Context) (int, error) {
 	return service.store.CountActive(ctx, now())
+}
+
+/*
+Standing is what the startup check needs to know about the keys that still work.
+
+Unbounded counts keys issued before every key had an expiry. They are not cut
+off, because doing so could lock an installation out of its own operator
+surface on upgrade; they are reported, so that somebody replaces them.
+
+LastExpiry is when the last working key stops, which is when the operator
+surface starts answering 401 to everybody unless somebody rotates first.
+*/
+type Standing struct {
+	Active     int
+	Unbounded  int
+	LastExpiry *time.Time
+}
+
+// Standing reports on the operator credentials that authenticate now.
+func (service *Service) Standing(ctx context.Context) (Standing, error) {
+	return service.store.Standing(ctx, now())
 }
 
 /*

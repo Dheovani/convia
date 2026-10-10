@@ -114,6 +114,8 @@ POST /v1/applications/{application_id}/users/{user_id}/activate
 DELETE /v1/applications/{application_id}/users/{user_id}
 ```
 
+On the operator surface, suspending and deleting ask why in `Convia-Reason`, and deleting also asks for the user's identifier again in `Convia-Confirm`. See [`audit.md`](audit.md).
+
 **Suspension keeps the mapping.** Resolving a suspended subject returns that user with its status, so the application can see the state it set rather than accidentally creating a second user for the same person.
 
 **Deletion is terminal until erasure.** A deleted user cannot be updated or activated, and is reported as missing by every read.

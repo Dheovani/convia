@@ -625,22 +625,22 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M21 — Administration and Operations Surface
 
 **Priority:** P2
-**Status:** In progress. The audit trail, reasons for high-impact actions, confirmation of deletions and webhook redelivery are in place. What remains is credential rotation, re-authentication, and checking the inspection and incident routes that already exist against what these items ask.
+**Status:** In progress. One item remains: re-authentication (`M21-011`), which waits for operators who are people Convia knows, `M34-003`.
 **Depends on:** M05 through M17 as applicable
 **Goal:** Give authorized operators safe visibility and control without direct database manipulation.
 
 - [x] **M21-001:** Define operator roles separately from tenant application roles.
-- [ ] **M21-002:** Require strong authentication for operator access.
-- [ ] **M21-003:** Add application lookup and lifecycle controls.
-- [ ] **M21-004:** Add credential revocation and rotation controls.
-- [ ] **M21-005:** Add room and call inspection using redacted data.
-- [ ] **M21-006:** Add participant removal and emergency call termination.
+- [x] **M21-002:** Require strong authentication for operator access.
+- [x] **M21-003:** Add application lookup and lifecycle controls.
+- [x] **M21-004:** Add credential revocation and rotation controls.
+- [x] **M21-005:** Add room and call inspection using redacted data.
+- [x] **M21-006:** Add participant removal and emergency call termination.
 - [x] **M21-007:** Add webhook delivery inspection and redelivery.
 - [x] **M21-008:** Add audit-log search with strict access controls.
 - [x] **M21-009:** Require reasons for high-impact operator actions.
-- [ ] **M21-010:** Add tests preventing privilege escalation.
+- [x] **M21-010:** Add tests preventing privilege escalation.
 - [ ] **M21-011:** Add confirmation and re-authentication for destructive actions. Confirmation is in place. Re-authentication waits for operators who are people Convia knows rather than holders of a key, which is `M34-003`.
-- [ ] **M21-012:** Document operational ownership and escalation paths.
+- [x] **M21-012:** Document operational ownership and escalation paths.
 
 **Exit criteria:** Routine support and incident actions can be performed through audited, least-privilege operations rather than database access.
 

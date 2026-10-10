@@ -253,6 +253,24 @@ func (store *Store) CountActive(ctx context.Context, at time.Time) (int, error) 
 	return count, nil
 }
 
+// Standing reports on the credentials that authenticate at a moment; see [Service.Standing].
+func (store *Store) Standing(ctx context.Context, at time.Time) (Standing, error) {
+	const statement = `SELECT count(*), count(*) FILTER (WHERE expires_at IS NULL), max(expires_at)
+	                   FROM operator_credentials
+	                   WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $1)`
+
+	var standing Standing
+	if err := store.db(ctx).QueryRow(ctx, statement, at).
+		Scan(&standing.Active, &standing.Unbounded, &standing.LastExpiry); err != nil {
+		return Standing{}, fmt.Errorf("read operator credential standing: %w", err)
+	}
+	if standing.LastExpiry != nil {
+		last := standing.LastExpiry.UTC()
+		standing.LastExpiry = &last
+	}
+	return standing, nil
+}
+
 // Cursor is the position of a keyset page.
 type Cursor struct {
 	CreatedAt time.Time

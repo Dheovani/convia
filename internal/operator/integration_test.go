@@ -447,3 +447,65 @@ func TestRotationKeepsTheOperatorServed(t *testing.T) {
 		t.Errorf("CountActive() = %d, want 1 after rotating one key", active)
 	}
 }
+
+/*
+TestEveryOperatorKeyRunsOut is `M21-002`: a key issued without an expiry gets
+the longest one allowed, and asking for longer is refused rather than trimmed,
+so that nobody believes they hold a key for a year.
+*/
+func TestEveryOperatorKeyRunsOut(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	unsaid, _, err := f.service.Issue(ctx, operator.Request{Name: "unsaid", Scopes: operator.Scopes()})
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	if unsaid.ExpiresAt == nil || !unsaid.ExpiresAt.Equal(unsaid.CreatedAt.Add(operator.MaxLifetime)) {
+		t.Errorf("a key issued with no expiry expires at %v, want ninety days after %v", unsaid.ExpiresAt, unsaid.CreatedAt)
+	}
+
+	stored, err := f.service.Get(ctx, unsaid.ID)
+	if err != nil || stored.ExpiresAt == nil || !stored.ExpiresAt.Equal(*unsaid.ExpiresAt) {
+		t.Errorf("the stored key expires at %v (%v), want what was returned", stored.ExpiresAt, err)
+	}
+
+	month := time.Now().Add(30 * 24 * time.Hour)
+	shorter, _, err := f.service.Issue(ctx, operator.Request{Name: "month", Scopes: operator.Scopes(), ExpiresAt: &month})
+	if err != nil || shorter.ExpiresAt == nil || shorter.ExpiresAt.Sub(month).Abs() > time.Millisecond {
+		t.Errorf("a key asked for a month expires at %v (%v)", shorter.ExpiresAt, err)
+	}
+
+	year := time.Now().Add(365 * 24 * time.Hour)
+	_, _, err = f.service.Issue(ctx, operator.Request{Name: "year", Scopes: operator.Scopes(), ExpiresAt: &year})
+	var validation operator.ValidationError
+	if !errors.As(err, &validation) || validation.Field != "expires_at" {
+		t.Errorf("a key asked for a year: error = %v, want a ValidationError on expires_at", err)
+	}
+}
+
+/*
+TestTheStandingCountsKeysFromBeforeExpiry finds the keys an upgrade left with
+no lifetime, which keep working and are reported rather than cut off.
+*/
+func TestTheStandingCountsKeysFromBeforeExpiry(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+
+	bounded, _ := issue(t, f, "bounded")
+	legacy, _ := issue(t, f, "legacy")
+	if _, err := f.pool.Exec(ctx, `UPDATE operator_credentials SET expires_at = NULL WHERE id = $1`, legacy.ID); err != nil {
+		t.Fatalf("make a key from before expiry: %v", err)
+	}
+
+	standing, err := f.service.Standing(ctx)
+	if err != nil {
+		t.Fatalf("Standing() error = %v", err)
+	}
+	if standing.Active != 2 || standing.Unbounded != 1 {
+		t.Errorf("standing = %+v, want two working keys, one of them unbounded", standing)
+	}
+	if standing.LastExpiry == nil || !standing.LastExpiry.Equal(*bounded.ExpiresAt) {
+		t.Errorf("the last expiry is %v, want %v", standing.LastExpiry, bounded.ExpiresAt)
+	}
+}

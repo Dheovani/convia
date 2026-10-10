@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"convia/internal/api"
 	"convia/internal/config"
+	"convia/internal/operator"
 	"convia/internal/telemetry"
 )
 
@@ -134,5 +136,38 @@ func TestAMisconfiguredMediaPlaneStopsStartup(t *testing.T) {
 	_, _, err := openMediaPlane(config.Media{URL: "not a url", APIKey: "k", APISecret: "s"}, logger)
 	if err == nil {
 		t.Error("a media plane that cannot be opened was accepted at startup")
+	}
+}
+
+/*
+TestStartupSaysWhenAdministrationIsAboutToStop holds the three warnings to the
+states they describe, and keeps a healthy installation quiet: a line at every
+start that says nothing is a line everybody learns to skip.
+*/
+func TestStartupSaysWhenAdministrationIsAboutToStop(t *testing.T) {
+	at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	soon, later := at.Add(3*24*time.Hour), at.Add(60*24*time.Hour)
+
+	cases := map[string]struct {
+		standing operator.Standing
+		want     []string
+	}{
+		"nobody can administer it": {operator.Standing{}, []string{"no active operator credential"}},
+		"a key from before expiry": {operator.Standing{Active: 2, Unbounded: 1, LastExpiry: &later}, []string{"never expire"}},
+		"the last key runs out":    {operator.Standing{Active: 1, LastExpiry: &soon}, []string{"expires at 2026-10-13"}},
+		"all is well":              {operator.Standing{Active: 1, LastExpiry: &later}, nil},
+	}
+
+	for name, test := range cases {
+		warnings := administrationWarnings(test.standing, at)
+		if len(warnings) != len(test.want) {
+			t.Errorf("%s: %d warnings %+v, want %d", name, len(warnings), warnings, len(test.want))
+			continue
+		}
+		for index, fragment := range test.want {
+			if !strings.Contains(warnings[index].message, fragment) || warnings[index].remedy == "" {
+				t.Errorf("%s: warning %+v, want one saying %q with a remedy", name, warnings[index], fragment)
+			}
+		}
 	}
 }

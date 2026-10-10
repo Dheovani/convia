@@ -62,6 +62,54 @@ type listResponse struct {
 	NextCursor string         `json:"next_cursor,omitempty"`
 }
 
+/*
+inspectedCall is a call as an operator sees it: what Convia decided about it,
+and not what the application wrote.
+
+The metadata and the end reason are an application's own text, kept out of the
+trail and the logs because they may say something about the people in the call
+-- the tests' own example is a consultation. `M21-005` asks for inspection that
+holds to the same rule. An operator ending a call in an emergency says why in
+Convia-Reason, which the trail keeps, and is not shown the tenant's words back.
+*/
+type inspectedCall struct {
+	ID            string `json:"id"`
+	ApplicationID string `json:"application_id"`
+	RoomID        string `json:"room_id"`
+	Status        string `json:"status"`
+	StartedBy     string `json:"started_by"`
+	EndedBy       string `json:"ended_by,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+	EndedAt       string `json:"ended_at,omitempty"`
+}
+
+// inspectedList is one page of calls as an operator sees them.
+type inspectedList struct {
+	Data       []inspectedCall `json:"data"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// inspect represents a call for an operator; see [inspectedCall].
+func inspect(call Call) inspectedCall {
+	body := inspectedCall{
+		ID:            call.ID,
+		ApplicationID: call.ApplicationID,
+		RoomID:        call.RoomID,
+		Status:        string(call.Status),
+		StartedBy:     string(call.StartedBy),
+		CreatedAt:     api.FormatTimestamp(call.CreatedAt),
+		UpdatedAt:     api.FormatTimestamp(call.UpdatedAt),
+	}
+	if call.EndedBy != nil {
+		body.EndedBy = string(*call.EndedBy)
+	}
+	if call.EndedAt != nil {
+		body.EndedAt = api.FormatTimestamp(*call.EndedAt)
+	}
+	return body
+}
+
 func represent(call Call) callResponse {
 	metadata := call.Metadata
 	if metadata == nil {
@@ -170,7 +218,7 @@ func (handler *Handler) Get(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	handler.write(response, request, http.StatusOK, represent(call))
+	handler.write(response, request, http.StatusOK, inspect(call))
 }
 
 /*
@@ -220,13 +268,13 @@ func (handler *Handler) End(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	handler.write(response, request, http.StatusOK, represent(call))
+	handler.write(response, request, http.StatusOK, inspect(call))
 }
 
 func (handler *Handler) writePage(response http.ResponseWriter, request *http.Request, page Page) {
-	body := listResponse{Data: make([]callResponse, 0, len(page.Calls)), NextCursor: page.NextCursor}
+	body := inspectedList{Data: make([]inspectedCall, 0, len(page.Calls)), NextCursor: page.NextCursor}
 	for _, call := range page.Calls {
-		body.Data = append(body.Data, represent(call))
+		body.Data = append(body.Data, inspect(call))
 	}
 	handler.write(response, request, http.StatusOK, body)
 }
