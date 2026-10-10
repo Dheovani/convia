@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
+
 	"convia/internal/accounts"
 	"convia/internal/applications"
 	"convia/internal/audit"
@@ -37,6 +39,8 @@ import (
 	"convia/internal/peers"
 	"convia/internal/presence"
 	presenceredis "convia/internal/presence/redis"
+	"convia/internal/ratelimit"
+	budgetredis "convia/internal/ratelimit/redis"
 	"convia/internal/rooms"
 	"convia/internal/server"
 	"convia/internal/sessions"
@@ -447,6 +451,12 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		this process; several keep it where all of them can see it. Nothing
 		about the API changes between the two.
 	*/
+	sharedBudget, closeBudgets, err := openBudgets(cfg.Redis, logger)
+	if err != nil {
+		return err
+	}
+	defer closeBudgets()
+
 	presenceStore, closePresence, err := openPresence(cfg.Redis, logger)
 	if err != nil {
 		return err
@@ -579,6 +589,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Participants:          participants.NewHandler(logger, participantService),
 		OperatorCredentials:   operator.NewHandler(logger, operatorService),
 		Audit:                 reading.NewHandler(logger, auditService),
+		SharedBudget:          sharedBudget,
 
 		Authenticator:      credentialService,
 		TenantUsers:        users.NewTenantHandler(logger, userService),
@@ -924,6 +935,39 @@ func openPresence(settings config.Redis, logger *slog.Logger) (presence.Store, f
 	return store, func() {
 		if err := store.Close(); err != nil {
 			logger.Warn("closing the presence store", "error", err)
+		}
+	}, nil
+}
+
+/*
+openBudgets builds what counts sign-in guesses and registrations across
+instances, when the deployment shares a Redis.
+
+Like presence, it does not wait for Redis to answer: a budget that cannot reach
+it counts on this instance until it can, and refusing to start over it would
+take the whole API down for the sake of a bound that has a fallback.
+*/
+func openBudgets(settings config.Redis, logger *slog.Logger) (
+	func(string, int, time.Duration, *ratelimit.Limiter) ratelimit.Budget, func(), error) {
+	if !settings.Configured() {
+		return nil, func() {}, nil
+	}
+
+	options, err := goredis.ParseURL(settings.URL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read the Redis URL for shared budgets: %w", err)
+	}
+	options.DialTimeout = settings.Timeout
+	options.ReadTimeout = settings.Timeout
+	options.WriteTimeout = settings.Timeout
+	client := goredis.NewClient(options)
+
+	shared := func(name string, burst int, period time.Duration, fallback *ratelimit.Limiter) ratelimit.Budget {
+		return budgetredis.New(client, name, burst, period, fallback, logger)
+	}
+	return shared, func() {
+		if err := client.Close(); err != nil {
+			logger.Warn("closing the shared budgets", "error", err)
 		}
 	}, nil
 }

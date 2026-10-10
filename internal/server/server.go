@@ -269,6 +269,13 @@ type Dependencies struct {
 	Audit *reading.Handler
 
 	/*
+		SharedBudget counts a budget across every instance of the deployment,
+		falling back to the in-process limiter it is handed. Nil counts every
+		budget per instance, which is right for a deployment of one.
+	*/
+	SharedBudget func(name string, burst int, period time.Duration, fallback *ratelimit.Limiter) ratelimit.Budget
+
+	/*
 		Webhooks is a tenant's webhooks as an operator sees them: where they
 		asked to be told, what was sent, and the one thing an operator may do
 		about it, which is send it again.
@@ -489,8 +496,23 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		with a stale cookie cannot spend the budget that protects the API for
 		every other caller behind the same address.
 	*/
-	signingIn := ratelimit.New(signInFailureBurst, signInFailurePeriod, authFailureKeys)
-	registering := ratelimit.New(registrationBurst, registrationPeriod, authFailureKeys)
+	/*
+		These two, and only these, are counted across instances when the
+		deployment shares a Redis. They are what a guessed password is bounded
+		by, and every instance added would otherwise add its own allowance to
+		it. Every other budget is about fairness between callers, where a few
+		times more is a capacity question; see docs/scaling.md.
+	*/
+	shared := dependencies.SharedBudget
+	if shared == nil {
+		shared = func(_ string, _ int, _ time.Duration, fallback *ratelimit.Limiter) ratelimit.Budget {
+			return ratelimit.Local(fallback)
+		}
+	}
+	signingIn := shared("sign-in", signInFailureBurst, signInFailurePeriod,
+		ratelimit.New(signInFailureBurst, signInFailurePeriod, authFailureKeys))
+	registering := shared("registration", registrationBurst, registrationPeriod,
+		ratelimit.New(registrationBurst, registrationPeriod, authFailureKeys))
 
 	resolve := newResolver(dependencies.TrustedProxies)
 
@@ -560,13 +582,13 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 			// Metered inside authentication, because there is no tenant to
 			// name until the key has been verified.
 			served = authenticate(logger, tenantVerifier{service: dependencies.Authenticator},
-				failures, resolve, metered(logger, tenants, served))
+				ratelimit.Local(failures), resolve, metered(logger, tenants, served))
 		case surfaceOperator:
 			served = authenticate(logger, operatorVerifier{service: dependencies.OperatorAuthenticator},
-				failures, resolve, served)
+				ratelimit.Local(failures), resolve, served)
 		case surfaceInvitation:
 			served = authenticate(logger, invitationVerifier{service: dependencies.InvitationAuthenticator},
-				failures, resolve, served)
+				ratelimit.Local(failures), resolve, served)
 		case surfaceSession:
 			// A guess is charged after the origin is checked, so another page cannot spend the budget.
 			if entry.guessable {

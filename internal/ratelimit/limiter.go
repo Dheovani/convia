@@ -14,6 +14,7 @@ guards. Moving it to Redis is the answer when Convia is actually replicated.
 package ratelimit
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -187,4 +188,31 @@ func (limiter *Limiter) Tracked() int {
 	defer limiter.mutex.Unlock()
 
 	return len(limiter.buckets)
+}
+
+/*
+Budget is what a route spends against: whether a key may go on, charging it,
+and how long it must wait otherwise.
+
+It takes a context because one implementation asks Redis, and a budget that
+could not be bounded by the request it guards would be a way to make that
+request hang. The in-process [Limiter] answers through [Local] and ignores it.
+*/
+type Budget interface {
+	Allows(ctx context.Context, key string) bool
+	Record(ctx context.Context, key string)
+	RetryAfter(ctx context.Context, key string) time.Duration
+}
+
+// Local answers as a [Budget] from this process alone.
+func Local(limiter *Limiter) Budget { return local{limiter} }
+
+type local struct{ limiter *Limiter }
+
+func (budget local) Allows(_ context.Context, key string) bool { return budget.limiter.Allows(key) }
+
+func (budget local) Record(_ context.Context, key string) { budget.limiter.Record(key) }
+
+func (budget local) RetryAfter(_ context.Context, key string) time.Duration {
+	return budget.limiter.RetryAfter(key)
 }
