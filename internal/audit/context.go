@@ -47,6 +47,26 @@ func ActorFromContext(ctx context.Context) (Actor, bool) {
 	return actor, true
 }
 
+// reasonKey is the context key under which a required reason travels.
+type reasonKey struct{}
+
+/*
+ContextWithReason returns a context carrying why the request is being made.
+
+Only the middleware of a route that requires a reason should call this, and
+only with one [NormalizeReason] accepted. A reason written anywhere else would
+be the trail recording an explanation nobody was asked for.
+*/
+func ContextWithReason(ctx context.Context, reason string) context.Context {
+	return context.WithValue(ctx, reasonKey{}, reason)
+}
+
+// ReasonFromContext returns the reason a request carries, and whether it carries one.
+func ReasonFromContext(ctx context.Context) (string, bool) {
+	reason, found := ctx.Value(reasonKey{}).(string)
+	return reason, found && reason != ""
+}
+
 /*
 ActorOrSystem returns whoever is acting, or the system when nobody is.
 

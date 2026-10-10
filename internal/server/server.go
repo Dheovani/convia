@@ -269,6 +269,13 @@ type Dependencies struct {
 	Audit *reading.Handler
 
 	/*
+		Webhooks is a tenant's webhooks as an operator sees them: where they
+		asked to be told, what was sent, and the one thing an operator may do
+		about it, which is send it again.
+	*/
+	Webhooks *webhooks.OperatorHandler
+
+	/*
 		The tenant-facing surface is authenticated by an application's own key,
 		which is also where the tenant comes from.
 	*/
@@ -502,6 +509,20 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		}
 
 		/*
+			Asking why is something only the operator surface does, and a
+			route elsewhere marked to ask is a mistake to stop at startup. An
+			application acting on its own data owes nobody an explanation,
+			and a reason taken from a key that cannot be held to it would be a
+			column of text nobody can trust.
+		*/
+		if entry.reasoned || entry.confirms != "" {
+			if err := deliberation(entry); err != nil {
+				panic(err)
+			}
+			served = deliberate(logger, entry.reasoned, entry.confirms, served)
+		}
+
+		/*
 			Every surface is named here, and the default panics. `handler` runs
 			at startup, so a surface somebody adds and forgets to wire brings
 			the process down instead of serving its routes to anybody who
@@ -714,6 +735,23 @@ type route struct {
 		to the same budget as signing in.
 	*/
 	guessable bool
+
+	/*
+		reasoned marks an operator route whose caller must say why.
+
+		It is `M21-009`, and which routes carry it is the whole decision: the
+		ones that take a tenant offline, withdraw a key, end a conversation in
+		the middle, remove somebody, delete something, or mint authority. What
+		they share is that somebody will later ask why it happened, and the
+		person who could answer is the one making the request now.
+	*/
+	reasoned bool
+
+	/*
+		confirms names the path parameter a destructive operator route must
+		be told again, in the Convia-Confirm header. It is `M21-011`.
+	*/
+	confirms string
 }
 
 /*
@@ -760,9 +798,9 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Applications.Get)},
 			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Rename)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}", surface: surfaceOperator,
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}", surface: surfaceOperator, reasoned: true, confirms: "application_id",
 				handler: http.HandlerFunc(dependencies.Applications.Delete)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/suspend", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/suspend", surface: surfaceOperator, reasoned: true,
 				handler: http.HandlerFunc(dependencies.Applications.Suspend)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/activate", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Applications.Activate)},
@@ -776,13 +814,13 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			subset rule: a key cannot mint one that outranks it.
 		*/
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/operator/credentials", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/operator/credentials", surface: surfaceOperator, reasoned: true,
 				handler: http.HandlerFunc(dependencies.OperatorCredentials.Issue)},
 			route{method: http.MethodGet, path: api.Prefix + "/operator/credentials", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.OperatorCredentials.List)},
 			route{method: http.MethodGet, path: api.Prefix + "/operator/credentials/{credential_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.OperatorCredentials.Get)},
-			route{method: http.MethodDelete, path: api.Prefix + "/operator/credentials/{credential_id}", surface: surfaceOperator,
+			route{method: http.MethodDelete, path: api.Prefix + "/operator/credentials/{credential_id}", surface: surfaceOperator, reasoned: true, confirms: "credential_id",
 				handler: http.HandlerFunc(dependencies.OperatorCredentials.Revoke)},
 		)
 	}
@@ -805,6 +843,28 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 		)
 	}
 
+	if dependencies.OperatorAuthenticator != nil && dependencies.Webhooks != nil {
+		/*
+			A tenant's webhooks, read by an operator, and redelivery, which is
+			`M15-010` at last. Sending something again on a tenant's behalf is
+			the kind of act somebody later asks about, so it says why.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/webhooks", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Webhooks.List)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/webhooks/{endpoint_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Webhooks.Get)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/webhooks/{endpoint_id}/deliveries", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Webhooks.ListDeliveries)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/deliveries", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Webhooks.ListDeliveries)},
+			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/deliveries/{delivery_id}", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Webhooks.GetDelivery)},
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/deliveries/{delivery_id}/redeliver", surface: surfaceOperator, reasoned: true,
+				handler: http.HandlerFunc(dependencies.Webhooks.Redeliver)},
+		)
+	}
+
 	if dependencies.OperatorAuthenticator != nil && dependencies.Users != nil {
 		/*
 			These routes name the application in the path because an operator
@@ -821,9 +881,9 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Users.Get)},
 			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}/users/{user_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Update)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/users/{user_id}", surface: surfaceOperator,
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/users/{user_id}", surface: surfaceOperator, reasoned: true, confirms: "user_id",
 				handler: http.HandlerFunc(dependencies.Users.Delete)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/suspend", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/suspend", surface: surfaceOperator, reasoned: true,
 				handler: http.HandlerFunc(dependencies.Users.Suspend)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/users/{user_id}/activate", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Users.Activate)},
@@ -1503,7 +1563,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Rooms.Get)},
 			route{method: http.MethodPatch, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Rooms.Update)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}", surface: surfaceOperator,
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}", surface: surfaceOperator, reasoned: true, confirms: "room_id",
 				handler: http.HandlerFunc(dependencies.Rooms.Delete)},
 			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/rooms/{room_id}/close", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Rooms.Close)},
@@ -1526,7 +1586,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Calls.List)},
 			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/calls/{call_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Calls.Get)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/calls/{call_id}/end", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/calls/{call_id}/end", surface: surfaceOperator, reasoned: true,
 				handler: http.HandlerFunc(dependencies.Calls.End)},
 		)
 	}
@@ -1544,7 +1604,7 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.Participants.List)},
 			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/participants/{participant_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Participants.Get)},
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/participants/{participant_id}/remove", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/participants/{participant_id}/remove", surface: surfaceOperator, reasoned: true,
 				handler: http.HandlerFunc(dependencies.Participants.Remove)},
 		)
 	}
@@ -1557,13 +1617,13 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 			one.
 		*/
 		table = append(table,
-			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/credentials", surface: surfaceOperator,
+			route{method: http.MethodPost, path: api.Prefix + "/applications/{application_id}/credentials", surface: surfaceOperator, reasoned: true,
 				handler: http.HandlerFunc(dependencies.Credentials.Issue)},
 			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Credentials.List)},
 			route{method: http.MethodGet, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.Credentials.Get)},
-			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}", surface: surfaceOperator,
+			route{method: http.MethodDelete, path: api.Prefix + "/applications/{application_id}/credentials/{credential_id}", surface: surfaceOperator, reasoned: true, confirms: "credential_id",
 				handler: http.HandlerFunc(dependencies.Credentials.Revoke)},
 		)
 	}

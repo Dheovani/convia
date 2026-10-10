@@ -111,57 +111,46 @@ func TestAForgedActorIsNotAnActor(t *testing.T) {
 }
 
 /*
-TestAHighImpactActionNeedsAReason is `M21-009` at the one place it can be
-enforced for every caller.
+TestTheReasonTravelsWithTheRequest is `M21-009` at the trail: the reason a
+route asked for is stored beside the entry it explains, trimmed.
 */
-func TestAHighImpactActionNeedsAReason(t *testing.T) {
-	for _, reason := range []string{"", "   "} {
-		store := &memory{}
-		service, _ := serviceOver(store)
-
-		_, err := service.Record(asOperator(), Written{
-			Action:   "application.suspended",
-			Subject:  Subject{Kind: "application", ID: "app_X"},
-			Reason:   reason,
-			Required: true,
-		})
-		if !errors.Is(err, ErrReasonRequired) {
-			t.Errorf("reason %q: error = %v, want ErrReasonRequired", reason, err)
-		}
-		if len(store.appended) != 0 {
-			t.Errorf("reason %q: an entry was written for a refused action", reason)
-		}
-	}
-
+func TestTheReasonTravelsWithTheRequest(t *testing.T) {
 	store := &memory{}
 	service, _ := serviceOver(store)
-	entry, err := service.Record(asOperator(), Written{
-		Action:   "application.suspended",
-		Subject:  Subject{Kind: "application", ID: "app_X"},
-		Reason:   "chargeback fraud, ticket 4411",
-		Required: true,
+
+	ctx := ContextWithReason(asOperator(), "chargeback fraud, ticket 4411")
+	entry, err := service.Record(ctx, Written{
+		Action:  "application.suspended",
+		Subject: Subject{Kind: "application", ID: "app_X"},
 	})
-	if err != nil || entry.Reason != "chargeback fraud, ticket 4411" {
-		t.Errorf("Record() = %+v, %v; want the reason kept", entry, err)
+	if err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	if entry.Reason != "chargeback fraud, ticket 4411" || store.appended[0].Reason != entry.Reason {
+		t.Errorf("Reason = %q, want the one the request carried", entry.Reason)
 	}
 }
 
 /*
-TestAReasonNobodyAskedForIsRefused keeps the column meaning one thing: present
-means Convia required it.
+TestNoReasonIsRecordedWhereNoneWasAsked keeps the column meaning one thing:
+present means a route required it.
 */
-func TestAReasonNobodyAskedForIsRefused(t *testing.T) {
+func TestNoReasonIsRecordedWhereNoneWasAsked(t *testing.T) {
 	store := &memory{}
 	service, _ := serviceOver(store)
 
-	_, err := service.Record(asOperator(), Written{
+	entry, err := service.Record(asOperator(), Written{
 		Action:  "room.updated",
 		Subject: Subject{Kind: "room", ID: "room_X"},
-		Reason:  "because",
 	})
-	var validation ValidationError
-	if !errors.As(err, &validation) || validation.Field != "reason" {
-		t.Errorf("error = %v, want a ValidationError on reason", err)
+	if err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	if entry.Reason != "" {
+		t.Errorf("Reason = %q on an action nobody was asked to explain", entry.Reason)
+	}
+	if _, found := ReasonFromContext(ContextWithReason(context.Background(), "")); found {
+		t.Error("an empty reason was read back as one")
 	}
 }
 

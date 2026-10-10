@@ -90,6 +90,8 @@ type deliveryResponse struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
+
+	RedeliveryOf string `json:"redelivery_of,omitempty"`
 }
 
 type endpointPageResponse struct {
@@ -145,6 +147,7 @@ func representDelivery(delivery Delivery) deliveryResponse {
 		CreatedAt:      delivery.CreatedAt,
 		UpdatedAt:      delivery.UpdatedAt,
 		DeliveredAt:    delivery.DeliveredAt,
+		RedeliveryOf:   delivery.RedeliveryOf,
 	}
 }
 
@@ -433,6 +436,14 @@ func (handler *TenantHandler) writeError(response http.ResponseWriter, request *
 	case errors.Is(err, ErrDeliveryNotFound):
 		handler.writeFailure(response, request, api.NewFailure(http.StatusNotFound,
 			api.CodeNotFound, "The requested webhook delivery does not exist."))
+
+	case errors.Is(err, ErrDeliveryOutstanding):
+		handler.writeFailure(response, request, api.NewFailure(http.StatusConflict,
+			api.CodeConflict, "The event is still being delivered to that destination. Wait for it to finish."))
+
+	case errors.Is(err, ErrEndpointDisabled):
+		handler.writeFailure(response, request, api.NewFailure(http.StatusConflict,
+			api.CodeConflict, "The webhook endpoint is disabled, so nothing would be sent. The application enables it."))
 
 	default:
 		handler.logger.ErrorContext(request.Context(), "webhook operation failed", "error", err,

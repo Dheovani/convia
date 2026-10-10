@@ -24,10 +24,10 @@ package audit
 
 import (
 	"crypto/rand"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -65,14 +65,35 @@ const (
 )
 
 /*
-ErrReasonRequired reports a high-impact action attempted without saying why.
+NormalizeReason reports what an actor said about why, trimmed, or why it cannot
+be recorded.
 
-It is `M21-009`. The refusal belongs to whoever is performing the action rather
-than to this package, which only knows that the entry it was handed has no
-reason in it; what makes an action high-impact is a decision each surface makes
-about its own operations.
+It is `M21-009`'s one rule, kept here so that the middleware refusing a request
+and the trail storing its reason cannot disagree about what a reason is: words,
+at most a sentence's worth, with nothing in them that would let one line in a
+log pretend to be two.
 */
-var ErrReasonRequired = errors.New("the action requires a reason")
+func NormalizeReason(reason string) (string, error) {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return "", ValidationError{Field: "reason", Message: "Say why, in a few words."}
+	}
+	if !utf8.ValidString(trimmed) {
+		return "", ValidationError{Field: "reason", Message: "A reason must be UTF-8 text."}
+	}
+	if utf8.RuneCountInString(trimmed) > maxReasonLength {
+		return "", ValidationError{
+			Field:   "reason",
+			Message: fmt.Sprintf("A reason is at most %d characters.", maxReasonLength),
+		}
+	}
+	for _, character := range trimmed {
+		if unicode.IsControl(character) {
+			return "", ValidationError{Field: "reason", Message: "A reason cannot contain control characters."}
+		}
+	}
+	return trimmed, nil
+}
 
 /*
 Kind is the authority an action was taken on.
