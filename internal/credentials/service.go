@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"strings"
 	"time"
+
+	"convia/internal/audit"
 )
 
 const (
@@ -36,11 +38,23 @@ the result of that decision rather than making it again.
 type Service struct {
 	store   *Store
 	tenants tenants
-	logger  *slog.Logger
+	trail   trail
 }
 
-func NewService(store *Store, owner tenants, logger *slog.Logger) *Service {
-	return &Service{store: store, tenants: owner, logger: logger}
+/*
+trail is the durable audit record this service writes to.
+
+It replaced the logger, which only ever wrote audit lines -- and every one of
+them said `actor=unauthenticated` about a key only an authenticated caller can
+mint. The trail reads the actor off the request, where the middleware that
+verified a credential put it, so this service cannot name one at all.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+func NewService(store *Store, owner tenants, entries trail) *Service {
+	return &Service{store: store, tenants: owner, trail: entries}
 }
 
 // Request is what an operator asks for when issuing a credential.
@@ -124,11 +138,16 @@ func (service *Service) Issue(ctx context.Context, applicationID string, request
 	}
 
 	secret := NewSecret()
-	if err := service.store.Create(ctx, credential, Digest(secret)); err != nil {
-		return Credential{}, "", fmt.Errorf("issue credential: %w", err)
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, credential, Digest(secret)); err != nil {
+			return fmt.Errorf("issue credential: %w", err)
+		}
+		return service.audit(ctx, "credential.issued", credential)
+	})
+	if err != nil {
+		return Credential{}, "", err
 	}
 
-	service.audit(ctx, "credential.issued", credential)
 	return credential, secret, nil
 }
 
@@ -243,16 +262,16 @@ func (service *Service) Revoke(ctx context.Context, applicationID, id string) er
 		return ErrNotFound
 	}
 
-	revoked, err := service.store.Revoke(ctx, applicationID, id, now())
-	if err != nil {
-		return err
-	}
-	if !revoked {
-		return nil
-	}
-
-	service.audit(ctx, "credential.revoked", Credential{ID: id, ApplicationID: applicationID})
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		revoked, err := service.store.Revoke(ctx, applicationID, id, now())
+		if err != nil {
+			return err
+		}
+		if !revoked {
+			return nil
+		}
+		return service.audit(ctx, "credential.revoked", Credential{ID: id, ApplicationID: applicationID})
+	})
 }
 
 /*
@@ -298,15 +317,23 @@ audit records a credential change.
 The record names the credential by its public identifier and never carries the
 secret, the digest, or the presented token. An audit trail that leaked key
 material would be a second copy of the thing it exists to protect.
+
+The scopes are the one detail kept, and they are the reason entries have
+details at all: "a key was issued" is not the same finding as "a key that can
+write every user was issued", and no action name can say which.
 */
-func (service *Service) audit(ctx context.Context, event string, credential Credential) {
-	service.logger.InfoContext(ctx, "audit event",
-		"event", event,
-		"credential_id", credential.ID,
-		"application_id", credential.ApplicationID,
-		"scopes", texts(credential.Scopes),
-		"actor", "unauthenticated",
-	)
+func (service *Service) audit(ctx context.Context, action string, credential Credential) error {
+	written := audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "credential", ID: credential.ID},
+		ApplicationID: credential.ApplicationID,
+	}
+	if len(credential.Scopes) > 0 {
+		written.Details = map[string]string{"scopes": strings.Join(texts(credential.Scopes), " ")}
+	}
+
+	_, err := service.trail.Record(ctx, written)
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

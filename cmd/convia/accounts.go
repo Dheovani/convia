@@ -11,6 +11,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/users"
@@ -37,9 +38,11 @@ func accountCommand(ctx context.Context, logger *slog.Logger, cfg config.Config,
 	}
 	defer pool.Close()
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	service := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
+	trail := audit.NewService(audit.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool), trail)
+	userService := users.NewService(users.NewStore(pool), applicationService, trail)
+	service := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID,
+		trail, logger)
 
 	switch arguments[0] {
 	case "suspend":

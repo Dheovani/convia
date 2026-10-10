@@ -38,6 +38,8 @@ The same interface is **also served as a page**, compiled into the Convia binary
 
 Webhooks exist for what a client must not miss: an application registers a destination, Convia signs every delivery with a secret shown once, retries on a published schedule, disables a receiver that has stopped answering, and keeps a readable record of every attempt. It refuses to connect to anything that is not the public internet, checked at the socket on every attempt rather than at the hostname once. See [`docs/webhooks.md`](docs/webhooks.md).
 
+Everything done to an installation is recorded: who acted, on whose authority, on what, and why where Convia asks. An entry is written in the same transaction as the change, so a change that rolls back leaves none, and an operator reads the trail at `GET /v1/audit` with a scope nothing else grants. [`docs/audit.md`](docs/audit.md) explains what is recorded and what deliberately is not.
+
 [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).

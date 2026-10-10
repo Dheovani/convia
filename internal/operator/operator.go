@@ -101,6 +101,22 @@ const (
 		could mint another carrying everything.
 	*/
 	ScopeOperatorsWrite Scope = "operators:write"
+	/*
+		ScopeAuditRead permits reading the audit trail.
+
+		It is separate from every scope above because it is bounded by nothing
+		they are bounded by. Each of the others is about a kind of thing --
+		tenants, their keys, Convia's own keys -- and the trail is about
+		everything that has ever been done to the installation: which
+		applications exist, what their keys did, which rooms were opened, who
+		was removed from them, and when. An operator who can list applications
+		has a directory; an operator who can read the trail has the history.
+
+		There is no write counterpart, and there will not be. An entry is
+		written by the change that caused it, and an operator who could append
+		one could write a history that did not happen.
+	*/
+	ScopeAuditRead Scope = "audit:read"
 )
 
 /*
@@ -114,6 +130,7 @@ func Scopes() []Scope {
 		ScopeApplicationsRead, ScopeApplicationsWrite,
 		ScopeTenantsRead, ScopeTenantsWrite,
 		ScopeOperatorsRead, ScopeOperatorsWrite,
+		ScopeAuditRead,
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/operator"
@@ -39,7 +40,7 @@ func operatorCommand(ctx context.Context, logger *slog.Logger, cfg config.Config
 	}
 	defer pool.Close()
 
-	service := operator.NewService(operator.NewStore(pool), logger)
+	service := operator.NewService(operator.NewStore(pool), audit.NewService(audit.NewStore(pool), logger))
 
 	switch arguments[0] {
 	case "issue":

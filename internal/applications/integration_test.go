@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 )
@@ -70,7 +71,7 @@ func newTestService(t *testing.T) (*Service, *bytes.Buffer) {
 	t.Cleanup(pool.Close)
 
 	logs.Reset()
-	return NewService(NewStore(pool), logger), logs
+	return NewService(NewStore(pool), audit.NewService(audit.NewStore(pool), logger)), logs
 }
 
 func execute(t *testing.T, databaseURL, statement string) {

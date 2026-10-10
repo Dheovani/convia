@@ -17,6 +17,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/users"
@@ -78,13 +79,16 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
 	if err := applicationService.EnsureFirstParty(context.Background()); err != nil {
 		t.Fatalf("create the first-party application: %v", err)
 	}
 
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
+	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 
 	const password accounts.Password = "correct horse battery staple"
 	account, _, err := accountService.Register(context.Background(), "ana", password)
@@ -97,7 +101,7 @@ func newFixture(t *testing.T) fixture {
 
 	return fixture{
 		service: NewService(store, accountService, applicationService, userService,
-			applications.FirstPartyID, logger),
+			applications.FirstPartyID, audit.NewService(audit.NewStore(pool), logger), logger),
 		store:        store,
 		accounts:     accountService,
 		applications: applicationService,
@@ -530,5 +534,25 @@ func age(t *testing.T, setup fixture, sessionID, assignment string) {
 	if _, err := setup.pool.Exec(context.Background(),
 		"UPDATE sessions SET "+assignment+" WHERE id = $1", sessionID); err != nil {
 		t.Fatalf("age the session: %v", err)
+	}
+}
+
+/*
+TestSigningInIsCreditedToWhoeverSignedIn is the same rule for the other public
+route: the session is the durable record of a sign-in, and it names the person
+whose password opened it rather than the system.
+*/
+func TestSigningInIsCreditedToWhoeverSignedIn(t *testing.T) {
+	setup := newFixture(t)
+	session, _ := setup.signIn(t)
+
+	var kind, actor string
+	if err := setup.pool.QueryRow(context.Background(),
+		`SELECT actor_kind, coalesce(actor_id, '') FROM audit_entries
+		WHERE action = 'session.began' AND subject_id = $1`, session.ID).Scan(&kind, &actor); err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+	if kind != "person" || actor != setup.account.ID {
+		t.Errorf("the sign-in was credited to %s %q, want the person %q", kind, actor, setup.account.ID)
 	}
 }

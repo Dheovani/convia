@@ -14,6 +14,8 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/applications"
+	"convia/internal/audit"
+	"convia/internal/audit/reading"
 	"convia/internal/calls"
 	"convia/internal/config"
 	"convia/internal/credentials"
@@ -76,6 +78,7 @@ Scopes default to every one Convia recognizes when none are named. Available:
   applications:read  applications:write
   tenants:read       tenants:write
   operators:read     operators:write
+  audit:read
 
 The secret is printed once and never stored. Running these commands requires
 database access, which is the authority the first credential is minted from.
@@ -312,10 +315,21 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		return fmt.Errorf("watch what Convia is carrying: %w", err)
 	}
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService, logger)
-	operatorService := operator.NewService(operator.NewStore(pool), logger)
+	/*
+		The trail comes before the services that write to it, because they take
+		it rather than reach for it: an entry is written by the change that
+		caused it, in the transaction the change opened, and a service that
+		found the trail for itself could be given one that writes somewhere
+		else.
+	*/
+	auditService := audit.NewService(audit.NewStore(pool), logger)
+
+	applicationService := applications.NewService(applications.NewStore(pool),
+		auditService)
+	userService := users.NewService(users.NewStore(pool), applicationService, auditService)
+	credentialService := credentials.NewService(credentials.NewStore(pool), applicationService,
+		auditService)
+	operatorService := operator.NewService(operator.NewStore(pool), auditService)
 	mediaPlane, mediaReports, err := openMediaPlane(cfg.Media, logger)
 	if err != nil {
 		return err
@@ -372,7 +386,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	*/
 	destinations := webhooks.NewDestinations(cfg.Environment == config.Development)
 	webhookStore := webhooks.NewStore(pool)
-	webhookService := webhooks.NewService(webhookStore, applicationService, destinations, logger)
+	webhookService := webhooks.NewService(webhookStore, applicationService, destinations, auditService)
 	dispatcher := webhooks.NewDispatcher(webhookStore, destinations, logger)
 
 	/*
@@ -404,12 +418,15 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	announcer := serving.NewJournaledAnnouncer(broker, eventJournal, dispatcher, follower.Wake, logger)
 
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer,
+		auditService, logger)
 
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		mediaPlane, announcer, logger)
+		mediaPlane, announcer,
+		auditService, logger)
 	participantService := participants.NewService(participants.NewStore(pool),
-		applicationService, callService, roomService, userService, announcer, logger)
+		applicationService, callService, roomService, userService, announcer,
+		auditService, logger)
 
 	/*
 		A room tells the call it is holding when it changes under it: deleted,
@@ -419,7 +436,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	*/
 	roomService.InformCalls(participantService)
 	invitationService := invitations.NewService(invitations.NewStore(pool),
-		applicationService, callService, userService, participantService, announcer, logger)
+		applicationService, callService, userService, participantService, announcer, auditService, logger)
 	messageService := messages.NewService(messages.NewStore(pool),
 		applicationService, roomService, userService, invitationService, announcer, logger)
 	idempotencyService := idempotency.NewService(idempotency.NewStore(pool), logger)
@@ -487,9 +504,10 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 
 	accountService := accounts.NewService(accounts.NewStore(pool), userService,
-		applications.FirstPartyID, logger)
+		applications.FirstPartyID,
+		auditService, logger)
 	sessionService := sessions.NewService(sessions.NewStore(pool), accountService,
-		applicationService, userService, applications.FirstPartyID, logger)
+		applicationService, userService, applications.FirstPartyID, auditService, logger)
 
 	/*
 		Rooms shared with other installations. The client that reaches them is
@@ -523,7 +541,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	}
 	peerClient := peers.NewClient(peerDestinations)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peerClient, applications.FirstPartyID, publicAddress, logger)
+		accountService, peerClient, applications.FirstPartyID, publicAddress, auditService, logger)
 
 	/*
 		Both surfaces are authenticated, so both are always served. The tenant
@@ -560,6 +578,7 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		Calls:                 calls.NewHandler(logger, callService),
 		Participants:          participants.NewHandler(logger, participantService),
 		OperatorCredentials:   operator.NewHandler(logger, operatorService),
+		Audit:                 reading.NewHandler(logger, auditService),
 
 		Authenticator:      credentialService,
 		TenantUsers:        users.NewTenantHandler(logger, userService),

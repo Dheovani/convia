@@ -1708,6 +1708,118 @@ paths:
         "500":
           $ref: "#/components/responses/InternalError"
 
+  /v1/audit:
+    get:
+      operationId: searchAuditTrail
+      tags: [Operator]
+      summary: Search the audit trail
+      description: |
+        Returns one page of what has been done to this installation, newest
+        first: who acted, on whose authority, on what, and why where Convia
+        required a reason.
+
+        Every filter is optional and they narrow together. With none, the
+        answer is the whole trail, which is where somebody with no lead
+        starts. An entry outlives what it describes, so a filter naming a
+        tenant, a room or a credential that no longer exists still finds what
+        happened to it.
+
+        Reading the trail is `audit:read` and nothing else grants it. Every
+        other operator scope is bounded by a kind of thing; the trail holds
+        everything every tenant's key ever did, which is a history rather than
+        a directory.
+
+        There is no operation that writes an entry. Entries are written by
+        the change that caused them, in the same transaction, and an operator
+        who could append one could write a history that did not happen.
+      x-lifecycle: experimental
+      security:
+        - OperatorKey: ["audit:read"]
+      parameters:
+        - name: application_id
+          in: query
+          required: false
+          description: Only what touched this tenant.
+          schema:
+            type: string
+            maxLength: 100
+        - name: actor_kind
+          in: query
+          required: false
+          description: Only what was done on this kind of authority.
+          schema:
+            $ref: "#/components/schemas/AuditActorKind"
+        - name: actor_id
+          in: query
+          required: false
+          description: |
+            Only what this credential, account, invitation or installation did.
+            It is the public identifier, never a secret.
+          schema:
+            type: string
+            maxLength: 100
+        - name: subject_kind
+          in: query
+          required: false
+          description: Only what was done to this kind of thing, such as `room` or `credential`.
+          schema:
+            type: string
+            maxLength: 100
+        - name: subject_id
+          in: query
+          required: false
+          description: Only what was done to this one thing.
+          schema:
+            type: string
+            maxLength: 100
+        - name: action
+          in: query
+          required: false
+          description: Only this action, named as `noun.verb`, such as `application.suspended`.
+          schema:
+            type: string
+            maxLength: 100
+        - name: since
+          in: query
+          required: false
+          description: Only entries recorded at or after this instant.
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          required: false
+          description: |
+            Only entries recorded at or before this instant. A window that ends
+            before it begins is refused rather than answered with nothing.
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: One page of the audit trail.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
   /v1/operator/credentials:
     post:
       operationId: issueOperatorCredential
@@ -9157,6 +9269,98 @@ components:
         - tenants:write
         - operators:read
         - operators:write
+        - audit:read
+
+    AuditActorKind:
+      type: string
+      description: |
+        The authority an action was taken on. There is one for each kind of
+        caller Convia verifies, and `system` for what Convia did on its own
+        evidence -- a call ended because the media plane reported the last
+        connection gone, a person forgotten at the end of the retention window.
+      enum:
+        - operator
+        - application
+        - person
+        - guest
+        - peer
+        - system
+
+    AuditEntry:
+      type: object
+      description: |
+        One thing that was done to this installation.
+
+        It says who did what to what, and why where Convia required an answer.
+        It deliberately does not say what changed: there is no before and no
+        after, because a copy of every change would be a second copy of every
+        table, and the first thing anybody trusted about it would be the part
+        most likely to be wrong.
+      required: [id, action, actor_kind, subject_kind, subject_id, request_id, recorded_at]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          pattern: "^aud_[A-Z2-7]{26}$"
+          example: aud_7KQZP4XN2VJH6TBWMDR3YAFC5E
+        action:
+          type: string
+          description: |
+            What happened, as `noun.verb`. Where an event announced the same
+            occurrence, the name is the event's.
+          example: application.suspended
+        actor_kind:
+          $ref: "#/components/schemas/AuditActorKind"
+        actor_id:
+          type: string
+          description: |
+            The public identifier of whoever acted: an operator or application
+            credential, an account, an invitation, or an account on another
+            installation. Absent only when the actor is `system`.
+        application_id:
+          type: string
+          description: The tenant the action touched. Absent for an action about the installation itself.
+        subject_kind:
+          type: string
+          description: The kind of thing acted on.
+          example: application
+        subject_id:
+          type: string
+          description: |
+            Its public identifier. It is kept as it was, so it may name
+            something that no longer exists.
+        reason:
+          type: string
+          description: Why, in the actor's own words. Present only where Convia required one.
+        details:
+          type: object
+          description: |
+            The few facts the rest of the entry cannot say, such as the scopes
+            a credential was minted with. Never content, never a secret.
+          additionalProperties:
+            type: string
+        request_id:
+          type: string
+          description: The request that caused it, which joins it to the access log and the trace.
+        recorded_at:
+          type: string
+          format: date-time
+
+    AuditEntryPage:
+      type: object
+      description: One page of the audit trail.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEntry"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the search. Absent on the last page.
+            Clients must never decode or construct one.
 
     OperatorCredentialId:
       type: string

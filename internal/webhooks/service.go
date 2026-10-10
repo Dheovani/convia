@@ -3,9 +3,9 @@ package webhooks
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"convia/internal/audit"
 	"convia/internal/events"
 )
 
@@ -32,11 +32,17 @@ type Service struct {
 	store   *Store
 	tenants tenants
 	guard   Destinations
-	logger  *slog.Logger
+	trail   trail
 }
 
-func NewService(store *Store, owner tenants, guard Destinations, logger *slog.Logger) *Service {
-	return &Service{store: store, tenants: owner, guard: guard, logger: logger}
+// trail is the durable audit record this service writes to, in place of the
+// logger that only ever wrote audit lines.
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+func NewService(store *Store, owner tenants, guard Destinations, entries trail) *Service {
+	return &Service{store: store, tenants: owner, guard: guard, trail: entries}
 }
 
 /*
@@ -111,11 +117,16 @@ func (service *Service) Register(ctx context.Context, applicationID string,
 	}
 
 	signing := NewSecret()
-	if err := service.store.Create(ctx, endpoint, signing); err != nil {
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, endpoint, signing); err != nil {
+			return err
+		}
+		return service.audit(ctx, "webhook_endpoint.registered", endpoint)
+	})
+	if err != nil {
 		return Endpoint{}, "", err
 	}
 
-	service.audit(ctx, "webhook_endpoint.registered", endpoint)
 	return endpoint, signing, nil
 }
 
@@ -181,12 +192,18 @@ func (service *Service) Update(ctx context.Context, applicationID, id string,
 		return Endpoint{}, err
 	}
 
-	updated, err := service.store.Update(ctx, applicationID, id, name, address, types, now())
+	var updated Endpoint
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		updated, err = service.store.Update(ctx, applicationID, id, name, address, types, now())
+		if err != nil {
+			return err
+		}
+		return service.audit(ctx, "webhook_endpoint.updated", updated)
+	})
 	if err != nil {
 		return Endpoint{}, err
 	}
 
-	service.audit(ctx, "webhook_endpoint.updated", updated)
 	return updated, nil
 }
 
@@ -208,12 +225,19 @@ func (service *Service) Rotate(ctx context.Context, applicationID, id string) (E
 	}
 
 	signing := NewSecret()
-	endpoint, err := service.store.Rotate(ctx, applicationID, id, signing, now())
+	var endpoint Endpoint
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		endpoint, err = service.store.Rotate(ctx, applicationID, id, signing, now())
+		if err != nil {
+			return err
+		}
+		return service.audit(ctx, "webhook_endpoint.rotated", endpoint)
+	})
 	if err != nil {
 		return Endpoint{}, "", err
 	}
 
-	service.audit(ctx, "webhook_endpoint.rotated", endpoint)
 	return endpoint, signing, nil
 }
 
@@ -252,12 +276,19 @@ func (service *Service) setStatus(ctx context.Context, applicationID, id string,
 		return Endpoint{}, ErrNotFound
 	}
 
-	endpoint, err := service.store.SetStatus(ctx, applicationID, id, status, reason, now())
+	var endpoint Endpoint
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		endpoint, err = service.store.SetStatus(ctx, applicationID, id, status, reason, now())
+		if err != nil {
+			return err
+		}
+		return service.audit(ctx, event, endpoint)
+	})
 	if err != nil {
 		return Endpoint{}, err
 	}
 
-	service.audit(ctx, event, endpoint)
 	return endpoint, nil
 }
 
@@ -276,12 +307,12 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 		return ErrNotFound
 	}
 
-	if err := service.store.Delete(ctx, applicationID, id); err != nil {
-		return err
-	}
-
-	service.audit(ctx, "webhook_endpoint.deleted", Endpoint{ID: id, ApplicationID: applicationID})
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Delete(ctx, applicationID, id); err != nil {
+			return err
+		}
+		return service.audit(ctx, "webhook_endpoint.deleted", Endpoint{ID: id, ApplicationID: applicationID})
+	})
 }
 
 // GetDelivery returns one of an application's deliveries.
@@ -411,25 +442,20 @@ func pageSize(requested int) (int, error) {
 /*
 audit records a change to where Convia sends things.
 
-The destination is recorded because an operator investigating a delivery needs
-to know where it went, and it is not a secret: the application chose it and can
-read it back. The signing key is never here, and the redacting type means it
-could not be even if somebody passed one.
+**The destination is not recorded**, which the log line this replaced did. A
+webhook address commonly carries a token in its query string, because that is
+the easiest way for a receiver to know a request came from Convia, and the
+trail is durable and readable by an operator over every tenant. The endpoint's
+identifier leads to the address for as long as the endpoint exists, through
+routes that already decide who may read it. The signing key is never here.
 */
-func (service *Service) audit(ctx context.Context, event string, endpoint Endpoint) {
-	attributes := []any{
-		"event", event,
-		"endpoint_id", endpoint.ID,
-		"application_id", endpoint.ApplicationID,
-	}
-	if endpoint.URL != "" {
-		attributes = append(attributes, "url", endpoint.URL)
-	}
-	if endpoint.Status != "" {
-		attributes = append(attributes, "endpoint_status", string(endpoint.Status))
-	}
-
-	service.logger.Info("audit event", attributes...)
+func (service *Service) audit(ctx context.Context, action string, endpoint Endpoint) error {
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "webhook_endpoint", ID: endpoint.ID},
+		ApplicationID: endpoint.ApplicationID,
+	})
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

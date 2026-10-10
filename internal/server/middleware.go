@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/audit"
 	"convia/internal/credentials"
 	"convia/internal/invitations"
 	"convia/internal/media"
@@ -334,6 +335,7 @@ func (verify tenantVerifier) Verify(ctx context.Context, token string) (context.
 	case err != nil:
 		return nil, err
 	}
+	ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindApplication, ID: principal.CredentialID})
 	return credentials.ContextWithPrincipal(ctx, principal), nil
 }
 
@@ -363,6 +365,7 @@ func (verify invitationVerifier) Verify(ctx context.Context, token string) (cont
 		return nil, err
 	}
 
+	ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindGuest, ID: invitation.ID})
 	return invitations.ContextWithHolder(ctx, invitation), nil
 }
 
@@ -380,6 +383,7 @@ func (verify operatorVerifier) Verify(ctx context.Context, token string) (contex
 	case err != nil:
 		return nil, err
 	}
+	ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindOperator, ID: principal.CredentialID})
 	return operator.ContextWithPrincipal(ctx, principal), nil
 }
 
@@ -429,6 +433,7 @@ func (verify sessionVerifier) Verify(ctx context.Context, token string) (context
 	case err != nil:
 		return nil, err
 	}
+	ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindPerson, ID: principal.AccountID})
 	return sessions.ContextWithPrincipal(ctx, principal), nil
 }
 
@@ -521,7 +526,17 @@ func signed(
 			}
 			signers.Record(signer.AccountID)
 
+			/*
+				The actor is the peer even where a visitor resolves to a local
+				session below. What this installation verified is a signature
+				from another one, and the trail says what was verified: a
+				visitor's home vouched for them, and recording the person as
+				though they had signed in here would claim more than Convia
+				knows.
+			*/
 			ctx = peers.ContextWithSigner(ctx, signer)
+			ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindPeer, ID: signer.AccountID})
+
 			if visiting {
 				var principal sessions.Principal
 				if principal, err = verify.Visit(ctx, signer); err == nil {

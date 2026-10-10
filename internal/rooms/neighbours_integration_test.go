@@ -9,6 +9,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/users"
 )
 
@@ -26,7 +27,8 @@ func TestLocalNeighboursAreWhosePresenceAPersonMaySee(t *testing.T) {
 		t.Fatalf("EnsureFirstParty() error = %v", err)
 	}
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	signUp := accounts.NewService(accounts.NewStore(setup.pool), setup.users, applications.FirstPartyID, quiet)
+	signUp := accounts.NewService(accounts.NewStore(setup.pool), setup.users, applications.FirstPartyID,
+		audit.NewService(audit.NewStore(setup.pool), quiet), quiet)
 	person := func(name string) string {
 		account, _, err := signUp.Register(ctx, name, "correct horse battery staple")
 		if err != nil {

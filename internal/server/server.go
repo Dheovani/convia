@@ -11,6 +11,7 @@ import (
 
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/audit/reading"
 	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/departure"
@@ -255,6 +256,17 @@ type Dependencies struct {
 	Calls                 *calls.Handler
 	Participants          *participants.Handler
 	OperatorCredentials   *operator.Handler
+
+	/*
+		Audit is the trail of what has been done to this installation.
+
+		Leaving it out removes the route and leaves Convia recording entries
+		with nowhere to read them from, which is not a deployment anybody
+		should want: it is here as a dependency rather than always present
+		because the handler needs a database, and the server is assembled the
+		same way for a process that has none.
+	*/
+	Audit *reading.Handler
 
 	/*
 		The tenant-facing surface is authenticated by an application's own key,
@@ -772,6 +784,24 @@ func routeTable(logger *slog.Logger, dependencies Dependencies) []route {
 				handler: http.HandlerFunc(dependencies.OperatorCredentials.Get)},
 			route{method: http.MethodDelete, path: api.Prefix + "/operator/credentials/{credential_id}", surface: surfaceOperator,
 				handler: http.HandlerFunc(dependencies.OperatorCredentials.Revoke)},
+		)
+	}
+
+	if dependencies.OperatorAuthenticator != nil && dependencies.Audit != nil {
+		/*
+			Reading the trail. It is one route and it takes its question in the
+			query string, because every narrowing is optional: an incident
+			asks what happened to this tenant, or what this credential did, or
+			everything in the hour before somebody was paged, and which of
+			those it is is not known in advance.
+
+			There is no route to write one. An entry is written by the change
+			that caused it, in the same transaction, and an operator who could
+			append one could write a history that did not happen.
+		*/
+		table = append(table,
+			route{method: http.MethodGet, path: api.Prefix + "/audit", surface: surfaceOperator,
+				handler: http.HandlerFunc(dependencies.Audit.Search)},
 		)
 	}
 

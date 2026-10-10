@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
@@ -85,8 +86,10 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
@@ -96,7 +99,8 @@ func newFixture(t *testing.T) fixture {
 
 	logs.Reset()
 	return fixture{
-		service:      NewService(NewStore(pool), applicationService, userService, published, logger),
+		service: NewService(NewStore(pool), applicationService, userService, published,
+			audit.NewService(audit.NewStore(pool), logger), logger),
 		applications: applicationService,
 		users:        userService,
 		pool:         pool,

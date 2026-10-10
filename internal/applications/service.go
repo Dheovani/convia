@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
+
+	"convia/internal/audit"
 )
 
 const (
@@ -23,12 +24,32 @@ hold for any future caller: an administrative endpoint, a command, or another
 service inside Convia.
 */
 type Service struct {
-	store  *Store
-	logger *slog.Logger
+	store *Store
+	trail trail
 }
 
-func NewService(store *Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger}
+/*
+trail is the durable audit record this service writes to.
+
+It is an interface declared here rather than the concrete service so that these
+rules can be exercised without a trail's own storage, and it is **not optional**
+for the reason `M21-008` exists: a change that records nothing is a change
+nobody can be held to.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+/*
+NewService builds the service.
+
+**There is no logger**, which there was until the trail arrived. The only thing
+this service ever logged was an audit line, and the trail writes that now -- as
+a row and as a line, in one place, from the actor it read off the request. A
+second logger here would be a second account of the same occurrence.
+*/
+func NewService(store *Store, entries trail) *Service {
+	return &Service{store: store, trail: entries}
 }
 
 // ListOptions selects one page of applications.
@@ -66,11 +87,16 @@ func (service *Service) Create(ctx context.Context, name string) (Application, e
 		UpdatedAt: created,
 	}
 
-	if err := service.store.Create(ctx, application); err != nil {
-		return Application{}, fmt.Errorf("create application: %w", err)
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, application); err != nil {
+			return fmt.Errorf("create application: %w", err)
+		}
+		return service.audit(ctx, "application.created", application)
+	})
+	if err != nil {
+		return Application{}, err
 	}
 
-	service.audit(ctx, "application.created", application)
 	return application, nil
 }
 
@@ -94,14 +120,16 @@ func (service *Service) EnsureFirstParty(ctx context.Context) error {
 		UpdatedAt: created,
 	}
 
-	made, err := service.store.CreateIfAbsent(ctx, application)
-	if err != nil {
-		return fmt.Errorf("ensure the first-party application: %w", err)
-	}
-	if made {
-		service.audit(ctx, "application.created", application)
-	}
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		made, err := service.store.CreateIfAbsent(ctx, application)
+		if err != nil {
+			return fmt.Errorf("ensure the first-party application: %w", err)
+		}
+		if !made {
+			return nil
+		}
+		return service.audit(ctx, "application.created", application)
+	})
 }
 
 // Get returns one application, or ErrNotFound.
@@ -215,12 +243,18 @@ func (service *Service) Rename(ctx context.Context, id, name, expectedVersion st
 		return Application{}, err
 	}
 
-	renamed, err := service.store.Rename(ctx, current.ID, normalized, now(), guard)
+	var renamed Application
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		renamed, err = service.store.Rename(ctx, current.ID, normalized, now(), guard)
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		return service.audit(ctx, "application.renamed", renamed)
+	})
 	if err != nil {
-		return Application{}, wrapUpdate(err)
+		return Application{}, err
 	}
 
-	service.audit(ctx, "application.renamed", renamed)
 	return renamed, nil
 }
 
@@ -250,16 +284,16 @@ func (service *Service) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 
-	deleted, err := service.store.Delete(ctx, id, now())
-	if err != nil {
-		return wrapUpdate(err)
-	}
-	if !deleted {
-		return nil
-	}
-
-	service.audit(ctx, "application.deleted", Application{ID: id, Status: StatusDeleted})
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		deleted, err := service.store.Delete(ctx, id, now())
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		if !deleted {
+			return nil
+		}
+		return service.audit(ctx, "application.deleted", Application{ID: id, Status: StatusDeleted})
+	})
 }
 
 // transition moves an application to a lifecycle state, or leaves it unchanged.
@@ -272,12 +306,18 @@ func (service *Service) transition(ctx context.Context, id string, status Status
 		return current, nil
 	}
 
-	updated, err := service.store.SetStatus(ctx, current.ID, status, now(), nil)
+	var updated Application
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		updated, err = service.store.SetStatus(ctx, current.ID, status, now(), nil)
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		return service.audit(ctx, event, updated)
+	})
 	if err != nil {
-		return Application{}, wrapUpdate(err)
+		return Application{}, err
 	}
 
-	service.audit(ctx, event, updated)
 	return updated, nil
 }
 
@@ -345,16 +385,24 @@ func pageSize(requested int) (int, error) {
 /*
 audit records a security-relevant change to an application.
 
-Audit entries are structured logs correlated by request ID. They are an
-operational record, not yet a queryable audit trail; M21 introduces durable
-audit storage. Once credentials exist in M07, the actor becomes the
-authenticated principal instead of a placeholder.
+**It used to lie about the actor.** Every line it wrote said
+`actor=unauthenticated`, beside a comment promising that the actor would become
+the authenticated principal "once credentials exist in M07" -- which they have
+since `M07` closed, so every entry written since has named the wrong authority
+for a change only an operator can make. `M21` is where that is fixed, and the
+fix is not a better string: the actor is read from the request by the trail
+itself, where the middleware that verified a credential put it, so no service
+can name an actor at all.
+
+The status is not recorded beside it, because the action already says it:
+`application.suspended` is what suspension is, and a status field would be a
+second place for the same fact to be wrong in.
 */
-func (service *Service) audit(ctx context.Context, event string, application Application) {
-	service.logger.InfoContext(ctx, "audit event",
-		"event", event,
-		"application_id", application.ID,
-		"application_status", application.Status,
-		"actor", "unauthenticated",
-	)
+func (service *Service) audit(ctx context.Context, action string, application Application) error {
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "application", ID: application.ID},
+		ApplicationID: application.ID,
+	})
+	return err
 }

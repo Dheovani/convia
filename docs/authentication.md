@@ -59,6 +59,11 @@ Operator scopes are named apart for a related reason. On an application key, `us
 | `tenants:write` | Managing any application's users and credentials, including issuing a key on its behalf |
 | `operators:read` | Reading operator credentials |
 | `operators:write` | Issuing and revoking operator credentials |
+| `audit:read` | Reading the [audit trail](audit.md), and nothing else |
+
+**These are scopes, not roles, and that is the answer to `M21-001`.** A role is a name for a bundle of scopes, and a bundle is only worth naming once two people need the same one. Convia has one kind of operator today, and a key carries exactly the scopes it was minted with — so a support key is `applications:read tenants:read` and nothing more, and the subset rule below keeps any key from minting one that outranks it. What a role would add is a second place for authority to be defined, which is the thing to avoid until somebody needs it.
+
+`audit:read` is granted by nothing else. Every other scope is bounded by a kind of thing; the trail holds everything every tenant's key ever did.
 
 ## Bootstrapping the First Operator
 

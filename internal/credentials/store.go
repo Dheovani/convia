@@ -96,6 +96,17 @@ func texts(scopes []Scope) []string {
 	return values
 }
 
+/*
+Atomically runs work in one transaction, so that a credential and the audit
+entry for it are committed together or not at all.
+
+A key that exists with no record of who minted it is the one finding an audit
+trail exists to prevent: the authority is real and nobody can say whose it was.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
 // Create issues a credential, storing the digest of its secret rather than the secret.
 func (store *Store) Create(ctx context.Context, credential Credential, digest []byte) error {
 	const statement = `INSERT INTO credentials (id, application_id, name, secret_hash, scopes, created_at, expires_at)

@@ -23,11 +23,11 @@ This document is the operational development plan for Convia. It tracks what exi
 ## Current Status
 
 - **What Convia is.** Two things built on one control plane. It is **an installable communication product**: each installation holds its own accounts, identified by the fingerprint of a key the password seals, and people on different installations share rooms by invitation. And it is **a real-time communication provider for other applications**, which its owner will also run as a hosted service. The owner's own applications, Orbit and Workspace Town, are meant to consume it; their integrations are built in their own projects, not in this one.
-- **Current milestone:** M33 — Federation Between Installations. `M18-023` delivered the first slice — rooms shared by signed invitation, visitors relayed by their own installation — and what is left is what makes it good to use: a visitor's installation **told** what happened instead of asking every five seconds, a **call** in a room elsewhere, and an installation that **knows its own public address** instead of deriving it from whatever request happens to arrive.
+- **Current milestone:** M21 — Administration and Operations Surface. `M33` has one item left, `M33-008`, and it waits for `M32`.
 - **What M35 delivered:** Convia's own client is a desktop application people install, and the first version is for Windows: Go with Wails v2, the interface `M18` built embedded in it, and the app's Go process as the API client. Every item is complete but packaging, which is deferred — it is built and run from source. What `M18` assumed about browsers, a session in a cookie and an origin shared with the API, is corrected.
 - **Where M18 got to:** A person registers, signs in, opens and moderates rooms, holds conversations that update as they happen, and shares rooms with people on other installations. A person starts and joins calls in their rooms, with audio and video, and the room's owner and moderators moderate them. They get ready to join with a preview and their chosen devices, a call says how it is going and offers audio alone when the connection stays weak, the interface works on a phone and from the keyboard, and the critical call journeys run end to end in CI. A person can also delete their own account. Every item is complete.
 - **Where the client goes:** Convia is the communication system; the interface and the desktop application are its **reference client**, one among many, and at `V1` they move to a repository of their own. [ADR 0021](docs/adr/0021-the-reference-client-is-one-client-among-many.md) records why and what `M19` has to do first.
-- **Next implementation milestone:** M33. `M19`, the client SDK, is no longer blocked — `M35` decided what a client that is not a browser holds — but its audience is applications and services, and it waits for a product worth writing a client library against.
+- **Next implementation milestone:** decided when `M21` closes. `M20` waits for a consumer whose requirements are confirmed, which `M20-001` asks for first.
 - **Grown past one item:** sharing rooms between installations is now `M33`, and running an installation somebody else built is `M34`.
 - **Deferred for one reason in several places:** packaging and the tests that need a package (`M35-011`, `M35-012`) wait for a product worth handing to somebody. The three metrics items that waited for `M22` — `M14-013`, `M16-010` and `M17-011` — are done.
 - **License:** PolyForm Noncommercial License 1.0.0. Convia is free for noncommercial use, and commercial rights are reserved. See [`LICENSE.md`](LICENSE.md).
@@ -178,7 +178,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M04 — PostgreSQL Foundation
 
 **Priority:** P0
-**Status:** In progress. The foundation is complete; M04-012 and M04-014 stay open by their own conditions.
+**Status:** Complete
 **Depends on:** M03 and the first persistence-requiring domain decision
 **Goal:** Introduce PostgreSQL only when a real durable resource is ready to be implemented.
 **Documentation:** [`docs/database.md`](docs/database.md), implemented by `internal/database`.
@@ -413,7 +413,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M13 — Client Session Bootstrap
 
 **Priority:** P1
-**Status:** In progress, with one item left and it is blocked rather than pending. `M13-010` is the WebRTC sequence an SDK author follows after receiving a credential, and `M19` is where a real client library will establish what actually needs saying — writing it first would be writing a narrative for a consumer that does not exist.
+**Status:** Complete
 **Depends on:** M10 and M12
 **Goal:** Provide clients one Convia endpoint for joining a call and receiving short-lived connection instructions.
 
@@ -459,7 +459,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M15 — Webhooks for External Applications
 
 **Priority:** P1
-**Status:** In progress, with one item left and it is blocked rather than pending. `M15-010` is manual redelivery, and what it lacks is not mechanism but **authority**: replaying is something an operator does on a tenant's behalf during an incident, and `M20` is where the operator surface and its audit requirements are defined. Building it now would invent that authority twice.
+**Status:** In progress, with one item left and it is blocked rather than pending. `M15-010` is manual redelivery, and what it lacks is not mechanism but **authority**: replaying is something an operator does on a tenant's behalf during an incident, and `M21` is where the operator surface and its audit requirements are defined. Building it now would invent that authority twice.
 **Depends on:** Stable domain events from M09 and M10
 **Goal:** Notify server-side consumers of durable Convia events reliably and securely.
 
@@ -472,7 +472,7 @@ This document is the operational development plan for Convia. It tracks what exi
 - [x] **M15-007:** Define retry schedule, maximum age, and terminal failure behavior. Seven waits — 30s, 1m, 2m, 5m, 15m, 30m, 1h — so eight attempts over roughly two hours, and no jitter, because `M15-014` asks for deterministic tests and a schedule nobody can predict is one nobody can assert on. A delivery outstanding for more than four hours is given up on regardless of attempts: a webhook that late is worse than none, because a consumer would act on it. Which failures are worth retrying is a decision rather than a default — a destination answering `400` is refusing, and repeating it for two hours would be Convia insisting.
 - [x] **M15-008:** Add idempotency guidance for consumers. Delivery is at-least-once and `docs/webhooks.md` says so before it says anything else, because a destination that received a body and failed to answer is indistinguishable from one that never received it. Ordering is not guaranteed either, and that is stated rather than left to be discovered.
 - [x] **M15-009:** Add endpoint disablement after sustained failures. Twenty consecutive give-ups, reset by any success, so this is a statement about a destination that has stopped working rather than one having a bad afternoon. Disabling finishes whatever was queued for it, which is what keeps the worker's index free of work that is never going to happen and keeps an application from reading outstanding deliveries that are not.
-- [ ] **M15-010:** Add manual redelivery with authorization and audit logging. **Deferred.** Everything it needs exists — the delivery rows, the payload as it was signed, the endpoint — so what is missing is not mechanism but authority: replaying is the kind of operation an operator performs on a tenant's behalf during an incident, and M20 is where the operator surface and its audit requirements are defined. Doing it now would mean inventing that authority twice.
+- [ ] **M15-010:** Add manual redelivery with authorization and audit logging. **Deferred.** Everything it needs exists — the delivery rows, the payload as it was signed, the endpoint — so what is missing is not mechanism but authority: replaying is the kind of operation an operator performs on a tenant's behalf during an incident, and M21 is where the operator surface and its audit requirements are defined. Doing it now would mean inventing that authority twice.
 - [x] **M15-011:** Protect against SSRF and unsafe destination networks. The attack is worth naming: a destination is chosen by a tenant and fetched by Convia's own process from inside Convia's own network, so without this an application could point Convia at a cloud metadata service and read the recorded status code as an oracle. Three things answer it. The check is on **addresses, not names**, because a name an attacker controls resolves to whatever it likes. It runs **in the dialer**, at every attempt, so there is no earlier answer to race. And **no proxy is consulted**, because through one the connected address is the proxy's and the destination becomes a header nothing inspects — a single `HTTPS_PROXY` would have disabled all of it. Private destinations are reachable only in development, and that is not a setting: the only reason to want one is the reason not to have one.
 - [x] **M15-012:** Apply connection, response-size, redirect, and timeout limits. Ten seconds an attempt end to end, five to connect, at most 8 KiB read back and discarded, and **redirects are not followed** — a `3xx` is a failed delivery. Following one would let a destination point Convia somewhere else after registration, which is the same attack as `M15-011` wearing a different hat.
 - [x] **M15-013:** Redact secrets and sensitive payloads from logs. The signing key is a redacting type with compile-time assertions, exactly as the media secret is, so dropping a method becomes a build error rather than a silent leak. It is also absent from every read projection, so no value a handler holds carries one. The other half is what Convia refuses to store: a destination's response body is text Convia did not write, and only its status code is kept.
@@ -576,7 +576,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M19 — TypeScript Client SDK
 
 **Priority:** P1
-**Status:** Not started
+**Status:** Complete
 **Depends on:** Stable M03 and M13 contracts, and `M35` for what a client that is not a browser holds
 **Goal:** Let applications and services integrate with Convia without directly implementing its HTTP and event protocols.
 
@@ -625,18 +625,18 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M21 — Administration and Operations Surface
 
 **Priority:** P2
-**Status:** Not started
+**Status:** In progress. The audit trail exists and every domain writes to it; what remains is acting on it: reasons, re-authentication, webhook redelivery, credential rotation, and the incident actions that are not yet routes.
 **Depends on:** M05 through M17 as applicable
 **Goal:** Give authorized operators safe visibility and control without direct database manipulation.
 
-- [ ] **M21-001:** Define operator roles separately from tenant application roles.
+- [x] **M21-001:** Define operator roles separately from tenant application roles.
 - [ ] **M21-002:** Require strong authentication for operator access.
 - [ ] **M21-003:** Add application lookup and lifecycle controls.
 - [ ] **M21-004:** Add credential revocation and rotation controls.
 - [ ] **M21-005:** Add room and call inspection using redacted data.
 - [ ] **M21-006:** Add participant removal and emergency call termination.
 - [ ] **M21-007:** Add webhook delivery inspection and redelivery.
-- [ ] **M21-008:** Add audit-log search with strict access controls.
+- [x] **M21-008:** Add audit-log search with strict access controls.
 - [ ] **M21-009:** Require reasons for high-impact operator actions.
 - [ ] **M21-010:** Add tests preventing privilege escalation.
 - [ ] **M21-011:** Add confirmation and re-authentication for destructive actions.
@@ -651,7 +651,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M22 — OpenTelemetry and Structured Observability
 
 **Priority:** P2
-**Status:** Complete. [`docs/observability.md`](docs/observability.md) is what a Convia installation says about itself: every log line names its build, deployment, process and request; metrics cover the HTTP surface, calls, event streams, presence and Redis; traces cover a request and what it does underneath, continuing a caller's trace and carrying Convia's outward only where the destination was chosen by somebody the deployment admitted. `M14-013`, `M16-010` and `M17-011` closed with it. **The one thing it still cannot measure is PostgreSQL's pool**, which has spans but no metrics.
+**Status:** Complete. [`docs/observability.md`](docs/observability.md) is what a Convia installation says about itself: every log line names its build, deployment, process and request; metrics cover the HTTP surface, calls, event streams, presence and Redis; traces cover a request and what it does underneath, continuing a caller's trace and carrying Convia's outward only where the destination was chosen by somebody the deployment admitted. `M14-013`, `M16-010` and `M17-011` closed with it.
 **Depends on:** Meaningful domain and infrastructure behavior
 **Goal:** Make failures and performance understandable across HTTP, database, Redis, webhooks, and media adapters.
 
@@ -704,7 +704,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M24 — Test Strategy and Reliability
 
 **Priority:** P2
-**Status:** In progress. The test layers each earlier milestone built are in place and marked; coverage, fuzzing, failure injection and flake tracking are not.
+**Status:** In progress, with one item left: the quarantined test in `M24-017`.
 **Depends on:** Each implemented domain milestone
 **Goal:** Build confidence through deterministic layers of tests and explicit failure-mode coverage.
 

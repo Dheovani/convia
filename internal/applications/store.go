@@ -32,6 +32,18 @@ func (store *Store) db(ctx context.Context) transaction.Querier {
 	return transaction.On(ctx, store.pool)
 }
 
+/*
+Atomically runs work in one transaction, so that a change and the audit entry
+for it are committed together or not at all.
+
+A suspended tenant with no record of who suspended it has the state without the
+accountability, and the operator reading the trail afterwards cannot tell that
+from nobody having done it.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
 // Create inserts a new application.
 func (store *Store) Create(ctx context.Context, application Application) error {
 	const statement = `INSERT INTO applications (` + columns + `) VALUES ($1, $2, $3, $4, $5)`

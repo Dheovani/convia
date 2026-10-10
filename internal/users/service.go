@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
+
+	"convia/internal/audit"
 )
 
 const (
@@ -34,11 +35,23 @@ so a caller cannot reach another tenant's users even with a valid identifier.
 type Service struct {
 	store   *Store
 	tenants tenants
-	logger  *slog.Logger
+	trail   trail
 }
 
-func NewService(store *Store, owner tenants, logger *slog.Logger) *Service {
-	return &Service{store: store, tenants: owner, logger: logger}
+/*
+trail is the durable audit record this service writes to.
+
+It replaced the logger, which only ever wrote audit lines, all of them saying
+`actor=unauthenticated` beside a comment that the actor was "a placeholder until
+M07". The trail reads the actor off the request, where the middleware that
+verified a credential put it.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+func NewService(store *Store, owner tenants, entries trail) *Service {
+	return &Service{store: store, tenants: owner, trail: entries}
 }
 
 // Identity is the request to resolve an application's person into a Convia user.
@@ -104,18 +117,29 @@ func (service *Service) Resolve(ctx context.Context, applicationID string, ident
 	}
 
 	created := now()
-	user, isNew, err := service.store.Resolve(ctx, User{
-		ID:              NewID(),
-		ApplicationID:   applicationID,
-		ExternalSubject: subject,
-		DisplayName:     name,
-		Metadata:        metadata,
-		Status:          StatusActive,
-		CreatedAt:       created,
-		UpdatedAt:       created,
+	var user User
+	var isNew bool
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		user, isNew, err = service.store.Resolve(ctx, User{
+			ID:              NewID(),
+			ApplicationID:   applicationID,
+			ExternalSubject: subject,
+			DisplayName:     name,
+			Metadata:        metadata,
+			Status:          StatusActive,
+			CreatedAt:       created,
+			UpdatedAt:       created,
+		})
+		if err != nil {
+			return fmt.Errorf("resolve user: %w", err)
+		}
+		if !isNew {
+			return nil
+		}
+		return service.audit(ctx, "user.created", user)
 	})
 	if err != nil {
-		return User{}, false, fmt.Errorf("resolve user: %w", err)
+		return User{}, false, err
 	}
 
 	/*
@@ -129,9 +153,6 @@ func (service *Service) Resolve(ctx context.Context, applicationID string, ident
 		return User{}, false, ErrSubjectDeleted
 	}
 
-	if isNew {
-		service.audit(ctx, "user.created", user)
-	}
 	return user, isNew, nil
 }
 
@@ -193,12 +214,18 @@ func (service *Service) Update(ctx context.Context, applicationID, id string,
 		return User{}, err
 	}
 
-	updated, err := service.store.UpdateAttributes(ctx, applicationID, current.ID, *name, metadata, now(), guard)
+	var updated User
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		updated, err = service.store.UpdateAttributes(ctx, applicationID, current.ID, *name, metadata, now(), guard)
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		return service.audit(ctx, "user.updated", updated)
+	})
 	if err != nil {
-		return User{}, wrapUpdate(err)
+		return User{}, err
 	}
 
-	service.audit(ctx, "user.updated", updated)
 	return updated, nil
 }
 
@@ -232,16 +259,16 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 		return ErrNotFound
 	}
 
-	deleted, err := service.store.Delete(ctx, applicationID, id, now())
-	if err != nil {
-		return wrapUpdate(err)
-	}
-	if !deleted {
-		return nil
-	}
-
-	service.audit(ctx, "user.deleted", User{ID: id, ApplicationID: applicationID, Status: StatusDeleted})
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		deleted, err := service.store.Delete(ctx, applicationID, id, now())
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		if !deleted {
+			return nil
+		}
+		return service.audit(ctx, "user.deleted", User{ID: id, ApplicationID: applicationID, Status: StatusDeleted})
+	})
 }
 
 /*
@@ -260,14 +287,16 @@ func (service *Service) Retire(ctx context.Context, applicationID, id string) er
 		return ErrNotFound
 	}
 
-	retired, err := service.store.Retire(ctx, applicationID, id, now())
-	if err != nil {
-		return wrapUpdate(err)
-	}
-	if retired {
-		service.audit(ctx, "user.deleted", User{ID: id, ApplicationID: applicationID, Status: StatusDeleted})
-	}
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		retired, err := service.store.Retire(ctx, applicationID, id, now())
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		if !retired {
+			return nil
+		}
+		return service.audit(ctx, "user.deleted", User{ID: id, ApplicationID: applicationID, Status: StatusDeleted})
+	})
 }
 
 // transition moves a user to a lifecycle state, or leaves it unchanged.
@@ -281,12 +310,18 @@ func (service *Service) transition(ctx context.Context, applicationID, id string
 		return current, nil
 	}
 
-	updated, err := service.store.SetStatus(ctx, applicationID, current.ID, status, now(), nil)
+	var updated User
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		updated, err = service.store.SetStatus(ctx, applicationID, current.ID, status, now(), nil)
+		if err != nil {
+			return wrapUpdate(err)
+		}
+		return service.audit(ctx, event, updated)
+	})
 	if err != nil {
-		return User{}, wrapUpdate(err)
+		return User{}, err
 	}
 
-	service.audit(ctx, event, updated)
 	return updated, nil
 }
 
@@ -431,20 +466,17 @@ func pageSize(requested int) (int, error) {
 /*
 audit records a change to an identity.
 
-As with applications, audit entries are structured logs correlated by request
-ID rather than a queryable trail, and the actor is a placeholder until M07
-introduces authenticated principals. The external subject is deliberately
-absent: it is application-owned data that may identify a person, and an audit
-record does not need it to be useful.
+The external subject is deliberately absent: it is application-owned data that
+may identify a person, and an audit entry does not need it to be useful. The
+display name and metadata are absent for the same reason.
 */
-func (service *Service) audit(ctx context.Context, event string, user User) {
-	service.logger.InfoContext(ctx, "audit event",
-		"event", event,
-		"user_id", user.ID,
-		"application_id", user.ApplicationID,
-		"user_status", user.Status,
-		"actor", "unauthenticated",
-	)
+func (service *Service) audit(ctx context.Context, action string, user User) error {
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "user", ID: user.ID},
+		ApplicationID: user.ApplicationID,
+	})
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

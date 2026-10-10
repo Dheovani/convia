@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/users"
@@ -81,17 +82,20 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
 	if err := applicationService.EnsureFirstParty(context.Background()); err != nil {
 		t.Fatalf("create the first-party application: %v", err)
 	}
 
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
 	store := NewStore(pool)
 
 	logs.Reset()
 	return fixture{
-		service:     NewService(store, userService, applications.FirstPartyID, logger),
+		service: NewService(store, userService, applications.FirstPartyID,
+			audit.NewService(audit.NewStore(pool), logger), logger),
 		store:       store,
 		users:       userService,
 		pool:        pool,
@@ -386,5 +390,46 @@ func TestNothingSecretReachesTheAuditLog(t *testing.T) {
 	}
 	if !strings.Contains(written, "account.refused") {
 		t.Errorf("a refused sign-in was not recorded:\n%s", written)
+	}
+}
+
+/*
+TestRegisteringIsCreditedToThePersonRegistering keeps the one public route that
+makes an identity from appearing in the trail as Convia's own doing.
+
+Nobody verified a credential on the way in, so the middleware recorded nobody.
+The account domain is what checked the password, which makes it the one place
+able to say who acted -- and both rows registration makes, the user and the
+account, are credited to the person they belong to.
+*/
+func TestRegisteringIsCreditedToThePersonRegistering(t *testing.T) {
+	setup := newFixture(t)
+
+	account, _, err := setup.service.Register(context.Background(), "carla", samplePassword)
+	if err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+
+	rows, err := setup.pool.Query(context.Background(),
+		`SELECT action, actor_kind, coalesce(actor_id, '') FROM audit_entries ORDER BY recorded_at, id`)
+	if err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+	defer rows.Close()
+
+	credited := map[string]string{}
+	for rows.Next() {
+		var action, kind, actor string
+		if err := rows.Scan(&action, &kind, &actor); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		credited[action] = kind + ":" + actor
+	}
+
+	want := "person:" + account.ID
+	for _, action := range []string{"user.created", "account.registered"} {
+		if credited[action] != want {
+			t.Errorf("%s was credited to %q, want %q", action, credited[action], want)
+		}
 	}
 }

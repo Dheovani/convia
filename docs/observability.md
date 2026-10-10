@@ -290,7 +290,7 @@ A dashboard is written in whatever the deployment runs, so what is durable is wh
 
 The rule is older than this milestone and is enforced rather than remembered:
 
-- **Nothing anybody said.** An audit line records that somebody wrote in a room, which room, and when. A test asserts the body never reaches an event or a log. See [`messages.md`](messages.md).
+- **Nothing anybody said.** A log line records that somebody wrote in a room, which room, and when. A test asserts the body never reaches an event or a log. See [`messages.md`](messages.md).
 - **No credential, in any form.** Every secret type renders as `[redacted]` to `fmt` and to `slog`, with compile-time assertions that make dropping one a build error rather than a silent leak. See [`threat-model.md`](threat-model.md).
 - **No external subject or display name in audit records**, so the trail stays useful without accumulating personal data in a place that is shipped and retained.
 - **No query arguments in a database span**, and no keys in a Redis one.

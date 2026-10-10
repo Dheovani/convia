@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/calls"
 	"convia/internal/config"
 	"convia/internal/database"
@@ -94,16 +95,22 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
 	announcer := serving.NewAnnouncer(events.NewBroker(), nil, logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		media.Absent{}, announcer, logger)
+		media.Absent{}, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 	participantService := participants.NewService(participants.NewStore(pool),
-		applicationService, callService, roomService, userService, announcer, logger)
+		applicationService, callService, roomService, userService, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 	invitationService := invitations.NewService(invitations.NewStore(pool), applicationService,
-		callService, userService, participantService, announcer, logger)
+		callService, userService, participantService, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 
 	store := NewStore(pool)
 	// The message service announces into a recorder so that a test can assert

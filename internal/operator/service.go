@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
+	"strings"
 	"time"
+
+	"convia/internal/audit"
 )
 
 const (
@@ -23,12 +25,25 @@ asks no question about tenancy, because an operator belongs to no tenant: what
 it may do is decided entirely by the scopes on its own key.
 */
 type Service struct {
-	store  *Store
-	logger *slog.Logger
+	store *Store
+	trail trail
 }
 
-func NewService(store *Store, logger *slog.Logger) *Service {
-	return &Service{store: store, logger: logger}
+/*
+trail is the durable audit record this service writes to.
+
+It replaced the logger, which only ever wrote audit lines. The trail reads the
+actor off the request instead of this service working it out: an operator key
+minted over the API names the operator who minted it, and one minted by
+`convia operator issue` names the system, because what authorized it was access
+to the database rather than a credential anybody presented.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+func NewService(store *Store, entries trail) *Service {
+	return &Service{store: store, trail: entries}
 }
 
 // Request is what an operator asks for when issuing an operator credential.
@@ -83,11 +98,16 @@ func (service *Service) Issue(ctx context.Context, request Request) (Credential,
 	}
 
 	value := NewSecret()
-	if err := service.store.Create(ctx, credential, Digest(value)); err != nil {
-		return Credential{}, "", fmt.Errorf("issue operator credential: %w", err)
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, credential, Digest(value)); err != nil {
+			return fmt.Errorf("issue operator credential: %w", err)
+		}
+		return service.audit(ctx, "operator_credential.issued", credential)
+	})
+	if err != nil {
+		return Credential{}, "", err
 	}
 
-	service.audit(ctx, "operator_credential.issued", credential)
 	return credential, value, nil
 }
 
@@ -179,16 +199,16 @@ func (service *Service) Revoke(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 
-	revoked, err := service.store.Revoke(ctx, id, now())
-	if err != nil {
-		return err
-	}
-	if !revoked {
-		return nil
-	}
-
-	service.audit(ctx, "operator_credential.revoked", Credential{ID: id})
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		revoked, err := service.store.Revoke(ctx, id, now())
+		if err != nil {
+			return err
+		}
+		if !revoked {
+			return nil
+		}
+		return service.audit(ctx, "operator_credential.revoked", Credential{ID: id})
+	})
 }
 
 /*
@@ -228,18 +248,17 @@ audit records an operator credential change.
 The record names the credential by its public identifier and never carries the
 secret, the digest, or the presented token.
 */
-func (service *Service) audit(ctx context.Context, event string, credential Credential) {
-	actor := "bootstrap"
-	if principal, found := PrincipalFromContext(ctx); found {
-		actor = principal.CredentialID
+func (service *Service) audit(ctx context.Context, action string, credential Credential) error {
+	written := audit.Written{
+		Action:  action,
+		Subject: audit.Subject{Kind: "operator_credential", ID: credential.ID},
+	}
+	if len(credential.Scopes) > 0 {
+		written.Details = map[string]string{"scopes": strings.Join(texts(credential.Scopes), " ")}
 	}
 
-	service.logger.InfoContext(ctx, "audit event",
-		"event", event,
-		"operator_credential_id", credential.ID,
-		"scopes", texts(credential.Scopes),
-		"actor", actor,
-	)
+	_, err := service.trail.Record(ctx, written)
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

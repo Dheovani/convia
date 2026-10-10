@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 )
@@ -79,13 +79,14 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
 	logs.Reset()
 	return fixture{
-		service: NewService(NewStore(pool), applicationService, logger),
+		service: NewService(NewStore(pool), applicationService, audit.NewService(audit.NewStore(pool), logger)),
 		pool:    pool,
 		first:   first,
 		second:  second,
@@ -473,19 +474,19 @@ func TestAuditRecordsCreationWithoutTheSubject(t *testing.T) {
 		t.Fatalf("Resolve() repeated error = %v", err)
 	}
 
-	creations := 0
-	for _, line := range strings.Split(strings.TrimSpace(setup.logs.String()), "\n") {
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		if entry["event"] == "user.created" && entry["user_id"] == created.ID {
-			creations++
-		}
+	if creations := countAuditEvents(t, setup, "user.created", created.ID); creations != 1 {
+		t.Errorf("audit recorded %d creations, want exactly 1", creations)
 	}
 
-	if creations != 1 {
-		t.Errorf("audit recorded %d creations, want exactly 1", creations)
+	var stored string
+	if err := setup.pool.QueryRow(ctx, `SELECT string_agg(row_to_json(audit_entries)::text, ' ') FROM audit_entries`).
+		Scan(&stored); err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+	for _, personal := range []string{"ada@example.test", "Ada Lovelace"} {
+		if strings.Contains(stored, personal) {
+			t.Errorf("the audit trail holds %q, which is application-owned personal data", personal)
+		}
 	}
 	if strings.Contains(setup.logs.String(), "ada@example.test") {
 		t.Error("the audit log contains the external subject, which is application-owned personal data")
@@ -496,18 +497,14 @@ func TestAuditRecordsCreationWithoutTheSubject(t *testing.T) {
 }
 
 // countAuditEvents reports how many audit entries name one event for one user.
-func countAuditEvents(t *testing.T, setup fixture, event, userID string) int {
+func countAuditEvents(t *testing.T, setup fixture, action, userID string) int {
 	t.Helper()
 
-	found := 0
-	for _, line := range strings.Split(strings.TrimSpace(setup.logs.String()), "\n") {
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		if entry["event"] == event && entry["user_id"] == userID {
-			found++
-		}
+	var found int
+	if err := setup.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_entries WHERE action = $1 AND subject_kind = 'user' AND subject_id = $2`,
+		action, userID).Scan(&found); err != nil {
+		t.Fatalf("count audit entries: %v", err)
 	}
 	return found
 }

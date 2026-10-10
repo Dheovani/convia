@@ -16,6 +16,8 @@ import (
 	"convia/internal/accounts"
 	"convia/internal/api"
 	"convia/internal/applications"
+	"convia/internal/audit"
+	"convia/internal/audit/reading"
 	"convia/internal/calls"
 	"convia/internal/credentials"
 	"convia/internal/departure"
@@ -275,6 +277,7 @@ func newAuthenticatedDependency(application stubApplications, user stubUsers,
 		Calls:                 calls.NewHandler(logger, stubCalls{call: sampleCall()}),
 		Participants:          participants.NewHandler(logger, stubParticipants{participant: sampleParticipant()}),
 		OperatorCredentials:   operator.NewHandler(logger, stubOperatorCredentials{credential: sampleOperatorCredential()}),
+		Audit:                 reading.NewHandler(logger, stubAudit{}),
 
 		Authenticator:      verifier,
 		TenantUsers:        users.NewTenantHandler(logger, user),
@@ -551,6 +554,21 @@ func (stub stubOperatorAuthenticator) Authenticate(context.Context, string) (ope
 }
 
 // stubOperatorCredentials stands in for the operator credential service.
+// stubAudit answers every search with one entry, so a response has a shape to check.
+type stubAudit struct{}
+
+func (stubAudit) Search(context.Context, audit.SearchOptions) (audit.Page, error) {
+	return audit.Page{Entries: []audit.Entry{{
+		ID:            "aud_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Action:        "application.suspended",
+		Actor:         audit.Actor{Kind: audit.KindOperator, ID: "oper_7KQZP4XN2VJH6TBWMDR3YAFC5E"},
+		ApplicationID: "app_7KQZP4XN2VJH6TBWMDR3YAFC5E",
+		Subject:       audit.Subject{Kind: "application", ID: "app_7KQZP4XN2VJH6TBWMDR3YAFC5E"},
+		RequestID:     "req_test",
+		RecordedAt:    time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC),
+	}}}, nil
+}
+
 type stubOperatorCredentials struct {
 	credential operator.Credential
 	page       operator.Page

@@ -16,6 +16,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/api"
+	"convia/internal/audit"
 	"convia/internal/calls"
 	"convia/internal/rooms"
 	"convia/internal/sessions"
@@ -71,8 +72,22 @@ type Service struct {
 	// public is the address an operator says other installations reach this
 	// one at, already checked, or "". See [Service.answers].
 	public string
+	trail  trail
 	logger *slog.Logger
 	now    func() time.Time
+}
+
+/*
+trail is the durable audit record this service writes to: room invitations
+made, withdrawn and accepted, and rooms elsewhere a person joined.
+
+The actor of an acceptance is whoever this installation verified. On the peer
+surface that is another installation vouching for one of its own people, and
+the trail says so rather than crediting the person as though they had signed in
+here.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
 }
 
 func NewService(
@@ -84,6 +99,7 @@ func NewService(
 	client relay,
 	firstPartyApplication string,
 	public string,
+	entries trail,
 	logger *slog.Logger,
 ) *Service {
 	return &Service{
@@ -95,6 +111,7 @@ func NewService(
 		client:      client,
 		application: firstPartyApplication,
 		public:      public,
+		trail:       entries,
 		logger:      logger,
 		now:         func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
 	}
@@ -179,11 +196,16 @@ func (service *Service) Invite(ctx context.Context, principal sessions.Principal
 		CreatedAt:        created,
 		ExpiresAt:        created.Add(InvitationLifetime),
 	}
-	if err := service.store.CreateInvitation(ctx, invitation); err != nil {
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.CreateInvitation(ctx, invitation); err != nil {
+			return err
+		}
+		return service.audit(ctx, "room_invitation.created", invitation)
+	})
+	if err != nil {
 		return Invitation{}, err
 	}
 
-	service.audit(ctx, "room_invitation.created", invitation)
 	return invitation, nil
 }
 
@@ -230,16 +252,18 @@ func (service *Service) Revoke(ctx context.Context, principal sessions.Principal
 		return ErrNotFound
 	}
 
-	revoked, err := service.store.RevokeInvitation(ctx, principal.ApplicationID, id, principal.UserID, service.now())
-	if err != nil {
-		return err
-	}
-	if !revoked {
-		return ErrNotFound
-	}
-
-	service.logger.InfoContext(ctx, "audit event", "event", "room_invitation.revoked", "invitation_id", id)
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		revoked, err := service.store.RevokeInvitation(ctx, principal.ApplicationID, id, principal.UserID, service.now())
+		if err != nil {
+			return err
+		}
+		if !revoked {
+			return ErrNotFound
+		}
+		return service.audit(ctx, "room_invitation.revoked", Invitation{
+			ID: id, ApplicationID: principal.ApplicationID,
+		})
+	})
 }
 
 /*
@@ -379,8 +403,18 @@ func (service *Service) accept(ctx context.Context, accountID, username, id stri
 		return Accepted{}, fmt.Errorf("add the invitee: %w", err)
 	}
 
+	/*
+		The membership is already in place, made by another domain under its own
+		transaction, so a trail that cannot be written is logged rather than
+		allowed to tell somebody they did not join a room they are in. The
+		trail still holds the room gaining them, which is the half an operator
+		asks about.
+	*/
 	invitation.AcceptedUserID = person.ID
-	service.audit(ctx, "room_invitation.accepted", invitation)
+	if err := service.audit(ctx, "room_invitation.accepted", invitation); err != nil {
+		service.logger.ErrorContext(ctx, "an accepted invitation was not recorded in the audit trail",
+			"error", err, "invitation_id", invitation.ID)
+	}
 	return Accepted{RoomID: room.ID, RoomName: room.Name, UserID: person.ID, Local: local}, nil
 }
 
@@ -611,8 +645,17 @@ func (service *Service) Join(
 		return Joined{}, err
 	}
 
-	service.logger.InfoContext(ctx, "audit event", "event", "remote_room.joined", "account_id", account.ID,
-		"remote_room_id", remote.ID)
+	// Logged rather than refused on failure, for the reason an acceptance is:
+	// the pointer is saved, and the person has joined.
+	if _, err := service.trail.Record(ctx, audit.Written{
+		Action:        "remote_room.joined",
+		Subject:       audit.Subject{Kind: "remote_room", ID: remote.ID},
+		ApplicationID: service.application,
+		Details:       map[string]string{"account_id": account.ID},
+	}); err != nil {
+		service.logger.ErrorContext(ctx, "a room joined elsewhere was not recorded in the audit trail",
+			"error", err, "remote_room_id", remote.ID)
+	}
 	return Joined{RoomID: remote.RoomID, RoomName: remote.Name, Remote: &remote}, nil
 }
 
@@ -1028,16 +1071,30 @@ func plainText(value string, limit int) bool {
 	return true
 }
 
-func (service *Service) audit(ctx context.Context, event string, invitation Invitation) {
-	attributes := []any{
-		"event", event,
-		"invitation_id", invitation.ID,
-		"room_id", invitation.RoomID,
-		"inviter_user_id", invitation.InviterUserID,
-		"invitee_account_id", invitation.InviteeAccountID,
+/*
+audit records a change to a room invitation.
+
+The invitee's username is not recorded: it is what a person chose to be called,
+and the account identifier says the same thing to an operator.
+*/
+func (service *Service) audit(ctx context.Context, action string, invitation Invitation) error {
+	details := map[string]string{}
+	for name, value := range map[string]string{
+		"room_id":            invitation.RoomID,
+		"inviter_user_id":    invitation.InviterUserID,
+		"invitee_account_id": invitation.InviteeAccountID,
+		"user_id":            invitation.AcceptedUserID,
+	} {
+		if value != "" {
+			details[name] = value
+		}
 	}
-	if invitation.AcceptedUserID != "" {
-		attributes = append(attributes, "user_id", invitation.AcceptedUserID)
-	}
-	service.logger.Info("audit event", attributes...)
+
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "room_invitation", ID: invitation.ID},
+		ApplicationID: invitation.ApplicationID,
+		Details:       details,
+	})
+	return err
 }

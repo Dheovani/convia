@@ -17,6 +17,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
@@ -75,21 +76,26 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
 	if err := applicationService.EnsureFirstParty(ctx); err != nil {
 		t.Fatalf("EnsureFirstParty() error = %v", err)
 	}
 	announcer := serving.NewAnnouncer(events.NewBroker(), nil, logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 	// Nobody here arrived by invitation, which is all the message service asks invitations about.
 	messageService := messages.NewService(messages.NewStore(pool), applicationService, roomService, userService,
 		nil, announcer, logger)
-	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
+	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 	sessionService := sessions.NewService(sessions.NewStore(pool), accountService, applicationService,
-		userService, applications.FirstPartyID, logger)
+		userService, applications.FirstPartyID, audit.NewService(audit.NewStore(pool), logger), logger)
 	peerService := peers.NewService(peers.NewStore(pool), roomService, userService, applicationService,
-		accountService, peers.NewClient(webhooks.NewDestinations(true)), applications.FirstPartyID, "", logger)
+		accountService, peers.NewClient(webhooks.NewDestinations(true)), applications.FirstPartyID, "",
+		audit.NewService(audit.NewStore(pool), logger), logger)
 
 	return fixture{
 		service:  NewService(accountService, peerService, roomService, messageService, userService, logger),

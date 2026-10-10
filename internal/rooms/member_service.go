@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"convia/internal/api"
 	"convia/internal/events"
@@ -260,8 +259,20 @@ func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID s
 			UserID:        userID,
 			CreatedAt:     service.now(),
 		})
-		if err != nil || !removed {
+
+		if err != nil {
 			return err
+		}
+
+		if banned {
+			if err := service.moderated(ctx, "room.member_banned", applicationID, room.ID,
+				map[string]string{"user_id": userID}); err != nil {
+				return err
+			}
+		}
+
+		if !removed {
+			return nil
 		}
 		return service.departed(ctx, applicationID, room.ID, userID)
 	})
@@ -269,13 +280,6 @@ func (service *Service) Ban(ctx context.Context, applicationID, roomID, userID s
 		return false, err
 	}
 
-	if banned {
-		service.logger.InfoContext(ctx, "room.member_banned",
-			"application_id", applicationID,
-			"room_id", room.ID,
-			"user_id", userID,
-		)
-	}
 	return removed, nil
 }
 
@@ -287,18 +291,20 @@ func (service *Service) Unban(ctx context.Context, applicationID, roomID, userID
 		return false, err
 	}
 
-	lifted, err := service.store.Unban(ctx, applicationID, room.ID, userID)
+	var lifted bool
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		lifted, err = service.store.Unban(ctx, applicationID, room.ID, userID)
+		if err != nil || !lifted {
+			return err
+		}
+		return service.moderated(ctx, "room.member_unbanned", applicationID, room.ID,
+			map[string]string{"user_id": userID})
+	})
 	if err != nil {
 		return false, err
 	}
 
-	if lifted {
-		service.logger.InfoContext(ctx, "room.member_unbanned",
-			"application_id", applicationID,
-			"room_id", room.ID,
-			"user_id", userID,
-		)
-	}
 	return lifted, nil
 }
 
@@ -518,25 +524,17 @@ func (service *Service) TransferOwner(ctx context.Context, applicationID, roomID
 		if err := service.store.TransferOwner(ctx, applicationID, roomID, from, to); err != nil {
 			return err
 		}
+		if err := service.moderated(ctx, "room.owner_transferred", applicationID, roomID,
+			map[string]string{"from_user_id": from, "to_user_id": to}); err != nil {
+			return err
+		}
 		if err := service.announceRole(ctx, applicationID, roomID, to, RoleOwner); err != nil {
 			return err
 		}
 		return service.announceRole(ctx, applicationID, roomID, from, RoleMember)
 	})
 
-	if err != nil {
-		return err
-	}
-
-	fromForLog := strings.ReplaceAll(strings.ReplaceAll(from, "\n", ""), "\r", "")
-	toForLog := strings.ReplaceAll(strings.ReplaceAll(to, "\n", ""), "\r", "")
-	service.logger.InfoContext(ctx, "room.owner_transferred",
-		"application_id", applicationID,
-		"room_id", roomID,
-		"from_user_id", fromForLog,
-		"to_user_id", toForLog,
-	)
-	return nil
+	return err
 }
 
 // Moderating reports whether somebody moderates a room without owning it.

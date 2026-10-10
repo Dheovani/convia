@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"time"
 
+	"convia/internal/audit"
 	"convia/internal/users"
 )
 
@@ -91,6 +92,7 @@ type Service struct {
 	store       *Store
 	people      people
 	application string
+	trail       trail
 	logger      *slog.Logger
 
 	/*
@@ -101,11 +103,26 @@ type Service struct {
 	hashing chan struct{}
 }
 
-func NewService(store *Store, directory people, firstPartyApplication string, logger *slog.Logger) *Service {
+/*
+trail is the durable audit record this service writes to: an account
+registered, its password changed, suspended, restored or deleted.
+
+Signing in is not here, and nor is a refused attempt. The durable record of a
+sign-in is the session it began, which is written with the session; and writing
+every failed attempt to a table nothing prunes would hand anybody who can reach
+the sign-in form a way to fill the disk. Both are still logged.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+func NewService(store *Store, directory people, firstPartyApplication string, entries trail,
+	logger *slog.Logger) *Service {
 	return &Service{
 		store:       store,
 		people:      directory,
 		application: firstPartyApplication,
+		trail:       entries,
 		logger:      logger,
 		hashing:     make(chan struct{}, maxConcurrentHashes),
 	}
@@ -184,30 +201,46 @@ func (service *Service) Register(ctx context.Context, username string, password 
 		return Account{}, Identity{}, err
 	}
 
-	person, _, err := service.people.Resolve(ctx, service.application, users.Identity{
-		ExternalSubject: identity.ID(),
-		DisplayName:     name,
+	/*
+		The actor is the account being made, which this service is the one
+		thing able to say. Registration happens on a public route, so nobody
+		verified a credential on the way in -- and the credential is the
+		password just chosen, checked by being the one the identity is sealed
+		with. Without this the trail would credit every registration, and the
+		user row made for it, to the system.
+	*/
+	ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindPerson, ID: identity.ID()})
+
+	var account Account
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		person, _, err := service.people.Resolve(ctx, service.application, users.Identity{
+			ExternalSubject: identity.ID(),
+			DisplayName:     name,
+		})
+		if err != nil {
+			return fmt.Errorf("resolve the account's user: %w", err)
+		}
+
+		created := now()
+		account = Account{
+			ID:        identity.ID(),
+			Username:  name,
+			PublicKey: identity.Public,
+			UserID:    person.ID,
+			Status:    StatusActive,
+			CreatedAt: created,
+			UpdatedAt: created,
+		}
+
+		if err := service.store.Create(ctx, account, digest, sealed); err != nil {
+			return err
+		}
+		return service.audit(ctx, "account.registered", account)
 	})
 	if err != nil {
-		return Account{}, Identity{}, fmt.Errorf("resolve the account's user: %w", err)
-	}
-
-	created := now()
-	account := Account{
-		ID:        identity.ID(),
-		Username:  name,
-		PublicKey: identity.Public,
-		UserID:    person.ID,
-		Status:    StatusActive,
-		CreatedAt: created,
-		UpdatedAt: created,
-	}
-
-	if err := service.store.Create(ctx, account, digest, sealed); err != nil {
 		return Account{}, Identity{}, err
 	}
 
-	service.audit(ctx, "account.registered", account)
 	return account, identity, nil
 }
 
@@ -288,7 +321,10 @@ func (service *Service) Authenticate(ctx context.Context, username string, passw
 		service.upgrade(ctx, account, identity, password)
 	}
 
-	service.audit(ctx, "account.authenticated", account)
+	service.logger.InfoContext(ctx, "account.authenticated",
+		"account_id", account.ID,
+		"user_id", account.UserID,
+	)
 	return account, identity, nil
 }
 
@@ -342,11 +378,16 @@ func (service *Service) ChangePassword(ctx context.Context, id string, current, 
 		return Identity{}, err
 	}
 
-	if err := service.store.SetSecrets(ctx, id, replacement, resealed, now()); err != nil {
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.SetSecrets(ctx, id, replacement, resealed, now()); err != nil {
+			return err
+		}
+		return service.audit(ctx, "account.password_changed", account)
+	})
+	if err != nil {
 		return Identity{}, err
 	}
 
-	service.audit(ctx, "account.password_changed", account)
 	return identity, nil
 }
 
@@ -386,12 +427,12 @@ func (service *Service) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := service.store.Delete(ctx, id); err != nil {
-		return err
-	}
-
-	service.audit(ctx, "account.deleted", account)
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Delete(ctx, id); err != nil {
+			return err
+		}
+		return service.audit(ctx, "account.deleted", account)
+	})
 }
 
 // Get returns one account.
@@ -410,12 +451,19 @@ func (service *Service) Activate(ctx context.Context, id string) (Account, error
 }
 
 func (service *Service) transition(ctx context.Context, id string, status Status, event string) (Account, error) {
-	account, err := service.store.SetStatus(ctx, id, status, now())
+	var account Account
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		account, err = service.store.SetStatus(ctx, id, status, now())
+		if err != nil {
+			return err
+		}
+		return service.audit(ctx, event, account)
+	})
 	if err != nil {
 		return Account{}, err
 	}
 
-	service.audit(ctx, event, account)
 	return account, nil
 }
 
@@ -554,13 +602,13 @@ The account identifier is recorded and the username is not. An identifier Convia
 derived says the same thing for an operator reading a log, without putting what
 a person chose to be called into a file that is shipped and retained.
 */
-func (service *Service) audit(ctx context.Context, event string, account Account) {
-	service.logger.InfoContext(ctx, "audit event",
-		"event", event,
-		"account_id", account.ID,
-		"user_id", account.UserID,
-		"account_status", string(account.Status),
-	)
+func (service *Service) audit(ctx context.Context, action string, account Account) error {
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "account", ID: account.ID},
+		ApplicationID: service.application,
+	})
+	return err
 }
 
 /*

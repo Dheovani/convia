@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
@@ -100,8 +101,10 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
@@ -109,10 +112,12 @@ func newFixtureWith(t *testing.T, plane MediaPlane) fixture {
 	// No durable sink: these tests are about what the domain announces,
 	// not about where it is later delivered.
 	announcer := serving.NewAnnouncer(broker, nil, logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 
 	setup := fixture{
-		service:      NewService(NewStore(pool), applicationService, roomService, plane, announcer, logger),
+		service: NewService(NewStore(pool), applicationService, roomService, plane, announcer,
+			audit.NewService(audit.NewStore(pool), logger), logger),
 		pool:         pool,
 		rooms:        roomService,
 		applications: applicationService,
@@ -634,11 +639,14 @@ the audit trail.
 
 The metadata and the end reason are composed by the application and may say
 something about the people in the call. What an operator needs is which call
-changed, in which room, for which tenant, and on whose authority.
+changed, in which room, for which tenant, and on whose authority -- and the
+authority is the one the request was verified as, which is why the operator is
+put in the context rather than only named to End.
 */
 func TestTheAuditRecordsTheTransitionWithoutTheLabels(t *testing.T) {
 	setup := newFixture(t)
 	ctx := context.Background()
+	operating := audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindOperator, ID: "oper_7KQZP4XN2VJH6TBWMDR3YAFC5E"})
 
 	const (
 		secretReason   = "patient-consultation-ended"
@@ -650,25 +658,45 @@ func TestTheAuditRecordsTheTransitionWithoutTheLabels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if _, err := setup.service.End(ctx, setup.first, call.ID, ActorOperator, secretReason); err != nil {
+	if _, err := setup.service.End(operating, setup.first, call.ID, ActorOperator, secretReason); err != nil {
 		t.Fatalf("End() error = %v", err)
 	}
 
-	recorded := setup.logs.String()
+	rows, err := setup.pool.Query(ctx, `SELECT action, actor_kind, coalesce(actor_id, ''), application_id,
+		details->>'room_id', row_to_json(audit_entries)::text
+		FROM audit_entries WHERE subject_kind = 'call' AND subject_id = $1 ORDER BY recorded_at, id`, call.ID)
+	if err != nil {
+		t.Fatalf("read the trail: %v", err)
+	}
+	defer rows.Close()
 
-	for _, event := range []string{"call.started", "call.ended"} {
-		if !strings.Contains(recorded, event) {
-			t.Errorf("the audit trail does not record %q", event)
+	var actions []string
+	for rows.Next() {
+		var action, kind, actor, application, room, whole string
+		if err := rows.Scan(&action, &kind, &actor, &application, &room, &whole); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		actions = append(actions, action)
+
+		if application != setup.first || room != setup.firstRoom {
+			t.Errorf("%s names tenant %q and room %q", action, application, room)
+		}
+		if action == "call.ended" && (kind != "operator" || actor != "oper_7KQZP4XN2VJH6TBWMDR3YAFC5E") {
+			t.Errorf("the call was ended by %s %q, want the operator who ended it", kind, actor)
+		}
+		for _, leaked := range []string{secretReason, secretMetadata} {
+			if strings.Contains(whole, leaked) {
+				t.Errorf("the audit trail recorded application-composed text: %q", leaked)
+			}
 		}
 	}
-	for _, expected := range []string{call.ID, setup.first, setup.firstRoom, string(ActorOperator)} {
-		if !strings.Contains(recorded, expected) {
-			t.Errorf("the audit trail does not record %q", expected)
-		}
+	if strings.Join(actions, " ") != "call.started call.ended" {
+		t.Errorf("the trail holds %v, want the call starting and then ending", actions)
 	}
+
 	for _, leaked := range []string{secretReason, secretMetadata} {
-		if strings.Contains(recorded, leaked) {
-			t.Errorf("the audit trail recorded application-composed text: %q", leaked)
+		if strings.Contains(setup.logs.String(), leaked) {
+			t.Errorf("the log recorded application-composed text: %q", leaked)
 		}
 	}
 }
