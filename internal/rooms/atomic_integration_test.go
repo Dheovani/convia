@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"convia/internal/audit"
 	"convia/internal/events"
 )
 
@@ -29,8 +30,9 @@ func TestAChangeThatCannotBeAnnouncedDoesNotHappen(t *testing.T) {
 	room := setup.opens(t, setup.first, ana, "Standup")
 
 	refusal := errors.New("the journal is unreachable")
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	failing := NewService(NewStore(setup.pool), setup.applications, setup.users, refusing{err: refusal},
-		slog.New(slog.NewTextHandler(io.Discard, nil)))
+		audit.NewService(audit.NewStore(setup.pool), quiet), quiet)
 
 	if _, _, err := failing.AddMember(ctx, setup.first, room.ID, bruno); !errors.Is(err, refusal) {
 		t.Fatalf("AddMember() error = %v, want %v", err, refusal)

@@ -56,7 +56,9 @@ Which surface a route is on is **declared in the route table** (`internal/server
 
 **What stops the obvious attack:** the same shape-refusal every family gets, plus the first key being minted against the database rather than over the API — issuing one requires presenting one.
 
-**Not covered:** there is no audit trail an operator cannot write to, and no second pair of eyes on a destructive administrative act.
+**What records it:** every administrative act lands in the [audit trail](audit.md), in the transaction that made it, naming the operator credential that did it. No route writes an entry, so an operator holding every scope still cannot add to the history or remove from it; reading it is `audit:read`, which nothing else grants.
+
+**Not covered:** somebody with access to the database can still write to the trail, which no application-level control prevents. And there is no second pair of eyes on a destructive administrative act.
 
 ## Whoever holds an invitation → Convia
 
@@ -173,5 +175,4 @@ Convia's own interface and the desktop application are **one client among many**
 | | |
 | --- | --- |
 | No bound on how expensive one request may be, only on how often | `M24` |
-| No audit trail an operator cannot write to | `M23` |
 | No secret manager, no defined rotation | `M23-005`, `M23-006` |

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/calls"
 	"convia/internal/config"
 	"convia/internal/database"
@@ -101,19 +102,23 @@ func newFixtureWith(t *testing.T, plane calls.MediaPlane) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
 	broker := events.NewBroker()
 	// No durable sink: these tests are about what the domain announces,
 	// not about where it is later delivered.
 	announcer := serving.NewAnnouncer(broker, nil, logger)
-	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer, logger)
+	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 	callService := calls.NewService(calls.NewStore(pool), applicationService, roomService,
-		plane, announcer, logger)
+		plane, announcer,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 
 	setup := fixture{
 		service: NewService(NewStore(pool), applicationService, callService,
-			roomService, userService, announcer, logger),
+			roomService, userService, announcer, audit.NewService(audit.NewStore(pool), logger), logger),
 		calls:        callService,
 		rooms:        roomService,
 		users:        userService,

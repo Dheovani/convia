@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/audit"
 	"convia/internal/calls"
 	"convia/internal/events"
 	"convia/internal/media"
@@ -102,12 +103,26 @@ type Service struct {
 	rooms   roomLookup
 	users   userLookup
 	stream  announcer
+	trail   trail
 	logger  *slog.Logger
 }
 
+/*
+trail is the durable audit record this service writes to.
+
+Who joined a call, who was removed from it and by whom, and every media
+credential issued for it are recorded there. The last is the reason this is not
+just the event stream: a credential is never announced, and it is still the
+thing somebody investigating a call needs to know was handed out.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
 func NewService(store *Store, owner tenants, conversations callLookup,
-	places roomLookup, people userLookup, stream announcer, logger *slog.Logger) *Service {
+	places roomLookup, people userLookup, stream announcer, entries trail, logger *slog.Logger) *Service {
 	return &Service{
+		trail:   entries,
 		store:   store,
 		tenants: owner,
 		calls:   conversations,
@@ -538,7 +553,15 @@ func (service *Service) Session(ctx context.Context, applicationID, id string) (
 		return Participant{}, media.Credential{}, ErrNoMediaPlane
 	}
 
-	service.record(ctx, "participant.session_issued", participant)
+	/*
+		A credential nobody can account for is refused rather than handed out.
+		It is the one thing here that is not a row, so there is no transaction
+		to share, and the order is what keeps the promise: recorded first, and
+		returned only once it is.
+	*/
+	if err := service.record(ctx, "participant.session_issued", participant); err != nil {
+		return Participant{}, media.Credential{}, err
+	}
 	return participant, credential, nil
 }
 
@@ -699,7 +722,9 @@ the room it happened in. Without it, the people in a room would never hear who
 joined its call.
 */
 func (service *Service) audit(ctx context.Context, kind events.Type, participant Participant, roomID string) error {
-	service.record(ctx, string(kind), participant)
+	if err := service.record(ctx, string(kind), participant); err != nil {
+		return err
+	}
 
 	data := events.Data{
 		"call_id": participant.CallID,
@@ -762,29 +787,34 @@ without delivering it live â€” a connection credential being issued â€�
 to be recorded that does not go through the event vocabulary at all. The
 package documentation of internal/events says why that one does not stream.
 
-Every value recorded is one Convia assigned: identifiers, a state, a role, an
-authority. The removal reason is not recorded, because it is composed by the
+Every value recorded is one Convia assigned: identifiers, a role, an authority. The removal reason is not recorded, because it is composed by the
 application and may say something about the person removed â€” a test asserts it
 stays out.
 */
-func (service *Service) record(ctx context.Context, event string, participant Participant) {
-	attributes := []any{
-		"event", event,
-		"participant_id", participant.ID,
-		"application_id", participant.ApplicationID,
-		"call_id", participant.CallID,
-		"user_id", participant.UserID,
-		"participant_status", string(participant.Status),
-		"participant_role", string(participant.Role),
+func (service *Service) record(ctx context.Context, action string, participant Participant) error {
+	details := map[string]string{
+		"call_id": participant.CallID,
+		"role":    string(participant.Role),
+	}
+	if participant.Guest() {
+		details["invitation_id"] = participant.InvitationID
+	} else {
+		details["user_id"] = participant.UserID
 	}
 	if participant.RemovedBy != nil {
-		attributes = append(attributes, "removed_by", string(*participant.RemovedBy))
+		details["removed_by"] = string(*participant.RemovedBy)
 	}
 	if participant.RemovedByID != "" {
-		attributes = append(attributes, "removed_by_participant_id", participant.RemovedByID)
+		details["removed_by_participant_id"] = participant.RemovedByID
 	}
 
-	service.logger.Info("audit event", attributes...)
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "participant", ID: participant.ID},
+		ApplicationID: participant.ApplicationID,
+		Details:       details,
+	})
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

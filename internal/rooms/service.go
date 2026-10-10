@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/audit"
 	"convia/internal/events"
 	"convia/internal/transaction"
 	"convia/internal/users"
@@ -61,6 +62,7 @@ type Service struct {
 	tenants tenants
 	people  people
 	stream  announcer
+	trail   trail
 	logger  *slog.Logger
 	now     func() time.Time
 
@@ -98,12 +100,27 @@ func (service *Service) InformCalls(calls conversations) {
 	service.calls = calls
 }
 
-func NewService(store *Store, owner tenants, directory people, stream announcer, logger *slog.Logger) *Service {
+/*
+trail is the durable audit record this service writes to.
+
+It records what an operator asks about a room afterwards: that it was opened,
+changed, closed, reopened or deleted, and who moderated it -- banned somebody,
+let them back, or handed the room to somebody else. Who joins and leaves is not
+here. That is the application's ordinary data, announced as it happens, and a
+trail holding every membership would be a second copy of the rooms' rosters.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
+func NewService(store *Store, owner tenants, directory people, stream announcer, entries trail,
+	logger *slog.Logger) *Service {
 	return &Service{
 		store:   store,
 		tenants: owner,
 		people:  directory,
 		stream:  stream,
+		trail:   entries,
 		logger:  logger,
 		now:     func() time.Time { return time.Now().UTC().Truncate(time.Microsecond) },
 	}
@@ -169,11 +186,16 @@ func (service *Service) Create(ctx context.Context, applicationID string, defini
 		return Room{}, err
 	}
 
-	if err := service.store.Create(ctx, room); err != nil {
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, room); err != nil {
+			return err
+		}
+		return service.audit(ctx, "room.created", room)
+	})
+	if err != nil {
 		return Room{}, err
 	}
 
-	service.audit(ctx, "room.created", room)
 	return room, nil
 }
 
@@ -216,6 +238,9 @@ func (service *Service) CreateFor(ctx context.Context, applicationID, userID str
 		if err := service.store.CreateWithMember(ctx, room, member); err != nil {
 			return err
 		}
+		if err := service.audit(ctx, "room.created", room); err != nil {
+			return err
+		}
 		return service.announceMembership(ctx, events.MemberAdded, member)
 	})
 
@@ -223,7 +248,6 @@ func (service *Service) CreateFor(ctx context.Context, applicationID, userID str
 		return Room{}, err
 	}
 
-	service.audit(ctx, "room.created", room)
 	return room, nil
 }
 
@@ -381,6 +405,9 @@ func (service *Service) Update(ctx context.Context, applicationID, id string,
 		if err != nil {
 			return err
 		}
+		if err := service.audit(ctx, "room.updated", room); err != nil {
+			return err
+		}
 		return service.announceRoom(ctx, events.RoomUpdated, room.ApplicationID, room.ID)
 	})
 
@@ -388,7 +415,6 @@ func (service *Service) Update(ctx context.Context, applicationID, id string,
 		return Room{}, err
 	}
 
-	service.audit(ctx, "room.updated", room)
 	return room, nil
 }
 
@@ -484,6 +510,9 @@ func (service *Service) transition(
 			return nil
 		}
 
+		if err := service.audit(ctx, string(event), room); err != nil {
+			return err
+		}
 		return service.announceRoom(ctx, event, room.ApplicationID, room.ID)
 	})
 
@@ -491,7 +520,6 @@ func (service *Service) transition(
 		return Room{}, err
 	}
 
-	service.audit(ctx, string(event), room)
 	return room, nil
 }
 
@@ -533,15 +561,13 @@ func (service *Service) Delete(ctx context.Context, applicationID, id string) er
 				service.calls.RoomDeleted(ctx, applicationID, id)
 			})
 		}
+		if err := service.audit(ctx, "room.deleted", Room{ID: id, ApplicationID: applicationID}); err != nil {
+			return err
+		}
 		return service.announceRoom(ctx, events.RoomDeleted, applicationID, id)
 	})
 
-	if err != nil || !deleted {
-		return err
-	}
-
-	service.audit(ctx, "room.deleted", Room{ID: id, ApplicationID: applicationID})
-	return nil
+	return err
 }
 
 /*
@@ -613,15 +639,32 @@ audit records a room lifecycle change.
 
 The alias and name are application-chosen labels that may carry meaning about
 the people using them, so neither is recorded. What an operator needs is which
-room changed, for which tenant, and into what state.
+room changed, for which tenant, and how -- and the action says how.
 */
-func (service *Service) audit(ctx context.Context, event string, room Room) {
-	service.logger.InfoContext(ctx, "audit event",
-		"event", event,
-		"room_id", room.ID,
-		"application_id", room.ApplicationID,
-		"room_status", string(room.Status),
-	)
+func (service *Service) audit(ctx context.Context, action string, room Room) error {
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "room", ID: room.ID},
+		ApplicationID: room.ApplicationID,
+	})
+	return err
+}
+
+/*
+moderated records something done to a person in a room, by whoever may do it.
+
+The room is the subject because "what happened in this room" is the question,
+and the person is a detail: the trail names them by the identifier Convia gave
+them and nothing an application said about them.
+*/
+func (service *Service) moderated(ctx context.Context, action, applicationID, roomID string, details map[string]string) error {
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "room", ID: roomID},
+		ApplicationID: applicationID,
+		Details:       details,
+	})
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

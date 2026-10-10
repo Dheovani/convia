@@ -608,6 +608,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the audit trail
+         * @description Returns one page of what has been done to this installation, newest
+         *     first: who acted, on whose authority, on what, and why where Convia
+         *     required a reason.
+         *
+         *     Every filter is optional and they narrow together. With none, the
+         *     answer is the whole trail, which is where somebody with no lead
+         *     starts. An entry outlives what it describes, so a filter naming a
+         *     tenant, a room or a credential that no longer exists still finds what
+         *     happened to it.
+         *
+         *     Reading the trail is `audit:read` and nothing else grants it. Every
+         *     other operator scope is bounded by a kind of thing; the trail holds
+         *     everything every tenant's key ever did, which is a history rather than
+         *     a directory.
+         *
+         *     There is no operation that writes an entry. Entries are written by
+         *     the change that caused them, in the same transaction, and an operator
+         *     who could append one could write a history that did not happen.
+         */
+        get: operations["searchAuditTrail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/operator/credentials": {
         parameters: {
             query?: never;
@@ -4094,7 +4131,75 @@ export interface components {
          *     carried it.
          * @enum {string}
          */
-        OperatorScope: "applications:read" | "applications:write" | "tenants:read" | "tenants:write" | "operators:read" | "operators:write";
+        OperatorScope: "applications:read" | "applications:write" | "tenants:read" | "tenants:write" | "operators:read" | "operators:write" | "audit:read";
+        /**
+         * @description The authority an action was taken on. There is one for each kind of
+         *     caller Convia verifies, and `system` for what Convia did on its own
+         *     evidence -- a call ended because the media plane reported the last
+         *     connection gone, a person forgotten at the end of the retention window.
+         * @enum {string}
+         */
+        AuditActorKind: "operator" | "application" | "person" | "guest" | "peer" | "system";
+        /**
+         * @description One thing that was done to this installation.
+         *
+         *     It says who did what to what, and why where Convia required an answer.
+         *     It deliberately does not say what changed: there is no before and no
+         *     after, because a copy of every change would be a second copy of every
+         *     table, and the first thing anybody trusted about it would be the part
+         *     most likely to be wrong.
+         */
+        AuditEntry: {
+            /** @example aud_7KQZP4XN2VJH6TBWMDR3YAFC5E */
+            id: string;
+            /**
+             * @description What happened, as `noun.verb`. Where an event announced the same
+             *     occurrence, the name is the event's.
+             * @example application.suspended
+             */
+            action: string;
+            actor_kind: components["schemas"]["AuditActorKind"];
+            /**
+             * @description The public identifier of whoever acted: an operator or application
+             *     credential, an account, an invitation, or an account on another
+             *     installation. Absent only when the actor is `system`.
+             */
+            actor_id?: string;
+            /** @description The tenant the action touched. Absent for an action about the installation itself. */
+            application_id?: string;
+            /**
+             * @description The kind of thing acted on.
+             * @example application
+             */
+            subject_kind: string;
+            /**
+             * @description Its public identifier. It is kept as it was, so it may name
+             *     something that no longer exists.
+             */
+            subject_id: string;
+            /** @description Why, in the actor's own words. Present only where Convia required one. */
+            reason?: string;
+            /**
+             * @description The few facts the rest of the entry cannot say, such as the scopes
+             *     a credential was minted with. Never content, never a secret.
+             */
+            details?: {
+                [key: string]: string;
+            };
+            /** @description The request that caused it, which joins it to the access log and the trace. */
+            request_id: string;
+            /** Format: date-time */
+            recorded_at: string;
+        };
+        /** @description One page of the audit trail. */
+        AuditEntryPage: {
+            data: components["schemas"]["AuditEntry"][];
+            /**
+             * @description Opaque token that continues the search. Absent on the last page.
+             *     Clients must never decode or construct one.
+             */
+            next_cursor?: string;
+        };
         /**
          * @description Opaque identifier of an operator credential. Clients must treat it as
          *     opaque and must never parse it.
@@ -7696,6 +7801,66 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            405: components["responses"]["MethodNotAllowed"];
+            429: components["responses"]["RateLimited"];
+            500: components["responses"]["InternalError"];
+        };
+    };
+    searchAuditTrail: {
+        parameters: {
+            query?: {
+                /** @description Only what touched this tenant. */
+                application_id?: string;
+                /** @description Only what was done on this kind of authority. */
+                actor_kind?: components["schemas"]["AuditActorKind"];
+                /**
+                 * @description Only what this credential, account, invitation or installation did.
+                 *     It is the public identifier, never a secret.
+                 */
+                actor_id?: string;
+                /** @description Only what was done to this kind of thing, such as `room` or `credential`. */
+                subject_kind?: string;
+                /** @description Only what was done to this one thing. */
+                subject_id?: string;
+                /** @description Only this action, named as `noun.verb`, such as `application.suspended`. */
+                action?: string;
+                /** @description Only entries recorded at or after this instant. */
+                since?: string;
+                /**
+                 * @description Only entries recorded at or before this instant. A window that ends
+                 *     before it begins is refused rather than answered with nothing.
+                 */
+                until?: string;
+                /**
+                 * @description Maximum number of items to return in one page. Values above the maximum
+                 *     are rejected with `invalid_request` rather than silently clamped.
+                 */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Opaque continuation token returned by a previous page. Clients must not
+                 *     construct, decode, or persist cursors beyond the paging sequence.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One page of the audit trail. */
+            200: {
+                headers: {
+                    "X-Request-ID": components["headers"]["RequestId"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditEntryPage"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             405: components["responses"]["MethodNotAllowed"];
             429: components["responses"]["RateLimited"];
             500: components["responses"]["InternalError"];

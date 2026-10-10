@@ -34,6 +34,17 @@ func NewStore(pool *pgxpool.Pool) *Store {
 	return &Store{pool: pool}
 }
 
+/*
+Atomically runs work in one transaction, so that an operator credential and the
+audit entry for it are committed together or not at all.
+
+A key with authority over Convia itself, and no record of who minted it, is the
+worst version of the finding the trail exists to prevent.
+*/
+func (store *Store) Atomically(ctx context.Context, work func(ctx context.Context) error) error {
+	return transaction.Run(ctx, store.pool, work)
+}
+
 // db is the transaction the context carries, or the pool; see package transaction.
 func (store *Store) db(ctx context.Context) transaction.Querier {
 	return transaction.On(ctx, store.pool)

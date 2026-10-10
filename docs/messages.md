@@ -323,8 +323,10 @@ API and a caller must not learn that an identifier once named something.
 
 ## Nothing said reaches the log
 
-The audit trail records that somebody wrote in a room, which message it was,
-which room, and when. **It never records what was said.** The log is shipped,
+The log records that somebody wrote in a room, which message it was, which
+room, and when. **It never records what was said.** Messages are not in the
+[audit trail](audit.md) at all: what people say is the application's content,
+and the trail holds what was done to the installation rather than in it. The log is shipped,
 retained, and read by people who are not in the room; putting conversations into
 it would undo the point of having rooms.
 

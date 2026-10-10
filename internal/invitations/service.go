@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/audit"
 	"convia/internal/calls"
 	"convia/internal/events"
 	"convia/internal/media"
@@ -85,12 +86,20 @@ type Service struct {
 	users        userLookup
 	participants participation
 	stream       announcer
+	trail        trail
 	logger       *slog.Logger
 }
 
+// trail is the durable audit record this service writes to: every invitation
+// issued, withdrawn, redeemed or declined, and on whose authority.
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
 func NewService(store *Store, owner tenants, conversations callLookup, people userLookup,
-	presence participation, stream announcer, logger *slog.Logger) *Service {
+	presence participation, stream announcer, entries trail, logger *slog.Logger) *Service {
 	return &Service{
+		trail:        entries,
 		store:        store,
 		tenants:      owner,
 		calls:        conversations,
@@ -204,11 +213,16 @@ func (service *Service) Issue(ctx context.Context, applicationID, callID string,
 	}
 
 	value := secret.New()
-	if err := service.store.Create(ctx, invitation, secret.Digest(value)); err != nil {
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Create(ctx, invitation, secret.Digest(value)); err != nil {
+			return err
+		}
+		return service.record(ctx, "invitation.issued", invitation)
+	})
+	if err != nil {
 		return Invitation{}, "", err
 	}
 
-	service.record(ctx, "invitation.issued", invitation)
 	return invitation, value, nil
 }
 
@@ -282,12 +296,19 @@ func (service *Service) Revoke(ctx context.Context, applicationID, id string) (I
 		return Invitation{}, ErrNotFound
 	}
 
-	revoked, err := service.store.Revoke(ctx, applicationID, id, now())
+	var revoked Invitation
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		revoked, err = service.store.Revoke(ctx, applicationID, id, now())
+		if err != nil {
+			return err
+		}
+		return service.record(ctx, "invitation.revoked", revoked)
+	})
 	if err != nil {
 		return Invitation{}, err
 	}
 
-	service.record(ctx, "invitation.revoked", revoked)
 	return revoked, nil
 }
 
@@ -409,8 +430,20 @@ func (service *Service) Redeem(ctx context.Context, invitation Invitation) (Invi
 		redeemed = invitation
 	}
 
+	/*
+		Not recording is logged rather than refused, for the reason the store's
+		failure above is. The person is already in the call, the trail already
+		holds the participant joining and the credential issued for them, and
+		what would be missing is which invitation let them in.
+	*/
 	if invitation.RedeemedAt == nil {
-		service.record(ctx, "invitation.redeemed", redeemed)
+		if err := service.record(ctx, "invitation.redeemed", redeemed); err != nil {
+			service.logger.ErrorContext(ctx, "a redeemed invitation was not recorded in the audit trail",
+				"error", err,
+				"invitation_id", invitation.ID,
+				"participant_id", participant.ID,
+			)
+		}
 	}
 	return redeemed, participant, credential, nil
 }
@@ -533,7 +566,9 @@ internal/events says why none of the three streams â€” two are the applicat
 own acts, and the third already arrives as a participant joining.
 */
 func (service *Service) audit(ctx context.Context, kind events.Type, invitation Invitation) error {
-	service.record(ctx, string(kind), invitation)
+	if err := service.record(ctx, string(kind), invitation); err != nil {
+		return err
+	}
 
 	data := events.Data{
 		"call_id": invitation.CallID,
@@ -557,16 +592,22 @@ The secret is never part of one, and neither is anything the application wrote:
 an invitation carries no free text, so there is nothing here that could say
 something about the person it was sent to.
 */
-func (service *Service) record(ctx context.Context, event string, invitation Invitation) {
-	service.logger.InfoContext(ctx, event,
-		"invitation_id", invitation.ID,
-		"application_id", invitation.ApplicationID,
-		"call_id", invitation.CallID,
-		"user_id", invitation.UserID,
-		"guest", invitation.Guest(),
-		"role", invitation.Role,
-		"status", string(invitation.Status(now())),
-	)
+func (service *Service) record(ctx context.Context, action string, invitation Invitation) error {
+	details := map[string]string{
+		"call_id": invitation.CallID,
+		"role":    invitation.Role,
+	}
+	if !invitation.Guest() {
+		details["user_id"] = invitation.UserID
+	}
+
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "invitation", ID: invitation.ID},
+		ApplicationID: invitation.ApplicationID,
+		Details:       details,
+	})
+	return err
 }
 
 // now is the clock the domain reads, in UTC so that stored moments compare.

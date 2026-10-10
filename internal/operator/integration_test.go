@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/operator"
@@ -77,7 +78,8 @@ func newFixture(t *testing.T) fixture {
 	t.Cleanup(pool.Close)
 
 	logs.Reset()
-	return fixture{service: operator.NewService(operator.NewStore(pool), logger), pool: pool, logs: logs}
+	return fixture{service: operator.NewService(operator.NewStore(pool), audit.NewService(audit.NewStore(pool), logger)),
+		pool: pool, logs: logs}
 }
 
 func execute(t *testing.T, databaseURL, statement string) {

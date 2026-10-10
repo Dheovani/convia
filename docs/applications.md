@@ -91,16 +91,13 @@ Names are validated rather than trusted: surrounding whitespace is insignificant
 
 ## Audit
 
-Security-relevant changes to an application emit an audit event as a structured log entry, correlated by request ID:
+Creating, renaming, suspending, activating and deleting an application are each recorded in the [audit trail](audit.md), in the same transaction as the change, naming the operator credential that made it. The same entry is logged once the change commits:
 
 ```json
-{"msg":"audit event","event":"application.created","application_id":"app_...","actor":"unauthenticated","request_id":"..."}
+{"msg":"audit event","event":"application.suspended","actor":"operator:oper_...","application_id":"app_...","subject_kind":"application","subject_id":"app_...","request_id":"..."}
 ```
 
-Two limitations are deliberate and temporary:
-
-- **The actor is a placeholder.** Convia has no authentication yet, so it cannot name who performed an action. Once M07 lands, the actor becomes the authenticated principal.
-- **Audit entries are logs, not a queryable trail.** They are an operational record. Durable, searchable, access-controlled audit storage is M21's work.
+Until `M21` the actor on these lines read `unauthenticated`, whoever had acted.
 
 ## The Administrative API
 

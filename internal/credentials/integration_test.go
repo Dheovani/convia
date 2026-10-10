@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/url"
@@ -17,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 )
@@ -79,13 +79,14 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
 	first := newApplication(t, applicationService, "First Tenant")
 	second := newApplication(t, applicationService, "Second Tenant")
 
 	logs.Reset()
 	return fixture{
-		service:      NewService(NewStore(pool), applicationService, logger),
+		service:      NewService(NewStore(pool), applicationService, audit.NewService(audit.NewStore(pool), logger)),
 		applications: applicationService,
 		pool:         pool,
 		first:        first,
@@ -515,19 +516,22 @@ func TestAuditRecordsIssuanceWithoutSecretMaterial(t *testing.T) {
 	}
 }
 
-// countAuditEvents reports how many audit entries name one event for one credential.
-func countAuditEvents(t *testing.T, setup fixture, event, credentialID string) int {
+/*
+countAuditEvents reports how many audit entries name one action for one
+credential.
+
+It reads the trail rather than the log, because the trail is the record now:
+a line that was logged and a row that was written are one occurrence, and the
+row is the one an operator can ask about afterwards.
+*/
+func countAuditEvents(t *testing.T, setup fixture, action, credentialID string) int {
 	t.Helper()
 
-	found := 0
-	for _, line := range strings.Split(strings.TrimSpace(setup.logs.String()), "\n") {
-		var entry map[string]any
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		if entry["event"] == event && entry["credential_id"] == credentialID {
-			found++
-		}
+	var found int
+	if err := setup.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_entries WHERE action = $1 AND subject_kind = 'credential' AND subject_id = $2`,
+		action, credentialID).Scan(&found); err != nil {
+		t.Fatalf("count audit entries: %v", err)
 	}
 	return found
 }

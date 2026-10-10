@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
 	"convia/internal/accounts"
+	"convia/internal/audit"
 	"convia/internal/secret"
 	"convia/internal/users"
 )
@@ -59,12 +61,25 @@ type Service struct {
 	tenants     tenants
 	people      people
 	application string
+	trail       trail
 	logger      *slog.Logger
 }
 
+/*
+trail is the durable audit record this service writes to.
+
+A sign-in is recorded here as the session it began, written in the same
+transaction as the session itself, which is what makes it the durable record of
+somebody signing in rather than the line the account domain logs beside it.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
 func NewService(store *Store, accountDirectory directory, owner tenants, directoryOfPeople people,
-	firstPartyApplication string, logger *slog.Logger) *Service {
+	firstPartyApplication string, entries trail, logger *slog.Logger) *Service {
 	return &Service{
+		trail:       entries,
 		store:       store,
 		accounts:    accountDirectory,
 		tenants:     owner,
@@ -107,17 +122,36 @@ func (service *Service) Register(ctx context.Context, username string, password 
 
 // open mints a session for an account that has just proved who it is.
 func (service *Service) open(ctx context.Context, accountID string, identity accounts.Identity) (Session, string, error) {
-	at := now()
-	if err := service.makeRoom(ctx, accountID, at); err != nil {
-		return Session{}, "", err
-	}
+	/*
+		The actor is the account that just proved who it is. Signing in is a
+		public route, so nobody verified anything on the way in; the password
+		was verified here, by the account domain, a moment ago -- which makes
+		this the one place able to say who is acting, and the trail would
+		otherwise credit every sign-in to the system.
+	*/
+	ctx = audit.ContextWithActor(ctx, audit.Actor{Kind: audit.KindPerson, ID: accountID})
 
-	session, token, err := service.mint(ctx, accountID, identity, at)
+	var (
+		session Session
+		token   string
+	)
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		at := now()
+		if err := service.makeRoom(ctx, accountID, at); err != nil {
+			return err
+		}
+
+		var err error
+		session, token, err = service.mint(ctx, accountID, identity, at)
+		if err != nil {
+			return err
+		}
+		return service.audit(ctx, "session.began", session)
+	})
 	if err != nil {
 		return Session{}, "", err
 	}
 
-	service.audit(ctx, "session.began", session)
 	return session, token, nil
 }
 
@@ -326,12 +360,12 @@ while the row is what Convia itself consults. It succeeds whether or not the
 session was live, so that it cannot be used to ask whether one is.
 */
 func (service *Service) End(ctx context.Context, sessionID string) error {
-	if err := service.store.Revoke(ctx, sessionID, now()); err != nil {
-		return err
-	}
-
-	service.audit(ctx, "session.ended", Session{ID: sessionID})
-	return nil
+	return service.store.Atomically(ctx, func(ctx context.Context) error {
+		if err := service.store.Revoke(ctx, sessionID, now()); err != nil {
+			return err
+		}
+		return service.audit(ctx, "session.ended", Session{ID: sessionID})
+	})
 }
 
 /*
@@ -342,16 +376,25 @@ deliberately does not spare the browser asking: leaving the current session
 alive would mean "sign out everywhere" did not.
 */
 func (service *Service) EndAll(ctx context.Context, accountID string) (int, error) {
-	ended, err := service.store.RevokeAllFor(ctx, accountID, now(), "")
+	var ended int
+	err := service.store.Atomically(ctx, func(ctx context.Context) error {
+		var err error
+		ended, err = service.store.RevokeAllFor(ctx, accountID, now(), "")
+		if err != nil {
+			return err
+		}
+		_, err = service.trail.Record(ctx, audit.Written{
+			Action:        "session.ended_everywhere",
+			Subject:       audit.Subject{Kind: "account", ID: accountID},
+			ApplicationID: service.application,
+			Details:       map[string]string{"sessions": strconv.Itoa(ended)},
+		})
+		return err
+	})
 	if err != nil {
 		return 0, err
 	}
 
-	service.logger.InfoContext(ctx, "audit event",
-		"event", "session.ended_everywhere",
-		"account_id", accountID,
-		"sessions", ended,
-	)
 	return ended, nil
 }
 
@@ -375,17 +418,27 @@ func (service *Service) ChangePassword(ctx context.Context, principal Principal,
 		return Session{}, "", err
 	}
 
-	at := now()
-	if _, err := service.store.RevokeAllFor(ctx, principal.AccountID, at, ""); err != nil {
-		return Session{}, "", err
-	}
+	var (
+		rotated Session
+		token   string
+	)
+	err = service.store.Atomically(ctx, func(ctx context.Context) error {
+		at := now()
+		if _, err := service.store.RevokeAllFor(ctx, principal.AccountID, at, ""); err != nil {
+			return err
+		}
 
-	rotated, token, err := service.mint(ctx, principal.AccountID, identity, at)
+		var err error
+		rotated, token, err = service.mint(ctx, principal.AccountID, identity, at)
+		if err != nil {
+			return err
+		}
+		return service.audit(ctx, "session.rotated", rotated)
+	})
 	if err != nil {
 		return Session{}, "", err
 	}
 
-	service.audit(ctx, "session.rotated", rotated)
 	return rotated, token, nil
 }
 
@@ -407,11 +460,9 @@ func (service *Service) makeRoom(ctx context.Context, accountID string, at time.
 		if err := service.store.Revoke(ctx, live[index].ID, at); err != nil {
 			return err
 		}
-		service.logger.InfoContext(ctx, "audit event",
-			"event", "session.evicted",
-			"account_id", accountID,
-			"session_id", live[index].ID,
-		)
+		if err := service.audit(ctx, "session.evicted", Session{ID: live[index].ID, AccountID: accountID}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -438,19 +489,21 @@ audit records a change to who is signed in.
 
 The account and session identifiers are recorded; the token never is, and
 neither is the username. Convia derived both identifiers, so they say what an
-operator needs without putting a credential or a person's chosen name into a log
-that is shipped and retained.
+operator needs without putting a credential or a person's chosen name into a
+trail that is kept.
 */
-func (service *Service) audit(ctx context.Context, event string, session Session) {
-	attributes := []any{
-		"event", event,
-		"session_id", session.ID,
+func (service *Service) audit(ctx context.Context, action string, session Session) error {
+	written := audit.Written{
+		Action:        action,
+		Subject:       audit.Subject{Kind: "session", ID: session.ID},
+		ApplicationID: service.application,
 	}
 	if session.AccountID != "" {
-		attributes = append(attributes, "account_id", session.AccountID)
+		written.Details = map[string]string{"account_id": session.AccountID}
 	}
 
-	service.logger.Info("audit event", attributes...)
+	_, err := service.trail.Record(ctx, written)
+	return err
 }
 
 // now returns the timestamp Convia stores for a change.

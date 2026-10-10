@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/audit"
 	"convia/internal/events"
 	"convia/internal/media"
 	"convia/internal/rooms"
@@ -84,13 +85,26 @@ type Service struct {
 	rooms   roomLookup
 	media   MediaPlane
 	stream  announcer
+	trail   trail
 	logger  *slog.Logger
 }
 
+/*
+trail is the durable audit record this service writes to.
+
+A call's own history names the kind of authority that started or ended it and
+stops there on purpose. The trail is where the rest is kept -- which operator,
+which key, which person -- and it is read off the request rather than handed in,
+so no service can name an actor that was not verified.
+*/
+type trail interface {
+	Record(ctx context.Context, written audit.Written) (audit.Entry, error)
+}
+
 func NewService(store *Store, owner tenants, places roomLookup,
-	transport MediaPlane, stream announcer, logger *slog.Logger) *Service {
+	transport MediaPlane, stream announcer, entries trail, logger *slog.Logger) *Service {
 	return &Service{store: store, tenants: owner, rooms: places, media: transport,
-		stream: stream, logger: logger}
+		stream: stream, trail: entries, logger: logger}
 }
 
 /*
@@ -750,14 +764,20 @@ func (service *Service) audit(ctx context.Context, kind events.Type, call Call) 
 		actor = *call.EndedBy
 	}
 
-	service.logger.InfoContext(ctx, "audit event",
-		"event", string(kind),
-		"call_id", call.ID,
-		"application_id", call.ApplicationID,
-		"room_id", call.RoomID,
-		"call_status", string(call.Status),
-		"actor", string(actor),
-	)
+	/*
+		The room travels as a detail because it is the question an incident
+		asks about a call -- what happened in this room -- and the call row
+		that holds it may be long gone by the time anybody reads the trail.
+	*/
+	_, err := service.trail.Record(ctx, audit.Written{
+		Action:        string(kind),
+		Subject:       audit.Subject{Kind: "call", ID: call.ID},
+		ApplicationID: call.ApplicationID,
+		Details:       map[string]string{"room_id": call.RoomID},
+	})
+	if err != nil {
+		return err
+	}
 
 	return service.stream.Publish(ctx, events.New(kind, call.ApplicationID, call.ID,
 		api.RequestIDFromContext(ctx), events.Data{

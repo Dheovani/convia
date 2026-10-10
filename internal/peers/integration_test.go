@@ -22,6 +22,7 @@ import (
 
 	"convia/internal/accounts"
 	"convia/internal/applications"
+	"convia/internal/audit"
 	"convia/internal/config"
 	"convia/internal/database"
 	"convia/internal/events"
@@ -98,14 +99,17 @@ func newFixture(t *testing.T) fixture {
 	}
 	t.Cleanup(pool.Close)
 
-	applicationService := applications.NewService(applications.NewStore(pool), logger)
+	applicationService := applications.NewService(applications.NewStore(pool),
+		audit.NewService(audit.NewStore(pool), logger))
 	if err := applicationService.EnsureFirstParty(ctx); err != nil {
 		t.Fatalf("EnsureFirstParty() error = %v", err)
 	}
-	userService := users.NewService(users.NewStore(pool), applicationService, logger)
+	userService := users.NewService(users.NewStore(pool), applicationService,
+		audit.NewService(audit.NewStore(pool), logger))
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService,
-		serving.NewAnnouncer(events.NewBroker(), nil, logger), logger)
-	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID, logger)
+		serving.NewAnnouncer(events.NewBroker(), nil, logger), audit.NewService(audit.NewStore(pool), logger), logger)
+	accountService := accounts.NewService(accounts.NewStore(pool), userService, applications.FirstPartyID,
+		audit.NewService(audit.NewStore(pool), logger), logger)
 
 	ana, _, err := accountService.Register(ctx, "ana", "correct horse battery staple")
 	if err != nil {
@@ -122,7 +126,7 @@ func newFixture(t *testing.T) fixture {
 
 	return fixture{
 		service: NewService(store, roomService, userService, applicationService, accountService, relay,
-			applications.FirstPartyID, "", logger),
+			applications.FirstPartyID, "", audit.NewService(audit.NewStore(pool), logger), logger),
 		store:    store,
 		users:    userService,
 		rooms:    roomService,
