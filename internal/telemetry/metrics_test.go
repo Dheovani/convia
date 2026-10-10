@@ -47,6 +47,7 @@ func collected(t *testing.T, reader *sdkmetric.ManualReader, name string) []metr
 			if !ok {
 				t.Fatalf("%s is %T, want a float histogram", name, recorded.Data)
 			}
+			inSeconds(t, name, histogram.DataPoints)
 			return histogram.DataPoints
 		}
 	}

@@ -62,6 +62,7 @@ func commands(t *testing.T, reader *sdkmetric.ManualReader) map[string]uint64 {
 			if !ok {
 				t.Fatalf("the command duration is %T, want a float histogram", recorded.Data)
 			}
+			inSeconds(t, recorded.Name, histogram.DataPoints)
 			for _, point := range histogram.DataPoints {
 				command, _ := point.Attributes.Value(attribute.Key("command"))
 				outcome, _ := point.Attributes.Value(attribute.Key("outcome"))

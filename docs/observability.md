@@ -139,6 +139,18 @@ This is the half the tracing beneath it cannot give. A span per query answers "w
 
 A pipeline is timed once, as `pipeline`. Its members were sent together and waited together, so the only honest duration is the round trip they shared. A dial is not timed at all: connection setup in the same histogram as the work it enables would make both unreadable.
 
+### The process itself
+
+| Instrument | What it answers |
+| --- | --- |
+| `go.goroutine.count` | how many goroutines exist — one that only climbs is a leak |
+| `go.memory.used` | what the runtime holds from the operating system, less what it has given back — what a container limit is measured against |
+| `convia.runtime.heap.objects` | what live objects use; the gap to the line above is the collector's headroom |
+| `go.memory.allocated` | how much has been allocated since start; its rate is what every request pays the collector for |
+| `convia.runtime.gc.cycles` | how many collections have run |
+
+Every other instrument says what Convia is carrying; these say what carrying it costs. They are read from the runtime when an exporter asks and cost nothing in between. The three OpenTelemetry's conventions name keep those names; the other two have no convention and carry Convia's prefix rather than one that would look like a standard. **Processor time is not here, on purpose**: the runtime's estimate of it is only brought up to date when the collector runs, so a steadily loaded instance that allocates little reported none at all. The operating system's figure, which every container platform reports, is the one to read.
+
 ### The label is the route, never the path
 
 This is the part worth getting right, and it is about the bill as much as the graph.

@@ -52,7 +52,7 @@ func Connected(provider metric.MeterProvider) (*Redis, error) {
 
 	duration, err := meter.Float64Histogram("convia.redis.command.duration",
 		metric.WithDescription("How long a Redis command took, and whether it worked."),
-		metric.WithUnit("s"))
+		metric.WithUnit("s"), seconds)
 	if err != nil {
 		return nil, fmt.Errorf("build the Redis command histogram: %w", err)
 	}

@@ -30,6 +30,8 @@ Targets are for **one instance of 2 vCPU and 4 GB**, measured at the server, at 
 
 Signing in is slower by design: the password hash is the cost an attacker pays per guess, and making it cheap for the server would make it cheap for them.
 
+What a run at this size measured is in [`load.md`](load.md): one instance carries all of it, with every target met at least fivefold, at about half of its two processors.
+
 ## What lives in PostgreSQL, and is therefore shared
 
 Everything durable: tenants, keys, users, accounts, sessions, rooms, members, calls, participants, invitations, messages and read state, webhook endpoints and deliveries, idempotency keys, the nonces of signed requests between installations, the event journal, and the [audit trail](audit.md). An instance holds none of it in memory, so a request reaches the same answer whichever instance it lands on. A person signed in on one instance is signed in on all of them, and a retried request carrying an `Idempotency-Key` is recognised wherever it arrives.

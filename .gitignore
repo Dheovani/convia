@@ -51,3 +51,4 @@ internal/web/assets/dist/
 # anything is not source, and this one is not even reproducible across
 # interpreter versions.
 __pycache__/
+/.load/

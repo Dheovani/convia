@@ -253,6 +253,11 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		return fmt.Errorf("build the request instruments: %w", err)
 	}
 
+	// What this process costs to run: goroutines, memory, allocation, processor.
+	if err := telemetry.Run(meters); err != nil {
+		return fmt.Errorf("build the runtime instruments: %w", err)
+	}
+
 	/*
 		Tracing, with the same shape and the same shutdown discipline. Spans
 		are batched, so a process that exits without flushing loses the trace
