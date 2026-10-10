@@ -665,11 +665,12 @@ Charging on the response rather than before it is what makes this honest: a
 person who signs in correctly spends nothing, and only attempts that failed
 count against the address that made them.
 */
-func budgeted(logger *slog.Logger, failures *ratelimit.Limiter, resolve resolver, next http.Handler) http.Handler {
+func budgeted(logger *slog.Logger, failures ratelimit.Budget, resolve resolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
 		source := resolve.clientAddress(request)
-		if !failures.Allows(source) {
-			slowDown(logger, response, request, "", failures.RetryAfter(source), failedAttempts)
+		if !failures.Allows(ctx, source) {
+			slowDown(logger, response, request, "", failures.RetryAfter(ctx, source), failedAttempts)
 			return
 		}
 
@@ -677,7 +678,7 @@ func budgeted(logger *slog.Logger, failures *ratelimit.Limiter, resolve resolver
 		next.ServeHTTP(recorder, request)
 
 		if recorder.status >= http.StatusBadRequest {
-			failures.Record(source)
+			failures.Record(ctx, source)
 		}
 	})
 }
@@ -691,16 +692,17 @@ is somebody succeeding too often — filling an installation with accounts, or
 walking a list of names to see which are taken — so every attempt is charged,
 and charged before the work, which costs two argon2id derivations.
 */
-func rationed(logger *slog.Logger, uses *ratelimit.Limiter, resolve resolver, next http.Handler) http.Handler {
+func rationed(logger *slog.Logger, uses ratelimit.Budget, resolve resolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
 		source := resolve.clientAddress(request)
-		if !uses.Allows(source) {
-			slowDown(logger, response, request, "", uses.RetryAfter(source),
+		if !uses.Allows(ctx, source) {
+			slowDown(logger, response, request, "", uses.RetryAfter(ctx, source),
 				"Too many accounts were attempted from this address. Retry later.")
 			return
 		}
 
-		uses.Record(source)
+		uses.Record(ctx, source)
 		next.ServeHTTP(response, request)
 	})
 }
@@ -843,7 +845,7 @@ offered to a tenant route from one that does not exist.
 The `WWW-Authenticate` header is what tells a client which scheme to use, and
 RFC 9110 requires it on a 401.
 */
-func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limiter,
+func authenticate(logger *slog.Logger, verify verifier, failures ratelimit.Budget,
 	resolve resolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		/*
@@ -853,15 +855,15 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 			counted.
 		*/
 		source := resolve.clientAddress(request)
-		if !failures.Allows(source) {
-			slowDown(logger, response, request, verify.challenge(), failures.RetryAfter(source), failedAttempts)
+		if !failures.Allows(request.Context(), source) {
+			slowDown(logger, response, request, verify.challenge(), failures.RetryAfter(request.Context(), source), failedAttempts)
 			return
 		}
 
 		token, ok := verify.present(request)
 		if !ok {
 			if verify.chargeAbsence() {
-				failures.Record(source)
+				failures.Record(request.Context(), source)
 			}
 			refuse(logger, response, request, verify.challenge())
 			return
@@ -874,7 +876,7 @@ func authenticate(logger *slog.Logger, verify verifier, failures *ratelimit.Limi
 				return
 			}
 
-			failures.Record(source)
+			failures.Record(request.Context(), source)
 			if !errors.Is(err, errRefused) {
 				/*
 					An infrastructure failure is not a rejected key. It is

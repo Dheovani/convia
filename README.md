@@ -40,6 +40,8 @@ Webhooks exist for what a client must not miss: an application registers a desti
 
 Everything done to an installation is recorded: who acted, on whose authority, on what, and why where Convia asks. An entry is written in the same transaction as the change, so a change that rolls back leaves none, and an operator reads the trail at `GET /v1/audit` with a scope nothing else grants. [`docs/audit.md`](docs/audit.md) explains what is recorded and what deliberately is not.
 
+Several instances can serve one installation, sharing its PostgreSQL and its Redis. [`docs/scaling.md`](docs/scaling.md) is the inventory of what each instance keeps to itself and what that means, including which rate limits are shared between instances and which are counted by each.
+
 [`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
 
 The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).

@@ -731,12 +731,12 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M25 — Performance and Horizontal Scaling
 
 **Priority:** P2
-**Status:** Not started
+**Status:** In progress. Sized for the hosted service — 10 tenants, 10 000 users, 1 000 connections, 100 calls, several instances — in [`docs/scaling.md`](docs/scaling.md). Several instances work with Redis, sign-in and registration budgets are shared between them, and stopping one is tested. Next: load scenarios and a baseline to measure against.
 **Depends on:** Stable critical flows and production-like observability
 **Goal:** Validate that the control plane scales without relying on premature optimization.
 
-- [ ] **M25-001:** Define expected tenant, user, room, call, participant, and connection volumes.
-- [ ] **M25-002:** Define latency and throughput targets for critical endpoints.
+- [x] **M25-001:** Define expected tenant, user, room, call, participant, and connection volumes.
+- [x] **M25-002:** Define latency and throughput targets for critical endpoints.
 - [ ] **M25-003:** Create representative load-test scenarios.
 - [ ] **M25-004:** Measure baseline CPU, memory, allocation, and goroutine behavior.
 - [ ] **M25-005:** Profile database queries and verify indexes with realistic data sizes.
@@ -744,11 +744,12 @@ This document is the operational development plan for Convia. It tracks what exi
 - [ ] **M25-007:** Test WebSocket fan-out and slow consumers across multiple instances.
 - [ ] **M25-008:** Test Redis failure and failover behavior where Redis is used.
 - [ ] **M25-009:** Test media-provider control API degradation independently from media quality.
-- [ ] **M25-010:** Verify graceful shutdown while calls and control connections are active.
-- [ ] **M25-011:** Verify no in-memory state prevents horizontal scaling.
+- [x] **M25-010:** Verify graceful shutdown while calls and control connections are active.
+- [x] **M25-011:** Verify no in-memory state prevents horizontal scaling.
 - [ ] **M25-012:** Establish performance regression thresholds in scheduled CI.
 - [ ] **M25-013:** Document capacity assumptions and scaling triggers.
 - [ ] **M25-014:** Optimize only measured bottlenecks with before-and-after evidence.
+- [x] **M25-015:** Count sign-in guesses and registrations across instances, in Redis, before running more than one. Every other budget is per instance and that is a capacity question; these two are what a guessed password is bounded by, and *n* instances multiply them by *n*. See [`docs/scaling.md`](docs/scaling.md).
 
 **Exit criteria:** Measured capacity meets documented targets, instances scale horizontally, and performance regressions are detectable.
 
