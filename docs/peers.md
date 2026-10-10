@@ -125,7 +125,7 @@ Whether a room elsewhere is holding a call is asked of its home with the unread 
 
 A home decides who is in its rooms, and Bia's Convia finds out on the stream: `room.member_removed` naming who Bia is **there**, or `room.deleted`. **The pointer goes with it.** Keeping one would leave a room in Bia's list answering `404` to everything she tried, until she noticed and forgot it by hand — which is a thing nobody should have to know how to do. The event is still passed on to her, because the screen showing that room has to stop showing it.
 
-That is the opposite of a home that merely does not answer, which keeps its pointer: silence is not a decision, and [forgetting a room](#leaving) is still hers to do when a home is gone for good.
+That is the opposite of a home that merely does not answer, which keeps its pointer: silence is not a decision, and [forgetting a room](#known-gaps) is still hers to do when a home is gone for good.
 
 ### The unread count
 

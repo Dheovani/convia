@@ -137,8 +137,10 @@ Record the returned identifier: it is the standalone product's application, and 
 Then issue that application its first key, which is the bootstrap an application cannot perform for itself:
 
 ```sh
-curl -sS -X POST "http://localhost:8080/v1/applications/$APP_ID/credentials"   -H "Authorization: Bearer $OPERATOR_KEY"   -H 'Content-Type: application/json'   -d '{"name":"first","scopes":["users:read","users:write"]}'
+curl -sS -X POST "http://localhost:8080/v1/applications/$APP_ID/credentials"   -H "Authorization: Bearer $OPERATOR_KEY"   -H 'Convia-Reason: First key for the standalone product'   -H 'Content-Type: application/json'   -d '{"name":"first","scopes":["users:read","users:write"]}'
 ```
+
+Minting a key on a tenant's behalf is one of the operations that ask why, so `Convia-Reason` is required; the [audit trail](audit.md) keeps it.
 
 From here the application uses its own key against `/v1/users` and `/v1/credentials`, and never needs the operator surface again.
 

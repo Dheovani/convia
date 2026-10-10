@@ -80,7 +80,7 @@ Scopes default to every one Convia recognizes when none are named. Available:
   operators:read     operators:write
   audit:read
 
-The secret is printed once and never stored. Running these commands requires
+An operator credential works for 90 days. The secret is printed once and never stored. Running these commands requires
 database access, which is the authority the first credential is minted from.
 
 An account is a person who signs in to Convia's own interface. People create
@@ -940,15 +940,56 @@ advisory query is not a reason to hold up startup, and readiness already covers
 a database that is genuinely unreachable.
 */
 func warnIfUnadministered(ctx context.Context, logger *slog.Logger, service *operator.Service) {
-	active, err := service.CountActive(ctx)
+	standing, err := service.Standing(ctx)
 	if err != nil {
 		logger.Warn("could not count operator credentials at startup", "error", err)
 		return
 	}
-	if active > 0 {
-		return
+
+	for _, warning := range administrationWarnings(standing, time.Now()) {
+		logger.Warn(warning.message, "remedy", warning.remedy)
+	}
+}
+
+// warning is one thing an operator should hear about at startup, and what to do.
+type warning struct {
+	message string
+	remedy  string
+}
+
+// expiringSoon is how far ahead the last operator key's expiry is announced.
+const expiringSoon = 14 * 24 * time.Hour
+
+/*
+administrationWarnings says what is wrong with who can administer Convia.
+
+Three states are worth a line at startup, because each is otherwise discovered
+by being refused: nobody can administer it; somebody can, with a key from before
+every key expired; and the last key that works is about to stop. The last is
+what `M21-002` made possible -- a bounded key is a key that runs out -- and a
+warning two weeks ahead is what keeps that from being an outage.
+*/
+func administrationWarnings(standing operator.Standing, at time.Time) []warning {
+	if standing.Active == 0 {
+		return []warning{{
+			message: "no active operator credential exists, so the operator API refuses every request",
+			remedy:  "convia operator issue <name>",
+		}}
 	}
 
-	logger.Warn("no active operator credential exists, so the operator API refuses every request",
-		"remedy", "convia operator issue <name>")
+	var warnings []warning
+	if standing.Unbounded > 0 {
+		warnings = append(warnings, warning{
+			message: fmt.Sprintf("%d operator credentials never expire; they were issued before every key had a lifetime", standing.Unbounded),
+			remedy:  "issue replacements, then revoke the old keys; see docs/authentication.md",
+		})
+	}
+	if standing.Unbounded == 0 && standing.LastExpiry != nil && standing.LastExpiry.Sub(at) < expiringSoon {
+		warnings = append(warnings, warning{
+			message: "the last working operator credential expires at " + standing.LastExpiry.Format(time.RFC3339) +
+				", after which the operator API refuses every request",
+			remedy: "issue a new operator credential before then",
+		})
+	}
+	return warnings
 }

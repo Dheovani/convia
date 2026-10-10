@@ -64,6 +64,49 @@ type listResponse struct {
 	NextCursor string         `json:"next_cursor,omitempty"`
 }
 
+/*
+inspectedRoom is a room as an operator sees it: everything Convia decided about
+it, and nothing the application wrote.
+
+It is `M21-005`. The name, the alias and the metadata are an application's own
+words, and the trail and the logs already keep them out for the reason this
+does -- they may say something about the people using the room. An operator
+investigating an incident needs to know which room, in what state, since when;
+the tenant knows what it is called.
+
+It applies to every operator response, writes included. An operator who just
+renamed a room knows what they sent, and a close or a reopen returning the name
+would hand back the very thing the reads withhold.
+*/
+type inspectedRoom struct {
+	ID              string `json:"id"`
+	ApplicationID   string `json:"application_id"`
+	Durable         bool   `json:"durable"`
+	MaxParticipants *int   `json:"max_participants,omitempty"`
+	Status          string `json:"status"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+// inspectedList is one page of rooms as an operator sees them.
+type inspectedList struct {
+	Data       []inspectedRoom `json:"data"`
+	NextCursor string          `json:"next_cursor,omitempty"`
+}
+
+// inspect represents a room for an operator; see [inspectedRoom].
+func inspect(room Room) inspectedRoom {
+	return inspectedRoom{
+		ID:              room.ID,
+		ApplicationID:   room.ApplicationID,
+		Durable:         room.Alias != "",
+		MaxParticipants: room.MaxParticipants,
+		Status:          string(room.Status),
+		CreatedAt:       api.FormatTimestamp(room.CreatedAt),
+		UpdatedAt:       api.FormatTimestamp(room.UpdatedAt),
+	}
+}
+
 func represent(room Room) roomResponse {
 	metadata := room.Metadata
 	if metadata == nil {
@@ -203,7 +246,7 @@ func (handler *Handler) List(response http.ResponseWriter, request *http.Request
 			return
 		}
 		handler.write(response, request, http.StatusOK,
-			listResponse{Data: []roomResponse{represent(room)}})
+			inspectedList{Data: []inspectedRoom{inspect(room)}})
 		return
 	}
 
@@ -300,13 +343,13 @@ on, so every response carrying a room carries its version.
 func (handler *Handler) writeRoom(response http.ResponseWriter, request *http.Request,
 	status int, room Room) {
 	response.Header().Set("ETag", `"`+room.Version()+`"`)
-	handler.write(response, request, status, represent(room))
+	handler.write(response, request, status, inspect(room))
 }
 
 func (handler *Handler) writePage(response http.ResponseWriter, request *http.Request, page Page) {
-	body := listResponse{Data: make([]roomResponse, 0, len(page.Rooms)), NextCursor: page.NextCursor}
+	body := inspectedList{Data: make([]inspectedRoom, 0, len(page.Rooms)), NextCursor: page.NextCursor}
 	for _, room := range page.Rooms {
-		body.Data = append(body.Data, represent(room))
+		body.Data = append(body.Data, inspect(room))
 	}
 	handler.write(response, request, http.StatusOK, body)
 }

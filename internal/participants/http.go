@@ -127,6 +127,20 @@ func representSession(participant Participant, credential media.Credential) join
 	}
 }
 
+/*
+inspect represents a participant for an operator: the same as the tenant sees,
+without the removal reason.
+
+The reason is the one thing on a participant an application wrote, and the
+trail already keeps it out because it may say something about the person
+removed. An operator removing somebody says why in Convia-Reason instead.
+*/
+func inspect(participant Participant) participantResponse {
+	body := represent(participant)
+	body.RemovalReason = ""
+	return body
+}
+
 func represent(participant Participant) participantResponse {
 	body := participantResponse{
 		ID:            participant.ID,
@@ -223,7 +237,7 @@ func (handler *Handler) Get(response http.ResponseWriter, request *http.Request)
 		return
 	}
 
-	handler.write(response, request, http.StatusOK, represent(participant))
+	handler.write(response, request, http.StatusOK, inspect(participant))
 }
 
 // List returns one page of a call's roster.
@@ -279,7 +293,7 @@ func (handler *Handler) Remove(response http.ResponseWriter, request *http.Reque
 		return
 	}
 
-	handler.write(response, request, http.StatusOK, represent(participant))
+	handler.write(response, request, http.StatusOK, inspect(participant))
 }
 
 func (handler *Handler) writePage(response http.ResponseWriter, request *http.Request, page Page) {
@@ -288,7 +302,7 @@ func (handler *Handler) writePage(response http.ResponseWriter, request *http.Re
 		NextCursor: page.NextCursor,
 	}
 	for _, participant := range page.Participants {
-		body.Data = append(body.Data, represent(participant))
+		body.Data = append(body.Data, inspect(participant))
 	}
 	handler.write(response, request, http.StatusOK, body)
 }

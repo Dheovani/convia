@@ -4417,8 +4417,9 @@ export interface components {
              */
             scopes: components["schemas"]["OperatorScope"][];
             /**
-             * @description Optional expiry, which must be in the future. Without it the
-             *     credential works until it is revoked.
+             * @description When the key stops working: in the future, and at most 90 days
+             *     away. Without it the key works for 90 days. An operator key cannot
+             *     work forever, because a stolen one would.
              */
             expires_at?: components["schemas"]["Timestamp"];
         };
@@ -4610,6 +4611,60 @@ export interface components {
             updated_at: components["schemas"]["Timestamp"];
             /** @description When the conversation ended. Absent while it is still happening. */
             ended_at?: components["schemas"]["Timestamp"];
+        };
+        /**
+         * @description A room as an operator sees it: everything Convia decided about it, and
+         *     nothing the application wrote.
+         *
+         *     The name, the alias and the metadata are the application's own words
+         *     and may say something about the people using the room, so the
+         *     operator surface leaves them out of every answer, writes included. An
+         *     operator investigating an incident needs to know which room, in what
+         *     state, and since when; the tenant knows what it is called.
+         */
+        InspectedRoom: {
+            id: components["schemas"]["RoomId"];
+            application_id: components["schemas"]["ApplicationId"];
+            /** @description Whether the room has an alias, which is what makes it durable. The alias itself is not shown. */
+            durable: boolean;
+            max_participants?: number;
+            status: components["schemas"]["RoomStatus"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        /** @description One page of rooms, as an operator sees them. */
+        InspectedRoomPage: {
+            data: components["schemas"]["InspectedRoom"][];
+            /**
+             * @description Opaque token that continues the listing. Absent on the last page.
+             *     Clients must never decode or construct one.
+             */
+            next_cursor?: string;
+        };
+        /**
+         * @description A call as an operator sees it, without the metadata and the end reason,
+         *     which are the application's own text. An operator ending a call says
+         *     why in `Convia-Reason`, which the audit trail keeps.
+         */
+        InspectedCall: {
+            id: components["schemas"]["CallId"];
+            application_id: components["schemas"]["ApplicationId"];
+            room_id: components["schemas"]["RoomId"];
+            status: components["schemas"]["CallStatus"];
+            started_by: components["schemas"]["CallActor"];
+            ended_by?: components["schemas"]["CallActor"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            ended_at?: components["schemas"]["Timestamp"];
+        };
+        /** @description One page of calls, as an operator sees them. */
+        InspectedCallPage: {
+            data: components["schemas"]["InspectedCall"][];
+            /**
+             * @description Opaque token that continues the listing. Absent on the last page.
+             *     Clients must never decode or construct one.
+             */
+            next_cursor?: string;
         };
         /** @description One page of calls. */
         CallPage: {
@@ -8649,7 +8704,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RoomPage"];
+                    "application/json": components["schemas"]["InspectedRoomPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8722,7 +8777,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Room"];
+                    "application/json": components["schemas"]["InspectedRoom"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8759,7 +8814,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Room"];
+                    "application/json": components["schemas"]["InspectedRoom"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8868,7 +8923,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Room"];
+                    "application/json": components["schemas"]["InspectedRoom"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8906,7 +8961,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Room"];
+                    "application/json": components["schemas"]["InspectedRoom"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -8941,7 +8996,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Room"];
+                    "application/json": components["schemas"]["InspectedRoom"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9295,7 +9350,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CallPage"];
+                    "application/json": components["schemas"]["InspectedCallPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9347,7 +9402,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CallPage"];
+                    "application/json": components["schemas"]["InspectedCallPage"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9380,7 +9435,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Call"];
+                    "application/json": components["schemas"]["InspectedCall"];
                 };
             };
             400: components["responses"]["BadRequest"];
@@ -9439,7 +9494,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Call"];
+                    "application/json": components["schemas"]["InspectedCall"];
                 };
             };
             400: components["responses"]["BadRequest"];

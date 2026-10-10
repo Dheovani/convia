@@ -279,7 +279,9 @@ Operations on applications themselves — creating, renaming, deleting a tenant 
 
 **Issuing** returns the secret exactly once, in the response that creates the credential. Convia cannot show it again because Convia does not have it. A lost secret is not reset; it is replaced.
 
-**Expiry** is optional and must be in the future. It needs no scheduled job: the state is derived from the timestamp on every verification, so a credential stops working the moment it passes.
+**Expiry** is optional for an application key and must be in the future. It needs no scheduled job: the state is derived from the timestamp on every verification, so a credential stops working the moment it passes.
+
+**An operator key always expires, at most 90 days after it is issued**, and one issued without an expiry gets the full 90. An operator key is already hard to guess — 130 random bits, kept only as a digest, refused on its shape anywhere else — so the strength left to add was a bound on how long a stolen one is worth. Rotate by issuing the replacement before revoking the old key, as below. Keys from before this rule keep working, and Convia warns at startup until they are replaced; it also warns two weeks before the last working operator key runs out, because after that the operator surface refuses everybody and only `convia operator issue` can mint another.
 
 **Revocation** takes effect on the next request. There is no grace period and nothing to propagate. Withdrawing a key during an incident, including withdrawing many at once, is [`runbooks/credential-revocation.md`](runbooks/credential-revocation.md).
 

@@ -2317,7 +2317,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Room"
+                $ref: "#/components/schemas/InspectedRoom"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2369,7 +2369,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/RoomPage"
+                $ref: "#/components/schemas/InspectedRoomPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2408,7 +2408,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Room"
+                $ref: "#/components/schemas/InspectedRoom"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2465,7 +2465,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Room"
+                $ref: "#/components/schemas/InspectedRoom"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2558,7 +2558,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Room"
+                $ref: "#/components/schemas/InspectedRoom"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2602,7 +2602,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Room"
+                $ref: "#/components/schemas/InspectedRoom"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -2998,7 +2998,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CallPage"
+                $ref: "#/components/schemas/InspectedCallPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3044,7 +3044,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/CallPage"
+                $ref: "#/components/schemas/InspectedCallPage"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3081,7 +3081,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Call"
+                $ref: "#/components/schemas/InspectedCall"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -3140,7 +3140,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Call"
+                $ref: "#/components/schemas/InspectedCall"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -9764,8 +9764,9 @@ components:
           allOf:
             - $ref: "#/components/schemas/Timestamp"
           description: |
-            Optional expiry, which must be in the future. Without it the
-            credential works until it is revoked.
+            When the key stops working: in the future, and at most 90 days
+            away. Without it the key works for 90 days. An operator key cannot
+            work forever, because a stolen one would.
 
     RoomMetadata:
       type: object
@@ -10034,6 +10035,98 @@ components:
           allOf:
             - $ref: "#/components/schemas/Timestamp"
           description: When the conversation ended. Absent while it is still happening.
+
+    InspectedRoom:
+      type: object
+      description: |
+        A room as an operator sees it: everything Convia decided about it, and
+        nothing the application wrote.
+
+        The name, the alias and the metadata are the application's own words
+        and may say something about the people using the room, so the
+        operator surface leaves them out of every answer, writes included. An
+        operator investigating an incident needs to know which room, in what
+        state, and since when; the tenant knows what it is called.
+      required: [id, application_id, durable, status, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/RoomId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        durable:
+          type: boolean
+          description: Whether the room has an alias, which is what makes it durable. The alias itself is not shown.
+        max_participants:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        status:
+          $ref: "#/components/schemas/RoomStatus"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    InspectedRoomPage:
+      type: object
+      description: One page of rooms, as an operator sees them.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectedRoom"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the listing. Absent on the last page.
+            Clients must never decode or construct one.
+
+    InspectedCall:
+      type: object
+      description: |
+        A call as an operator sees it, without the metadata and the end reason,
+        which are the application's own text. An operator ending a call says
+        why in `Convia-Reason`, which the audit trail keeps.
+      required: [id, application_id, room_id, status, started_by, created_at, updated_at]
+      additionalProperties: false
+      properties:
+        id:
+          $ref: "#/components/schemas/CallId"
+        application_id:
+          $ref: "#/components/schemas/ApplicationId"
+        room_id:
+          $ref: "#/components/schemas/RoomId"
+        status:
+          $ref: "#/components/schemas/CallStatus"
+        started_by:
+          $ref: "#/components/schemas/CallActor"
+        ended_by:
+          $ref: "#/components/schemas/CallActor"
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+        updated_at:
+          $ref: "#/components/schemas/Timestamp"
+        ended_at:
+          $ref: "#/components/schemas/Timestamp"
+
+    InspectedCallPage:
+      type: object
+      description: One page of calls, as an operator sees them.
+      required: [data]
+      additionalProperties: false
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectedCall"
+        next_cursor:
+          type: string
+          description: |
+            Opaque token that continues the listing. Absent on the last page.
+            Clients must never decode or construct one.
 
     CallPage:
       type: object
