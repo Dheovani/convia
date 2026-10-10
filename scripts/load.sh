@@ -48,7 +48,9 @@ docker network create "$network" >/dev/null
 docker run -d --name convia-load-pg --network "$network" \
 	-e POSTGRES_USER=convia -e POSTGRES_PASSWORD=convia -e POSTGRES_DB=convia \
 	postgres:17-alpine -c max_connections=200 >/dev/null
-docker run -d --name convia-load-redis --network "$network" redis:8.2-alpine >/dev/null
+# Reached as `redis`, the throwaway address the secret scanner knows for what it
+# is (.gitleaks.toml), rather than by a container name it would have to be told.
+docker run -d --name convia-load-redis --network "$network" --network-alias redis redis:8.2-alpine >/dev/null
 
 until docker exec convia-load-pg pg_isready -U convia >/dev/null 2>&1; do sleep 1; done
 
@@ -61,7 +63,7 @@ docker run -d --name convia-load-app --network "$network" --cpus 2 --memory 4g \
 	-e CONVIA_LOG_LEVEL=warn \
 	-e CONVIA_DATABASE_URL="postgres://convia:convia@convia-load-pg:5432/convia?sslmode=disable" \
 	-e CONVIA_DATABASE_MAX_CONNECTIONS=40 \
-	-e CONVIA_REDIS_URL="redis://convia-load-redis:6379/0" \
+	-e CONVIA_REDIS_URL="redis://redis:6379/0" \
 	-e CONVIA_TRUSTED_PROXIES="172.16.0.0/12,192.168.0.0/16" \
 	-e CONVIA_PUBLIC_ADDRESS="http://127.0.0.1:$port" \
 	-e CONVIA_TENANT_REQUESTS_PER_MINUTE=1000000 \

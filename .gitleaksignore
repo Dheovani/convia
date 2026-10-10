@@ -1,0 +1,8 @@
+# Findings confirmed false, each by its exact fingerprint: commit, file, rule and line.
+# An entry here silences that one finding and nothing else, so a real secret in the
+# same file, or the same line in another commit, still fails the scan.
+
+# scripts/load.sh named its disposable Redis by container name, which the value
+# allowlist in .gitleaks.toml does not know. The value carries no credential, and
+# the script now reaches it as `redis`, which the allowlist does.
+19f6db9143161938f59019ee5ecf20ae697bb720:scripts/load.sh:convia-environment-secret:64
