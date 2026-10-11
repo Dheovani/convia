@@ -24,10 +24,29 @@ type recorder struct {
 	mutex    sync.Mutex
 	samples  map[string][]time.Duration
 	failures map[string]map[string]int
+
+	/*
+		windows is the same, cut into stretches of [windowLength], which is what
+		a run that breaks something on purpose is read by: a percentile over the
+		whole run says that something went wrong, and the windows say when, for
+		how long, and whether it came back.
+	*/
+	windows map[string]map[int64]*window
+	now     func() time.Time
+}
+
+// windowLength is how long one stretch of a timeline is.
+const windowLength = 10 * time.Second
+
+// window is what one operation did in one stretch of the run.
+type window struct {
+	samples []time.Duration
+	failed  int
 }
 
 func newRecorder() *recorder {
-	return &recorder{samples: map[string][]time.Duration{}, failures: map[string]map[string]int{}}
+	return &recorder{samples: map[string][]time.Duration{}, failures: map[string]map[string]int{},
+		windows: map[string]map[int64]*window{}, now: time.Now}
 }
 
 // took records one successful operation.
@@ -35,6 +54,8 @@ func (record *recorder) took(operation string, duration time.Duration) {
 	record.mutex.Lock()
 	defer record.mutex.Unlock()
 	record.samples[operation] = append(record.samples[operation], duration)
+	stretch := record.stretch(operation)
+	stretch.samples = append(stretch.samples, duration)
 }
 
 // failed records one operation that did not succeed, and how.
@@ -45,6 +66,80 @@ func (record *recorder) failed(operation, how string) {
 		record.failures[operation] = map[string]int{}
 	}
 	record.failures[operation][how]++
+	record.stretch(operation).failed++
+}
+
+// stretch is the window an operation is in now. The lock is held.
+func (record *recorder) stretch(operation string) *window {
+	at := record.now().UnixNano() / int64(windowLength)
+	if record.windows[operation] == nil {
+		record.windows[operation] = map[int64]*window{}
+	}
+	if record.windows[operation][at] == nil {
+		record.windows[operation][at] = &window{}
+	}
+	return record.windows[operation][at]
+}
+
+/*
+timeline writes, for every operation that failed or missed its target in some
+stretch of [from, to], one line per stretch: what succeeded, what failed, and
+the p95 of what succeeded. An operation that was fine throughout is left out,
+which is what keeps the lines that matter on one screen.
+*/
+func (record *recorder) timeline(out io.Writer, from, to time.Time) {
+	record.mutex.Lock()
+	defer record.mutex.Unlock()
+
+	first, last := from.UnixNano()/int64(windowLength), to.UnixNano()/int64(windowLength)
+	operations := make([]string, 0, len(record.windows))
+	for operation := range record.windows {
+		operations = append(operations, operation)
+	}
+	sort.Strings(operations)
+
+	fmt.Fprintf(out, "\nover time, every %v from the start of the load, for whatever failed or was slow\n", windowLength)
+	quiet := true
+	for _, operation := range operations {
+		troubled := false
+		for at := first; at <= last; at++ {
+			if stretch := record.windows[operation][at]; stretch != nil && stretch.troubled(target(operation)) {
+				troubled = true
+				break
+			}
+		}
+		if !troubled {
+			continue
+		}
+		quiet = false
+		fmt.Fprintf(out, "  %s\n", operation)
+		for at := first; at <= last; at++ {
+			stretch := record.windows[operation][at]
+			if stretch == nil {
+				stretch = &window{}
+			}
+			sorted := slices.Clone(stretch.samples)
+			slices.Sort(sorted)
+			fmt.Fprintf(out, "    %+5ds  %6d ok  %6d failed  p95 %9s\n",
+				(at-first)*int64(windowLength/time.Second), len(sorted), stretch.failed, rounded(percentile(sorted, 0.95)))
+		}
+	}
+	if quiet {
+		fmt.Fprintf(out, "  nothing failed, and nothing missed its target\n")
+	}
+}
+
+// troubled reports a stretch with a failure, or a p95 over the target.
+func (stretch *window) troubled(goal time.Duration) bool {
+	if stretch.failed > 0 {
+		return true
+	}
+	if goal == 0 {
+		return false
+	}
+	sorted := slices.Clone(stretch.samples)
+	slices.Sort(sorted)
+	return percentile(sorted, 0.95) > goal
 }
 
 // percentile reads the q-th quantile of sorted durations, nearest rank.

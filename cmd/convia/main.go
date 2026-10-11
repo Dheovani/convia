@@ -987,6 +987,8 @@ func openBudgets(settings config.Redis, logger *slog.Logger) (
 	options.DialTimeout = settings.Timeout
 	options.ReadTimeout = settings.Timeout
 	options.WriteTimeout = settings.Timeout
+	// A budget waits for Redis far less than the timeout; see budgetredis.
+	options.ContextTimeoutEnabled = true
 	client := goredis.NewClient(options)
 
 	shared := func(name string, burst int, period time.Duration, fallback *ratelimit.Limiter) ratelimit.Budget {

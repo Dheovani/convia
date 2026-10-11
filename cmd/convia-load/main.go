@@ -49,7 +49,7 @@ var profiles = map[string]struct {
 	"smoke": {
 		size: size{tenants: 2, users: 40, rooms: 20, people: 20, members: 4, parallel: 8},
 		load: load{tenantStreams: 2, tenantWrites: 10, tenantReads: 10, personWrites: 5, personReads: 5,
-			signIns: 0.5, calls: 4, callHold: 5 * time.Second, inFlight: 64},
+			personPresence: 2, signIns: 0.5, calls: 4, callHold: 5 * time.Second, inFlight: 64},
 	},
 	/*
 		An installation with little going on, which is most of them most of the
@@ -59,12 +59,12 @@ var profiles = map[string]struct {
 	"quiet": {
 		size: size{tenants: 2, users: 40, rooms: 20, people: 20, members: 4, parallel: 8},
 		load: load{tenantStreams: 2, tenantWrites: 1, tenantReads: 1, personWrites: 0.5, personReads: 0.5,
-			calls: 0, callHold: 5 * time.Second, inFlight: 64},
+			personPresence: 0.5, calls: 0, callHold: 5 * time.Second, inFlight: 64},
 	},
 	"provider": {
 		size: size{tenants: 10, users: 10000, rooms: 500, people: 960, members: 4, parallel: 32},
 		load: load{tenantStreams: 4, tenantWrites: 100, tenantReads: 200, personWrites: 50, personReads: 100,
-			signIns: 2, calls: 100, callHold: time.Minute, inFlight: 512},
+			personPresence: 32, signIns: 2, calls: 100, callHold: time.Minute, inFlight: 512},
 	},
 }
 
@@ -84,6 +84,7 @@ func run(arguments []string) error {
 	listen := flags.String("metrics", "0.0.0.0:4318", "where to receive Convia's own metrics over OTLP/HTTP; empty to not")
 	window := flags.String("window", "", "a file to write the load's start and end to, as Unix seconds")
 	marker := flags.String("loading", "", "a file to create the moment the load begins, for whatever counts only the load")
+	timeline := flags.Bool("timeline", false, "report, every ten seconds, whatever failed or was slow")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -168,6 +169,9 @@ func run(arguments []string) error {
 	sleep(ctx, 6*time.Second)
 
 	met := record.report(os.Stdout, elapsed)
+	if *timeline {
+		record.timeline(os.Stdout, started, ended)
+	}
 	seen.report(os.Stdout, started, ended)
 	if !met {
 		return fmt.Errorf("a target was missed")

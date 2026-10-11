@@ -180,10 +180,16 @@ type load struct {
 	tenantReads   float64
 	personWrites  float64
 	personReads   float64
-	signIns       float64
-	calls         int
-	callHold      time.Duration
-	inFlight      int
+	/*
+		personPresence is heartbeats a second: each person's app says it is
+		there about every thirty seconds, which is what 960 people at 32 a
+		second is.
+	*/
+	personPresence float64
+	signIns        float64
+	calls          int
+	callHold       time.Duration
+	inFlight       int
 }
 
 /*
@@ -309,6 +315,22 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 				anonymous.key = ""
 				_, _ = anonymous.do(ctx, "sign in", http.MethodPost, "/v1/sessions",
 					map[string]string{"username": someone.username, "password": "a load-test password"}, nil)
+			})
+		})
+		/*
+			Presence is the one write that lives in Redis rather than in
+			PostgreSQL, which is why it is here: without it, a run that takes
+			Redis away would measure what does not depend on it.
+		*/
+		start(func() {
+			paced(ctx, pushing.personPresence, pushing.inFlight, record, "write presence (person)", func(ctx context.Context) {
+				someone := built.people[rand.IntN(len(built.people))]
+				state := "online"
+				if rand.IntN(4) == 0 {
+					state = "away"
+				}
+				_, _ = someone.who.on(rand.IntN(instances)).do(ctx, "write presence (person)", http.MethodPut,
+					"/v1/me/presence/desktop", map[string]any{"state": state, "lifetime_seconds": 90}, nil)
 			})
 		})
 		start(func() {

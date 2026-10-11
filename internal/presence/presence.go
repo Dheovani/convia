@@ -118,6 +118,13 @@ its store, would be a false statement about people.
 var ErrUnavailable = errors.New("the presence store is unavailable")
 
 /*
+ErrResting reports a store that was not asked, because it failed to answer
+moments ago. It is answered the same way as [ErrUnavailable], and is told apart
+only so that the failure is reported once rather than once a request.
+*/
+var ErrResting = errors.New("the presence store failed to answer moments ago, and was not asked")
+
+/*
 State is what an application says about one of its people.
 
 Four values, and the vocabulary is closed. Three are asserted and one is the

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Puts a Convia under load the way docs/scaling.md sizes it, and reports.
 #
-#   scripts/load.sh [smoke|quiet|provider] [duration] [instances]
+#   scripts/load.sh [smoke|quiet|provider] [duration] [instances] [outage]
 #
 # Everything it starts is disposable and removed at the end: a PostgreSQL, a
 # Redis and one Convia or more, on a network of their own. Each Convia runs in
@@ -13,6 +13,15 @@
 # every request goes to any of them, the way a load balancer spreads clients:
 # most events are then produced on one instance and delivered by another, and
 # the report gives that delay apart from the other.
+#
+# An outage takes Redis away a minute into the load, so the run needs to be
+# longer than that, and the report shows, every ten seconds, what failed or
+# was slow while it was gone and whether it came back:
+#
+#   pause    Redis stops answering for 30 seconds, connections held open --
+#            what a failover or a network partition looks like from here
+#   stop     Redis is gone for 30 seconds, and its name with it
+#   restart  Redis is killed and started again at once, losing what it held
 #
 # The generator runs here, outside the container, and is trusted as a proxy so
 # that the people it simulates can arrive from many addresses. That setting is
@@ -26,6 +35,14 @@ export MSYS_NO_PATHCONV=1
 scale=${1:-smoke}
 duration=${2:-2m}
 instances=${3:-1}
+outage=${4:-none}
+case "$outage" in
+none | pause | stop | restart) ;;
+*)
+	echo "no outage $outage; there is none, pause, stop and restart" >&2
+	exit 2
+	;;
+esac
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
@@ -135,11 +152,28 @@ rm -f .load/loading .load/window.txt
 	docker exec convia-load-pg psql -U convia -d convia -qc "SELECT pg_stat_statements_reset(); SELECT pg_stat_reset();" >/dev/null ) &
 resetter=$!
 
+rm -f .load/outage.txt
+if [ "$outage" != none ]; then
+	( until [ -e .load/loading ]; do sleep 1; done
+		began=$(date +%s)
+		sleep 60
+		echo "Redis: $outage at +$(($(date +%s) - began))s" >> .load/outage.txt
+		case "$outage" in
+		pause) docker pause convia-load-redis >/dev/null; sleep 30; docker unpause convia-load-redis >/dev/null ;;
+		stop) docker stop convia-load-redis >/dev/null; sleep 30; docker start convia-load-redis >/dev/null ;;
+		restart) docker restart -t 0 convia-load-redis >/dev/null ;;
+		esac
+		echo "Redis: back at +$(($(date +%s) - began))s" >> .load/outage.txt ) &
+	saboteur=$!
+fi
+
 status=0
 go run ./cmd/convia-load -target "$targets" -operator-key "$key" \
 	-scale "$scale" -duration "$duration" -metrics 0.0.0.0:4318 -window .load/window.txt \
-	-loading .load/loading || status=$?
+	-loading .load/loading -timeline || status=$?
 kill "$resetter" 2>/dev/null || true
+[ -n "${saboteur:-}" ] && wait "$saboteur" 2>/dev/null || true
+[ -s .load/outage.txt ] && { echo; cat .load/outage.txt; }
 
 # What the load asked of PostgreSQL, and whether it found an index to do it with.
 docker exec convia-load-pg psql -U convia -d convia -P pager=off -c "

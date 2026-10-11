@@ -44,6 +44,22 @@ const (
 	// answering is left alone for.
 	reconnectFloor   = time.Second
 	reconnectCeiling = time.Minute
+
+	/*
+		firstConnectWithin bounds how long opening a person's stream waits for
+		the homes of their rooms elsewhere to be followed.
+
+		The wait is what makes "the stream is open" mean "the rooms elsewhere
+		are being heard": a home that said something in the moment between the
+		two -- removing this person, say -- said it to nobody, because a stream
+		carries what happens while it is open, and the person's room stayed in
+		their list answering 404. The federation journeys found it, as a test
+		that removed somebody the instant their stream opened and waited in
+		vain. The bound is what keeps one slow home from holding up the stream
+		of everybody who has a room there: past it, the stream opens and the
+		home is followed when it answers.
+	*/
+	firstConnectWithin = 2 * time.Second
 )
 
 /*
@@ -141,7 +157,22 @@ func (following *Following) Follow(ctx context.Context, accountID, token string)
 	}
 
 	arriving := make(chan events.Event, followQueue)
-	go following.supervise(ctx, accountID, identity, pointing, arriving)
+	var first sync.WaitGroup
+	first.Add(len(pointing.homes()))
+	go following.supervise(ctx, accountID, identity, pointing, arriving, &first)
+
+	followed := make(chan struct{})
+	go func() {
+		first.Wait()
+		close(followed)
+	}()
+	waiting := time.NewTimer(firstConnectWithin)
+	defer waiting.Stop()
+	select {
+	case <-followed:
+	case <-waiting.C:
+	case <-ctx.Done():
+	}
 	return arriving, nil
 }
 
@@ -160,6 +191,7 @@ func (following *Following) supervise(
 	identity accounts.Identity,
 	pointing *pointers,
 	arriving chan<- events.Event,
+	first *sync.WaitGroup,
 ) {
 	// Registered first so that it runs last: nothing may close the channel
 	// while a follower could still be writing to it.
@@ -174,6 +206,8 @@ func (following *Following) supervise(
 		running.Wait()
 	}()
 
+	// The homes followed from the start each say once when their first attempt is over.
+	starting := first
 	reconcile := func() {
 		wanted := make(map[string]struct{})
 		for _, home := range pointing.homes() {
@@ -193,15 +227,21 @@ func (following *Following) supervise(
 			}
 			followed, stop := context.WithCancel(ctx)
 			followers[home] = stop
+			attempted := func() {}
+			if starting != nil {
+				attempted = sync.OnceFunc(starting.Done)
+			}
 			running.Add(1)
 			go func() {
 				defer running.Done()
-				following.followHome(followed, identity, home, pointing, arriving)
+				defer attempted()
+				following.followHome(followed, identity, home, pointing, arriving, attempted)
 			}()
 		}
 	}
 
 	reconcile()
+	starting = nil
 
 	ticker := time.NewTicker(following.every)
 	defer ticker.Stop()
@@ -241,6 +281,7 @@ func (following *Following) followHome(
 	home string,
 	pointing *pointers,
 	arriving chan<- events.Event,
+	attempted func(),
 ) {
 	for attempt := 0; ctx.Err() == nil; attempt++ {
 		if attempt > 0 {
@@ -254,6 +295,7 @@ func (following *Following) followHome(
 		}
 
 		connection, err := following.client.Stream(ctx, identity, home, peerEventsTarget)
+		attempted()
 		if err != nil {
 			following.logger.Warn("a room elsewhere could not be followed",
 				"error", err, "home", home)

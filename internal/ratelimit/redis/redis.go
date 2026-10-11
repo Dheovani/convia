@@ -20,6 +20,13 @@ outage into a Convia outage; allowing every attempt would remove the bound at
 the moment somebody might be counting on its absence. Counting per instance for
 the length of the outage is the limit Convia had before this package existed,
 and the fallback is logged so that it is noticed.
+
+**And it falls back at once.** Every request a signed-in person makes asks the
+sign-in budget first, so a Redis that hangs rather than refuses held every one
+of them for the whole timeout: sixteen seconds at p95 in `M25-008`'s run. An
+answer is waited for [answerWithin] and no longer, and after a failure a
+[circuit.Breaker] stops asking for a second at a time, so an outage costs one
+short wait a second rather than one long wait a request.
 */
 package redis
 
@@ -33,6 +40,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"convia/internal/circuit"
 	"convia/internal/ratelimit"
 )
 
@@ -43,6 +51,19 @@ const (
 	// warnEvery bounds how often an unreachable store is reported, so that an
 	// outage produces a line a minute rather than one per request.
 	warnEvery = time.Minute
+
+	/*
+		answerWithin is how long a budget waits for Redis. It answers in well
+		under five milliseconds; anything that takes this long is not going to
+		answer in time to matter, and the request is waiting on it.
+
+		It holds only on a client with ContextTimeoutEnabled, which is how the
+		composition root opens the one budgets share.
+	*/
+	answerWithin = 100 * time.Millisecond
+
+	// cooldown is how long a budget stops asking Redis after it failed to answer.
+	cooldown = time.Second
 )
 
 /*
@@ -84,6 +105,7 @@ type Shared struct {
 	fallback ratelimit.Budget
 	logger   *slog.Logger
 	warned   atomic.Int64
+	breaker  *circuit.Breaker
 }
 
 var _ ratelimit.Budget = (*Shared)(nil)
@@ -112,18 +134,26 @@ func New(
 		period:   period,
 		fallback: ratelimit.Local(fallback),
 		logger:   logger,
+		breaker:  circuit.New(cooldown),
 	}
 }
 
 // remaining asks Redis for a key's balance, spending one token when asked to.
 func (shared *Shared) remaining(ctx context.Context, key string, spend bool) (float64, error) {
+	if !shared.breaker.Allow() {
+		return 0, circuit.ErrOpen
+	}
+
 	mode := "peek"
 	if spend {
 		mode = "spend"
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, answerWithin)
+	defer cancel()
 	answer, err := bucket.Run(ctx, shared.client, []string{keyPrefix + shared.name + ":" + key},
 		shared.burst, strconv.FormatFloat(shared.refill, 'g', -1, 64), mode, shared.period.Milliseconds()).Text()
+	shared.breaker.Report(circuit.Unanswered(err))
 	if err != nil {
 		return 0, fmt.Errorf("read the %s budget: %w", shared.name, err)
 	}
