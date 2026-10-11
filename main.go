@@ -29,6 +29,9 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
+		// The interface's own surface (frontend/src/styles/theme.css), so the
+		// window does not flash another colour before it is drawn.
+		BackgroundColour: &options.RGBA{R: 0x17, G: 0x17, B: 0x1f, A: 0xff},
 	})
 	if err != nil {
 		log.Fatalf("convia: %v", err)

@@ -19,6 +19,7 @@ The repository, the stack and the rules every change is held to.
 - [x] **M01-007:** Enforce the dependency license policy ([ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md)).
 - [x] **M01-008:** Say how vulnerabilities are reported (SECURITY.md) and how changes are made (CONTRIBUTING.md).
 - [x] **M01-009:** Decide the proposed license exception for build-time tools in ADR 0003.
+- [x] **M01-011:** Carry over the interface's design from before the reset: the theme, the mark and the icon, the shared controls, and the choice of language.
 - [ ] **M01-010:** Run mutation testing periodically and before releases, on the critical packages, once the first of them exists.
 
 ### M02 — The decisions before the first conversation

@@ -1,0 +1,17 @@
+# Findings confirmed false, each by its exact fingerprint: commit, file, rule and line.
+# An entry silences that one finding and nothing else, so a real secret anywhere
+# else, or the same line in another commit, still fails the scan.
+
+# Fixtures in the tests of the client-server code removed by the reset. They are
+# credentials in the shape that code issued, written by hand for tests that
+# checked it never leaked one, and never valid anywhere. The files exist only in
+# the history, which the scan reads in full.
+9aae2a2503e36575a45ec3e178241ba060f71050:internal/server/redaction_test.go:generic-api-key:30
+056beb241f698d2a63bcfa00414dd6e5bd665283:internal/server/tenant_budget_test.go:generic-api-key:28
+056beb241f698d2a63bcfa00414dd6e5bd665283:internal/server/tenant_budget_test.go:generic-api-key:29
+056beb241f698d2a63bcfa00414dd6e5bd665283:internal/server/tenant_budget_test.go:generic-api-key:30
+641915aa6318e8d883ea6bce90d58ee40d7c0561:internal/server/origin_test.go:generic-api-key:320
+82ffff810a770f544229a85be870e75ba23415c0:internal/events/person_http_test.go:generic-api-key:23
+2a11784e45ca6070268da3b341d7effd13e23c89:internal/events/http_test.go:generic-api-key:334
+0fafe5991dadbd80d9ff05ab133d9bade9e094f0:internal/config/config_test.go:generic-api-key:557
+72f427c90f12c4c35d4e263ba06e5ba6833312a2:internal/server/contract_test.go:generic-api-key:561
