@@ -30,7 +30,7 @@ Targets are for **one instance of 2 vCPU and 4 GB**, measured at the server, at 
 
 Signing in is slower by design: the password hash is the cost an attacker pays per guess, and making it cheap for the server would make it cheap for them.
 
-What a run at this size measured is in [`load.md`](load.md): one instance carries all of it, with every target met at least fivefold, at about half of its two processors.
+What a run at this size measured is in [`load.md`](load.md): one instance carries all of it, with every target met — most more than tenfold, calls by the least — at under half of its two processors. What that capacity rests on, and the numbers that say it is time for another instance, are in [`capacity.md`](capacity.md).
 
 ## What lives in PostgreSQL, and is therefore shared
 

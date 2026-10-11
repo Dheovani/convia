@@ -95,7 +95,7 @@ func build(ctx context.Context, operator caller, base caller, want size) (world,
 		}
 		if _, err := operator.do(ctx, "setup key", http.MethodPost, "/v1/applications/"+application.ID+"/credentials",
 			map[string]any{"name": "load", "scopes": []string{"users:read", "users:write", "rooms:read", "rooms:write",
-				"members:read", "members:write", "messages:read", "messages:write", "calls:read", "calls:write", "events:read"}},
+				"members:read", "members:write", "messages:read", "messages:write", "calls:read", "calls:write", "participants:read", "participants:write", "events:read"}},
 			&issued, "Convia-Reason", "load test tenant"); err != nil {
 			return fmt.Errorf("issue a tenant key: %w", err)
 		}

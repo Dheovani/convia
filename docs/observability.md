@@ -284,6 +284,7 @@ Each condition is written over the instruments named above, so it can be express
 | `convia.database.pool.waits` rising | queries are queueing for a connection | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) |
 | `convia.presence.overdue` climbing over 15 minutes | the sweeper is not keeping up, so people appear present after they left | [`runbooks/presence-not-lapsing.md`](runbooks/presence-not-lapsing.md) |
 | `the presence store could not be reached` in the log | Redis is not answering: presence is unavailable, and nothing else is | [`runbooks/redis-unavailable.md`](runbooks/redis-unavailable.md) |
+| Starting calls answered `503 unavailable` | the media provider is not answering: new calls cannot start, and running ones carry on | [`runbooks/media-provider-unavailable.md`](runbooks/media-provider-unavailable.md) |
 | join latency above 1 s for 10 minutes | people are waiting to get into calls | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) |
 
 **The second one is the alert worth having.** Every other condition shows up somewhere a person would eventually notice; a subscriber that fell behind reconnects, fills the gap from the journal, and leaves every other signal looking healthy. It is the only place that says it happened.

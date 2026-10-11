@@ -14,6 +14,9 @@
 # most events are then produced on one instance and delivered by another, and
 # the report gives that delay apart from the other.
 #
+# CONVIA_LOAD_CEILINGS names a ceilings file to fail a run that is slower than
+# it allows, or that failed requests; the nightly workflow sets it.
+#
 # An outage takes Redis away a minute into the load, so the run needs to be
 # longer than that, and the report shows, every ten seconds, what failed or
 # was slow while it was gone and whether it came back:
@@ -22,6 +25,13 @@
 #            what a failover or a network partition looks like from here
 #   stop     Redis is gone for 30 seconds, and its name with it
 #   restart  Redis is killed and started again at once, losing what it held
+#
+# or the media provider, which the generator stands in for, so that it is the
+# control API that is measured and never media:
+#
+#   media-slow  every call to it answered after ten seconds, past the timeout
+#   media-down  every call answered 503, as LiveKit does while it restarts
+#   media-hang  no call answered at all
 #
 # The generator runs here, outside the container, and is trusted as a proxy so
 # that the people it simulates can arrive from many addresses. That setting is
@@ -37,9 +47,9 @@ duration=${2:-2m}
 instances=${3:-1}
 outage=${4:-none}
 case "$outage" in
-none | pause | stop | restart) ;;
+none | pause | stop | restart | media-slow | media-down | media-hang) ;;
 *)
-	echo "no outage $outage; there is none, pause, stop and restart" >&2
+	echo "no outage $outage; there is none, pause, stop, restart, media-slow, media-down and media-hang" >&2
 	exit 2
 	;;
 esac
@@ -106,6 +116,9 @@ start() {
 		-e CONVIA_METRICS_ENDPOINT="http://host.docker.internal:4318" \
 		-e OTEL_METRIC_EXPORT_INTERVAL=5000 \
 		-e CONVIA_SERVICE_INSTANCE="load-$n" \
+		-e CONVIA_LIVEKIT_URL="http://host.docker.internal:7880" \
+		-e CONVIA_LIVEKIT_API_KEY=devkey \
+		-e CONVIA_LIVEKIT_API_SECRET=a-development-secret-long-enough-to-be-accepted \
 		golang:1.26.9 sh -c "$command" >/dev/null
 }
 
@@ -152,8 +165,19 @@ rm -f .load/loading .load/window.txt
 	docker exec convia-load-pg psql -U convia -d convia -qc "SELECT pg_stat_statements_reset(); SELECT pg_stat_reset();" >/dev/null ) &
 resetter=$!
 
+media_fault=
+case "$outage" in media-*) media_fault=${outage#media-} ;; esac
+
+# Ceilings hold a run to being no worse than before (cmd/convia-load/ceilings.json).
+# A run that breaks something on purpose is held to the targets alone: it is
+# meant to fail requests, and the question it answers is which ones.
+held=
+if [ -n "${CONVIA_LOAD_CEILINGS:-}" ] && [ "$outage" = none ]; then
+	held="-ceilings $CONVIA_LOAD_CEILINGS"
+fi
+
 rm -f .load/outage.txt
-if [ "$outage" != none ]; then
+if [ "$outage" != none ] && [ -z "$media_fault" ]; then
 	( until [ -e .load/loading ]; do sleep 1; done
 		began=$(date +%s)
 		sleep 60
@@ -170,7 +194,7 @@ fi
 status=0
 go run ./cmd/convia-load -target "$targets" -operator-key "$key" \
 	-scale "$scale" -duration "$duration" -metrics 0.0.0.0:4318 -window .load/window.txt \
-	-loading .load/loading -timeline || status=$?
+	-loading .load/loading -timeline -media 0.0.0.0:7880 -media-fault "$media_fault" $held || status=$?
 kill "$resetter" 2>/dev/null || true
 [ -n "${saboteur:-}" ] && wait "$saboteur" 2>/dev/null || true
 [ -s .load/outage.txt ] && { echo; cat .load/outage.txt; }

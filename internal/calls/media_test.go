@@ -30,6 +30,8 @@ type scriptedMedia struct {
 	closeErr     error
 	admitErr     error
 	reference    string
+	// hangs makes releasing and disconnecting wait for as long as they are let.
+	hangs bool
 }
 
 func (plane *scriptedMedia) OpenSession(_ context.Context, request media.SessionRequest) (media.Session, error) {
@@ -48,7 +50,11 @@ func (plane *scriptedMedia) OpenSession(_ context.Context, request media.Session
 	return media.Session{Reference: reference}, nil
 }
 
-func (plane *scriptedMedia) CloseSession(_ context.Context, session media.Session) error {
+func (plane *scriptedMedia) CloseSession(ctx context.Context, session media.Session) error {
+	if plane.hangs {
+		<-ctx.Done()
+		return fmt.Errorf("close: %v: %w", ctx.Err(), media.ErrUnavailable)
+	}
 	plane.mutex.Lock()
 	defer plane.mutex.Unlock()
 
@@ -233,6 +239,30 @@ func TestAnEndingDoesNotDependOnTheMediaPlane(t *testing.T) {
 	if _, err := setup.service.Start(ctx, setup.first, setup.firstRoom,
 		Definition{}, ActorApplication); err != nil {
 		t.Fatalf("Start() error = %v, want the room to be free", err)
+	}
+}
+
+/*
+TestAProviderThatHangsDoesNotHoldAnEnding is `M25-009`: what an ending asks of
+the media plane is best-effort, and a provider that never answers costs the
+ending bestEffortWithin rather than the provider's whole timeout.
+*/
+func TestAProviderThatHangsDoesNotHoldAnEnding(t *testing.T) {
+	plane := &scriptedMedia{hangs: true}
+	setup := newFixtureWith(t, plane)
+	ctx := context.Background()
+
+	call, err := setup.service.Start(ctx, setup.first, setup.firstRoom, Definition{}, ActorApplication)
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	started := time.Now()
+	if _, err := setup.service.End(ctx, setup.first, call.ID, ActorApplication, "the meeting finished"); err != nil {
+		t.Fatalf("End() error = %v", err)
+	}
+	if waited := time.Since(started); waited > bestEffortWithin+500*time.Millisecond {
+		t.Errorf("ending waited %v for a provider that hangs, want about %v", waited, bestEffortWithin)
 	}
 }
 

@@ -20,6 +20,20 @@ const (
 	// in docs/api-conventions.md.
 	defaultPageSize = 25
 	maxPageSize     = 100
+
+	/*
+		bestEffortWithin bounds asking the media plane for something whose
+		answer changes nothing a caller is told: releasing a session, and
+		disconnecting somebody Convia already records as gone.
+
+		A provider that hung held every call ending and every person leaving
+		for its whole timeout (`M25-009`), for an answer nobody waits on. A
+		provider that answers does so in milliseconds, so a second is room
+		enough for one that is merely slow, and what it costs past that is
+		what a failure already costs: a room the provider reclaims itself,
+		and a connection closed when it is next reported.
+	*/
+	bestEffortWithin = time.Second
 )
 
 /*
@@ -406,7 +420,9 @@ credential, and one that connects anyway is reported and disconnected again.
 func (service *Service) Disconnect(ctx context.Context, call Call, participantID string) {
 	reference, err := service.store.Session(ctx, call.ApplicationID, call.ID)
 	if err == nil {
-		err = service.media.Disconnect(ctx, media.Session{Reference: reference}, participantID)
+		asking, cancel := context.WithTimeout(ctx, bestEffortWithin)
+		err = service.media.Disconnect(asking, media.Session{Reference: reference}, participantID)
+		cancel()
 	}
 
 	if err != nil {
@@ -535,7 +551,9 @@ func (service *Service) release(ctx context.Context, call Call, session media.Se
 		return
 	}
 
-	if err := service.media.CloseSession(ctx, session); err != nil {
+	asking, cancel := context.WithTimeout(ctx, bestEffortWithin)
+	defer cancel()
+	if err := service.media.CloseSession(asking, session); err != nil {
 		service.logger.ErrorContext(ctx, "a media session was not released",
 			"error", err,
 			"call_id", call.ID,

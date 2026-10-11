@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"slices"
 	"sort"
 	"strings"
@@ -33,6 +35,61 @@ type recorder struct {
 	*/
 	windows map[string]map[int64]*window
 	now     func() time.Time
+
+	// held is what a run is held to beyond the targets, when it is; see ceilings.
+	held *ceilings
+}
+
+/*
+ceilings are what a run may not exceed for it to pass as no worse than before:
+a p95 per operation, named by the longest prefix that matches it, and how many
+requests may fail outside setting up. It is `M25-012`, read from
+ceilings.json, and it is what the nightly run fails on.
+*/
+type ceilings struct {
+	P95      map[string]string `json:"p95"`
+	Failures *int              `json:"failures"`
+
+	parsed map[string]time.Duration
+}
+
+// readCeilings reads and checks a ceilings file.
+func readCeilings(path string) (*ceilings, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var held ceilings
+	if err := json.Unmarshal(raw, &held); err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	held.parsed = map[string]time.Duration{}
+	for prefix, text := range held.P95 {
+		ceiling, err := time.ParseDuration(text)
+		if err != nil || ceiling <= 0 {
+			return nil, fmt.Errorf("%s: the ceiling for %q is %q, which is not a duration", path, prefix, text)
+		}
+		held.parsed[prefix] = ceiling
+	}
+
+	return &held, nil
+}
+
+// ceiling is the p95 an operation may not exceed, and zero when nothing names it.
+func (held *ceilings) ceiling(operation string) time.Duration {
+	if held == nil {
+		return 0
+	}
+
+	longest, ceiling := -1, time.Duration(0)
+	for prefix, limit := range held.parsed {
+		if strings.HasPrefix(operation, prefix) && len(prefix) > longest {
+			longest, ceiling = len(prefix), limit
+		}
+	}
+	return ceiling
 }
 
 // windowLength is how long one stretch of a timeline is.
@@ -196,6 +253,9 @@ func (record *recorder) report(out io.Writer, elapsed time.Duration) bool {
 				verdict, met = "MISSED", false
 			}
 		}
+		if limit := record.held.ceiling(operation); limit > 0 && p95 > limit && verdict != "MISSED" {
+			verdict, met = fmt.Sprintf("REGRESSED, over %v", limit), false
+		}
 		goalText := "-"
 		if goal > 0 {
 			goalText = goal.String()
@@ -205,14 +265,24 @@ func (record *recorder) report(out io.Writer, elapsed time.Duration) bool {
 			rounded(percentile(sorted, 0.99)), goalText, verdict)
 	}
 
+	failed := 0
 	if len(record.failures) > 0 {
 		fmt.Fprintf(out, "\nfailures\n")
 		for operation, kinds := range record.failures {
 			for how, count := range kinds {
 				fmt.Fprintf(out, "  %-32s %-40s %d\n", operation, how, count)
+				if !strings.HasPrefix(operation, "setup") {
+					failed += count
+				}
 			}
 		}
 	}
+
+	if record.held != nil && record.held.Failures != nil && failed > *record.held.Failures {
+		fmt.Fprintf(out, "\nREGRESSED: %d requests failed under load, and at most %d may\n", failed, *record.held.Failures)
+		met = false
+	}
+
 	return met
 }
 

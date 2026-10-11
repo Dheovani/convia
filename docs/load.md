@@ -8,7 +8,10 @@ scripts/load.sh provider 5m     # the hosted service's size, in about fifteen
 scripts/load.sh provider 5m 2   # the same, spread over two instances
 scripts/load.sh quiet 2m 2      # an installation with little going on, over two
 scripts/load.sh provider 3m 2 pause   # and Redis stops answering a minute in
+scripts/load.sh provider 3m 2 media-hang   # or the media provider does
 ```
+
+Every run stands in for the media provider's control API itself, so calls are realized, ended and left against something that answers like LiveKit — and that can be told to stop. Nothing connects to media: what a run measures is the control plane. **Every night**, the [load workflow](../.github/workflows/load.yml) runs the provider's size on one instance as it should run, held to [`ceilings.json`](../cmd/convia-load/ceilings.json), and with Redis and then the media provider not answering, held to the targets (`M25-012`); its report is kept for thirty days.
 
 It needs Docker and Go, and nothing else running on ports 18100 onwards and 4318. Everything it starts — a PostgreSQL, a Redis, each Convia — is removed when it ends.
 
@@ -121,3 +124,19 @@ On 2026-10-11, the provider's load over two instances, with Redis taken away a m
 Now a budget waits at most 100 ms for Redis, and after Redis fails to answer, the budgets and presence stop asking for a second at a time and answer at once with what they would have answered anyway ([`internal/circuit`](../internal/circuit/circuit.go)). **Every target was met through all three outages; presence was the only thing that failed, answered `503` at once, and came back within a second of Redis.** A restart cost presence one stretch of ten seconds at a p95 of 3.6 s, and nothing failed.
 
 The first version of that never came back: the one request let through to see whether Redis had returned had to open a connection, the connection's own handshake went through the same check and was refused, and presence stayed unavailable until the process restarted. `TestPresenceComesBackWithRedis` holds that shut, through a proxy that stops passing traffic and starts again. [`runbooks/redis-unavailable.md`](runbooks/redis-unavailable.md) is what an operator reads when it happens.
+
+## When the media provider degrades
+
+On 2026-10-11, the provider's load over two instances, with each call joined by somebody who is handed a credential and leaves before it ends, and the media provider's control API taken away a minute in for thirty seconds, for `M25-009`: **down**, answering every call `503` as LiveKit does while it restarts; **slow**, answering after ten seconds, past Convia's five-second timeout; and **hanging**, answering nothing. Media is not measured at all: the run stands in for the room service, and nothing connects to a room.
+
+**Messages, reads, events, presence and sign-in were untouched by all three**, and so were joining a running call and being handed a credential, which Convia signs without asking the provider. A provider that was down cost nothing either: starting a call was answered `503` at once and the room freed, which is what that answer promises.
+
+**A provider that was slow or hung held every call ending and every person leaving for the whole timeout**, though neither answer depends on it — releasing a session and disconnecting somebody Convia already records as gone are best-effort — and every call being started for the timeout before its `503`:
+
+| While the provider hung | before | after |
+| --- | --- | --- |
+| Ending a call, p95 | 5.0 s | 39 ms |
+| Leaving a call, p95 | 5.0 s | 140 ms, and 1.0 s at p99 |
+| Starting a call | 5 s, then `503` | `503` at once |
+
+Now what an ending or a departure asks of the provider waits at most a second, and after the provider fails to answer, it is not asked for a second at a time ([`internal/circuit`](../internal/circuit/circuit.go)) — the same as Redis. A slow provider measured the same. [`runbooks/media-provider-unavailable.md`](runbooks/media-provider-unavailable.md) is what an operator reads when it happens.
