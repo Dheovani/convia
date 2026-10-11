@@ -15,3 +15,11 @@
 2a11784e45ca6070268da3b341d7effd13e23c89:internal/events/http_test.go:generic-api-key:334
 0fafe5991dadbd80d9ff05ab133d9bade9e094f0:internal/config/config_test.go:generic-api-key:557
 72f427c90f12c4c35d4e263ba06e5ba6833312a2:internal/server/contract_test.go:generic-api-key:561
+
+# The same fixtures, in the commits of feature branches from before they were
+# merged, which a clone that still has those branches also scans.
+c19bb2ede2a0e6fae1506a48fd6bf9549f73ec32:internal/server/redaction_test.go:generic-api-key:30
+14556b8fc5d53b3c830a64e9224149ce6793b651:internal/server/tenant_budget_test.go:generic-api-key:28
+14556b8fc5d53b3c830a64e9224149ce6793b651:internal/server/tenant_budget_test.go:generic-api-key:29
+14556b8fc5d53b3c830a64e9224149ce6793b651:internal/server/tenant_budget_test.go:generic-api-key:30
+8c66a535f826c685b99531c13bb844395ad94937:internal/server/origin_test.go:generic-api-key:320
