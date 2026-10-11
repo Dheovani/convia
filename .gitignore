@@ -1,54 +1,55 @@
-# Build output
-/convia
-/convia.exe
-/convia-desktop.exe
-*.test
+# What is never versioned, whatever the stack turns out to be. Patterns
+# specific to a language or framework are added when that choice is made
+# (AGENTS.md, rule 3), not before.
 
-# Test and coverage output
-coverage.out
-test-events.json
-
-# Local environment
+# Local configuration and secrets of each machine.
 .env
+.env.*
+!.env.example
 
-# Editor and operating system files
+# Build output. Wails keeps the sources of the Windows build -- icon,
+# manifest, version information -- in build/, and writes into build/bin.
+dist/
+build/bin/
+out/
+
+# Compiled binaries, libraries and installers.
+*.exe
+*.dll
+*.so
+*.dylib
+*.msi
+*.msix
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.AppImage
+
+# Dependencies fetched by a package manager.
+node_modules/
+
+# Test, coverage and profiling output.
+coverage/
+*.test
+*.out
+*.prof
+
+# Logs and temporary files.
+*.log
+tmp/
+temp/
+
+# Editors and tools, as each person configures them locally.
 .idea/
-.vscode/
+*.swp
+*~
+.claude/settings.local.json
+
+# Operating systems.
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# The TypeScript workspace: the SDK and the interface
-#
-# One rule covers the root, web/ and sdk/, because a pattern with no leading
-# slash matches at any depth. They are restored from the one package-lock.json
-# the workspace has.
-#
-# The built bundle is not committed either: it is generated from web/ by
-# `npm run build` and compiled into the binary from there, so committing it
-# would be committing the same source twice and inviting the two to disagree.
-# The page served when it is absent is committed, because the embed pattern
-# has to match something.
-node_modules/
-# The SDK's compiled output. `sdk/src/contract.ts` is NOT here: it is
-# generated but committed, so the type-checker and consumers do not need
-# the generator and a contract change is a diff somebody reads.
-sdk/dist/
-sdk/*.tsbuildinfo
-# The SDK bundled for its browser tests, built by `npm run build:e2e`.
-sdk/e2e/.built/
-# What the SDK's browser tests leave behind when they run.
-sdk/test-results/
-sdk/playwright-report/
-# What the end-to-end journeys leave behind when they run.
-web/test-results/
-web/playwright-report/
-internal/web/assets/dist/
-
-# Python bytecode from the scripts under .github/scripts.
-#
-# One was committed by accident and sat there until a script imported the
-# module beside it and Git noticed the file change. Compiled output of
-# anything is not source, and this one is not even reproducible across
-# interpreter versions.
-__pycache__/
-/.load/
+# Wails's record of when it last installed the frontend's dependencies.
+frontend/package.json.md5

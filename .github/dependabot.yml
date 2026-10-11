@@ -1,46 +1,24 @@
+# Weekly, for every ecosystem the repository uses (ADR 0002).
 version: 2
-
 updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
-      day: monday
-      time: "09:00"
-      timezone: America/Sao_Paulo
-    groups:
-      github-actions:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 5
-
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
-      day: monday
-      time: "09:30"
-      timezone: America/Sao_Paulo
-    groups:
-      go-dependencies:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 5
-
-  # The interface, which was missing here while the Go side was covered.
-  #
-  # It is the half whose dependencies run in somebody's browser, on the same
-  # origin as their session, so leaving it out was the wrong way round.
+    commit-message:
+      prefix: build
   - package-ecosystem: npm
-    directory: /web
+    directory: /frontend
     schedule:
       interval: weekly
-      day: monday
-      time: "10:00"
-      timezone: America/Sao_Paulo
+    commit-message:
+      prefix: build
     groups:
-      interface-dependencies:
-        patterns:
-          - "*"
-    open-pull-requests-limit: 5
-
+      frontend:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

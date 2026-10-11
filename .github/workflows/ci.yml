@@ -1,7 +1,11 @@
 name: CI
 
+# Every check here is required to merge (ADR 0002). Convia's first version is
+# Windows only (ADR 0001), so everything that compiles the application runs on
+# Windows; what does not compile it runs wherever is cheapest.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -9,662 +13,172 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Licenses a dependency may carry (ADR 0003).
+  PERMITTED_LICENSES: MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,0BSD,MIT-0,BlueOak-1.0.0,CC0-1.0
+
 jobs:
-  validate:
-    name: Validate Go project
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Validate GitHub Actions workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-
-      - name: Verify formatting
-        shell: bash
-        run: |
-          mapfile -t go_files < <(find . -type f -name '*.go' -not -path './vendor/*')
-          unformatted="$(gofmt -l "${go_files[@]}")"
-          if [[ -n "${unformatted}" ]]; then
-            echo "The following files are not formatted:"
-            echo "${unformatted}"
-            exit 1
-          fi
-
-      # The interface is compiled into the binary, and the tests that cover how
-      # it is served skip when no bundle is present. Building it here is what
-      # makes those tests run rather than pass by not running -- the same
-      # failure M17 found in the Redis tests, where CI declared no dependency
-      # and every cross-instance test was silently skipped.
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Build the interface
-        run: |
-          npm ci
-          npm run build --workspace convia-web
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run Staticcheck
-        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
-
-      # Before the suite rather than after it, because this reads source and
-      # nothing else: a quarantine whose deadline passed should cost seconds,
-      # not the eight minutes the tests take.
-      - name: Check no test is switched off without an owner and a date
-        run: python3 .github/scripts/check_quarantine.py
-
-      - name: Run tests with race detection and coverage
-        run: |
-          if ! go test -count=1 -race -shuffle=on -covermode=atomic             -coverprofile=coverage.out -json ./... > test-events.json; then
-            python3 .github/scripts/report_durations.py < test-events.json
-            exit 1
-          fi
-
-      # `-json` above keeps the exit code and ruins the log. The step that
-      # failed puts the failures back itself, so this one is what it was
-      # always for: where the time went on a run that worked.
-      - name: Say where the time went
-        run: python3 .github/scripts/report_durations.py < test-events.json
-
-      # Not a percentage, deliberately: a package with no tests is not a number
-      # to argue about, it is a package where nothing would notice a change.
-      # The script says why, and docs/testing.md holds the per-package numbers
-      # for the judgement a person makes.
-      - name: Check every package has tests
-        run: python3 .github/scripts/check_tested.py
-
-      - name: Report coverage
-        run: go tool cover -func=coverage.out
-
-      - name: Upload coverage report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: go-coverage
-          path: coverage.out
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Build all packages
-        run: go build ./...
-
-  interface:
-    name: Validate the web interface
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      # At the root, because web and sdk share one lockfile.
-      - name: Install dependencies
-        run: npm ci
-
-      # `npm run build` type-checks before it bundles, so a type error fails
-      # here rather than at the next person's editor.
-      - name: Type-check and build
-        run: npm run build --workspace convia-web
-
-      - name: Run tests
-        run: npm run test --workspace convia-web
-
-  e2e:
-    name: End-to-end journeys
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: convia
-          POSTGRES_PASSWORD: convia
-          POSTGRES_DB: convia
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=convia"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-    # The Convia under test, configured as a developer's is. Development-only
-    # credentials, matched in docker-compose.yml. Private addresses are allowed
-    # because the journeys share rooms by invitation through the runner's own
-    # network address: a link to loopback is refused as Convia itself.
-    env:
-      CONVIA_ENVIRONMENT: development
-      CONVIA_HTTP_HOST: 0.0.0.0
-      CONVIA_HTTP_PORT: "8080"
-      CONVIA_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
-      CONVIA_LIVEKIT_URL: http://127.0.0.1:7880
-      CONVIA_LIVEKIT_API_KEY: devkey
-      CONVIA_LIVEKIT_API_SECRET: a-development-secret-long-enough-to-be-accepted
-      CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES: "true"
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Build the interface and Convia
-        run: |
-          npm ci
-          npm run build --workspace convia-web
-          go build -o convia ./cmd/convia
-
-      # The media server reports who connected and who left to the Convia on the
-      # runner, and a browser on the runner reaches it on loopback.
-      - name: Start LiveKit
-        run: |
-          docker run --detach --name convia-livekit \
-            --add-host host.docker.internal:host-gateway \
-            --publish 127.0.0.1:7880:7880 \
-            --publish 127.0.0.1:7881:7881 \
-            --publish 127.0.0.1:7882:7882/udp \
-            --env "LIVEKIT_KEYS=devkey: a-development-secret-long-enough-to-be-accepted" \
-            --env "LIVEKIT_CONFIG=$(printf 'webhook:\n  api_key: devkey\n  urls:\n    - http://host.docker.internal:8080/media/reports\n')" \
-            livekit/livekit-server:v1.13.6 --dev --bind 0.0.0.0 --node-ip 127.0.0.1
-
-      - name: Start Convia
-        run: |
-          ./convia migrate up
-          nohup ./convia serve > convia.log 2>&1 &
-          for _ in $(seq 1 30); do
-            if curl --silent --fail --output /dev/null http://127.0.0.1:8080/health \
-              && curl --silent --fail --output /dev/null http://127.0.0.1:7880/; then
-              echo "CONVIA_E2E_SHARE_URL=http://$(hostname -I | awk '{print $1}'):8080" >> "$GITHUB_ENV"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "Convia or LiveKit did not become ready"
-          cat convia.log
-          docker logs convia-livekit
-          exit 1
-
-      - name: Install the browser
-        working-directory: web
-        run: npx playwright install --with-deps chromium
-
-      - name: Type-check the journeys
-        working-directory: web
-        run: npm run typecheck:e2e
-
-      - name: Run the journeys
-        working-directory: web
-        run: npm run test:e2e
-
-      # The SDK against the same Convia. Its unit tests fake the network, which
-      # is right for deciding what it sends and useless for whether any of it
-      # works: a fake fetch records `credentials: 'same-origin'` without a
-      # cookie existing, and a fake WebSocket never upgrades. A real browser is
-      # what found that the client called the global `fetch` detached from
-      # `window`, which Node does not mind and a browser refuses outright.
-      - name: Type-check the SDK's browser tests
-        working-directory: sdk
-        run: npm run typecheck:e2e
-
-      - name: Run the SDK against the same Convia
-        working-directory: sdk
-        run: |
-          npm run build:e2e
-          npm run test:e2e
-
-      - name: Show what Convia and LiveKit said
-        if: failure()
-        run: |
-          if [ -f convia.log ]; then
-            cat convia.log
-          else
-            echo "Convia was never started, so it said nothing."
-          fi
-          docker logs convia-livekit || echo "LiveKit was never started."
-
-      - name: Upload the journeys' report
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: e2e-report
-          path: |
-            web/playwright-report
-            web/test-results
-          retention-days: 14
-
-  sdk:
-    name: Validate the TypeScript SDK
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: web/.nvmrc
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      # sdk/src/contract.ts is api/openapi.yaml in TypeScript, committed so that
-      # consumers and the type-checker do not need the generator and so that a
-      # change to the contract is a diff somebody reads. The cost of committing
-      # it is that the copy can fall behind and nothing about it looks wrong:
-      # the types compile, the tests pass, and the SDK describes a Convia that
-      # no longer exists. This is the same shape as `gofmt -l`, and for the same
-      # reason it checks rather than rewrites.
-      - name: Check the generated contract still matches the contract
-        run: python3 .github/scripts/check_generated.py
-
-      # The build type-checks, and the type-check is where the vocabularies are
-      # held to the contract: a name the contract has and a list does not stops
-      # it, and says which name.
-      - name: Type-check and build
-        run: npm run build --workspace convia-sdk
-
-      - name: Run tests
-        run: npm run test --workspace convia-sdk
-
-  integration:
-    name: Integration tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: convia
-          POSTGRES_PASSWORD: convia
-          POSTGRES_DB: convia
-        ports:
-          - 5432:5432
-        # The health check connects over TCP rather than the local socket: the
-        # postgres image runs initdb against a temporary socket-only server, so
-        # a socket probe reports ready while TCP connections are still refused.
-        options: >-
-          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=convia"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-      # Everything that spans instances is skipped without this: carrying
-      # events between them, and presence converging across them. Both are
-      # about two processes agreeing, so a single-process test cannot cover
-      # them and CI is the only place they run.
-      redis:
-        image: redis:8.2-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-
-    env:
-      CONVIA_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
-      CONVIA_TEST_DATABASE_URL: postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable
-      # Development-only, and matched in docker-compose.yml. The media tests
-      # are skipped when these are unset, so CI is the place they must be set.
-      CONVIA_TEST_LIVEKIT_URL: http://127.0.0.1:7880
-      CONVIA_TEST_LIVEKIT_API_KEY: devkey
-      CONVIA_TEST_LIVEKIT_API_SECRET: a-development-secret-long-enough-to-be-accepted
-      # Not database 0, because the presence tests empty the one they run in
-      # and nobody should discover that by pointing this at something else.
-      # The relay tests share it safely: publish/subscribe stores no keys.
-      CONVIA_TEST_REDIS_URL: redis://127.0.0.1:6379/3
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # A service container cannot be given command arguments, and this one
-      # needs --dev, so it is started as an ordinary step. Only the control API
-      # is published: Convia does not carry media yet.
-      - name: Start LiveKit
-        run: |
-          docker run --detach --name convia-livekit \
-            --publish 127.0.0.1:7880:7880 \
-            --env "LIVEKIT_KEYS=devkey: a-development-secret-long-enough-to-be-accepted" \
-            livekit/livekit-server:v1.13.6 --dev --bind 0.0.0.0
-
-      - name: Wait for LiveKit
-        run: |
-          for _ in $(seq 1 30); do
-            if curl --silent --fail --output /dev/null http://127.0.0.1:7880/; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "LiveKit did not become ready"
-          docker logs convia-livekit
-          exit 1
-
-      - name: Run tests against PostgreSQL, LiveKit, and Redis
-        run: |
-          if ! go test -count=1 -race -shuffle=on -json ./... > test-events.json; then
-            python3 .github/scripts/report_durations.py < test-events.json
-            exit 1
-          fi
-
-      - name: Say where the time went
-        run: python3 .github/scripts/report_durations.py < test-events.json
-
-      - name: Verify migrations apply to an empty database
-        run: go run ./cmd/convia migrate up
-
-      - name: Verify migrations revert
-        run: go run ./cmd/convia migrate down
-
-      - name: Verify migrations reapply after a rollback
-        run: go run ./cmd/convia migrate up
-
-  application:
-    name: Build the desktop application
+  go:
+    name: Go
     runs-on: windows-latest
     timeout-minutes: 20
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
+      # The binary embeds the built interface, and nothing here needs it built:
+      # an empty directory is what lets the package compile without it.
+      - name: Stand in for the built interface
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/gitkeep
+      - name: Formatting
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+      - name: Tests
+        run: go test -count=1 -shuffle=on ./...
 
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+  frontend:
+    name: Frontend
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version-file: web/.nvmrc
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Formatting
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
 
-      # The application shows the interface out of its own binary, so a build
-      # without one is a window with nothing in it -- which the application
-      # refuses to open, and which this job would otherwise not notice.
-      - name: Build the interface
-        run: |
-          npm ci
-          npm run build --workspace convia-web
-
-      # Everything else runs on Linux, where the window, the WebView2 check and
-      # the Credential Manager are all excluded from the build or skipped. This
-      # job is the only place they are compiled and run at all -- the same
-      # failure M17 found in the Redis tests, where a dependency CI never
-      # declared meant every test that needed it silently passed by not running.
-      # No -race here. The detector needs a C compiler on Windows, and what it
-      # would cover -- the stream's goroutines -- is code that builds on every
-      # system and is already run under it on Linux. What only exists here is
-      # single-threaded: a window, a version check, and the Credential Manager.
-      - name: Run the application's tests
-        run: go test -count=1 -shuffle=on ./cmd/convia-desktop/... ./internal/desktop/... ./internal/web/...
-
-      # Without `production` Wails compiles a stub that opens no window, and a
-      # job that built one would report success for something nobody can run.
-      - name: Build the application
-        run: go build -tags desktop,production ./cmd/convia-desktop
-
-  federation:
-    name: Two installations against each other
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: convia
-          POSTGRES_PASSWORD: convia
-          POSTGRES_DB: convia
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=convia"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
+  windows-build:
+    name: Windows build
+    runs-on: windows-latest
+    timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # The CLI's version is the one go.mod requires of the library, so the two
+      # cannot drift apart.
+      - name: Install the Wails CLI
+        shell: bash
+        run: go install "github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+      - name: Build
+        run: wails build -clean -platform windows/amd64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: convia-windows-amd64
+          path: build/bin/convia.exe
+          retention-days: 7
 
-      - name: Build Convia
-        run: go build -o convia ./cmd/convia
-
-      # Only the second installation gets one. That asymmetry is what proves a
-      # visitor's call credential came from the room's home: the first could
-      # not have issued one.
-      #
-      # No webhook is configured, unlike the end-to-end job: these journeys
-      # check that a credential is issued and whose media server it names,
-      # and nothing here connects with one, so the media server has nothing
-      # to report.
-      - name: Start LiveKit for the second installation
-        run: |
-          docker run --detach --name convia-livekit \
-            --publish 127.0.0.1:7880:7880 \
-            --publish 127.0.0.1:7881:7881 \
-            --publish 127.0.0.1:7882:7882/udp \
-            --env "LIVEKIT_KEYS=devkey: a-development-secret-long-enough-to-be-accepted" \
-            livekit/livekit-server:v1.13.6 --dev --bind 0.0.0.0 --node-ip 127.0.0.1
-
-      # Two databases on one server, so the two installations share nothing but
-      # the network: an installation that could read the other's tables would
-      # prove nothing about what crosses between them.
-      - name: Create a database for each installation
-        env:
-          PGPASSWORD: convia
-        run: |
-          for name in convia_a convia_b; do
-            psql --host 127.0.0.1 --username convia --dbname postgres \
-              --command "CREATE DATABASE $name"
-          done
-
-      - name: Start both installations
-        env:
-          CONVIA_ENVIRONMENT: development
-          CONVIA_HTTP_HOST: 127.0.0.1
-          # Private addresses are allowed because the two reach each other on
-          # loopback, which Convia refuses by default and for good reason.
-          CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES: "true"
-        run: |
-          start() {
-            port=$1
-            database=$2
-            shift 2
-            env CONVIA_HTTP_PORT="$port" \
-                CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/$database?sslmode=disable" \
-                CONVIA_PUBLIC_ADDRESS="http://127.0.0.1:$port" \
-                "$@" ./convia migrate up
-            env CONVIA_HTTP_PORT="$port" \
-                CONVIA_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/$database?sslmode=disable" \
-                CONVIA_PUBLIC_ADDRESS="http://127.0.0.1:$port" \
-                "$@" nohup ./convia serve > "convia-$database.log" 2>&1 &
-          }
-
-          start 8080 convia_a
-          start 8081 convia_b \
-            CONVIA_LIVEKIT_URL=http://127.0.0.1:7880 \
-            CONVIA_LIVEKIT_API_KEY=devkey \
-            CONVIA_LIVEKIT_API_SECRET=a-development-secret-long-enough-to-be-accepted
-
-          for _ in $(seq 1 30); do
-            if curl --silent --fail --output /dev/null http://127.0.0.1:8080/health \
-              && curl --silent --fail --output /dev/null http://127.0.0.1:8081/health \
-              && curl --silent --fail --output /dev/null http://127.0.0.1:7880/; then
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "the installations did not both start" >&2
-          tail --lines=40 convia-convia_a.log convia-convia_b.log
-          exit 1
-
-      # The journeys drive the public surface and nothing else: two addresses
-      # and a token each, which is all a third party would have.
-      - name: Run the journeys between them
-        env:
-          CONVIA_TEST_FEDERATION_A: http://127.0.0.1:8080
-          CONVIA_TEST_FEDERATION_B: http://127.0.0.1:8081
-        run: go test -count=1 -shuffle=on -run Test ./internal/peers/
-
-      - name: Show what each installation logged
-        if: failure()
-        run: tail --lines=100 convia-convia_a.log convia-convia_b.log
-
-  restore:
-    name: Losing an installation and putting it back
-    runs-on: ubuntu-latest
+  vulnerabilities:
+    name: Vulnerabilities
+    runs-on: windows-latest
     timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: convia
-          POSTGRES_PASSWORD: convia
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready --host 127.0.0.1 --username=convia --dbname=postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
-      # New, and empty. A recovery does not get its cache back, and an
-      # installation that only works because presence survived has not been
-      # recovered -- so the exercise is given a Redis that never saw the
-      # original.
-      redis:
-        image: redis:8-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-          cache: true
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Stand in for the built interface
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/gitkeep
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=moderate
 
-      - name: Build Convia
-        run: go build -o convia ./cmd/convia
+  licenses:
+    name: Licenses
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Stand in for the built interface
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/gitkeep
+      # Convia's own module carries Convia's license, which is not a dependency's.
+      - name: Go modules compiled into the binary
+        run: go run github.com/google/go-licenses/v2@v2.0.1 check ./... --allowed_licenses=${{ env.PERMITTED_LICENSES }} --ignore github.com/Dheovani/convia
+      - run: npm ci
+        working-directory: frontend
+      - name: npm packages shipped in the interface
+        working-directory: frontend
+        shell: bash
+        run: npx --yes license-checker-rseidelsohn@4.4.2 --production --excludePrivatePackages --onlyAllow "${PERMITTED_LICENSES//,/;}"
+      # Tools that only build the interface and are never distributed, which
+      # ADR 0003 allows two more licenses.
+      - name: npm packages that only build the interface
+        working-directory: frontend
+        shell: bash
+        run: npx --yes license-checker-rseidelsohn@4.4.2 --development --excludePrivatePackages --onlyAllow "${PERMITTED_LICENSES//,/;};MPL-2.0;CC-BY-4.0"
 
-      # The runner ships a PostgreSQL 16 client and the service is 17, and
-      # pg_dump refuses to dump a server newer than itself. Rather than pin a
-      # client version that has to be remembered every time the server moves,
-      # the tools come from the server's own image: they cannot drift, because
-      # there is only one version in play.
-      #
-      # The archive travels on stdin and stdout, so nothing is shared but the
-      # network -- the host's, so that 127.0.0.1:5432 is the service.
-      - name: Take the PostgreSQL client from the server's own image
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: a credential committed and then deleted is still
+          # in it, and still works.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
         run: |
-          mkdir -p "$HOME/.pgbin"
-          for tool in pg_dump pg_restore psql; do
-            cat > "$HOME/.pgbin/$tool" <<EOF
-          #!/usr/bin/env bash
-          exec docker run --rm --interactive --network host \
-            --env PGPASSWORD --env PGSSLMODE postgres:17-alpine $tool "\$@"
-          EOF
-            chmod +x "$HOME/.pgbin/$tool"
-          done
-          echo "$HOME/.pgbin" >> "$GITHUB_PATH"
-
-      - name: Make a database to lose and an empty one to restore into
-        run: |
-          psql "$URL/postgres" --quiet --command 'CREATE DATABASE convia_origin'
-          psql "$URL/postgres" --quiet --command 'CREATE DATABASE convia_target'
-        env:
-          URL: postgres://convia:convia@127.0.0.1:5432
-          PGSSLMODE: disable
-
-      # No media plane: the LiveKit that held the calls in the backup is not
-      # coming back either, and Convia has to serve without it.
-      - name: Lose it, and put it back
-        run: bash .github/scripts/restore_exercise.sh
-        env:
-          CONVIA_RESTORE_ORIGIN_URL: postgres://convia:convia@127.0.0.1:5432/convia_origin?sslmode=disable
-          CONVIA_RESTORE_TARGET_URL: postgres://convia:convia@127.0.0.1:5432/convia_target?sslmode=disable
-          CONVIA_RESTORE_REDIS_URL: redis://127.0.0.1:6379/0
+          docker run --rm --volume "${PWD}:/repo" --workdir /repo \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source=. --redact --verbose
