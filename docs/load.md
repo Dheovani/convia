@@ -5,9 +5,13 @@
 ```
 scripts/load.sh smoke 30s       # checks the harness, in about a minute
 scripts/load.sh provider 5m     # the hosted service's size, in about fifteen
+scripts/load.sh provider 5m 2   # the same, spread over two instances
+scripts/load.sh quiet 2m 2      # an installation with little going on, over two
 ```
 
-It needs Docker and Go, and nothing else running on ports 18100 and 4318. Everything it starts — a PostgreSQL, a Redis, one Convia — is removed when it ends.
+It needs Docker and Go, and nothing else running on ports 18100 onwards and 4318. Everything it starts — a PostgreSQL, a Redis, each Convia — is removed when it ends.
+
+**With more than one instance**, every stream is held on one of them in turn and every request goes to any of them, the way a load balancer spreads clients, and an event's delay is reported apart for streams on the instance that produced it and streams on another.
 
 ## What a run does
 
@@ -78,3 +82,22 @@ Before and after the change, at the same load:
 | Processors used, on average | 0.90 of 2 | 0.81 of 2 |
 
 The waits are the number that matters: the pool was the first limit in the baseline, and it is no longer the first thing the load presses on.
+
+## Across instances
+
+On 2026-10-11, the same load spread over two instances of 2 processors each, and a quiet installation — two tenants, a message a second — over two, for `M25-007`.
+
+**The provider's load divides.** Each instance used half a processor where one instance alone used 0.8, every target was met, and no instance logged an error or waited for a database connection.
+
+**An event crossing instances waited for a poll.** Every instance reads the journal itself; it reads at once when it recorded something, and otherwise every 200 milliseconds. Under load, its own recordings wake it often enough to hide that. In a quiet installation nothing does:
+
+| p95 of an event reaching a stream | same instance | across instances, before | across instances, after |
+| --- | --- | --- | --- |
+| Quiet installation, a tenant's stream | 10 ms | 203 ms | 10 ms |
+| Quiet installation, a person's stream | 12 ms | 203 ms | 11 ms |
+| The provider's load, a tenant's stream | 5.4 ms | 27 ms | 6.2 ms |
+| The provider's load, a person's stream | 6.9 ms | 35 ms | 8.6 ms |
+
+An instance that records something now tells the others over Redis, which read the journal at once ([`docs/events.md`](events.md#running-more-than-one-instance)). It cost what the reads cost: 316 a second across both instances at the provider's load, at 0.02 ms each.
+
+**A client that stops reading costs nobody else.** `TestAClientThatStopsReadingCostsNobodyElse` holds two clients on real sockets and stops one reading: it is ended as behind once its socket and its queue are full — 380 events in that test — and its place is given back at once, while the client beside it receives every event in order. A load run cannot show this honestly from outside Docker, whose port forwarding buffers what the client does not read.

@@ -61,6 +61,23 @@ const (
 	Channel = "convia:v1:events"
 
 	/*
+		JournalChannel is where an instance says it has recorded something.
+
+		It is `M25-007`'s finding. Every instance reads the journal itself, and
+		reads it at once when it recorded something, but an event recorded by
+		another instance was found only at the next poll: in a quiet
+		installation, an event crossing instances took 200 ms at p95 where one
+		that did not took 10. What travels here is only the sending instance's
+		origin -- no event, no tenant, nothing to read -- and what it causes is
+		the reading the poll would have done a little later. Lost, it costs
+		that delay and nothing else.
+
+		It is a channel of its own rather than a kind of message on the other,
+		so that an instance older than it never reads one as an event.
+	*/
+	JournalChannel = "convia:v1:journal"
+
+	/*
 		envelopeVersion is the shape of what travels on the channel.
 
 		It is separate from the event's own version because the two can differ:
@@ -105,6 +122,14 @@ type Relay struct {
 
 	queued   chan events.Event
 	received chan events.Event
+
+	/*
+		recording and recorded each hold at most one notice, which is what
+		makes a burst of recordings one message rather than a queue of them:
+		whoever reads the journal next reads everything recorded so far.
+	*/
+	recording chan struct{}
+	recorded  chan struct{}
 
 	stopping chan struct{}
 	stopped  sync.Once
@@ -180,6 +205,8 @@ func New(settings Config, logger *slog.Logger) (*Relay, error) {
 		timeout:    timeout,
 		queued:     make(chan events.Event, queueDepth),
 		received:   make(chan events.Event, queueDepth),
+		recording:  make(chan struct{}, 1),
+		recorded:   make(chan struct{}, 1),
 		stopping:   make(chan struct{}),
 		subscribed: make(chan struct{}),
 	}
@@ -225,6 +252,25 @@ carry an event and nothing about who is entitled to it.
 */
 func (relay *Relay) Events() <-chan events.Event { return relay.received }
 
+/*
+Recorded tells the other instances this one has recorded an event in the
+journal, so they read it now rather than at their next poll. It never blocks,
+and any number of calls before the notice is sent are one notice.
+*/
+func (relay *Relay) Recorded() {
+	select {
+	case relay.recording <- struct{}{}:
+	default:
+	}
+}
+
+/*
+Journal yields a value when another instance has recorded something. Values
+are coalesced the same way, so a reader is told that there is something to
+read, not how much.
+*/
+func (relay *Relay) Journal() <-chan struct{} { return relay.recorded }
+
 // Dropped counts the events that could not be carried, for the summary an
 // operator sees when the process stops.
 func (relay *Relay) Dropped() int64 { return relay.dropped.Load() }
@@ -268,7 +314,20 @@ func (relay *Relay) carry() {
 			return
 		case event := <-relay.queued:
 			relay.publish(event)
+		case <-relay.recording:
+			relay.announce()
 		}
+	}
+}
+
+// announce sends the notice Recorded queued.
+func (relay *Relay) announce() {
+	ctx, cancel := context.WithTimeout(context.Background(), relay.timeout)
+	defer cancel()
+
+	if err := relay.client.Publish(ctx, JournalChannel, relay.origin).Err(); err != nil {
+		relay.logger.Warn("tell the other instances the journal has news",
+			"error", err, "remedy", "they will find it at their next poll; check that CONVIA_REDIS_URL is reachable")
 	}
 }
 
@@ -308,7 +367,7 @@ func (relay *Relay) listen() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	subscription := relay.client.Subscribe(ctx, Channel)
+	subscription := relay.client.Subscribe(ctx, Channel, JournalChannel)
 	defer subscription.Close()
 
 	/*
@@ -320,7 +379,7 @@ func (relay *Relay) listen() {
 		failure costs is that `subscribed` stays open, so nothing is told a
 		subscription is live when it is not.
 	*/
-	if _, err := subscription.Receive(ctx); err == nil {
+	if confirmed(ctx, subscription, 2) {
 		close(relay.subscribed)
 	}
 
@@ -334,8 +393,41 @@ func (relay *Relay) listen() {
 			if !open {
 				return
 			}
+			if message.Channel == JournalChannel {
+				relay.heard(message.Payload)
+				continue
+			}
 			relay.accept(message.Payload)
 		}
+	}
+}
+
+/*
+confirmed waits for Redis to confirm a subscription to each of channels
+channels. Each confirmation arrives on its own, and the first one is not the
+second: a relay told it was subscribed after one could miss a notice sent to
+the other.
+*/
+func confirmed(ctx context.Context, subscription *goredis.PubSub, channels int) bool {
+	for {
+		reply, err := subscription.Receive(ctx)
+		if err != nil {
+			return false
+		}
+		if confirmation, ok := reply.(*goredis.Subscription); ok && confirmation.Count >= channels {
+			return true
+		}
+	}
+}
+
+// heard passes on another instance's notice; this instance's own is dropped.
+func (relay *Relay) heard(origin string) {
+	if origin == relay.origin {
+		return
+	}
+	select {
+	case relay.recorded <- struct{}{}:
+	default:
 	}
 }
 

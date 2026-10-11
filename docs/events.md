@@ -231,7 +231,7 @@ no shared channel is configured, so presence changes reach this instance's strea
 shared channel configured  address=redis.internal:6379  origin=ins_...
 ```
 
-The relay carries presence and nothing else.
+The relay carries presence, and one thing more: **a notice that an instance recorded something in the journal**, on `convia:v1:journal`, so the others read it at once instead of at their next poll. The notice is the sending instance's origin and nothing else — no event, no tenant — and it is what keeps an event crossing instances as fast as one that does not: in a quiet installation, 11 ms at p95 against 203 ms without it ([`docs/load.md`](load.md#across-instances)). Without Redis, or with it unreachable, every recorded event still reaches every stream, within the 200 milliseconds of a poll.
 What the relay does **not** change:
 
 - **Who receives what.** The broker decides that from the credential that opened the stream, and decides it the same way whether the event was produced here or elsewhere.

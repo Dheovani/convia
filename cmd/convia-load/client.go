@@ -26,11 +26,27 @@ run would measure the refusals.
 */
 type caller struct {
 	base    string
+	bases   []string
 	key     string
 	address string
 	client  *http.Client
 	record  *recorder
 }
+
+/*
+on is the same party talking to one instance of several. A load balancer in
+front of them would choose; here the choice is made, so that the report can
+say whether an event was delivered by the instance that produced it.
+*/
+func (who caller) on(instance int) caller {
+	if len(who.bases) > 0 {
+		who.base = who.bases[instance%len(who.bases)]
+	}
+	return who
+}
+
+// instances is how many instances the run is spread over.
+func (who caller) instances() int { return max(1, len(who.bases)) }
 
 // errStatus is a refusal, kept apart from a failure to reach Convia at all.
 type errStatus struct {

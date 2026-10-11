@@ -57,13 +57,13 @@ message whose identifier the sender does not know yet.
 */
 func TestAnEventThatArrivesFirstIsStillMeasuredFromTheSend(t *testing.T) {
 	record := newRecorder()
-	seen := newArrivals(record)
+	seen := newArrivals(record, 1)
 	sent := time.Now()
 
-	seen.arrived("event", "msg_EARLY", sent.Add(40*time.Millisecond))
-	seen.arrived("event", "msg_EARLY", sent.Add(60*time.Millisecond))
-	seen.posted("event", "msg_EARLY", sent)
-	seen.arrived("event", "msg_EARLY", sent.Add(80*time.Millisecond))
+	seen.arrived("event", "msg_EARLY", sent.Add(40*time.Millisecond), 0)
+	seen.arrived("event", "msg_EARLY", sent.Add(60*time.Millisecond), 0)
+	seen.posted("event", "msg_EARLY", sent, 0)
+	seen.arrived("event", "msg_EARLY", sent.Add(80*time.Millisecond), 0)
 
 	got := record.samples["event"]
 	if len(got) != 3 {
@@ -76,6 +76,32 @@ func TestAnEventThatArrivesFirstIsStillMeasuredFromTheSend(t *testing.T) {
 	}
 	if len(seen.early) != 0 {
 		t.Error("an arrival kept waiting for a post that already happened")
+	}
+}
+
+/*
+TestAnEventIsMeasuredByWhichInstanceDeliveredIt keeps the slower of the two
+delays from hiding behind the faster: across several instances, an event the
+instance that produced it delivers and one another instance delivers are
+reported apart, early arrivals included.
+*/
+func TestAnEventIsMeasuredByWhichInstanceDeliveredIt(t *testing.T) {
+	record := newRecorder()
+	seen := newArrivals(record, 2)
+	sent := time.Now()
+
+	seen.arrived("event", "msg_A", sent.Add(10*time.Millisecond), 1)
+	seen.posted("event", "msg_A", sent, 0)
+	seen.arrived("event", "msg_A", sent.Add(5*time.Millisecond), 0)
+
+	if got := record.samples["event, across instances"]; len(got) != 1 || got[0] != 10*time.Millisecond {
+		t.Errorf("across instances = %v, want the one early arrival on the other instance", got)
+	}
+	if got := record.samples["event, same instance"]; len(got) != 1 || got[0] != 5*time.Millisecond {
+		t.Errorf("same instance = %v, want the one arrival on the instance that produced it", got)
+	}
+	if target("event to a tenant stream, across instances") != 250*time.Millisecond {
+		t.Error("an event across instances is not held to the target of an event")
 	}
 }
 

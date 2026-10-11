@@ -425,7 +425,18 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 	if err != nil {
 		return fmt.Errorf("start following the event journal: %w", err)
 	}
-	announcer := serving.NewJournaledAnnouncer(broker, eventJournal, dispatcher, follower.Wake, logger)
+	/*
+		What this instance records it reads at once, and with a relay the
+		others are told to as well, rather than finding it at their next poll.
+	*/
+	recorded := follower.Wake
+	if relay != nil {
+		recorded = func() {
+			follower.Wake()
+			relay.Recorded()
+		}
+	}
+	announcer := serving.NewJournaledAnnouncer(broker, eventJournal, dispatcher, recorded, logger)
 
 	roomService := rooms.NewService(rooms.NewStore(pool), applicationService, userService, announcer,
 		auditService, logger)
@@ -676,6 +687,17 @@ func serve(ctx context.Context, logger *slog.Logger, cfg config.Config) error {
 		go func() {
 			for event := range relay.Events() {
 				broker.Receive(event)
+			}
+		}()
+		// What the others recorded, read now. It ends with the process.
+		go func() {
+			for {
+				select {
+				case <-signalContext.Done():
+					return
+				case <-relay.Journal():
+					follower.Wake()
+				}
 			}
 		}()
 

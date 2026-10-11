@@ -731,7 +731,7 @@ This document is the operational development plan for Convia. It tracks what exi
 ### M25 — Performance and Horizontal Scaling
 
 **Priority:** P2
-**Status:** In progress. Sized for the hosted service in [`docs/scaling.md`](docs/scaling.md), and measured against it in [`docs/load.md`](docs/load.md): one instance of 2 processors carries the whole size with every target met at least fivefold, at about half its processors. The database pool now survives saturation and dead connections, and no longer waits at this load. Next: event fan-out across instances and slow consumers (`M25-007`).
+**Status:** In progress. Sized for the hosted service in [`docs/scaling.md`](docs/scaling.md), and measured against it in [`docs/load.md`](docs/load.md): one instance of 2 processors carries the whole size with every target met at least fivefold, at about half its processors. The database pool now survives saturation and dead connections, and no longer waits at this load. Two instances divide the load, and an event crossing them is as fast as one that does not. Next: Redis failing and failing over (`M25-008`).
 **Depends on:** Stable critical flows and production-like observability
 **Goal:** Validate that the control plane scales without relying on premature optimization.
 
@@ -741,7 +741,7 @@ This document is the operational development plan for Convia. It tracks what exi
 - [x] **M25-004:** Measure baseline CPU, memory, allocation, and goroutine behavior.
 - [x] **M25-005:** Profile database queries and verify indexes with realistic data sizes.
 - [x] **M25-006:** Test connection pool saturation and recovery.
-- [ ] **M25-007:** Test WebSocket fan-out and slow consumers across multiple instances.
+- [x] **M25-007:** Test WebSocket fan-out and slow consumers across multiple instances.
 - [ ] **M25-008:** Test Redis failure and failover behavior where Redis is used.
 - [ ] **M25-009:** Test media-provider control API degradation independently from media quality.
 - [x] **M25-010:** Verify graceful shutdown while calls and control connections are active.
