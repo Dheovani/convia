@@ -47,12 +47,14 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o .load/convia ./cmd/c
 docker network create "$network" >/dev/null
 docker run -d --name convia-load-pg --network "$network" \
 	-e POSTGRES_USER=convia -e POSTGRES_PASSWORD=convia -e POSTGRES_DB=convia \
-	postgres:17-alpine -c max_connections=200 >/dev/null
+	postgres:17-alpine -c max_connections=200 	-c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all >/dev/null
 # Reached as `redis`, the throwaway address the secret scanner knows for what it
 # is (.gitleaks.toml), rather than by a container name it would have to be told.
 docker run -d --name convia-load-redis --network "$network" --network-alias redis redis:8.2-alpine >/dev/null
 
 until docker exec convia-load-pg pg_isready -U convia >/dev/null 2>&1; do sleep 1; done
+# What every query cost, read back after the run. See docs/load.md.
+until docker exec convia-load-pg psql -U convia -d convia -qc "CREATE EXTENSION IF NOT EXISTS pg_stat_statements" >/dev/null 2>&1; do sleep 1; done
 
 echo "starting Convia: 2 processors, 4 GB"
 docker run -d --name convia-load-app --network "$network" --cpus 2 --memory 4g \
@@ -92,9 +94,33 @@ done ) &
 sampler=$!
 : > .load/stats.txt
 
+rm -f .load/loading .load/window.txt
+# Setting up is not what is profiled: when the load begins, PostgreSQL's
+# counters start again, so the report below is about the load alone.
+( until [ -e .load/loading ]; do sleep 1; done
+	docker exec convia-load-pg psql -U convia -d convia -qc "SELECT pg_stat_statements_reset(); SELECT pg_stat_reset();" >/dev/null ) &
+resetter=$!
+
 status=0
 go run ./cmd/convia-load -target "http://127.0.0.1:$port" -operator-key "$key" \
-	-scale "$scale" -duration "$duration" -metrics 0.0.0.0:4318 -window .load/window.txt || status=$?
+	-scale "$scale" -duration "$duration" -metrics 0.0.0.0:4318 -window .load/window.txt \
+	-loading .load/loading || status=$?
+kill "$resetter" 2>/dev/null || true
+
+# What the load asked of PostgreSQL, and whether it found an index to do it with.
+docker exec convia-load-pg psql -U convia -d convia -P pager=off -c "
+	SELECT calls, round(mean_exec_time::numeric, 2) AS mean_ms, round(total_exec_time::numeric) AS total_ms,
+	       rows, left(regexp_replace(query, '\s+', ' ', 'g'), 110) AS query
+	FROM pg_stat_statements WHERE query NOT ILIKE '%pg_stat%'
+	ORDER BY total_exec_time DESC LIMIT 12;" > .load/database.txt 2>&1
+docker exec convia-load-pg psql -U convia -d convia -P pager=off -c "
+	SELECT s.relname AS table_name, c.reltuples::bigint AS rows, s.seq_scan, s.seq_tup_read, s.idx_scan
+	FROM pg_stat_user_tables s JOIN pg_class c ON c.oid = s.relid
+	WHERE s.seq_scan + coalesce(s.idx_scan, 0) > 0
+	ORDER BY s.seq_tup_read DESC, c.reltuples DESC LIMIT 12;" >> .load/database.txt 2>&1
+echo
+echo "what the load asked of PostgreSQL (.load/database.txt)"
+cat .load/database.txt
 
 # Docker's view over the load's window alone, which is what the processor
 # figure has to come from: the runtime's own estimate only moves at a GC.

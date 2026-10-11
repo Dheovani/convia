@@ -58,3 +58,23 @@ What the run found, before any of the above could be read:
 - **Nothing Convia measured reached a collector.** Metrics and traces were posted to the address configured, path and all, so `https://collector:4318` received them at `/` and answered 404. Each signal now goes to its OTLP path.
 - **Memory used counted memory already given back**, reading 627 MB where the container held 145 MB.
 - **A client that hangs up is logged as a server error.** The four errors of the run were requests the generator cancelled as it stopped. That is `M25-016`.
+
+## The database under the load
+
+A run also reports what it asked of PostgreSQL during the load alone: the statements that took the most time, from `pg_stat_statements`, and how each table was read, in `.load/database.txt`. The counters are reset the moment the load begins, so setting up is not in them.
+
+The first profile, on 2026-10-11, found two things:
+
+- **The most frequent statement was asking whether a tenant is active: 564 000 times in five minutes, 1.7 times per request.** A request is authenticated by one service and served by another, and each asks, because neither can know the other did. One request now asks once (`M25-014`, see [`internal/applications/remembered.go`](../internal/applications/remembered.go)); the next request asks again, so a suspension takes effect as it did before, and a stream is left out because it asks again precisely so a suspension ends it.
+- **Messages were read by sequential scans**, a few hundred of them. They happen while the table is small and the planner rightly prefers reading it whole; the run starts with no messages at all. `TestAHistoryIsReadThroughItsIndexes` seeds 200 000 messages and checks that every frequent query on them uses an index, under both the plan PostgreSQL makes for the values and the generic one it switches prepared statements to (`M25-005`).
+
+Before and after the change, at the same load:
+
+| | before | after |
+| --- | --- | --- |
+| Asking whether a tenant is active | 564 000 | 265 000 |
+| Time PostgreSQL spent on it | 12.8 s | 6.1 s |
+| Queries waiting for a connection | 62 a second | none |
+| Processors used, on average | 0.90 of 2 | 0.81 of 2 |
+
+The waits are the number that matters: the pool was the first limit in the baseline, and it is no longer the first thing the load presses on.

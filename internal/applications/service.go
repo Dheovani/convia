@@ -178,8 +178,14 @@ asks this question instead, so that suspension actually withdraws access rather
 than only recording an intention to.
 */
 func (service *Service) Active(ctx context.Context, id string) (bool, error) {
+	memory := rememberedIn(ctx)
+	if active, known := memory.recall(id); known {
+		return active, nil
+	}
+
 	application, err := service.Get(ctx, id)
 	if errors.Is(err, ErrNotFound) {
+		memory.keep(id, false)
 		return false, nil
 	}
 
@@ -187,7 +193,9 @@ func (service *Service) Active(ctx context.Context, id string) (bool, error) {
 		return false, err
 	}
 
-	return application.Status == StatusActive, nil
+	active := application.Status == StatusActive
+	memory.keep(id, active)
+	return active, nil
 }
 
 // List returns one page of applications, newest first.
@@ -284,6 +292,7 @@ func (service *Service) Delete(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 
+	defer rememberedIn(ctx).forget(id)
 	return service.store.Atomically(ctx, func(ctx context.Context) error {
 		deleted, err := service.store.Delete(ctx, id, now())
 		if err != nil {
@@ -306,6 +315,7 @@ func (service *Service) transition(ctx context.Context, id string, status Status
 		return current, nil
 	}
 
+	defer rememberedIn(ctx).forget(id)
 	var updated Application
 	err = service.store.Atomically(ctx, func(ctx context.Context) error {
 		updated, err = service.store.SetStatus(ctx, current.ID, status, now(), nil)

@@ -271,3 +271,29 @@ func saturation(t *testing.T, reader *sdkmetric.ManualReader) int64 {
 	t.Fatal("active_requests was not collected")
 	return 0
 }
+
+/*
+TestAClientThatLeftIsCountedAs499 keeps an error rate from being made of people
+closing tabs: whatever the handler wrote to nobody, the request is counted as
+abandoned.
+*/
+func TestAClientThatLeftIsCountedAs499(t *testing.T) {
+	serving, reader := recording(t)
+
+	gone, leave := context.WithCancel(context.Background())
+	request := httptest.NewRequest(http.MethodGet, "/v1/rooms", nil).WithContext(gone)
+	request.Pattern = "GET /v1/rooms"
+	done := serving.Began(request.Context())
+	leave()
+	done(request, http.StatusInternalServerError)
+
+	answering(serving, http.MethodGet, "/v1/rooms", "GET /v1/rooms", http.StatusInternalServerError)
+
+	statuses := map[string]uint64{}
+	for _, point := range collected(t, reader, "http.server.request.duration") {
+		statuses[label(point, "http.response.status_code")] += point.Count
+	}
+	if statuses["499"] != 1 || statuses["500"] != 1 {
+		t.Errorf("statuses = %v, want the abandoned request as 499 and the real failure as 500", statuses)
+	}
+}

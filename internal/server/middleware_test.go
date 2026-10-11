@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -182,5 +183,29 @@ func assertLogField(t *testing.T, entry map[string]any, name string, want any) {
 
 	if value := entry[name]; value != want {
 		t.Errorf("log field %s = %v, want %v", name, value, want)
+	}
+}
+
+/*
+TestAStreamDoesNotRememberWhetherItsTenantIsActive is the half of `M25-014`
+that keeps a suspension working: a stream's request lasts as long as the stream,
+and it asks again whether its tenant is active so that a suspension ends it.
+*/
+func TestAStreamDoesNotRememberWhetherItsTenantIsActive(t *testing.T) {
+	for _, upgrade := range []string{"", "websocket", "WebSocket"} {
+		var inner context.Context
+		handler := remembering(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+			inner = request.Context()
+		}))
+
+		request := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
+		if upgrade != "" {
+			request.Header.Set("Upgrade", upgrade)
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+
+		if remembers := inner != request.Context(); remembers != (upgrade == "") {
+			t.Errorf("Upgrade %q: remembers = %v, want %v", upgrade, remembers, upgrade == "")
+		}
 	}
 }
