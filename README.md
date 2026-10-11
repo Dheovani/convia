@@ -1,220 +1,311 @@
 # Convia
 
-Convia is a standalone real-time communication platform. It is two things at once: a product with a client of its own — **a desktop application people install** — and a platform other products such as Orbit and Workspace Town integrate with through stable public APIs and SDKs.
+Convia is a **peer-to-peer (P2P) desktop communication application**.
 
-Convia owns its public API and domain model. Media infrastructure, including the planned initial use of LiveKit, remains an internal implementation detail.
+That sentence must be read literally. Convia is not, at its core, a web communication service with a desktop client. It is not a central backend that different clients connect to. It is not a hosted platform whose desktop application works merely as an interface to remote infrastructure.
 
-## Status
+**Convia is the application itself, running on the user's machine.**
 
-The project currently contains the Go backend foundation, its HTTP transport baseline, its PostgreSQL foundation, and four domain resources: environment-based configuration, process lifecycle management, graceful shutdown, health and readiness endpoints, request correlation identifiers, structured access logs, panic recovery, a single JSON error schema, a connection pool, reversible schema migrations, and endpoints for applications, their users, their API credentials, their rooms, the calls held in them, and who takes part. A narrow internal boundary separates all of it from whatever will eventually transport audio and video.
+Each user runs their own instance of Convia on their computer. When two users want to communicate, the Convia instances running on their respective machines establish a connection with each other and communicate directly between the machines.
 
-The tenant-facing API is authenticated. An application presents an opaque API key carrying explicit scopes, and Convia takes the tenant from that key rather than from the request, so `/v1/users` and `/v1/credentials` act on the caller's own data and nothing else. [`docs/authentication.md`](docs/authentication.md) documents the credential lifecycle and [`docs/runbooks/credential-revocation.md`](docs/runbooks/credential-revocation.md) is the procedure for withdrawing a leaked key. [`docs/threat-model.md`](docs/threat-model.md) covers every trust boundary Convia has — who is on the other side of each, what they are trusted for, what stops the obvious attack, and what is not covered.
+In its conceptually simplest form:
 
-The operator surface is authenticated too, by a separate kind of key. An operator credential (`cvo_`) administers Convia itself — creating tenants, suspending them, issuing their first keys — and lives in its own table with its own scopes, so an application key can never reach it. The first one is created with `convia operator issue`, because issuing one over the API requires presenting one.
+```text
+Alice's computer                        Bob's computer
 
-Rooms exist: an application can create durable rooms addressed by an alias it chose, or anonymous ones for a single occasion, and manage their lifecycle under `/v1/rooms`. A creation can carry an `Idempotency-Key`, so retrying after a timeout produces no second room. See [`docs/rooms.md`](docs/rooms.md).
-
-Calls exist: an application can start a conversation in one of its rooms, end it, and read the history of what has happened there, under `/v1/calls`. A room holds one call at a time, and starting one can carry an `Idempotency-Key`. See [`docs/calls.md`](docs/calls.md).
-
-Participants exist: an application can admit its people to a call, read who is there, promote a moderator, and remove someone. Joining is idempotent by the person, so a reconnection never duplicates anyone, and a room's capacity is enforced when people arrive. See [`docs/participants.md`](docs/participants.md).
-
-People can also be invited rather than admitted. An invitation is a credential the invitee holds and presents themselves, which is what lets Convia enforce its expiry and its withdrawal instead of merely recording them; redeeming one produces a place in the call and the means to connect, in a single request. See [`docs/invitations.md`](docs/invitations.md).
-
-A media plane exists behind that boundary: a call asks LiveKit for the room its conversation happens in, and releases it when the call ends. A client joins through Convia alone: one endpoint returns a short-lived credential for one person in one call, and no external consumer ever integrates with a media provider directly. The media server reports who connected and who left to Convia, which checks each report against its own record before acting on it. Convia still runs perfectly well with no media plane configured at all. See [`docs/media.md`](docs/media.md).
-
-Control events stream: an application opens one WebSocket at `/v1/events` and is told what happened while it is still news — a call starting or ending, a roster changing, an invitation declined. The stream carries nothing upstream, so it cannot become a way to push media, and a credential is told only about the things it could already have read. Every event but presence is recorded with the change that caused it and kept for a day, so a client that reconnects with the cursor of the last event it received is sent what it missed, and a subscriber that falls behind is disconnected with a reason rather than quietly losing an event. Every instance follows those records itself; a deployment running more than one instance sets `CONVIA_REDIS_URL` so that presence reaches them all, and an unreachable Redis narrows presence rather than failing anything. A signed-in person has a stream of their own at `/v1/me/events`, authorized per room rather than per tenant, which is how Convia's interface is told what changed instead of asking. See [`docs/events.md`](docs/events.md).
-
-People sign in to Convia's own product with a fourth family of credential, `cvs_`, which travels in a cookie for the page and in an `Authorization` header for the application — the browser's headers are what tell the two apart — and **carries no authority over a tenant** — a session proves who somebody is, and nothing anywhere turns one into an application key. Passwords are argon2id where every other Convia secret is a plain digest, because the rule is chosen by where the entropy came from. Every sign-in failure answers identically, and an unknown username is hashed against a decoy so the timing does not answer either. **A person creates their own account** from the sign-in page, with a username and a password and nothing else: accounts belong to the installation, the way entries belong to a password manager's file. An account's identifier is the fingerprint of a key pair generated for it, and the private key is stored only sealed by the password — so nobody with the database can use it, and **there is no password reset**. A person is named to somebody else by a handle, `username#IDENTIFIER` with a check character that catches a typo. Nothing needs configuring: Convia makes its own application the first time it starts. See [`docs/sessions.md`](docs/sessions.md), [ADR 0011](docs/adr/0011-an-account-is-local-and-its-identifier-is-its-key.md) and [ADR 0019](docs/adr/0019-a-session-travels-in-a-cookie-or-a-header.md).
-
-People on different installations share rooms. Somebody invites a handle and sends the link they get. The invitee pastes it into their own Convia, which looks at it, joins, and from then on relays what they do in that room to the installation it lives on. Every request between installations is **signed with the person's own key**, which their session holds while they are signed in and at no other time. The link is not a secret, because only that key can accept it. Neither the page nor the application's window ever talks to the other installation itself, so cookies and the origin check are untouched. Following a link uses the same guard against internal addresses as webhook delivery. See [`docs/peers.md`](docs/peers.md) and [ADR 0012](docs/adr/0012-a-room-lives-on-one-installation-and-visitors-sign.md).
-
-Presence is the one advisory thing Convia holds: an application heartbeats for each of a person's devices, Convia aggregates them into one answer and expires it on a clock that is never the caller's. Whether somebody is *in a call* is a different, durable question and is deliberately not a field on it. Presence streams as `presence.changed` and is the one event type Convia refuses to deliver by webhook, because a redelivered presence report arrives after it stopped being true. See [`docs/presence.md`](docs/presence.md).
-
-A room remembers what was said in it. **A conversation is a room** rather than a second noun beside it, so messages outlive the calls held in the place — a history is something to open, not something that ends with the meeting. Order is a per-room sequence allocated by PostgreSQL under the room's row lock rather than a timestamp, because several instances stamp `created_at` from several clocks and a chat that shows a reply above the thing it replies to is broken in a way people notice. An edit records that it happened and not what it said before; a deletion leaves a tombstone that keeps its place, so a history never closes over a hole and slides messages past a reader's cursor. Nothing anybody said reaches the log. See [`docs/messages.md`](docs/messages.md).
-
-**Convia's own client is a desktop application**, which is what a person installs and opens. The interface lives in `web/`, is built with React, TypeScript, Tailwind and Vite, and is compiled into that application — a second binary, `cmd/convia-desktop`, built with Wails v2 over WebView2. Its Go process is the API client: it holds the session where Windows keeps secrets, carries the interface's requests to the installation it is connected to, and keeps the person's event stream, so nothing opens a port and nothing else on the machine can reach what the window is showing. A person signs in, sees the rooms they are in with what they have not read, and reads and writes in them. It is built on the public session surface and nothing else: no privileged path, no internal endpoint, no acting with the first-party application's key. See [`docs/interface.md`](docs/interface.md) and [ADR 0019](docs/adr/0019-a-session-travels-in-a-cookie-or-a-header.md).
-
-The same interface is **also served as a page**, compiled into the Convia binary and served from the API's own origin, and that is how it is worked on: hot reloading, a browser's own tools, and a session in a `__Host-` cookie, which makes CORS unnecessary rather than merely configured. It is not what anybody installs. A binary built without the bundle still serves the API and says so. [ADR 0009](docs/adr/0009-convia-serves-its-own-interface-from-its-own-origin.md) decided that arrangement when the page was meant to be the product, and is superseded for the product by ADR 0019.
-
-Webhooks exist for what a client must not miss: an application registers a destination, Convia signs every delivery with a secret shown once, retries on a published schedule, disables a receiver that has stopped answering, and keeps a readable record of every attempt. It refuses to connect to anything that is not the public internet, checked at the socket on every attempt rather than at the hostname once. See [`docs/webhooks.md`](docs/webhooks.md).
-
-Everything done to an installation is recorded: who acted, on whose authority, on what, and why where Convia asks. An entry is written in the same transaction as the change, so a change that rolls back leaves none, and an operator reads the trail at `GET /v1/audit` with a scope nothing else grants. [`docs/audit.md`](docs/audit.md) explains what is recorded and what deliberately is not.
-
-Several instances can serve one installation, sharing its PostgreSQL and its Redis. [`docs/scaling.md`](docs/scaling.md) is the inventory of what each instance keeps to itself and what that means, including which rate limits are shared between instances and which are counted by each.
-
-[`docs/applications.md`](docs/applications.md) explains the tenancy model and the bootstrap procedure.
-
-The transport contract shared by every endpoint is documented in [`docs/api-conventions.md`](docs/api-conventions.md).
-
-## API contract
-
-The public API is specified in [`api/openapi.yaml`](api/openapi.yaml), an OpenAPI 3.0.3 document. It is authoritative: `go test` validates the document, compares it against the implemented routes in both directions, checks that the documented error codes are exactly the ones the service can return, and validates real responses against the documented schemas.
-
-[`docs/api-compatibility.md`](docs/api-compatibility.md) governs how the contract may change: naming, additive versus breaking changes, lifecycle states, deprecation periods, idempotency, optimistic concurrency, cursor opacity, and how SDKs consume the contract.
-
-## Prerequisites
-
-- Go 1.26.6, as declared in `go.mod`
-- Docker, for the local PostgreSQL instance and for a container build
-- Node 24, as declared in `web/.nvmrc`, to build Convia's own interface. Only that: nothing in the Go build, the tests, or the container's Go stage needs it, and a Convia built without it serves the API and says the interface is absent.
-- Windows, to build or run the desktop application. It needs the WebView2 runtime, which current Windows carries; the application says so rather than showing nothing when it is missing. Everything else builds and tests on any platform.
-
-## Run
-
-Convia requires PostgreSQL. Start it, apply the migrations, then start the service on its development defaults (`0.0.0.0:8080`):
-
-```sh
-cp .env.example .env
-set -a && . ./.env && set +a
-docker compose up -d
-go run ./cmd/convia migrate up
-go run ./cmd/convia
+┌─────────────────┐                     ┌─────────────────┐
+│     Convia      │◄────── P2P ───────►│     Convia      │
+└─────────────────┘                     └─────────────────┘
 ```
 
-That serves the API and nothing else.
+The fundamental element of the architecture is therefore **peer ↔ peer**, not **client ↔ server**.
 
-**To run Convia the way a person uses it**, one script builds the interface into the application, starts Convia, and opens the window. Closing the window stops Convia. Windows only, because the application is; see [`docs/interface.md`](docs/interface.md).
+# What it means to be a local application
 
-```sh
-./scripts/app.sh     # Git Bash
-./scripts/app.ps1    # Windows PowerShell
+Convia is installed and runs locally.
+
+The program the user opens contains the logic needed to represent that user on the Convia network, manage their conversations, keep their local state and communicate with other instances of the application.
+
+The local application must not be understood as a mere frontend for a "Convia server". The user's machine is an active participant in the system.
+
+When Alice uses Convia, there is an instance of the program running on Alice's computer. When Bob uses Convia, there is another, independent instance running on Bob's computer.
+
+When Alice talks to Bob, the system must think first of:
+
+```text
+Alice's Convia ↔ Bob's Convia
 ```
 
-**To work on the interface**, another script serves it as a page with hot reloading at `http://localhost:5173`, proxying `/v1` to Convia on port 8080 so the browser still sees one origin. It starts the containers, applies the migrations, builds and starts Convia too, and Ctrl+C stops both. It reads `.env`, starts LiveKit and Redis only when `.env` configures them, and leaves the containers running. Create an account on the sign-in page.
+and not of:
 
-```sh
-./scripts/dev.sh     # macOS, Linux, Git Bash
-./scripts/dev.ps1    # Windows PowerShell
+```text
+Alice's Convia → Convia server ← Bob's Convia
 ```
 
-The page is also compiled into the Convia binary, for an installation reached from a browser rather than from the application. `go run` alone produces a binary without it, which serves the API normally and answers the page with 503 and the command to fix it:
+This distinction is essential to understanding the product.
 
-```sh
-cd web && npm install && npm run build && cd ..
-go run ./cmd/convia
+# What peer-to-peer means in Convia
+
+The goal of Convia is to let users' machines establish connections with each other in order to communicate.
+
+A peer is an instance of Convia belonging to a user.
+
+So Alice is not merely "an account stored on a server". Alice's instance takes part in the network directly. The same is true of Bob.
+
+When an interaction between the two begins, the software must be able to make the two peers find each other, establish a connection, authenticate each other's identity according to the model that is yet to be defined, and exchange the data the communication needs.
+
+Communication between these peers is the core of the system.
+
+That chiefly includes real-time communication.
+
+# The comparison with Signal
+
+Signal is a useful reference for understanding part of the idea of Convia, because it represents an application for private communication between people.
+
+Convia does not, however, intend simply to reproduce Signal's user experience.
+
+The comparison is mainly about the idea of an application for communication between users, not about adopting Signal's architecture, protocol, infrastructure or account model wholesale.
+
+The interface and the set of features intended for Convia are closer to a rich desktop communication application.
+
+# The comparison with Discord
+
+Convia's interface should follow an organization similar to Discord's.
+
+This means the application must not be conceived merely as a simple list of contacts followed by a message window, as in many traditional messengers.
+
+Convia should provide a rich desktop communication experience, in which the user can move between conversations and other features while staying inside a single visual workspace.
+
+The reference to Discord is mainly a reference for **experience and the organization of the interface**, not for its backend architecture.
+
+Discord is fundamentally a centralized platform.
+
+Convia is fundamentally P2P.
+
+Therefore:
+
+```text
+User experience:
+Discord is an important reference.
+
+Communication architecture:
+Discord is NOT a reference for Convia's core.
 ```
 
-Both API surfaces require a credential, so a fresh instance needs one operator key before it can do anything. Issuing one over the API requires presenting one, so the first is minted against the database:
+# Conversation
 
-```sh
-go run ./cmd/convia operator issue "bootstrap"
+One of Convia's fundamental functions is to let users converse.
+
+Messages must be part of a conversation that persists from the application's point of view, not an ephemeral sequence of HTTP requests against some central server.
+
+When Alice opens a conversation with Bob, the interface shows the relevant history of that conversation and lets new messages be exchanged between them.
+
+When both are connected, messages can be transmitted in real time between their machines.
+
+Exactly how messages are stored locally, synchronized, delivered when a peer is offline and reconciled across several devices still has to be defined explicitly before it is implemented.
+
+These decisions must not be invented by the implementation.
+
+# Real-time communication
+
+Convia is not only an asynchronous messaging application.
+
+An important characteristic of the product is real-time communication between peers.
+
+This means the connection established between users must be able to serve interactive features that require low latency.
+
+Convia's architecture must therefore be designed from the start to support continuous communication between machines, not just isolated calls to an API.
+
+# Screen sharing
+
+Convia must let one user share their screen with another.
+
+Screen sharing is one of the application's native communication features.
+
+This means that, during a communication session between Alice and Bob, Alice must be able to start sharing her screen and Bob must be able to watch that stream inside Convia itself.
+
+This feature must respect the P2P nature of the product.
+
+It must not be conceived, by default, as "Alice sends her screen to a Convia server and Bob receives it from that server".
+
+The first conceptual model must be:
+
+```text
+Alice captures her screen
+        │
+        ▼
+Alice's Convia
+        │
+        │ P2P communication
+        ▼
+Bob's Convia
+        │
+        ▼
+Bob watches the stream
 ```
 
-The secret is printed once and is not stored. `convia operator list` and `convia operator revoke <id>` manage the rest. An instance with no active operator credential still serves the tenant API and warns at startup that nobody can administer it.
+The future existence of auxiliary infrastructure for connectivity does not change this principle.
 
-Convia reads configuration from the process environment rather than from a file, so `.env` has to be loaded into the shell as shown above. `.env` is ignored by Git and must never hold a production credential.
+# Convia is not a centralized SaaS platform
 
-Configuration is available through these environment variables:
+This is an important conceptual constraint.
 
-- `CONVIA_ENVIRONMENT` selects `development` or `production` validation. The default is `development`.
-- `CONVIA_HTTP_HOST` sets the HTTP bind host. The default is `0.0.0.0`.
-- `CONVIA_HTTP_PORT` sets the HTTP port. The default is `8080`.
-- `CONVIA_TRUSTED_PROXIES` names the networks whose `X-Forwarded-For` header Convia believes, as comma-separated CIDR blocks or bare addresses. The default is empty, which trusts nothing. Set it before deploying behind a reverse proxy.
-- `CONVIA_TENANT_REQUESTS_PER_MINUTE` bounds how often one application may ask, successes included. The default is `3000`, per application rather than per key or per address. It accepts `60` to `1000000`: an operator can raise it, and no value turns it off. See [`docs/authentication.md`](docs/authentication.md).
-- `CONVIA_PERSON_REQUESTS_PER_MINUTE` bounds how often one signed-in **session** may ask, successes included. The default is `600`, accepting `60` to `100000`. Per session rather than per account or per address, so a stolen session's flood never throttles the phone it was stolen from. See [`docs/authentication.md`](docs/authentication.md).
-- `CONVIA_ERASURE_WINDOW` is how long a deleted user is kept before Convia forgets them. The default is `720h`, thirty days, and it accepts `24h` to `87600h`. It is how long a deletion stays recoverable and the outer bound on how long Convia keeps somebody it was told to forget. See [`docs/users.md`](docs/users.md).
-- `CONVIA_LOG_LEVEL` is the lowest severity Convia writes: `debug`, `info`, `warn` or `error`. The default is `info`, and anything else stops startup rather than falling back. See [`docs/observability.md`](docs/observability.md).
-- `CONVIA_SERVICE_INSTANCE` tells two Convia processes apart in the logs and the metrics. The default is the hostname. Set it when running more than one on a host.
-- `CONVIA_METRICS_ENDPOINT` is where measurements are sent, over OTLP/HTTP. The default is empty, which measures nothing at all rather than measuring into a void. See [`docs/observability.md`](docs/observability.md).
-- `CONVIA_TRACE_SAMPLE` is the share of traces Convia starts that it keeps, from `0` to `1`. The default is `1`, every trace. A caller that already decided to record an operation gets Convia's part of it whatever this says.
-- `CONVIA_TRACES_ENDPOINT` is where spans are sent, over OTLP/HTTP. The default is empty. It is separate from the metrics endpoint because the two are separate decisions: metrics are usually always on, traces are turned on while somebody is looking at something.
-- `CONVIA_PUBLIC_ADDRESS` is the address other installations reach this one at, as a scheme and host with no path, such as `https://convia.example`. It is what an invitation link names, and it outranks anything a request can say. The default is empty, which names a link after the address the request that made it arrived at — right for one machine on one network, wrong behind a reverse proxy or when an administrator opens Convia at an address only that machine can reach. Setting it does not relax the rule that a proxy must pass `Host` through unchanged. See [`docs/peers.md`](docs/peers.md).
-- `CONVIA_PEERS_ALLOW_PRIVATE_ADDRESSES` lets invitation links between installations reach loopback and private-network addresses when set to `true`. The default is `false` in every environment. Turn it on only when the installations you share rooms with are on your own network: while it is on, anybody who can create an account here can make this server connect to machines on that network. See [`docs/peers.md`](docs/peers.md).
-- `CONVIA_DATABASE_URL` sets the PostgreSQL connection URL. It is required and has no default.
-- `CONVIA_DATABASE_MAX_CONNECTIONS` sets the pool size. The default is `10`.
-- `CONVIA_DATABASE_CONNECT_TIMEOUT` bounds establishing a connection. The default is `5s`.
-- `CONVIA_DATABASE_QUERY_TIMEOUT` bounds a single query. The default is `5s`. It is applied as PostgreSQL's own `statement_timeout`, so a query past it is ended at the server rather than merely abandoned by Convia. Migrations open their own connection and are not bounded by it.
+Convia must not be reinterpreted as a communication SaaS platform.
 
-In production, `CONVIA_DATABASE_URL` must request a verified TLS mode. [`docs/database.md`](docs/database.md) documents the database setup, the migration workflow, and the testing model.
+There is no conceptual entity called "the Convia server" that owns everybody's conversations, as a fundamental requirement of the product.
 
-Check the running service:
+Nor is there, as a fundamental requirement, a central backend responsible for storing every message, creating every room, authenticating every person, ordering every message and mediating every communication.
 
-```sh
-curl http://localhost:8080/health   # process liveness, never touches the database
-curl http://localhost:8080/ready    # dependency readiness, 503 when PostgreSQL is unreachable
+Building that system would mean building a different product.
+
+# Convia is not a federation of personal servers
+
+It is also important to distinguish P2P from a federated architecture.
+
+Running a small HTTP server next to each user and having those servers talk to each other over the Internet does not automatically turn the system into the intended model.
+
+For example:
+
+```text
+Alice's desktop
+       │
+       ▼
+Alice's server
+       │
+       ▼
+Bob's server
+       │
+       ▼
+Bob's desktop
 ```
 
-Operational endpoints are served outside the `/v1` public API prefix. Every response carries an `X-Request-ID` header, and every failure uses the JSON error schema:
+is not simply another way of drawing the original architecture.
 
-```sh
-curl -i http://localhost:8080/v1/rooms
+In that model, the main element becomes a federation of server installations.
+
+Convia must be thought of first in terms of the users' own applications as peers:
+
+```text
+Alice's application ↔ Bob's application
 ```
 
-```json
-{
-  "error": {
-    "code": "not_found",
-    "message": "The requested resource does not exist.",
-    "request_id": "MXHJAY4MJNX2FO22XWJ3XNCKHT"
-  }
-}
+Any auxiliary local process must exist only because it is an internal implementation detail of the application, not because each user has started operating their own web platform.
+
+# Convia must not depend on heavy infrastructure to exist locally
+
+The user should not need to operate server infrastructure to be able to use the application.
+
+Installing Convia must not mean installing and administering PostgreSQL, Redis, a media server, a reverse proxy and other production services.
+
+The application must ship the local dependencies it really needs as part of its distribution.
+
+If it needs to persist information on the machine, the persistence must suit the nature of a desktop application.
+
+If it needs to keep secrets, it must use the appropriate mechanisms for secure local storage.
+
+If it needs to keep state in memory, that belongs to the local process.
+
+Installing it should feel like installing an application, not like deploying a server stack.
+
+# Auxiliary infrastructure is not necessarily centralization
+
+Being P2P does not necessarily mean that no server at all may exist anywhere in the ecosystem.
+
+This point must be handled precisely.
+
+Depending on future protocol and connectivity decisions, there may be auxiliary services whose only function is to help peers find each other or establish a connection.
+
+For example, signaling, rendezvous, discovery, STUN or TURN mechanisms may eventually be needed.
+
+Using something of that kind would not automatically change Convia's P2P character.
+
+The fundamental distinction is who is responsible for the communication and for the product's state.
+
+A service that only helps Alice and Bob establish a connection is conceptually very different from a server that becomes the owner of Alice and Bob's conversation.
+
+So, if auxiliary infrastructure is needed, it must be treated as **connectivity infrastructure**, not as the logical center of the product.
+
+Which auxiliary services will exist must still be defined explicitly.
+
+# Authority of the peers
+
+An important consequence of Convia's P2P nature is that a single global authority determining the whole state of the system must not be presumed.
+
+When Alice talks to Bob, there are at least two independent participants, each with its own storage and execution.
+
+Questions such as identity, message ordering, delivery confirmation, history, editing, deletion, conflicts, reconnection and synchronization must be defined according to that reality.
+
+These questions must not be resolved implicitly by adding a central database merely because it simplifies the implementation.
+
+When a feature really does require a specific authority, that authority must be defined deliberately by the protocol.
+
+# The interface and the network core are different things
+
+Convia has two distinct concerns.
+
+One of them is the user experience.
+
+The other is the mechanism through which peers communicate.
+
+The interface can look and behave like Discord without the protocol or the architecture bearing any resemblance to Discord's architecture.
+
+Likewise, the technologies used to build the desktop interface must not determine the architecture of the network.
+
+The right question for every feature is first:
+
+```text
+How do two instances of Convia do this between themselves?
 ```
 
-## Test
+Only afterwards should the way the interface presents that feature be chosen.
 
-```sh
-go test ./...
+# The role of the local backend
+
+If the application uses Go or another language to implement its native logic, that code must be understood as the **local core of the desktop application**.
+
+It may manage networking, cryptography, storage, the operating system, media capture, the P2P protocol and other local responsibilities.
+
+It must not be treated automatically as a "web backend" separate from the product.
+
+In other words:
+
+```text
+Window frontend
+        │
+        ▼
+local core of the application
+        │
+        ▼
+P2P network
 ```
 
-Database tests are skipped unless a PostgreSQL instance is provided. Include them with:
+is compatible with Convia.
 
-```sh
-docker compose up -d
-CONVIA_TEST_DATABASE_URL="postgres://convia:convia@127.0.0.1:5432/convia?sslmode=disable" go test ./...
-```
+Turning that local core into an independent web service that the application merely consumes is a different architectural decision, and must not be presumed.
 
-Each database test creates and drops its own database, so runs never share state.
+# Fundamental principle
 
-The interface has its own suite, and the Go tests that cover how it is *served* need a build to exist — without one they skip, so CI builds the bundle before running them:
+Every architectural decision in Convia must pass a simple question:
 
-```sh
-cd web && npm install && npm test
-```
+**Does this solution preserve the fact that users are running applications that communicate peer-to-peer, or is it quietly turning Convia into a client-server platform?**
 
-## Build
+If the solution creates a central server responsible for the conversations merely because that is more familiar or convenient, the solution violates the fundamental idea of the product.
 
-Build the service:
+# Short definition
 
-```sh
-go build -o convia ./cmd/convia
-```
+Convia is a P2P desktop communication application with a user experience inspired by Discord.
 
-Build the desktop application, on Windows. The interface has to be built first, because it is compiled in, and Wails needs its build tags — without them the result is a program that opens no window and says why:
+Each user runs Convia on their own machine. The instances of the application establish connections with each other to allow real-time communication, messaging and additional features such as screen sharing.
 
-```sh
-cd web && npm install && npm run build && cd ..
-go build -tags desktop,production -o convia-desktop.exe ./cmd/convia-desktop
-```
+The application must work as a complete local program, not as a mere frontend of a centralized service.
 
-Build the container image. It builds the interface in a Node stage of its own and compiles it into the binary, so this needs no Node installed:
+External infrastructure may exist when it is strictly necessary to make discovery or connectivity between peers possible, but it must not replace the peers as the core of the system, nor take ownership of the conversations or their state by default.
 
-```sh
-docker build -t convia .
-```
+Decisions about identity, discovery, storage, synchronization, offline delivery, groups, media and NAT traversal must be specified explicitly before implementation, and never inferred by the team or by AI agents.
 
-## Continuous integration
-
-GitHub Actions validates the project through three workflows:
-
-- `CI` validates workflow files, checks formatting, runs `go vet` and Staticcheck, executes tests with race detection and coverage, and builds every package. It builds the interface first, so the tests covering how it is served run rather than skip, and validates the interface's own types and tests in a job of its own. A further job starts **two installations against each other** — separate databases, and a media plane on only one of them — and drives the journeys that cross between them over the public API alone.
-- Two gates guard the tests themselves, both described in [`docs/testing.md`](docs/testing.md): **every package that ships code has tests** (not a percentage — a percentage rewards covering whatever is cheapest), and **no test is switched off without an owner, an issue, and a date in the future**, so a quarantine expires rather than becoming a deletion nobody argued for. The suite runs with `-json` and prints where the time went, and the failures, in a form somebody can read.
-- A further job **loses an installation on purpose**: it populates a Convia through the real API, drops the schema, restores from a `pg_dump` into an empty database, and starts a new installation against it with an empty Redis and no media plane. It does not check that the dump exists — it signs in as somebody who existed before the loss, reads back what they wrote, and writes something new, because **the failure to expect is the restore that looks like it worked**. The procedure is [`docs/runbooks/restoring-from-a-backup.md`](docs/runbooks/restoring-from-a-backup.md).
-- `Security` runs Go vulnerability analysis and CodeQL with extended security queries on pushes, pull requests, a weekly schedule, and manual requests.
-- `Container` builds the production image, verifies its non-root user, and smoke tests the health and readiness endpoints against a real PostgreSQL instance.
-
-Workflow actions are pinned to full commit SHAs. Dependabot checks GitHub Actions and Go module updates every week.
-
-The detailed development roadmap and current progress are tracked in [`TODO.md`](TODO.md).
-
-## Contributing
-
-[`CONTRIBUTING.md`](CONTRIBUTING.md) describes the development workflow, the local checks, and what a change is expected to contain. [`AGENTS.md`](AGENTS.md) is the authoritative engineering guide. Vulnerabilities must be reported privately, as described in [`SECURITY.md`](SECURITY.md).
-
-## License
+# License
 
 Convia is source-available, not open source. It is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
 
-- **Free for noncommercial use.** Personal use, hobby projects, private study, experimentation, and use by charities, schools, public research organizations, and government institutions are all permitted. Self-host it, modify it, and share your changes.
+- **Free for noncommercial use.** Personal use, hobby projects, private study, experimentation, and use by charities, schools, public research organizations, and government institutions are all permitted. Use it, modify it, and share your changes.
 - **Commercial rights are reserved.** Using Convia in or for a commercial product or service requires a separate license from the copyright holder. Open a discussion in the repository to request one.
-
-Contributions are accepted under the terms described in [`CONTRIBUTING.md`](CONTRIBUTING.md).
