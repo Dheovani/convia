@@ -51,6 +51,16 @@ var profiles = map[string]struct {
 		load: load{tenantStreams: 2, tenantWrites: 10, tenantReads: 10, personWrites: 5, personReads: 5,
 			signIns: 0.5, calls: 4, callHold: 5 * time.Second, inFlight: 64},
 	},
+	/*
+		An installation with little going on, which is most of them most of the
+		time, and where an event crossing instances waits longest: nothing
+		recorded locally wakes the instance that has to deliver it.
+	*/
+	"quiet": {
+		size: size{tenants: 2, users: 40, rooms: 20, people: 20, members: 4, parallel: 8},
+		load: load{tenantStreams: 2, tenantWrites: 1, tenantReads: 1, personWrites: 0.5, personReads: 0.5,
+			calls: 0, callHold: 5 * time.Second, inFlight: 64},
+	},
 	"provider": {
 		size: size{tenants: 10, users: 10000, rooms: 500, people: 960, members: 4, parallel: 32},
 		load: load{tenantStreams: 4, tenantWrites: 100, tenantReads: 200, personWrites: 50, personReads: 100,
@@ -67,9 +77,9 @@ func main() {
 
 func run(arguments []string) error {
 	flags := flag.NewFlagSet("convia-load", flag.ContinueOnError)
-	targetURL := flags.String("target", "http://127.0.0.1:8080", "the Convia to load")
+	targetURL := flags.String("target", "http://127.0.0.1:8080", "the Convia to load; several instances of one, separated by commas")
 	operatorKey := flags.String("operator-key", os.Getenv("CONVIA_LOAD_OPERATOR_KEY"), "an operator key with applications:write and tenants:write")
-	scale := flags.String("scale", "smoke", "smoke or provider")
+	scale := flags.String("scale", "smoke", "smoke, quiet or provider")
 	duration := flags.Duration("duration", 2*time.Minute, "how long to apply load once everything is built")
 	listen := flags.String("metrics", "0.0.0.0:4318", "where to receive Convia's own metrics over OTLP/HTTP; empty to not")
 	window := flags.String("window", "", "a file to write the load's start and end to, as Unix seconds")
@@ -80,7 +90,7 @@ func run(arguments []string) error {
 
 	profile, found := profiles[*scale]
 	if !found {
-		return fmt.Errorf("no profile %q; there is smoke and provider", *scale)
+		return fmt.Errorf("no profile %q; there is smoke, quiet and provider", *scale)
 	}
 	if !strings.HasPrefix(*operatorKey, "cvo_") {
 		return fmt.Errorf("an operator key is needed, in -operator-key or CONVIA_LOAD_OPERATOR_KEY")
@@ -104,8 +114,12 @@ func run(arguments []string) error {
 	}
 
 	transport := &http.Transport{MaxIdleConns: 2048, MaxIdleConnsPerHost: 2048, IdleConnTimeout: time.Minute}
-	base := caller{base: strings.TrimRight(*targetURL, "/"), client: &http.Client{Transport: transport, Timeout: 30 * time.Second},
-		record: record}
+	var targets []string
+	for _, target := range strings.Split(*targetURL, ",") {
+		targets = append(targets, strings.TrimRight(strings.TrimSpace(target), "/"))
+	}
+	base := caller{base: targets[0], bases: targets,
+		client: &http.Client{Transport: transport, Timeout: 30 * time.Second}, record: record}
 	operator := base
 	operator.key = *operatorKey
 

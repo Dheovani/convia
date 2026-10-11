@@ -21,36 +21,61 @@ Convia commits, announces and answers, and the answer travels back while the
 event travels out -- so an arrival may come before the identifier it names is
 known here. Those are kept until the post returns, and measured from when it
 was sent, which is the moment a person would have pressed send.
+
+**Across several instances, the two delays are reported apart.** An event the
+instance that produced it delivers is handed over in memory; one another
+instance delivers has to be found in the journal first, and averaging the two
+would hide the slower one behind the faster.
 */
 type arrivals struct {
-	mutex  sync.Mutex
-	sent   map[string]time.Time
-	early  map[string][]time.Time
-	record *recorder
+	mutex     sync.Mutex
+	sent      map[string]moment
+	early     map[string][]moment
+	record    *recorder
+	instances int
 }
 
-func newArrivals(record *recorder) *arrivals {
-	return &arrivals{sent: map[string]time.Time{}, early: map[string][]time.Time{}, record: record}
+// moment is when something happened, and on which instance.
+type moment struct {
+	at       time.Time
+	instance int
 }
 
-func (seen *arrivals) posted(operation, id string, at time.Time) {
+func newArrivals(record *recorder, instances int) *arrivals {
+	return &arrivals{sent: map[string]moment{}, early: map[string][]moment{}, record: record, instances: instances}
+}
+
+func (seen *arrivals) posted(operation, id string, at time.Time, instance int) {
 	seen.mutex.Lock()
 	defer seen.mutex.Unlock()
-	seen.sent[id] = at
+	sent := moment{at: at, instance: instance}
+	seen.sent[id] = sent
 	for _, arrived := range seen.early[id] {
-		seen.record.took(operation, arrived.Sub(at))
+		seen.took(operation, sent, arrived)
 	}
 	delete(seen.early, id)
 }
 
-func (seen *arrivals) arrived(operation, id string, at time.Time) {
+func (seen *arrivals) arrived(operation, id string, at time.Time, instance int) {
 	seen.mutex.Lock()
 	defer seen.mutex.Unlock()
+	arrived := moment{at: at, instance: instance}
 	if sent, found := seen.sent[id]; found {
-		seen.record.took(operation, at.Sub(sent))
+		seen.took(operation, sent, arrived)
 		return
 	}
-	seen.early[id] = append(seen.early[id], at)
+	seen.early[id] = append(seen.early[id], arrived)
+}
+
+func (seen *arrivals) took(operation string, sent, arrived moment) {
+	switch {
+	case seen.instances < 2:
+	case sent.instance == arrived.instance:
+		operation += ", same instance"
+	default:
+		operation += ", across instances"
+	}
+	seen.record.took(operation, arrived.at.Sub(sent.at))
 }
 
 /*
@@ -58,8 +83,10 @@ listen holds one event stream open until the run ends, reporting every
 message.posted it carries. A stream that cannot be opened, or that Convia
 closes, is a failure of the run and recorded as one.
 */
-func listen(ctx context.Context, who caller, path, operation string, seen *arrivals, ready *sync.WaitGroup,
-	dialing chan struct{}) {
+func listen(ctx context.Context, who caller, instance int, path, operation string, seen *arrivals,
+	ready *sync.WaitGroup, dialing chan struct{}) {
+	instance %= who.instances()
+	who = who.on(instance)
 	address := strings.Replace(who.base, "http", "ws", 1) + path
 	headers := http.Header{"Authorization": []string{"Bearer " + who.key}}
 	if who.address != "" {
@@ -97,7 +124,7 @@ func listen(ctx context.Context, who caller, path, operation string, seen *arriv
 			} `json:"subject"`
 		}
 		if json.Unmarshal(read, &event) == nil && event.Type == "message.posted" {
-			seen.arrived(operation, event.Subject.ID, time.Now())
+			seen.arrived(operation, event.Subject.ID, time.Now(), instance)
 		}
 	}
 }
@@ -165,7 +192,11 @@ open, which is when the load proper begins: the window every rate in the
 report is measured over.
 */
 func drive(ctx context.Context, built world, pushing load, record *recorder, opened chan<- time.Time) {
-	seen := newArrivals(record)
+	instances := 1
+	if len(built.tenants) > 0 {
+		instances = built.tenants[0].who.instances()
+	}
+	seen := newArrivals(record, instances)
 
 	/*
 		Streams are opened a few dozen at a time, the way a fleet of clients
@@ -175,24 +206,30 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 	*/
 	dialing := make(chan struct{}, 32)
 
+	// Each stream is held on one instance, in turn, as a balancer would spread them.
 	var ready sync.WaitGroup
 	var listening sync.WaitGroup
+	streams := 0
 	for _, owner := range built.tenants {
 		for range pushing.tenantStreams {
 			ready.Add(1)
 			listening.Add(1)
+			instance := streams
+			streams++
 			go func() {
 				defer listening.Done()
-				listen(ctx, owner.who, "/v1/events", "event to a tenant stream", seen, &ready, dialing)
+				listen(ctx, owner.who, instance, "/v1/events", "event to a tenant stream", seen, &ready, dialing)
 			}()
 		}
 	}
 	for _, someone := range built.people {
 		ready.Add(1)
 		listening.Add(1)
+		instance := streams
+		streams++
 		go func() {
 			defer listening.Done()
-			listen(ctx, someone.who, "/v1/me/events", "event to a person's stream", seen, &ready, dialing)
+			listen(ctx, someone.who, instance, "/v1/me/events", "event to a person's stream", seen, &ready, dialing)
 		}()
 	}
 	ready.Wait()
@@ -213,15 +250,16 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 			if len(owner.rooms) == 0 || len(owner.users) == 0 {
 				return
 			}
+			instance := rand.IntN(instances)
 			sent := time.Now()
 			var posted struct {
 				ID string `json:"id"`
 			}
-			if _, err := owner.who.do(ctx, "write message (tenant)", http.MethodPost,
+			if _, err := owner.who.on(instance).do(ctx, "write message (tenant)", http.MethodPost,
 				"/v1/rooms/"+owner.rooms[rand.IntN(len(owner.rooms))]+"/messages",
 				map[string]string{"user_id": owner.users[rand.IntN(len(owner.users))], "body": "load"},
 				&posted); err == nil {
-				seen.posted("event to a tenant stream", posted.ID, sent)
+				seen.posted("event to a tenant stream", posted.ID, sent, instance)
 			}
 		})
 	})
@@ -231,7 +269,7 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 			if len(owner.rooms) == 0 {
 				return
 			}
-			_, _ = owner.who.do(ctx, "read messages (tenant)", http.MethodGet,
+			_, _ = owner.who.on(rand.IntN(instances)).do(ctx, "read messages (tenant)", http.MethodGet,
 				"/v1/rooms/"+owner.rooms[rand.IntN(len(owner.rooms))]+"/messages?limit=50", nil, nil)
 		})
 	})
@@ -246,14 +284,15 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 		start(func() {
 			paced(ctx, pushing.personWrites, pushing.inFlight, record, "write message (person)", func(ctx context.Context) {
 				someone := talking[rand.IntN(len(talking))]
+				instance := rand.IntN(instances)
 				sent := time.Now()
 				var posted struct {
 					ID string `json:"id"`
 				}
-				if _, err := someone.who.do(ctx, "write message (person)", http.MethodPost,
+				if _, err := someone.who.on(instance).do(ctx, "write message (person)", http.MethodPost,
 					"/v1/me/rooms/"+someone.rooms[rand.IntN(len(someone.rooms))]+"/messages",
 					map[string]string{"body": "load"}, &posted); err == nil {
-					seen.posted("event to a person's stream", posted.ID, sent)
+					seen.posted("event to a person's stream", posted.ID, sent, instance)
 				}
 			})
 		})
@@ -266,7 +305,7 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 		start(func() {
 			paced(ctx, pushing.signIns, pushing.inFlight, record, "sign in", func(ctx context.Context) {
 				someone := built.people[rand.IntN(len(built.people))]
-				anonymous := someone.who
+				anonymous := someone.who.on(rand.IntN(instances))
 				anonymous.key = ""
 				_, _ = anonymous.do(ctx, "sign in", http.MethodPost, "/v1/sessions",
 					map[string]string{"username": someone.username, "password": "a load-test password"}, nil)
@@ -275,7 +314,7 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 		start(func() {
 			paced(ctx, pushing.personReads, pushing.inFlight, record, "read rooms (person)", func(ctx context.Context) {
 				someone := talking[rand.IntN(len(talking))]
-				_, _ = someone.who.do(ctx, "read rooms (person)", http.MethodGet, "/v1/me/rooms", nil, nil)
+				_, _ = someone.who.on(rand.IntN(instances)).do(ctx, "read rooms (person)", http.MethodGet, "/v1/me/rooms", nil, nil)
 			})
 		})
 	}
@@ -288,6 +327,7 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 	for slot := range pushing.calls {
 		start(func() {
 			owner := built.tenants[slot%len(built.tenants)]
+			owner.who = owner.who.on(slot)
 			mine := roomsOf(owner.rooms, slot/len(built.tenants), pushing.calls/len(built.tenants)+1)
 			for turn := 0; ctx.Err() == nil && len(mine) > 0; turn++ {
 				room := mine[turn%len(mine)]

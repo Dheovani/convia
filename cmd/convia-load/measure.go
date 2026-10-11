@@ -88,7 +88,7 @@ func (record *recorder) report(out io.Writer, elapsed time.Duration) bool {
 	sort.Strings(operations)
 
 	met := true
-	fmt.Fprintf(out, "\n%-34s %9s %8s %9s %9s %9s %9s  %s\n", "operation", "count", "per s", "p50", "p95", "p99", "target", "")
+	fmt.Fprintf(out, "\n%-46s %9s %8s %9s %9s %9s %9s  %s\n", "operation", "count", "per s", "p50", "p95", "p99", "target", "")
 	for _, operation := range operations {
 		sorted := slices.Clone(record.samples[operation])
 		slices.Sort(sorted)
@@ -105,7 +105,7 @@ func (record *recorder) report(out io.Writer, elapsed time.Duration) bool {
 		if goal > 0 {
 			goalText = goal.String()
 		}
-		fmt.Fprintf(out, "%-34s %9d %8.1f %9s %9s %9s %9s  %s\n", operation, len(sorted),
+		fmt.Fprintf(out, "%-46s %9d %8.1f %9s %9s %9s %9s  %s\n", operation, len(sorted),
 			float64(len(sorted))/elapsed.Seconds(), rounded(percentile(sorted, 0.5)), rounded(p95),
 			rounded(percentile(sorted, 0.99)), goalText, verdict)
 	}
