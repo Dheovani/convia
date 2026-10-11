@@ -99,6 +99,8 @@ What arrives is translated before Bia sees it. The home names its own rooms and 
 
 Which installations she has a room on is read again every thirty seconds, so a room she joins while the stream is open is followed without waiting for anything to reconnect.
 
+**Her own stream opens once her homes are being heard**, waiting up to two seconds for each to be followed. Without the wait, a home that said something in the moment between the two — removing her, say — said it to nobody, and the room stayed in her list answering `404`; the federation journeys found it as a test that failed now and then. A home slower than that does not hold her stream up: it opens, and the home is followed when it answers.
+
 ### Calls
 
 Bia joins the call in Ana's room through her own Convia, like everything else — and then her browser connects to **Ana's media server**, directly, with a credential **Ana's installation** issued for her.
