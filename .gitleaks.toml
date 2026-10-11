@@ -48,14 +48,14 @@ description = "A Convia credential of any family, presented whole"
 regex = '''cv[kios]_[A-Z2-7]{26}_[A-Z2-7]{26}'''
 tags = ["convia", "credential"]
 
-# A media API secret, a database password and a LiveKit key are long opaque
+# A LiveKit API secret, a database password and a LiveKit key are long opaque
 # strings with no shape of their own, so they cannot be matched the way the
 # four families above can. What is matched instead is the one place they are
 # ever written down: an assignment to the variable that carries them.
 [[rules]]
 id = "convia-environment-secret"
 description = "A value assigned to one of Convia's secret-bearing variables"
-regex = '''(?i)CONVIA_(MEDIA_API_SECRET|MEDIA_API_KEY|DATABASE_URL|REDIS_URL)\s*=\s*["']?[^\s"'#]{16,}'''
+regex = '''(?i)CONVIA_(LIVEKIT_(PREVIOUS_)?API_SECRET|LIVEKIT_(PREVIOUS_)?API_KEY|DATABASE_URL|REDIS_URL)\s*=\s*["']?[^\s"'#]{16,}'''
 tags = ["convia", "configuration"]
 
   # The example file carries placeholders and exists to be read; the workflows
@@ -80,7 +80,12 @@ tags = ["convia", "configuration"]
   # CONTRIBUTING.md, the compose file and the runbooks for the same reason. A
   # password that is published in the setup instructions is not a secret; one
   # that is anything else on any other host still fires, wherever it appears.
+  #
+  # The development LiveKit secret is the same kind of thing: published in
+  # .env.example, the compose file and docs/media.md, and accepted by nothing
+  # but a LiveKit started with `--dev` or with that pair.
   regexes = [
     '''postgres://convia:convia@''',
+    '''=["']?a-development-secret-long-enough-to-be-accepted$''',
     '''redis://(localhost|127\.0\.0\.1|redis)[:/]''',
   ]

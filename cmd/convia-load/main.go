@@ -85,8 +85,15 @@ func run(arguments []string) error {
 	window := flags.String("window", "", "a file to write the load's start and end to, as Unix seconds")
 	marker := flags.String("loading", "", "a file to create the moment the load begins, for whatever counts only the load")
 	timeline := flags.Bool("timeline", false, "report, every ten seconds, whatever failed or was slow")
+	ceilingsPath := flags.String("ceilings", "", "a ceilings file, such as cmd/convia-load/ceilings.json, to fail a run that is worse than it allows")
+	media := flags.String("media", "", "where to stand in for LiveKit's room service; empty to not")
+	fault := flags.String("media-fault", "", "slow, down or hang: what the stand-in does from a minute into the load, for thirty seconds")
 	if err := flags.Parse(arguments); err != nil {
 		return err
+	}
+
+	if !providerFaults[*fault] {
+		return fmt.Errorf("no media fault %q; there is slow, down and hang", *fault)
 	}
 
 	profile, found := profiles[*scale]
@@ -101,6 +108,13 @@ func run(arguments []string) error {
 	defer stop()
 
 	record := newRecorder()
+	if *ceilingsPath != "" {
+		held, err := readCeilings(*ceilingsPath)
+		if err != nil {
+			return err
+		}
+		record.held = held
+	}
 	seen := newObservatory()
 	if *listen != "" {
 		receiver, err := net.Listen("tcp", *listen)
@@ -110,6 +124,17 @@ func run(arguments []string) error {
 		mux := http.NewServeMux()
 		mux.Handle("POST /v1/metrics", seen)
 		server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+		go func() { _ = server.Serve(receiver) }()
+		defer server.Close()
+	}
+
+	stand := newProvider(*fault)
+	if *media != "" {
+		receiver, err := net.Listen("tcp", *media)
+		if err != nil {
+			return fmt.Errorf("listen as the media provider: %w", err)
+		}
+		server := &http.Server{Handler: stand, ReadHeaderTimeout: 10 * time.Second}
 		go func() { _ = server.Serve(receiver) }()
 		defer server.Close()
 	}
@@ -152,6 +177,10 @@ func run(arguments []string) error {
 	*/
 	sleep(ctx, 6*time.Second)
 	started := time.Now()
+	if *fault != "" {
+		stand.schedule(started.Add(time.Minute), 30*time.Second)
+		fmt.Printf("the media provider will be %s from +60s to +90s\n", *fault)
+	}
 	if *marker != "" {
 		_ = os.WriteFile(*marker, nil, 0o644)
 	}

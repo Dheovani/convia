@@ -1,0 +1,82 @@
+name: Load
+
+# M25-012. Every night, Convia at the hosted service's size (docs/scaling.md),
+# once as it should run and once with each thing it depends on in trouble.
+#
+# It is scheduled rather than run on every change because a run takes a quarter
+# of an hour and a runner's neighbours make one run noisy: what it is for is a
+# regression that has been merged, noticed the next morning while the change
+# that caused it is still the last one anybody remembers, rather than months
+# later as a slow installation. docs/load.md says what each run measures.
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load
+  cancel-in-progress: false
+
+jobs:
+  load:
+    name: ${{ matrix.run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Held to the ceilings in cmd/convia-load/ceilings.json as well as
+          # the targets: slower than before fails, and so does any request
+          # failing under load.
+          - run: As it should run
+            outage: none
+            duration: 5m
+          # Held to the targets: what fails is the point, and the timeline in
+          # the report says what and for how long.
+          - run: Redis stops answering
+            outage: pause
+            duration: 3m
+          - run: The media provider stops answering
+            outage: media-hang
+            duration: 3m
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # One instance: a runner has four processors, and two instances of two
+      # beside PostgreSQL and the generator would measure the runner.
+      - name: Put Convia under load
+        env:
+          CONVIA_LOAD_CEILINGS: cmd/convia-load/ceilings.json
+        run: |
+          set -o pipefail
+          mkdir -p .load
+          scripts/load.sh provider "${{ matrix.duration }}" 1 "${{ matrix.outage }}" 2>&1 | tee .load/report.txt
+
+      # What the run said and what Convia logged, kept for the morning. The
+      # operator key the run issued is left out: it is a disposable
+      # installation's, and gone with it, but a credential is not something
+      # to publish because it no longer works.
+      - name: Keep the report
+        if: always()
+        run: rm -f .load/operator.txt .load/convia
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: load-${{ matrix.outage }}
+          path: .load/
+          retention-days: 30

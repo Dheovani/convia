@@ -361,10 +361,66 @@ func drive(ctx context.Context, built world, pushing load, record *recorder, ope
 					sleep(ctx, time.Second)
 					continue
 				}
+				/*
+					Somebody joins and is handed a credential, and leaves before
+					the call ends: the join is answered from PostgreSQL alone,
+					the credential is signed here, and the leave asks the media
+					provider to disconnect them -- which is what a provider in
+					trouble is felt through, besides starting and ending.
+				*/
+				var seat struct {
+					ID string `json:"id"`
+				}
+				joined := false
+				if len(owner.users) > 0 {
+					_, err := owner.who.do(
+						ctx,
+						"write participant join",
+						http.MethodPost,
+						"/v1/calls/"+call.ID+"/participants",
+						map[string]string{"user_id": owner.users[rand.IntN(len(owner.users))], "role": "member"},
+						&seat,
+					)
+
+					if err == nil {
+						joined = true
+						_, _ = owner.who.do(
+							ctx,
+							"write participant credential",
+							http.MethodPost,
+							"/v1/participants/"+seat.ID+"/session",
+							map[string]any{},
+							nil,
+							"Idempotency-Key",
+							fmt.Sprintf("load-%s-%d", seat.ID, turn),
+						)
+					}
+				}
+
 				sleep(ctx, pushing.callHold/2+time.Duration(rand.Int64N(int64(pushing.callHold))))
-				ended, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-				_, _ = owner.who.do(ended, "write call end", http.MethodPost, "/v1/calls/"+call.ID+"/end",
-					map[string]any{}, nil)
+
+				if joined {
+					left, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+					_, _ = owner.who.do(
+						left,
+						"write participant leave",
+						http.MethodPost,
+						"/v1/participants/"+seat.ID+"/leave",
+						map[string]any{},
+						nil,
+					)
+					cancel()
+				}
+
+				ended, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				_, _ = owner.who.do(
+					ended,
+					"write call end",
+					http.MethodPost,
+					"/v1/calls/"+call.ID+"/end",
+					map[string]any{},
+					nil,
+				)
 				cancel()
 			}
 		})

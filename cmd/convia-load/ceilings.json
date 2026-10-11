@@ -1,0 +1,13 @@
+{
+  "why": "M25-012. A target in docs/scaling.md says what an installation must do; a ceiling here says how much worse than measured a run may get before somebody is told. Each sits between the p95 the provider's size was measured at (docs/load.md) and its target, so a regression fails the nightly run while there is still room before anybody feels it; a change that moves one is a change to docs/capacity.md too. The longest prefix that names an operation applies.",
+  "p95": {
+    "event ": "100ms",
+    "read ": "50ms",
+    "write message": "75ms",
+    "write presence": "50ms",
+    "write participant": "250ms",
+    "write call": "250ms",
+    "sign in": "600ms"
+  },
+  "failures": 0
+}

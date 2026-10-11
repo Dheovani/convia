@@ -30,6 +30,7 @@ import (
 	"strings"
 	"time"
 
+	"convia/internal/circuit"
 	"convia/internal/media"
 )
 
@@ -49,6 +50,19 @@ const (
 		under the same name when someone connects.
 	*/
 	roomEmptyTimeout = 10 * time.Minute
+
+	/*
+		cooldown is how long the provider is not asked after it failed to
+		answer.
+
+		It is `M25-009`'s finding. A provider that hung or answered slowly held
+		every call being started, ended or left for the whole timeout -- five
+		seconds each, for answers that are best-effort or that were going to
+		be "unavailable" anyway -- while one that answered 503 cost nothing.
+		After a failure the next second's calls are answered at once, and one
+		is let through to find out whether the provider is back.
+	*/
+	cooldown = time.Second
 
 	/*
 		maxErrorDetail bounds how much of a provider's error message is kept.
@@ -116,6 +130,7 @@ type Plane struct {
 	apiKey    string
 	apiSecret media.APISecret
 	client    *http.Client
+	breaker   *circuit.Breaker
 	now       func() time.Time
 
 	// previousKey and previousSecret verify reports during a rotation; see Config.
@@ -169,6 +184,7 @@ func New(config Config) (*Plane, error) {
 		apiKey:         config.APIKey,
 		apiSecret:      config.APISecret,
 		client:         &http.Client{Timeout: config.Timeout},
+		breaker:        circuit.New(cooldown),
 		now:            time.Now,
 		previousKey:    previousKey,
 		previousSecret: config.PreviousAPISecret,
@@ -481,7 +497,18 @@ func (plane *Plane) call(ctx context.Context, method string, permission grant, b
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+token)
 
+	/*
+		A provider that did not answer a moment ago is not asked again until
+		the cooldown is over, and the caller is told it is unavailable at once
+		-- which is what it would have been told after the timeout. See
+		cooldown.
+	*/
+	if !plane.breaker.Allow() {
+		return fmt.Errorf("%s: %w: %w", method, circuit.ErrOpen, media.ErrUnavailable)
+	}
+
 	response, err := plane.client.Do(request)
+	plane.breaker.Report(unanswered(response, err))
 	if err != nil {
 		/*
 			A transport failure is retryable by definition: the request never
@@ -511,6 +538,23 @@ func (plane *Plane) call(ctx context.Context, method string, permission grant, b
 	}
 
 	return nil
+}
+
+/*
+unanswered is the error that says the provider did not answer, or nil when it
+did. A refusal is an answer: a token it rejects, or a room it does not have,
+says the provider is working.
+*/
+func unanswered(response *http.Response, err error) error {
+	switch {
+	case err != nil:
+		return err
+	case response.StatusCode >= 500, response.StatusCode == http.StatusTooManyRequests,
+		response.StatusCode == http.StatusRequestTimeout:
+		return fmt.Errorf("livekit answered %d", response.StatusCode)
+	default:
+		return nil
+	}
 }
 
 /*

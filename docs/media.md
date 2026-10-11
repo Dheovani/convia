@@ -128,6 +128,8 @@ The distinction is the reason there are two errors rather than one. Treating eve
 
 Convia does not retry internally. It reports `503`, and the call is already ended by the time the client sees it, so a retry starts a new call rather than resuming one that half-exists.
 
+**A provider that does not answer is not asked again for a second.** One that hung or answered after its timeout used to hold every call being started, ended or left for the whole `CONVIA_LIVEKIT_TIMEOUT` — five seconds each — while one answering `503` cost nothing. Now, after the provider fails to answer, the calls in the next second are answered at once with what the timeout would have said, and one is let through to find out whether it is back. What an ending or a departure asks of the provider is best-effort and waits at most a second whatever the timeout. [`runbooks/media-provider-unavailable.md`](runbooks/media-provider-unavailable.md) is what an operator reads, and [`load.md`](load.md#when-the-media-provider-degrades) what it measured like.
+
 ## What is not implemented
 
 - **Rate limits on issuing credentials.** See [`participants.md`](participants.md).

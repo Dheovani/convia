@@ -182,3 +182,72 @@ func TestATimelineShowsOnlyWhatWentWrongAndWhen(t *testing.T) {
 		t.Errorf("want one line per stretch, three in all:\n%s", text)
 	}
 }
+
+/*
+TestARunWorseThanItsCeilingsFails is `M25-012`: a run that meets every target
+but is slower than its ceiling, or that failed requests, fails anyway -- and
+the longest prefix decides which ceiling an operation is held to.
+*/
+func TestARunWorseThanItsCeilingsFails(t *testing.T) {
+	none := 0
+	held := &ceilings{Failures: &none, parsed: map[string]time.Duration{
+		"write ":         100 * time.Millisecond,
+		"write presence": 10 * time.Millisecond,
+	}}
+	if held.ceiling("write presence (person)") != 10*time.Millisecond || held.ceiling("write message") != 100*time.Millisecond {
+		t.Fatal("the longest prefix did not decide the ceiling")
+	}
+	if held.ceiling("read rooms") != 0 {
+		t.Error("an operation nothing names was held to a ceiling")
+	}
+
+	record := newRecorder()
+	record.held = held
+	for range 100 {
+		record.took("write presence (person)", 5*time.Millisecond)
+	}
+	var out bytes.Buffer
+	if !record.report(&out, time.Second) {
+		t.Fatalf("a run inside its ceilings failed:\n%s", out.String())
+	}
+
+	for range 20 {
+		record.took("write presence (person)", 50*time.Millisecond)
+	}
+	out.Reset()
+	if record.report(&out, time.Second) || !strings.Contains(out.String(), "REGRESSED") {
+		t.Errorf("a run over its ceiling, inside its target, passed:\n%s", out.String())
+	}
+
+	again := newRecorder()
+	again.held = held
+	again.took("read rooms", time.Millisecond)
+	again.failed("setup user", "503 unavailable")
+	out.Reset()
+	if !again.report(&out, time.Second) {
+		t.Errorf("a failure while setting up failed the run:\n%s", out.String())
+	}
+	again.failed("read rooms", "500 internal")
+	out.Reset()
+	if again.report(&out, time.Second) || !strings.Contains(out.String(), "1 requests failed") {
+		t.Errorf("a request that failed under load passed:\n%s", out.String())
+	}
+}
+
+// TestTheCeilingsInTheRepositoryRead keeps the file the nightly run uses parseable.
+func TestTheCeilingsInTheRepositoryRead(t *testing.T) {
+	held, err := readCeilings("ceilings.json")
+	if err != nil {
+		t.Fatalf("readCeilings() error = %v", err)
+	}
+	for _, operation := range []string{"event to a tenant stream", "read rooms (person)", "write message (tenant)",
+		"write presence (person)", "write participant join", "write call start", "sign in"} {
+		limit := held.ceiling(operation)
+		if limit == 0 {
+			t.Errorf("%s is held to no ceiling", operation)
+		}
+		if goal := target(operation); goal > 0 && limit >= goal {
+			t.Errorf("%s's ceiling %v is not inside its target %v, so it would warn of nothing", operation, limit, goal)
+		}
+	}
+}
