@@ -7,6 +7,7 @@ scripts/load.sh smoke 30s       # checks the harness, in about a minute
 scripts/load.sh provider 5m     # the hosted service's size, in about fifteen
 scripts/load.sh provider 5m 2   # the same, spread over two instances
 scripts/load.sh quiet 2m 2      # an installation with little going on, over two
+scripts/load.sh provider 3m 2 pause   # and Redis stops answering a minute in
 ```
 
 It needs Docker and Go, and nothing else running on ports 18100 onwards and 4318. Everything it starts — a PostgreSQL, a Redis, each Convia — is removed when it ends.
@@ -101,3 +102,22 @@ On 2026-10-11, the same load spread over two instances of 2 processors each, and
 An instance that records something now tells the others over Redis, which read the journal at once ([`docs/events.md`](events.md#running-more-than-one-instance)). It cost what the reads cost: 316 a second across both instances at the provider's load, at 0.02 ms each.
 
 **A client that stops reading costs nobody else.** `TestAClientThatStopsReadingCostsNobodyElse` holds two clients on real sockets and stops one reading: it is ended as behind once its socket and its queue are full — 380 events in that test — and its place is given back at once, while the client beside it receives every event in order. A load run cannot show this honestly from outside Docker, whose port forwarding buffers what the client does not read.
+
+## When Redis goes away
+
+On 2026-10-11, the provider's load over two instances, with Redis taken away a minute in for `M25-008`: **paused** for thirty seconds with its connections held open, which is what a failover or a partition looks like from the client; **stopped** for thirty seconds, its name gone with it; and **restarted** at once, losing what it held. A run with an outage reports, every ten seconds, whatever failed or was slow.
+
+**The first run found that a Redis that hangs took every signed-in person down with it.** Every request a person makes asks the sign-in budget first, the budget lives in Redis, and each request waited out the three-second timeout before counting on its own instance instead — then queued behind the others for Redis's connections:
+
+| While Redis was paused | before | after |
+| --- | --- | --- |
+| A person posting a message, p95 | 16 s, and 509 not sent | 7.1 ms |
+| A person reading their rooms, p95 | 13 s, and 2 147 not sent | 3.6 ms |
+| A person's events, p95 | 16 s | 8.0 ms |
+| Signing in, p95 | 16 s | 258 ms |
+| A tenant posting a message, p95 | 1.8 s as it came back | 5.3 ms |
+| Presence | 3 s to answer 503, then 17 s as it came back | 503 at once, and back within a second |
+
+Now a budget waits at most 100 ms for Redis, and after Redis fails to answer, the budgets and presence stop asking for a second at a time and answer at once with what they would have answered anyway ([`internal/circuit`](../internal/circuit/circuit.go)). **Every target was met through all three outages; presence was the only thing that failed, answered `503` at once, and came back within a second of Redis.** A restart cost presence one stretch of ten seconds at a p95 of 3.6 s, and nothing failed.
+
+The first version of that never came back: the one request let through to see whether Redis had returned had to open a connection, the connection's own handshake went through the same check and was refused, and presence stayed unavailable until the process restarted. `TestPresenceComesBackWithRedis` holds that shut, through a proxy that stops passing traffic and starts again. [`runbooks/redis-unavailable.md`](runbooks/redis-unavailable.md) is what an operator reads when it happens.

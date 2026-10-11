@@ -52,6 +52,7 @@ Write the reason for whoever reads the trail in six months: the ticket, the inci
 | Requests are failing or slow | [`runbooks/failing-requests.md`](runbooks/failing-requests.md) | |
 | Clients report gaps in what they are told | [`runbooks/subscribers-falling-behind.md`](runbooks/subscribers-falling-behind.md) | |
 | Presence shows people who left | [`runbooks/presence-not-lapsing.md`](runbooks/presence-not-lapsing.md) | |
+| Presence answers 503 | [`runbooks/redis-unavailable.md`](runbooks/redis-unavailable.md) | |
 | Data was lost | [`runbooks/restoring-from-a-backup.md`](runbooks/restoring-from-a-backup.md) | |
 
 **What an operator sees is what Convia decided, and never what an application wrote.** A room is its identifier, state and capacity, not its name; a call is who started and ended it and when, not what it was about. That is deliberate and it is enough to act on: the tenant knows what its room is called, and asking them is cheaper than holding their words. See [`threat-model.md`](threat-model.md).

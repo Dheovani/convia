@@ -176,6 +176,8 @@ Retry-After: 5
 
 Presence is the one part of Convia with no durable copy to fall back on, so an unreachable store is **reported rather than answered as `offline`**. Telling an application that everybody went offline, when what happened is that Convia lost its ephemeral store, would be a false statement about people rather than a degraded one — and an application would act on it.
 
+**It is answered at once.** After Redis fails to answer, presence stops asking it for a second at a time and answers `503` straight away, and lets one request through each second to find out whether it is back — so a Redis that hangs costs one timeout a second rather than one a heartbeat, and presence returns within about a second of Redis. See [`runbooks/redis-unavailable.md`](runbooks/redis-unavailable.md).
+
 Nothing else is affected. Calls, rooms, participants, invitations, and webhooks are answered from PostgreSQL and are untouched. Readiness deliberately ignores presence for the same reason: an instance that cannot report who is available is still serving every other request correctly, and taking it out of the load balancer would turn a narrow failure into an outage.
 
 ## What Convia stores about a device

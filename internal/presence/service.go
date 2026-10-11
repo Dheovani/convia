@@ -317,6 +317,17 @@ func (service *Service) wrap(what string, err error) error {
 		return err
 	}
 
+	/*
+		A store that was not asked, because it failed moments ago, has already
+		been reported by the request that found out. Logging every request
+		after it would be one line per heartbeat for the length of the outage.
+	*/
+	if errors.Is(err, ErrResting) {
+		service.logger.Debug("the presence store was not asked, because it failed to answer moments ago",
+			"operation", what)
+		return fmt.Errorf("%s: %w", what, ErrUnavailable)
+	}
+
 	service.logger.Error("the presence store could not be reached", "error", err, "operation", what)
 	return fmt.Errorf("%s: %w", what, ErrUnavailable)
 }

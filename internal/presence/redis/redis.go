@@ -49,6 +49,7 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -57,6 +58,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
+	"convia/internal/circuit"
 	"convia/internal/presence"
 )
 
@@ -103,6 +105,9 @@ const (
 
 	// defaultTimeout bounds one operation when the caller does not say.
 	defaultTimeout = 3 * time.Second
+
+	// cooldown is how long the store stops asking Redis after it failed to answer.
+	cooldown = time.Second
 )
 
 // Config is what the composition root passes to reach the shared store.
@@ -148,7 +153,24 @@ func New(settings Config, logger *slog.Logger) (*Store, error) {
 	options.ReadTimeout = timeout
 	options.WriteTimeout = timeout
 
-	return &Store{client: goredis.NewClient(options), logger: logger}, nil
+	/*
+		A Redis that hangs held every heartbeat for the whole timeout before it
+		was answered 503 (`M25-008`). After one failure the store stops asking
+		for a second and answers at once with what it would have answered
+		anyway, so an outage costs one wait a second rather than one a request.
+	*/
+	client := goredis.NewClient(options)
+	client.AddHook(circuit.Hook(circuit.New(cooldown)))
+
+	return &Store{client: client, logger: logger}, nil
+}
+
+// resting is the error presence knows for a store the breaker did not ask.
+func resting(err error) error {
+	if errors.Is(err, circuit.ErrOpen) {
+		return presence.ErrResting
+	}
+	return err
 }
 
 // Close releases the connection.
@@ -175,7 +197,7 @@ request correctly.
 */
 func (store *Store) Ping(ctx context.Context) error {
 	if err := store.client.Ping(ctx).Err(); err != nil {
-		return fmt.Errorf("reach the presence store: %w", err)
+		return fmt.Errorf("reach the presence store: %w", resting(err))
 	}
 	return nil
 }
@@ -256,7 +278,7 @@ func (store *Store) Assert(ctx context.Context, applicationID, userID string,
 		keyMargin.Milliseconds(),
 	).Result()
 	if err != nil {
-		return presence.Change{}, fmt.Errorf("assert presence: %w", err)
+		return presence.Change{}, fmt.Errorf("assert presence: %w", resting(err))
 	}
 
 	now, outcome, standing, err := readAssertion(result)
@@ -351,7 +373,7 @@ func (store *Store) Clear(ctx context.Context, applicationID, userID, deviceID s
 		applicationID+separator+userID+separator,
 	).Result()
 	if err != nil {
-		return presence.Change{}, fmt.Errorf("clear presence: %w", err)
+		return presence.Change{}, fmt.Errorf("clear presence: %w", resting(err))
 	}
 
 	now, standing, err := readSnapshot(result)
@@ -407,12 +429,12 @@ func (store *Store) GetMany(ctx context.Context, applicationID string, userIDs [
 	}
 
 	if _, err := pipeline.Exec(ctx); err != nil {
-		return nil, fmt.Errorf("read presence: %w", err)
+		return nil, fmt.Errorf("read presence: %w", resting(err))
 	}
 
 	now, err := clock.Result()
 	if err != nil {
-		return nil, fmt.Errorf("read the presence clock: %w", err)
+		return nil, fmt.Errorf("read the presence clock: %w", resting(err))
 	}
 	now = now.UTC()
 
@@ -420,7 +442,7 @@ func (store *Store) GetMany(ctx context.Context, applicationID string, userIDs [
 	for index, userID := range userIDs {
 		stored, err := claims[index].Result()
 		if err != nil {
-			return nil, fmt.Errorf("read presence: %w", err)
+			return nil, fmt.Errorf("read presence: %w", resting(err))
 		}
 
 		devices := make([]presence.Device, 0, len(stored))
@@ -482,7 +504,7 @@ once per device would announce a sequence of transitions that nobody made.
 func (store *Store) Lapse(ctx context.Context, limit int) ([]presence.Change, error) {
 	result, err := lapse.Run(ctx, store.client, []string{dueKey}, limit, keyPrefix).Result()
 	if err != nil {
-		return nil, fmt.Errorf("sweep lapsed presence: %w", err)
+		return nil, fmt.Errorf("sweep lapsed presence: %w", resting(err))
 	}
 
 	now, entries, err := readLapses(result)
@@ -539,13 +561,13 @@ is not a question it can answer without reading every entry.
 func (store *Store) Standing(ctx context.Context) (presence.Standing, error) {
 	held, err := store.client.ZCard(ctx, dueKey).Result()
 	if err != nil {
-		return presence.Standing{}, fmt.Errorf("count standing presence: %w", err)
+		return presence.Standing{}, fmt.Errorf("count standing presence: %w", resting(err))
 	}
 
 	overdue, err := store.client.ZCount(ctx, dueKey, "-inf",
 		strconv.FormatInt(time.Now().UTC().UnixMilli(), 10)).Result()
 	if err != nil {
-		return presence.Standing{}, fmt.Errorf("count overdue presence: %w", err)
+		return presence.Standing{}, fmt.Errorf("count overdue presence: %w", resting(err))
 	}
 
 	return presence.Standing{Claims: held, Overdue: overdue}, nil

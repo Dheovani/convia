@@ -147,3 +147,38 @@ func TestNoTwoCallSlotsShareARoom(t *testing.T) {
 		t.Error("ten things were not shared as four, three and three")
 	}
 }
+
+/*
+TestATimelineShowsOnlyWhatWentWrongAndWhen is what a run that breaks something
+on purpose is read by: the operation that failed, stretch by stretch, and none
+of the ones that were fine throughout.
+*/
+func TestATimelineShowsOnlyWhatWentWrongAndWhen(t *testing.T) {
+	record := newRecorder()
+	start := time.Unix(1_000_000, 0)
+	clock := start
+	record.now = func() time.Time { return clock }
+
+	for stretch := range 3 {
+		clock = start.Add(time.Duration(stretch) * windowLength)
+		record.took("read rooms", 5*time.Millisecond)
+		record.took("write presence", 5*time.Millisecond)
+		if stretch == 1 {
+			record.failed("write presence", "503 unavailable")
+		}
+	}
+
+	var out bytes.Buffer
+	record.timeline(&out, start, start.Add(2*windowLength))
+	text := out.String()
+
+	if strings.Contains(text, "read rooms") {
+		t.Errorf("an operation that was fine throughout is in the timeline:\n%s", text)
+	}
+	if !strings.Contains(text, "write presence") || !strings.Contains(text, "+10s       1 ok       1 failed") {
+		t.Errorf("the failing stretch is not shown where it happened:\n%s", text)
+	}
+	if strings.Count(text, " ok ") != 3 {
+		t.Errorf("want one line per stretch, three in all:\n%s", text)
+	}
+}
