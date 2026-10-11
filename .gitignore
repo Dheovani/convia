@@ -7,11 +7,11 @@
 .env.*
 !.env.example
 
-# Build output.
+# Build output. Wails keeps the sources of the Windows build -- icon,
+# manifest, version information -- in build/, and writes into build/bin.
 dist/
-build/
+build/bin/
 out/
-bin/
 
 # Compiled binaries, libraries and installers.
 *.exe
@@ -50,3 +50,6 @@ temp/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Wails's record of when it last installed the frontend's dependencies.
+frontend/package.json.md5

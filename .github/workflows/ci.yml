@@ -1,0 +1,184 @@
+name: CI
+
+# Every check here is required to merge (ADR 0002). Convia's first version is
+# Windows only (ADR 0001), so everything that compiles the application runs on
+# Windows; what does not compile it runs wherever is cheapest.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Licenses a dependency may carry (ADR 0003).
+  PERMITTED_LICENSES: MIT,BSD-2-Clause,BSD-3-Clause,Apache-2.0,ISC,0BSD,MIT-0,BlueOak-1.0.0,CC0-1.0
+
+jobs:
+  go:
+    name: Go
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # The binary embeds the built interface, and nothing here needs it built:
+      # an empty directory is what lets the package compile without it.
+      - name: Stand in for the built interface
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/gitkeep
+      - name: Formatting
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Not formatted with gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+      - name: Tests
+        run: go test -count=1 -shuffle=on ./...
+
+  frontend:
+    name: Frontend
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Formatting
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+
+  windows-build:
+    name: Windows build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # The CLI's version is the one go.mod requires of the library, so the two
+      # cannot drift apart.
+      - name: Install the Wails CLI
+        shell: bash
+        run: go install "github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
+      - name: Build
+        run: wails build -clean -platform windows/amd64
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: convia-windows-amd64
+          path: build/bin/convia.exe
+          retention-days: 7
+
+  vulnerabilities:
+    name: Vulnerabilities
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Stand in for the built interface
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/gitkeep
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=moderate
+
+  licenses:
+    name: Licenses
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Stand in for the built interface
+        shell: bash
+        run: mkdir -p frontend/dist && touch frontend/dist/gitkeep
+      # Convia's own module carries Convia's license, which is not a dependency's.
+      - name: Go modules compiled into the binary
+        run: go run github.com/google/go-licenses/v2@v2.0.1 check ./... --allowed_licenses=${{ env.PERMITTED_LICENSES }} --ignore github.com/Dheovani/convia
+      - run: npm ci
+        working-directory: frontend
+      - name: npm packages shipped in the interface
+        working-directory: frontend
+        shell: bash
+        run: npx --yes license-checker-rseidelsohn@4.4.2 --production --excludePrivatePackages --onlyAllow "${PERMITTED_LICENSES//,/;}"
+      # Tools that only build the interface and are never distributed, which
+      # ADR 0003 allows two more licenses.
+      - name: npm packages that only build the interface
+        working-directory: frontend
+        shell: bash
+        run: npx --yes license-checker-rseidelsohn@4.4.2 --development --excludePrivatePackages --onlyAllow "${PERMITTED_LICENSES//,/;};MPL-2.0;CC-BY-4.0"
+
+  secrets:
+    name: Secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: a credential committed and then deleted is still
+          # in it, and still works.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks
+        run: |
+          docker run --rm --volume "${PWD}:/repo" --workdir /repo \
+            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            detect --source=. --redact --verbose
