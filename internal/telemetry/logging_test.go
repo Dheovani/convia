@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -200,5 +202,53 @@ func TestAnExplicitRequestIsNotOverwritten(t *testing.T) {
 	body := strings.TrimSpace(written.String())
 	if strings.Count(body, `"request_id"`) != 1 {
 		t.Errorf("request_id appears more than once, so a reader sees two values: %s", body)
+	}
+}
+
+/*
+TestAClientThatLeftIsNotAServerFault is `M25-016`, in the one place it is
+decided for every handler at once -- and the cases that must stay errors are
+checked as carefully as the one that must not.
+*/
+func TestAClientThatLeftIsNotAServerFault(t *testing.T) {
+	gone, leave := context.WithCancel(context.Background())
+	leave()
+
+	cases := map[string]struct {
+		ctx   context.Context
+		err   error
+		level string
+	}{
+		"the client gave up":                     {gone, fmt.Errorf("read room: %w", context.Canceled), "INFO"},
+		"something else failed after it left":    {gone, errors.New("the database is down"), "ERROR"},
+		"a cancellation the client did not make": {context.Background(), context.Canceled, "ERROR"},
+		"a deadline Convia set":                  {gone, context.DeadlineExceeded, "ERROR"},
+	}
+
+	for name, test := range cases {
+		logger, written := writing()
+		logger.ErrorContext(test.ctx, "room request failed", "error", test.err)
+
+		fields := line(t, written)
+		if fields["level"] != test.level {
+			t.Errorf("%s: logged at %v, want %s", name, fields["level"], test.level)
+		}
+		if test.level == "INFO" && !strings.HasPrefix(fields["msg"].(string), "the client went away") {
+			t.Errorf("%s: message %q does not say what happened", name, fields["msg"])
+		}
+	}
+}
+
+// TestALeavingClientRespectsTheLevel keeps a quieter installation quiet.
+func TestALeavingClientRespectsTheLevel(t *testing.T) {
+	gone, leave := context.WithCancel(context.Background())
+	leave()
+
+	written := &bytes.Buffer{}
+	logger := slog.New(Correlate(slog.NewJSONHandler(written, &slog.HandlerOptions{Level: slog.LevelWarn})))
+	logger.ErrorContext(gone, "room request failed", "error", context.Canceled)
+
+	if written.Len() != 0 {
+		t.Errorf("an installation logging warnings and above wrote %q", written.String())
 	}
 }

@@ -73,6 +73,7 @@ func run(arguments []string) error {
 	duration := flags.Duration("duration", 2*time.Minute, "how long to apply load once everything is built")
 	listen := flags.String("metrics", "0.0.0.0:4318", "where to receive Convia's own metrics over OTLP/HTTP; empty to not")
 	window := flags.String("window", "", "a file to write the load's start and end to, as Unix seconds")
+	marker := flags.String("loading", "", "a file to create the moment the load begins, for whatever counts only the load")
 	if err := flags.Parse(arguments); err != nil {
 		return err
 	}
@@ -136,6 +137,9 @@ func run(arguments []string) error {
 	*/
 	sleep(ctx, 6*time.Second)
 	started := time.Now()
+	if *marker != "" {
+		_ = os.WriteFile(*marker, nil, 0o644)
+	}
 	fmt.Printf("streams open; loading for %v\n", *duration)
 	sleep(ctx, *duration)
 	done()

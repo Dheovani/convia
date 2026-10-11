@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -140,6 +141,9 @@ func Serve(provider metric.MeterProvider) (*Serving, error) {
 	return &Serving{duration: duration, inFlight: inFlight}, nil
 }
 
+// clientClosedRequest is the status recorded for a request its client gave up on.
+const clientClosedRequest = 499
+
 /*
 Began records a request arriving, and returns the function that records it
 leaving.
@@ -165,6 +169,18 @@ func (serving *Serving) Began(ctx context.Context) func(request *http.Request, s
 
 	return func(request *http.Request, status int) {
 		serving.inFlight.Add(ctx, -1)
+
+		/*
+			A client that went away is counted as 499, the status nginx gave
+			the case, rather than as whatever a handler wrote to nobody. The
+			handler usually writes a 500, because its work failed with the
+			cancellation -- and an error rate made of people closing tabs is an
+			alert about nothing. See Correlating for the log line.
+		*/
+		if errors.Is(request.Context().Err(), context.Canceled) {
+			status = clientClosedRequest
+		}
+
 		serving.duration.Record(ctx, time.Since(start).Seconds(), metric.WithAttributes(
 			semconv.HTTPRequestMethodKey.String(methodOf(request)),
 			semconv.HTTPRoute(routeOf(request)),

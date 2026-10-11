@@ -55,7 +55,7 @@ func On(ctx context.Context, pool *pgxpool.Pool) Querier {
 	if current, found := from(ctx); found {
 		return current.tx
 	}
-	return pool
+	return reconnecting{pool: pool}
 }
 
 // Current returns the transaction the context carries, or ErrNone.
@@ -91,7 +91,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, work func(ctx context.Context)
 		return work(ctx)
 	}
 
-	tx, err := pool.Begin(ctx)
+	// Begun through the same second chance as a statement, because beginning
+	// is the first thing a dead connection is asked to do.
+	tx, err := reconnecting{pool: pool}.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin a transaction: %w", err)
 	}

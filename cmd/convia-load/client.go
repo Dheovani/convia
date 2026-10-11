@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -43,8 +45,50 @@ do sends one request, records how long it took under operation, and decodes
 the answer into into. A refusal is recorded by its status and code, so the
 report says *what* went wrong at load rather than only how often.
 */
-func (who caller) do(ctx context.Context, operation, method, path string, body any, into any,
-	headers ...string) (*http.Response, error) {
+func (who caller) do(
+	ctx context.Context,
+	operation,
+	method,
+	path string,
+	body any,
+	into any,
+	headers ...string,
+) (*http.Response, error) {
+	/*
+		Setting up waits when Convia asks it to, as a client that wants to
+		succeed would: registering people in bulk runs into the bound on how
+		many passwords Convia derives at once, which answers 503 with a
+		Retry-After rather than letting a burst decide how much memory it
+		allocates. Under load nothing is retried, because there the refusal is
+		the measurement.
+	*/
+	for tries := 0; ; tries++ {
+		response, err := who.once(ctx, operation, method, path, body, into, headers...)
+		var refused errStatus
+		if !strings.HasPrefix(operation, "setup") || tries >= 10 || !errors.As(err, &refused) ||
+			(refused.status != http.StatusServiceUnavailable && refused.status != http.StatusTooManyRequests) {
+			return response, err
+		}
+
+		wait := time.Second
+		if seconds, parsed := strconv.Atoi(response.Header.Get("Retry-After")); parsed == nil && seconds > 0 {
+			wait = time.Duration(seconds) * time.Second
+		}
+
+		sleep(ctx, wait)
+	}
+}
+
+// once sends one request; see do.
+func (who caller) once(
+	ctx context.Context,
+	operation,
+	method,
+	path string,
+	body any,
+	into any,
+	headers ...string,
+) (*http.Response, error) {
 	var payload io.Reader
 	if body != nil {
 		encoded, err := json.Marshal(body)

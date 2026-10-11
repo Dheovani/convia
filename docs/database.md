@@ -73,6 +73,16 @@ Every query takes a `context.Context`. Request-scoped work inherits the request'
 
 Cancellation reaches PostgreSQL: pgx cancels the in-flight query rather than only abandoning the Go call, which is what keeps a stalled database from exhausting the pool. This behavior is covered by an integration test.
 
+## When the pool is full, and when its connections die
+
+`M25-006` measured both, against a real PostgreSQL, and the tests that did are `saturation_integration_test.go`.
+
+**More work than connections waits; it does not fail.** Four times as many queries as the pool holds, all at once, all finished, in four rounds. A burst costs latency, which `convia.database.pool.waits` and `.wait.duration` report, and not errors. Once it is over the pool is as it was: nothing is left holding a connection and the next query is answered at once.
+
+**The wait is bounded by the request, not by the database.** `statement_timeout` limits how long a query runs once it has a connection, and nothing in PostgreSQL can limit how long a request waits for one it has not got. The request's context does: a request whose client gives up stops waiting and does not run.
+
+**Connections the server ended are stepped over.** When PostgreSQL restarts, fails over, or has its backends terminated, every connection the pool holds is dead and the pool does not know until each is used. Before `M25-006`, each dead connection cost one failed request — forty on an instance with forty connections, answered with 500 for nothing they did. Now a statement that reads the notice a terminated connection leaves behind (`57P01`, `57P02`, `57P03`) is run again on the next connection, as many times as the pool has connections to hand out, because that notice proves the statement never ran: it went to a socket nobody was listening on. A statement that failed before a byte was sent is retried once, which is also what failing to connect looks like — a database that is really down is asked twice, not forty times. Nothing that reached the server is retried. This is in [`internal/transaction`](../internal/transaction), which is how every store reaches the database.
+
 ## Health and Readiness
 
 `GET /health` reports process liveness and never touches the database, so a database outage does not make an orchestrator restart healthy processes.

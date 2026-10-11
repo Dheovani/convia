@@ -33,6 +33,10 @@ Beneath that is a span per query inside the trace of the request that made it: o
 
 **The statement is there and the arguments are not.** If the statement alone is not enough to identify which call site it was, the trace's parent span says which route it was serving.
 
+**Right after PostgreSQL restarted or failed over**, requests should not fail at all: a statement that meets a connection the server ended is run again on the next one. Failures then are the database actually being unreachable. See [`database.md`](../database.md#when-the-pool-is-full-and-when-its-connections-die).
+
+**A run of `499`s is not this runbook.** They are clients that gave up before the answer — closing a tab, losing signal — and they are only a symptom when they rise with latency, because then people are giving up on a slow Convia.
+
 ## Joining a call specifically
 
 The three routes are `POST /v1/participants/{participant_id}/session`, `POST /v1/me/rooms/{room_id}/call/join` and `POST /v1/peer/rooms/{room_id}/call/join`.

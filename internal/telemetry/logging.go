@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"go.opentelemetry.io/otel/trace"
@@ -52,6 +53,28 @@ the hand-written pairs, but not from code somebody writes next month -- and two
 one the reader's parser keeps.
 */
 func (handler Correlating) Handle(ctx context.Context, record slog.Record) error {
+	/*
+		A request whose client went away is not a server fault, and it is
+		decided here rather than at each of the two dozen places a handler
+		reports an unexpected failure, because every one of them would have to
+		remember and the next one written would not.
+
+		Two things have to be true at once: the request's own context is over,
+		and the error is that cancellation. Either alone is not enough -- a
+		context cancelled while something else failed is still a failure, and a
+		cancellation from a deadline Convia set is Convia's. What is left is
+		somebody closing a tab, losing signal or giving up, which is worth a
+		line and not a page.
+	*/
+	if record.Level >= slog.LevelError && abandoned(ctx, record) {
+		if !handler.Handler.Enabled(ctx, slog.LevelInfo) {
+			return nil
+		}
+
+		record.Level = slog.LevelInfo
+		record.Message = "the client went away: " + record.Message
+	}
+
 	id := api.RequestIDFromContext(ctx)
 	if id != "" && !carries(record, requestID) {
 		record.AddAttrs(slog.String(requestID, id))
@@ -72,6 +95,24 @@ func (handler Correlating) Handle(ctx context.Context, record slog.Record) error
 	}
 
 	return handler.Handler.Handle(ctx, record)
+}
+
+// abandoned reports a record about a request its client gave up on.
+func abandoned(ctx context.Context, record slog.Record) bool {
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		return false
+	}
+
+	gaveUp := false
+	record.Attrs(func(attribute slog.Attr) bool {
+		if failure, isError := attribute.Value.Any().(error); isError && errors.Is(failure, context.Canceled) {
+			gaveUp = true
+			return false
+		}
+		return true
+	})
+
+	return gaveUp
 }
 
 // requestID is the field correlation is expressed in, and the same name the

@@ -56,6 +56,8 @@ Two instruments, which is fewer than it looks:
 | `http.server.request.duration` | how long, how many, and how many failed |
 | `http.server.active_requests` | whether Convia is keeping up |
 
+**A request whose client went away is counted as `499`**, the status nginx gave the case, whatever the handler wrote to nobody — usually a 500, because its work failed with the cancellation. And its log line is `INFO` and begins *the client went away*, rather than an `ERROR` that would page somebody. Both are decided in one place each, so no handler has to remember: a request whose own context ended, failing with that cancellation. A cancellation Convia made, or a failure that happened after the client left, is still an error. This is `M25-016`.
+
 `M22-006` asks for request, error and latency separately. **A histogram carries its own count**, so all three are the one instrument cut by status — and there is no counter beside it that can disagree about the total. The second is saturation, which is a different question: not whether Convia is fast, but whether it is behind.
 
 The gauge carries **no labels at all**. Saturation is a property of the process; cutting it by route makes a series per route that is almost always zero, and the sum is the only number anybody reads.

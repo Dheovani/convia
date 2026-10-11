@@ -632,7 +632,12 @@ func handler(logger *slog.Logger, dependencies Dependencies) http.Handler {
 		chain = traced(dependencies.Requests, chain)
 	}
 
-	return requestID(chain)
+	/*
+		Remembering is outside measuring and tracing because it replaces the
+		request, and the router writes the matched pattern onto the request it
+		is given: inside them, they would read a request the router never saw.
+	*/
+	return requestID(remembering(chain))
 }
 
 /*

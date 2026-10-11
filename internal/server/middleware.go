@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"convia/internal/api"
+	"convia/internal/applications"
 	"convia/internal/audit"
 	"convia/internal/credentials"
 	"convia/internal/invitations"
@@ -42,6 +43,21 @@ func requestID(next http.Handler) http.Handler {
 		response.Header().Set(api.RequestIDHeader, identifier)
 
 		next.ServeHTTP(response, request.WithContext(api.WithRequestID(request.Context(), identifier)))
+	})
+}
+
+/*
+remembering lets one request ask whether a tenant is active once, however many
+services ask. See [applications.Remembering] for why a stream is left out: its
+request lasts as long as the stream, and it asks again so a suspension ends it.
+*/
+func remembering(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if strings.EqualFold(request.Header.Get("Upgrade"), "websocket") {
+			next.ServeHTTP(response, request)
+			return
+		}
+		next.ServeHTTP(response, request.WithContext(applications.Remembering(request.Context())))
 	})
 }
 
