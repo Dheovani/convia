@@ -1,29 +1,50 @@
-import { useEffect, useState } from "react";
-import { StorageProblem } from "../wailsjs/go/app/Bridge";
-import { Wordmark } from "./components/Mark";
+import { useCallback, useEffect, useState } from "react";
+import { Me as readMe, StorageProblem } from "../wailsjs/go/app/Bridge";
 import { DataProblem, type Problem } from "./screens/DataProblem";
+import { Me, type Identity } from "./screens/Me";
+import { Welcome } from "./screens/Welcome";
+
+type State =
+  | { kind: "loading" }
+  | { kind: "problem"; problem: Problem }
+  | { kind: "welcome" }
+  | { kind: "ready"; me: Identity };
+
+async function load(): Promise<State> {
+  try {
+    const problem = await StorageProblem();
+    if (problem !== "") {
+      return { kind: "problem", problem: problem as Problem };
+    }
+    const me = await readMe();
+    return me ? { kind: "ready", me } : { kind: "welcome" };
+  } catch {
+    return { kind: "problem", problem: "other" };
+  }
+}
 
 export default function App() {
-  const [problem, setProblem] = useState<Problem | "" | null>(null);
+  const [state, setState] = useState<State>({ kind: "loading" });
+  const refresh = useCallback(() => load().then(setState), []);
 
   useEffect(() => {
-    StorageProblem().then(
-      (found) => setProblem(found as Problem | ""),
-      () => setProblem("other"),
-    );
+    load().then(setState);
   }, []);
 
-  if (problem === null) {
-    return null;
+  switch (state.kind) {
+    case "loading":
+      return null;
+    case "problem":
+      return <DataProblem problem={state.problem} onResolved={refresh} />;
+    case "welcome":
+      return <Welcome onReady={refresh} />;
+    case "ready":
+      return (
+        <Me
+          key={state.me.publicKey + state.me.name}
+          me={state.me}
+          onChanged={refresh}
+        />
+      );
   }
-
-  if (problem !== "") {
-    return <DataProblem problem={problem} onResolved={() => setProblem("")} />;
-  }
-
-  return (
-    <main className="flex h-full items-center justify-center bg-surface">
-      <Wordmark />
-    </main>
-  );
 }

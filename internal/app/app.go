@@ -26,6 +26,7 @@ type Autostart interface {
 
 // Bridge is what the interface may call.
 type Bridge struct {
+	ctx        context.Context
 	autostart  Autostart
 	executable string
 	data       *Data
@@ -65,6 +66,7 @@ func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon [
 // Startup is Wails's OnStartup.
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	a.Bridge.ctx = ctx
 	tray.Start(a.trayIcon, tray.Actions{
 		Show:                 a.show,
 		Quit:                 func() { runtime.Quit(a.ctx) },

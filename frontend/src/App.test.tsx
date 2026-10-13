@@ -1,21 +1,32 @@
 import { render, screen } from "@testing-library/react";
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
+import { answers, reset } from "./test/bridge";
 
-const problem = vi.fn();
-vi.mock("../wailsjs/go/app/Bridge", () => ({
-  StorageProblem: () => problem(),
-  StartOver: vi.fn(),
-}));
+vi.mock(
+  "../wailsjs/go/app/Bridge",
+  async () => (await import("./test/bridge")).bridge,
+);
 
-test("the window shows Convia's mark and name when its data opens", async () => {
-  problem.mockResolvedValue("");
+beforeEach(reset);
+
+test("a first run welcomes the person", async () => {
+  answers.StorageProblem = () => Promise.resolve("");
+  answers.Me = () => Promise.resolve(null);
   render(<App />);
-  expect(await screen.findByText("Convia")).toBeTruthy();
+  expect(await screen.findByText("Welcome to Convia")).toBeTruthy();
 });
 
-test("the window stops at the problem when its data does not open", async () => {
-  problem.mockResolvedValue("damaged");
+test("a person with an identity sees it", async () => {
+  answers.StorageProblem = () => Promise.resolve("");
+  answers.Me = () =>
+    Promise.resolve({ name: "Alice", publicKey: "00112233aabbccdd" });
+  render(<App />);
+  expect(await screen.findByText("0011 2233 aabb ccdd")).toBeTruthy();
+});
+
+test("data that does not open stops at the problem", async () => {
+  answers.StorageProblem = () => Promise.resolve("damaged");
   render(<App />);
   expect(await screen.findByRole("alert")).toBeTruthy();
 });

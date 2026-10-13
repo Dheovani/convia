@@ -23,3 +23,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0015](0015-calls-and-screen-sharing-ride-the-peer-connection.md) | Calls and screen sharing ride the peer connection |
 | [0016](0016-how-convia-runs-on-windows.md) | How Convia runs on Windows |
 | [0017](0017-the-database-only-moves-forward-and-is-never-destroyed.md) | The database only moves forward, and is never destroyed |
+| [0018](0018-replacing-protecting-and-deleting-an-identity.md) | Replacing, protecting and deleting an identity |
