@@ -20,6 +20,8 @@ Convia is a desktop application that is itself a peer ([`README.md`](../../READM
 - **Media lives in the interface in the first version.** WebRTC, the camera, the microphone and screen capture use the WebView2 APIs from TypeScript; Go is not required to do all of it. How peers find each other, and how a media session is negotiated between them, is not decided here.
 - **The first version is Windows only.** The core is written without needless coupling to Windows, but no effort goes into building, testing or distributing for macOS or Linux until they are supported. The core may gain tests on Linux later; a macOS or Linux build is not a requirement until those systems are.
 
+Where the WebRTC connection lives, and so what connectivity in the core means, is narrowed by [ADR 0006](0006-one-peer-connection-per-pair-in-the-webview.md).
+
 ## Consequences
 
 - One binary per release: the Go core and the built interface compiled together by Wails, running in WebView2, which Windows 10 and 11 provide.

@@ -9,3 +9,15 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0001](0001-a-go-core-in-a-wails-window-for-windows.md) | A Go core in a Wails v2 window with a React interface, for Windows first |
 | [0002](0002-what-a-change-must-pass.md) | What a change must pass before it is merged |
 | [0003](0003-dependencies-carry-permissive-licenses.md) | Dependencies carry permissive licenses |
+| [0004](0004-a-person-is-a-key-their-application-made.md) | A person is a key their own application made |
+| [0005](0005-peers-connect-over-webrtc-with-auxiliary-rendezvous-and-turn.md) | Peers connect over WebRTC, helped by a rendezvous service and TURN |
+| [0006](0006-one-peer-connection-per-pair-in-the-webview.md) | One peer connection per pair of peers, in the WebView |
+| [0007](0007-closing-the-window-hides-convia.md) | Closing the window hides Convia |
+| [0008](0008-the-protocol-between-peers.md) | The protocol between peers |
+| [0009](0009-the-cryptography.md) | The cryptography |
+| [0010](0010-a-conversation-is-kept-on-each-peer.md) | A conversation is kept on each peer, in the same order on both |
+| [0011](0011-a-message-waits-with-its-sender.md) | A message waits with its sender until both peers are online |
+| [0012](0012-only-contacts-can-tell-when-a-person-is-online.md) | Only contacts can tell when a person is online |
+| [0013](0013-a-space-is-replicated-by-its-members.md) | A space is replicated by its members, under signed authority |
+| [0014](0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md) | Members of a space share a secret to find one another |
+| [0015](0015-calls-and-screen-sharing-ride-the-peer-connection.md) | Calls and screen sharing ride the peer connection |
