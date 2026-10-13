@@ -1,0 +1,91 @@
+name: Bug report
+description: Report something Convia does wrong
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not use this form for security vulnerabilities. Report those privately through a
+        [security advisory](https://github.com/Dheovani/convia/security/advisories/new), as described in `SECURITY.md`.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong, in one or two sentences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that reproduces the problem.
+      placeholder: |
+        1. Open Convia and paste a contact's invitation
+        2. Send a message
+        3. Observe what happens
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, including any error shown.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Convia version
+      description: The release, or the commit SHA you built.
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2
+    validations:
+      required: true
+
+  - type: textarea
+    id: network
+    attributes:
+      label: Network
+      description: If the problem is about connecting to another person, how each of you is connected — home router, mobile network, VPN, corporate network — and whether it happens with everybody or one contact.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The relevant lines from `%LocalAppData%\Convia\logs`. Convia never logs messages, keys or the addresses of peers,
+        but read what you paste before you paste it.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: This is not a security vulnerability
+          required: true
+        - label: I searched existing issues for a duplicate
+          required: true
+        - label: I removed invitations, safety codes and anything personal from what I pasted
+          required: true

@@ -19,8 +19,8 @@ The repository, the stack and the rules every change is held to.
 - [x] **M01-007:** Enforce the dependency license policy ([ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md)).
 - [x] **M01-008:** Say how vulnerabilities are reported (SECURITY.md) and how changes are made (CONTRIBUTING.md).
 - [x] **M01-009:** Decide the proposed license exception for build-time tools in ADR 0003.
-- [x] **M01-011:** Carry over the interface's design from before the reset: the theme, the mark and the icon, the shared controls, and the choice of language.
 - [ ] **M01-010:** Run mutation testing periodically and before releases, on the critical packages, once the first of them exists.
+- [x] **M01-011:** Carry over the interface's design from before the reset: the theme, the mark and the icon, the shared controls, and the choice of language.
 
 ### M02 — The decisions before the first conversation
 
@@ -48,19 +48,20 @@ How the Go core is organised, how it talks to the interface, and how the applica
 
 **Depends on:** M01.
 
-- [ ] **M03-001:** Lay out the Go core in packages by responsibility — identity, storage, protocol, connectivity, spaces, calls — each testable without the window.
-- [ ] **M03-002:** Define the bridge between the core and the interface: which Go methods Wails exposes, which events the core emits to the interface, and how an error crosses it.
-- [ ] **M03-003:** Generate the bridge's TypeScript bindings in the build, and check in CI that they match the Go code.
-- [ ] **M03-004:** Keep Convia's files under the user's application data directory, and nowhere else.
-- [ ] **M03-005:** Decide what happens when Convia is started while it is already running for the same user.
-- [ ] **M03-006:** Enforce that decision.
-- [ ] **M03-007:** Decide what the core logs, where, for how long, and what it must never log — no message content, no keys, no secrets.
-- [ ] **M03-008:** Log accordingly, on the machine only.
-- [ ] **M03-009:** Choose the notification-area library, under [ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md).
-- [ ] **M03-010:** Hide the window on close, show it from the notification-area icon, and quit from the icon's menu ([ADR 0007](docs/adr/0007-closing-the-window-hides-convia.md)).
-- [ ] **M03-011:** Decide whether Convia starts with Windows, and whether that is a setting.
-- [ ] **M03-012:** Shut the core down cleanly on quit: close connections, flush storage, end background work.
-- [ ] **M03-013:** Show a recoverable error, rather than a blank window, when the interface fails.
+- [x] **M03-001:** Lay out the Go core in packages by responsibility — identity, storage, protocol, connectivity, spaces, calls — each testable without the window.
+- [x] **M03-002:** Define the bridge between the core and the interface: which Go methods Wails exposes, which events the core emits to the interface, and how an error crosses it.
+- [x] **M03-003:** Generate the bridge's TypeScript bindings in the build, and check in CI that they match the Go code.
+- [x] **M03-004:** Keep Convia's files under the user's application data directory, and nowhere else.
+- [x] **M03-005:** Decide what happens when Convia is started while it is already running for the same user ([ADR 0016](docs/adr/0016-how-convia-runs-on-windows.md)).
+- [x] **M03-006:** Enforce that decision.
+- [x] **M03-007:** Decide what the core logs, where, for how long, and what it must never log ([ADR 0016](docs/adr/0016-how-convia-runs-on-windows.md)).
+- [x] **M03-008:** Log accordingly, on the machine only.
+- [x] **M03-009:** Choose the notification-area library, under [ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md).
+- [x] **M03-010:** Hide the window on close, show it from the notification-area icon, and quit from the icon's menu ([ADR 0007](docs/adr/0007-closing-the-window-hides-convia.md)).
+- [x] **M03-011:** Decide whether Convia starts with Windows ([ADR 0016](docs/adr/0016-how-convia-runs-on-windows.md)).
+- [x] **M03-012:** Shut the core down cleanly on quit: close connections, flush storage, end background work.
+- [x] **M03-013:** Show a recoverable error, rather than a blank window, when the interface fails.
+- [x] **M03-014:** Let the person turn starting with Windows on and off.
 
 ### M04 — Local storage
 

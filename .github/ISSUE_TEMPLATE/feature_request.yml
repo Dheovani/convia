@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose something Convia should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Convia is built against [`ROADMAP.md`](https://github.com/Dheovani/convia/blob/main/ROADMAP.md), and it is
+        what [`README.md`](https://github.com/Dheovani/convia/blob/main/README.md) defines: a desktop application whose
+        users talk to each other peer to peer. Check both before opening a request.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The problem you are trying to solve. Describe the situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What Convia should do, and how two people's instances of Convia would do it between themselves.
+    validations:
+      required: true
+
+  - type: input
+    id: roadmap
+    attributes:
+      label: Related roadmap item
+      description: The `ROADMAP.md` milestone or task ID this belongs to, if you know it.
+      placeholder: M13-004
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways to solve the problem, including doing nothing.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I searched existing issues and the roadmap for a duplicate
+          required: true
+        - label: It keeps Convia peer to peer, and needs no central server to own conversations or their state
+          required: true
+        - label: This request does not describe a security vulnerability
+          required: true
