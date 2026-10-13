@@ -28,7 +28,14 @@ type Autostart interface {
 type Bridge struct {
 	autostart  Autostart
 	executable string
+	data       *Data
 }
+
+// StorageProblem names what stopped Convia's data from opening, or is empty.
+func (b *Bridge) StorageProblem() string { return b.data.Problem() }
+
+// StartOver sets the unreadable data aside, keeping it, and starts with none.
+func (b *Bridge) StartOver() error { return b.data.StartOver() }
 
 // StartsWithWindows reports whether Convia starts when the person signs in.
 func (b *Bridge) StartsWithWindows() (bool, error) { return b.autostart.Enabled() }
@@ -46,11 +53,13 @@ type App struct {
 	ctx      context.Context
 	logger   *slog.Logger
 	trayIcon []byte
+	data     *Data
 	Bridge   *Bridge
 }
 
-func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon []byte) *App {
-	return &App{logger: logger, trayIcon: trayIcon, Bridge: &Bridge{autostart: autostart, executable: executable}}
+func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon []byte, data *Data) *App {
+	return &App{logger: logger, trayIcon: trayIcon, data: data,
+		Bridge: &Bridge{autostart: autostart, executable: executable, data: data}}
 }
 
 // Startup is Wails's OnStartup.
@@ -62,6 +71,11 @@ func (a *App) Startup(ctx context.Context) {
 		StartsWithWindows:    a.Bridge.StartsWithWindows,
 		SetStartsWithWindows: a.Bridge.SetStartsWithWindows,
 	}, a.logger)
+
+	if err := a.data.Err(); err != nil {
+		a.logger.Error("open the data", "problem", a.data.Problem(), "error", err)
+	}
+
 	a.logger.Info("convia started")
 }
 
@@ -75,6 +89,9 @@ func (a *App) SecondInstance(options.SecondInstanceData) {
 // Shutdown is Wails's OnShutdown.
 func (a *App) Shutdown(context.Context) {
 	tray.Stop()
+	if err := a.data.Close(); err != nil {
+		a.logger.Error("close the data", "error", err)
+	}
 	a.logger.Info("convia stopped")
 }
 

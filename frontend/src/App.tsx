@@ -1,11 +1,26 @@
+import { useEffect, useState } from "react";
+import { StorageProblem } from "../wailsjs/go/app/Bridge";
 import { Wordmark } from "./components/Mark";
+import { DataProblem, type Problem } from "./screens/DataProblem";
 
-/*
-App is the whole interface, which today is the mark on an empty window. What
-the window shows next is built feature by feature, once the decisions in
-ROADMAP.md M02 say what two peers do.
-*/
 export default function App() {
+  const [problem, setProblem] = useState<Problem | "" | null>(null);
+
+  useEffect(() => {
+    StorageProblem().then(
+      (found) => setProblem(found as Problem | ""),
+      () => setProblem("other"),
+    );
+  }, []);
+
+  if (problem === null) {
+    return null;
+  }
+
+  if (problem !== "") {
+    return <DataProblem problem={problem} onResolved={() => setProblem("")} />;
+  }
+
   return (
     <main className="flex h-full items-center justify-center bg-surface">
       <Wordmark />

@@ -16,6 +16,7 @@ import (
 	"github.com/Dheovani/convia/internal/autostart"
 	"github.com/Dheovani/convia/internal/home"
 	"github.com/Dheovani/convia/internal/logging"
+	"github.com/Dheovani/convia/internal/protect"
 )
 
 //go:embed all:frontend/dist
@@ -42,7 +43,7 @@ func main() {
 	if err != nil {
 		logger.Error("locate the executable", "error", err)
 	}
-	application := app.New(logger, autostart.Default, executable, trayIcon)
+	application := app.New(logger, autostart.Default, executable, trayIcon, app.OpenData(dir, protect.DPAPI{}))
 
 	err = wails.Run(&options.App{
 		Title:     "Convia",

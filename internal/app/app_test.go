@@ -25,7 +25,7 @@ func (f *fakeAutostart) Disable() error {
 
 func TestTheInterfaceTurnsStartingWithWindowsOnAndOff(t *testing.T) {
 	setting := &fakeAutostart{}
-	a := New(slog.New(slog.NewTextHandler(io.Discard, nil)), setting, `C:\Convia\convia.exe`, nil).Bridge
+	a := New(slog.New(slog.NewTextHandler(io.Discard, nil)), setting, `C:\Convia\convia.exe`, nil, nil).Bridge
 
 	if on, _ := a.StartsWithWindows(); on {
 		t.Fatal("on before anybody turned it on")

@@ -69,15 +69,15 @@ Where a peer keeps its identity, its contacts and its conversations ([ADR 0010](
 
 **Depends on:** M03.
 
-- [ ] **M04-001:** Check `modernc.org/sqlite` and everything it brings against [ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md), and add it.
-- [ ] **M04-002:** Decide how the database schema is versioned and migrated, and what happens when a newer Convia's database meets an older Convia.
-- [ ] **M04-003:** Open the database, apply its migrations, and refuse one it cannot read without damaging it.
-- [ ] **M04-004:** Protect secrets with DPAPI, bound to the user's account.
-- [ ] **M04-005:** Generate the history's content key, keep it protected with DPAPI, and encrypt and decrypt message content with XChaCha20-Poly1305.
-- [ ] **M04-006:** Define the schema for the identity, contacts, conversations, messages, the outbox and their sequence numbers.
-- [ ] **M04-007:** Decide what happens when the database or a protected key cannot be read — a damaged file, a changed Windows account.
-- [ ] **M04-008:** Handle it that way, and say so in the interface.
-- [ ] **M04-009:** Test storage against a real database file: migrations, encryption, and that content is never written in clear.
+- [x] **M04-001:** Check `modernc.org/sqlite` and everything it brings against [ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md), and add it.
+- [x] **M04-002:** Decide how the database schema is versioned and migrated ([ADR 0017](docs/adr/0017-the-database-only-moves-forward-and-is-never-destroyed.md)).
+- [x] **M04-003:** Open the database, apply its migrations, and refuse one it cannot read without damaging it.
+- [x] **M04-004:** Protect secrets with DPAPI, bound to the user's account.
+- [x] **M04-005:** Generate the history's content key, keep it protected with DPAPI, and encrypt and decrypt message content with XChaCha20-Poly1305.
+- [x] **M04-006:** Define the schema for the identity, contacts, conversations, messages, the outbox and their sequence numbers.
+- [x] **M04-007:** Decide what happens when the database or a protected key cannot be read ([ADR 0017](docs/adr/0017-the-database-only-moves-forward-and-is-never-destroyed.md)).
+- [x] **M04-008:** Handle it that way, and say so in the interface.
+- [x] **M04-009:** Test storage against a real database file: migrations, encryption, and that content is never written in clear.
 
 ### M05 — Identity
 
@@ -96,6 +96,7 @@ A person is a key their own application made ([ADR 0004](docs/adr/0004-a-person-
 - [ ] **M05-009:** Build the first-run screens: making an identity, or importing one.
 - [ ] **M05-010:** Show a person their own identity and safety-code material in the interface.
 - [ ] **M05-011:** Test every encoding against fixed vectors, and fuzz the import of an exported file.
+- [ ] **M05-012:** Offer importing an exported identity on the screen shown when the data cannot be opened ([ADR 0017](docs/adr/0017-the-database-only-moves-forward-and-is-never-destroyed.md)).
 
 ## Phase 3 — Two peers connect
 
