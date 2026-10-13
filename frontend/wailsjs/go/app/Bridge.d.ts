@@ -3,4 +3,8 @@
 
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;
 
+export function StartOver():Promise<void>;
+
 export function StartsWithWindows():Promise<boolean>;
+
+export function StorageProblem():Promise<string>;

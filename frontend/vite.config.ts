@@ -8,5 +8,6 @@ export default defineConfig({
     environment: "jsdom",
     // The contrast test reads the stylesheet itself, which Vitest leaves empty unless it processes CSS.
     css: true,
+    setupFiles: ["./src/test/setup.ts"],
   },
 });

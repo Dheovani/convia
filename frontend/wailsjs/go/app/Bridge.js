@@ -6,6 +6,14 @@ export function SetStartsWithWindows(arg1) {
   return window['go']['app']['Bridge']['SetStartsWithWindows'](arg1);
 }
 
+export function StartOver() {
+  return window['go']['app']['Bridge']['StartOver']();
+}
+
 export function StartsWithWindows() {
   return window['go']['app']['Bridge']['StartsWithWindows']();
+}
+
+export function StorageProblem() {
+  return window['go']['app']['Bridge']['StorageProblem']();
 }
