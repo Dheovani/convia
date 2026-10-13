@@ -12,6 +12,8 @@ Read the whole of [`README.md`](README.md) before any work. It is not an introdu
 
 If the answer is the second, the proposal is wrong, however familiar or convenient it is.
 
+**Convia is used by people, never by other applications.** It is a desktop application for conversation between peers, and nothing else: not a platform, not a service other products integrate with, and it has no API, SDK, webhooks, tenants or keys for anybody to build on. A proposal that would let another application use Convia is out of scope.
+
 ## 3. No decision is inferred
 
 None of the following is decided by whoever implements. Each is decided by the product owner, explicitly, before any code that depends on it. [`ROADMAP.md`](ROADMAP.md) M02 lists the ones still open.
@@ -42,3 +44,7 @@ Documentation, decisions, code, comments, identifiers, commit messages and pull 
 - Relevant code has tests that would fail if it broke. There is no coverage percentage to meet.
 - A new dependency carries a license [ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md) permits. Check it before adding it.
 - Commits are [Conventional Commits](https://www.conventionalcommits.org/). [`CONTRIBUTING.md`](CONTRIBUTING.md) has the rest.
+
+## 7. Comments are rare and short
+
+The reader of the code is a programmer. A comment says only what the code cannot: why something non-obvious is done, a constraint that is not visible, a trap to avoid. It never restates what a name, a signature or the code already says, never explains the language, and never narrates history — that belongs in the commit or the ADR. One line is the norm; a paragraph needs a reason. When in doubt, leave it out, or rename the thing so that it needs no comment.
