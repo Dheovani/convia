@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Dheovani/convia/security/advisories/new
+    about: Report vulnerabilities privately through a GitHub security advisory. Never open a public issue for a security problem.
+  - name: Commercial licensing
+    url: https://github.com/Dheovani/convia/discussions
+    about: Convia is free for noncommercial use. Ask here about a commercial license.

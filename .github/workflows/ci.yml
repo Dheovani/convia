@@ -102,6 +102,15 @@ jobs:
         run: go install "github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)"
       - name: Build
         run: wails build -clean -platform windows/amd64
+      # The build regenerates the interface's bindings; they must match what is committed.
+      - name: Bindings are current
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain -- frontend/wailsjs)" ]; then
+            echo "frontend/wailsjs does not match the Go code; run 'wails generate module' and commit it:"
+            git status --porcelain -- frontend/wailsjs
+            exit 1
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: convia-windows-amd64

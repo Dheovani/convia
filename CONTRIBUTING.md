@@ -32,3 +32,5 @@ go vet ./... && go test ./...
 ```
 
 `go vet` and `go test` need `frontend/dist` to exist, because the binary embeds the built interface: run `npm run build` in `frontend` once, or create the directory.
+
+Convia keeps its files in `%LocalAppData%\Convia` and runs once per directory. To run two peers on one machine, give the second its own: `CONVIA_HOME=C:\convia-second build\bin\convia.exe`.
