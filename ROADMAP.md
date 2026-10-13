@@ -85,18 +85,19 @@ A person is a key their own application made ([ADR 0004](docs/adr/0004-a-person-
 
 **Depends on:** M04.
 
-- [ ] **M05-001:** Generate an Ed25519 identity on the first run, and keep its private key protected with DPAPI.
-- [ ] **M05-002:** Let the person choose and change their display name.
-- [ ] **M05-003:** Compute the safety code exactly as ADR 0009 specifies, with published test vectors.
-- [ ] **M05-004:** Export the identity to a file protected by a password, with Argon2id and XChaCha20-Poly1305 and the parameters stored in the file.
-- [ ] **M05-005:** Import an exported identity on a machine with none.
-- [ ] **M05-006:** Decide what happens when an identity is imported on a machine that already has one.
-- [ ] **M05-007:** Decide the minimum strength of an export password.
-- [ ] **M05-008:** Decide whether a person can delete their identity and everything Convia keeps, and what that tells their contacts.
-- [ ] **M05-009:** Build the first-run screens: making an identity, or importing one.
-- [ ] **M05-010:** Show a person their own identity and safety-code material in the interface.
-- [ ] **M05-011:** Test every encoding against fixed vectors, and fuzz the import of an exported file.
-- [ ] **M05-012:** Offer importing an exported identity on the screen shown when the data cannot be opened ([ADR 0017](docs/adr/0017-the-database-only-moves-forward-and-is-never-destroyed.md)).
+- [x] **M05-001:** Generate an Ed25519 identity on the first run, and keep its private key protected with DPAPI.
+- [x] **M05-002:** Let the person choose and change their display name.
+- [x] **M05-003:** Compute the safety code exactly as ADR 0009 specifies, with published test vectors.
+- [x] **M05-004:** Export the identity to a file protected by a password, with Argon2id and XChaCha20-Poly1305 and the parameters stored in the file.
+- [x] **M05-005:** Import an exported identity on a machine with none.
+- [x] **M05-006:** Decide what happens when an identity is imported on a machine that already has one ([ADR 0018](docs/adr/0018-replacing-protecting-and-deleting-an-identity.md)).
+- [x] **M05-007:** Decide the minimum strength of an export password ([ADR 0018](docs/adr/0018-replacing-protecting-and-deleting-an-identity.md)).
+- [x] **M05-008:** Decide whether a person can delete their identity ([ADR 0018](docs/adr/0018-replacing-protecting-and-deleting-an-identity.md)).
+- [x] **M05-009:** Build the first-run screens: making an identity, or importing one.
+- [x] **M05-010:** Show a person their own identity and safety-code material in the interface.
+- [x] **M05-011:** Test every encoding against fixed vectors, and fuzz the import of an exported file.
+- [x] **M05-012:** Offer importing an exported identity on the screen shown when the data cannot be opened ([ADR 0017](docs/adr/0017-the-database-only-moves-forward-and-is-never-destroyed.md)).
+- [x] **M05-013:** Let a person replace their identity by importing another, and delete it.
 
 ## Phase 3 — Two peers connect
 

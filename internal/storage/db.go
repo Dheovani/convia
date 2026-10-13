@@ -186,3 +186,13 @@ func MoveAside(dir string, now time.Time) (string, error) {
 	}
 	return target, nil
 }
+
+// Delete removes the database's files for good. It is the one deletion Convia makes on purpose (ADR 0018).
+func Delete(dir string) error {
+	for _, name := range []string{fileName, fileName + "-wal", fileName + "-shm", backupName} {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
