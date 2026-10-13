@@ -107,7 +107,7 @@ jobs:
         shell: bash
         run: |
           if [ -n "$(git status --porcelain -- frontend/wailsjs)" ]; then
-            echo "frontend/wailsjs does not match the Go code; run 'wails generate module' and commit it:"
+            echo "frontend/wailsjs does not match the Go code; run 'wails build' and commit what it regenerates:"
             git status --porcelain -- frontend/wailsjs
             exit 1
           fi
