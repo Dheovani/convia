@@ -34,3 +34,5 @@ go vet ./... && go test ./...
 `go vet` and `go test` need `frontend/dist` to exist, because the binary embeds the built interface: run `npm run build` in `frontend` once, or create the directory.
 
 Convia keeps its files in `%LocalAppData%\Convia` and runs once per directory. To run two peers on one machine, give the second its own: `CONVIA_HOME=C:\convia-second build\bin\convia.exe`.
+
+A rendezvous service for development runs on the same machine, without TLS: `go run ./cmd/rendezvous -listen 127.0.0.1:8443 -address ws://127.0.0.1:8443`. The protocol it speaks is in [`docs/protocol/rendezvous.md`](docs/protocol/rendezvous.md).

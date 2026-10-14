@@ -121,15 +121,15 @@ The small service that lets peers find each other and exchange connection metada
 
 **Depends on:** M06.
 
-- [ ] **M07-001:** Decide where the rendezvous service's code lives — this repository or another — and how it is versioned against the application.
-- [ ] **M07-002:** Serve WSS, and authenticate a peer with a single-use 32-byte Ed25519 challenge, valid for 30 seconds and bound to the service's address ([ADR 0009](docs/adr/0009-the-cryptography.md)).
-- [ ] **M07-003:** Relay offers, answers and ICE candidates between two peers, and nothing else.
-- [ ] **M07-004:** Accept announcements and subscriptions to opaque reachability identifiers, and tell subscribers when one is announced ([ADR 0011](docs/adr/0011-a-message-waits-with-its-sender.md), [ADR 0012](docs/adr/0012-only-contacts-can-tell-when-a-person-is-online.md), [ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
-- [ ] **M07-005:** Keep only ephemeral state, and forget a peer's subscriptions and announcements when it disconnects.
-- [ ] **M07-006:** Decide the service's limits — connections, messages, subscriptions per peer — and how it answers abuse.
-- [ ] **M07-007:** Enforce them.
-- [ ] **M07-008:** Decide what the service logs and for how long, given that it sees who tries to reach whom.
-- [ ] **M07-009:** Test it on its own, and with two real peers.
+- [x] **M07-001:** Decide where the rendezvous service's code lives — this repository or another — and how it is versioned against the application.
+- [x] **M07-002:** Serve WSS, and authenticate a peer with a single-use 32-byte Ed25519 challenge, valid for 30 seconds and bound to the service's address ([ADR 0009](docs/adr/0009-the-cryptography.md)).
+- [x] **M07-003:** Relay offers, answers and ICE candidates between two peers, and nothing else.
+- [x] **M07-004:** Accept announcements and subscriptions to opaque reachability identifiers, and tell subscribers when one is announced ([ADR 0011](docs/adr/0011-a-message-waits-with-its-sender.md), [ADR 0012](docs/adr/0012-only-contacts-can-tell-when-a-person-is-online.md), [ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
+- [x] **M07-005:** Keep only ephemeral state, and forget a peer's subscriptions and announcements when it disconnects.
+- [x] **M07-006:** Decide the service's limits — connections, messages, subscriptions per peer — and how it answers abuse.
+- [x] **M07-007:** Enforce them.
+- [x] **M07-008:** Decide what the service logs and for how long, given that it sees who tries to reach whom.
+- [x] **M07-009:** Test it on its own, and with two real peers.
 
 ### M08 — STUN and TURN
 
@@ -353,6 +353,7 @@ The default rendezvous service and coturn the project runs, and a person's freed
 - [ ] **M23-004:** Let a person configure other infrastructure in the application, and show which they use.
 - [ ] **M23-005:** Document how to run one's own rendezvous service and coturn.
 - [ ] **M23-006:** Decide whether Convia needs a privacy policy for its infrastructure, and write it if so.
+- [ ] **M23-007:** Decide how an operator blocks an address permanently, without the service logging who it blocked ([ADR 0021](docs/adr/0021-the-rendezvous-service-limits-every-peer.md), [ADR 0022](docs/adr/0022-the-rendezvous-service-logs-nobody.md)).
 
 ## Later
 

@@ -52,6 +52,10 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
       - name: Tests
         run: go test -count=1 -shuffle=on ./...
+      # The rendezvous service runs where it is deployed, not on Windows (ADR 0020).
+      - name: Rendezvous service for Linux
+        shell: bash
+        run: GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/rendezvous
 
   frontend:
     name: Frontend
