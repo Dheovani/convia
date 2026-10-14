@@ -1,0 +1,10 @@
+# Generates both sides of the protocol from proto/: run `go run github.com/bufbuild/buf/cmd/buf@v1.73.0 generate`.
+version: v2
+clean: true
+plugins:
+  - local: ["go", "run", "google.golang.org/protobuf/cmd/protoc-gen-go"]
+    out: internal/wire
+    opt: paths=source_relative
+  - local: ["node", "frontend/node_modules/@bufbuild/protoc-gen-es/bin/protoc-gen-es"]
+    out: frontend/src/wire
+    opt: target=ts

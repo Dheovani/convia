@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package convia.v1;
+
+option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
+
+// Hello opens a connection with the versions of the protocol this peer speaks (ADR 0008, ADR 0019).
+message Hello {
+  repeated uint32 versions = 1;
+}
+
+// Challenge is a peer's fresh 32-byte nonce for this connection (ADR 0009).
+message Challenge {
+  bytes nonce = 1;
+}
+
+// Proof answers the other peer's challenge with the signed handshake transcript (ADR 0009).
+message Proof {
+  bytes identity = 1;
+  bytes signature = 2;
+}

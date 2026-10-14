@@ -24,3 +24,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0016](0016-how-convia-runs-on-windows.md) | How Convia runs on Windows |
 | [0017](0017-the-database-only-moves-forward-and-is-never-destroyed.md) | The database only moves forward, and is never destroyed |
 | [0018](0018-replacing-protecting-and-deleting-an-identity.md) | Replacing, protecting and deleting an identity |
+| [0019](0019-the-protocol-version-is-a-whole-number.md) | The protocol's version is a whole number |
