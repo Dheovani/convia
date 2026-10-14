@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package convia.v1;
+
+option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
+
+// ToService is every message a peer sends the rendezvous service, one per WebSocket binary message.
+message ToService {
+  oneof message {
+    Authenticate authenticate = 1;
+    Signal signal = 2;
+    Identifiers subscribe = 3;
+    Identifiers unsubscribe = 4;
+    Identifiers announce = 5;
+    Identifiers withdraw = 6;
+  }
+}
+
+// FromService is every message the rendezvous service sends a peer.
+message FromService {
+  oneof message {
+    ServiceHello hello = 1;
+    Welcome welcome = 2;
+    Signal signal = 3;
+    // An identifier the peer subscribed to, announced by another peer.
+    bytes reachable = 4;
+    // The identity a signal was addressed to, which is not connected.
+    bytes unreachable = 5;
+  }
+}
+
+// ServiceHello opens a connection: the versions the service speaks, and a fresh challenge (ADR 0009).
+message ServiceHello {
+  repeated uint32 versions = 1;
+  bytes challenge = 2;
+}
+
+// Authenticate answers the challenge, signed over docs/protocol/canonical-encodings.md's rendezvous answer.
+message Authenticate {
+  uint32 version = 1;
+  bytes identity = 2;
+  bytes signature = 3;
+}
+
+// Welcome says the peer is authenticated.
+message Welcome {}
+
+// Signal carries WebRTC negotiation; peer is the recipient going in, and the sender coming out.
+message Signal {
+  bytes peer = 1;
+  oneof kind {
+    string offer = 2;
+    string answer = 3;
+    Candidate candidate = 4;
+  }
+}
+
+// Candidate is an ICE candidate, as RTCIceCandidateInit holds it.
+message Candidate {
+  string candidate = 1;
+  string sdp_mid = 2;
+  uint32 sdp_m_line_index = 3;
+  string username_fragment = 4;
+}
+
+// Identifiers are opaque 32-byte reachability identifiers (ADR 0012, ADR 0014).
+message Identifiers {
+  repeated bytes ids = 1;
+}

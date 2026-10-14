@@ -25,3 +25,6 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0017](0017-the-database-only-moves-forward-and-is-never-destroyed.md) | The database only moves forward, and is never destroyed |
 | [0018](0018-replacing-protecting-and-deleting-an-identity.md) | Replacing, protecting and deleting an identity |
 | [0019](0019-the-protocol-version-is-a-whole-number.md) | The protocol's version is a whole number |
+| [0020](0020-the-rendezvous-service-lives-beside-the-application.md) | The rendezvous service lives beside the application |
+| [0021](0021-the-rendezvous-service-limits-every-peer.md) | The rendezvous service limits every peer |
+| [0022](0022-the-rendezvous-service-logs-nobody.md) | The rendezvous service logs nobody |
