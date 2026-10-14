@@ -109,11 +109,11 @@ The messages of the protocol, in one place both sides are generated from ([ADR 0
 
 **Depends on:** M03.
 
-- [ ] **M06-001:** Choose the Protocol Buffers tooling for Go and for TypeScript, under ADR 0003.
-- [ ] **M06-002:** Keep the schemas in the repository, generate both sides in the build, and check in CI that the generated code is current.
-- [ ] **M06-003:** Decide how the protocol's version is numbered, and what changes require a new version.
-- [ ] **M06-004:** Specify the canonical encodings of everything that is signed — the handshake transcript, the rendezvous answer, invitations — as length-prefixed fields ([ADR 0009](docs/adr/0009-the-cryptography.md)).
-- [ ] **M06-005:** Publish test vectors for each canonical encoding.
+- [x] **M06-001:** Choose the Protocol Buffers tooling for Go and for TypeScript, under ADR 0003.
+- [x] **M06-002:** Keep the schemas in the repository, generate both sides in the build, and check in CI that the generated code is current.
+- [x] **M06-003:** Decide how the protocol's version is numbered ([ADR 0019](docs/adr/0019-the-protocol-version-is-a-whole-number.md)).
+- [x] **M06-004:** Specify the canonical encodings of everything that is signed — the handshake transcript, the rendezvous answer, invitations — as length-prefixed fields ([ADR 0009](docs/adr/0009-the-cryptography.md)).
+- [x] **M06-005:** Publish test vectors for each canonical encoding.
 
 ### M07 — The rendezvous service
 
