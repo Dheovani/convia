@@ -24,6 +24,7 @@ import (
 
 	"github.com/Dheovani/convia/internal/canonical"
 	"github.com/Dheovani/convia/internal/rendezvous"
+	"github.com/Dheovani/convia/internal/turn"
 	conviav1 "github.com/Dheovani/convia/internal/wire/convia/v1"
 )
 
@@ -80,6 +81,7 @@ type counters struct {
 type Service struct {
 	address  string
 	limits   Limits
+	ice      turn.Servers
 	logger   *slog.Logger
 	now      func() time.Time
 	upgrader websocket.Upgrader
@@ -93,11 +95,15 @@ type Service struct {
 	blocks      map[netip.Prefix]*block
 }
 
-// New is a service reached at address, the wss:// address peers sign (docs/protocol/canonical-encodings.md).
-func New(address string, limits Limits, logger *slog.Logger) *Service {
+/*
+New is a service reached at address, the wss:// address peers sign (docs/protocol/canonical-encodings.md),
+that gives every authenticated peer ice and renews its credential at half its lifetime.
+*/
+func New(address string, limits Limits, ice turn.Servers, logger *slog.Logger) *Service {
 	return &Service{
 		address:     address,
 		limits:      limits,
+		ice:         ice,
 		logger:      logger,
 		now:         time.Now,
 		upgrader:    websocket.Upgrader{HandshakeTimeout: limits.Challenge},
@@ -446,7 +452,10 @@ func (p *peer) authenticate() bool {
 	p.identity = key(answer.Identity)
 	s.register(p)
 	p.ws.SetWriteDeadline(time.Now().Add(writeWait))
-	return p.direct(&conviav1.FromService{Message: &conviav1.FromService_Welcome{Welcome: &conviav1.Welcome{}}}) == nil
+	if p.direct(&conviav1.FromService{Message: &conviav1.FromService_Welcome{Welcome: &conviav1.Welcome{}}}) != nil {
+		return false
+	}
+	return !s.ice.Configured() || p.direct(p.servers()) == nil
 }
 
 func (p *peer) read() {
@@ -517,10 +526,18 @@ func (p *peer) send(m *conviav1.FromService) {
 func (p *peer) write() {
 	ping := time.NewTicker(pingEvery)
 	defer ping.Stop()
+	var renew <-chan time.Time
+	if ice := p.service.ice; ice.Configured() {
+		renewal := time.NewTicker(ice.Valid() / 2)
+		defer renewal.Stop()
+		renew = renewal.C
+	}
 	for {
 		select {
 		case <-p.done:
 			return
+		case <-renew:
+			p.send(p.servers())
 		case data := <-p.queue:
 			p.ws.SetWriteDeadline(time.Now().Add(writeWait))
 			if p.ws.WriteMessage(websocket.BinaryMessage, data) != nil {
@@ -534,6 +551,10 @@ func (p *peer) write() {
 			}
 		}
 	}
+}
+
+func (p *peer) servers() *conviav1.FromService {
+	return &conviav1.FromService{Message: &conviav1.FromService_IceServers{IceServers: p.service.ice.Issue(p.service.now())}}
 }
 
 // end closes the connection once, telling the peer why.

@@ -35,4 +35,11 @@ go vet ./... && go test ./...
 
 Convia keeps its files in `%LocalAppData%\Convia` and runs once per directory. To run two peers on one machine, give the second its own: `CONVIA_HOME=C:\convia-second build\bin\convia.exe`.
 
-A rendezvous service for development runs on the same machine, without TLS: `go run ./cmd/rendezvous -listen 127.0.0.1:8443 -address ws://127.0.0.1:8443`. The protocol it speaks is in [`docs/protocol/rendezvous.md`](docs/protocol/rendezvous.md).
+coturn and the rendezvous service run together on this machine with Docker, for development and tests. Copy `.env.example` to `.env` and give `TURN_SECRET` a random value of at least 32 characters — `.env` is never committed — then:
+
+```text
+docker compose up -d --build    # rendezvous on ws://127.0.0.1:8443, STUN and TURN on 127.0.0.1:3478
+CONVIA_COTURN=1 TURN_SECRET=<the value in .env> go test ./internal/turn    # the credentials, against that coturn
+```
+
+The protocol the service speaks is in [`docs/protocol/rendezvous.md`](docs/protocol/rendezvous.md).

@@ -1,0 +1,54 @@
+# coturn and the rendezvous service on this machine, for development and tests (ROADMAP M08-004).
+# TURN_SECRET comes from .env, which is never committed; CONTRIBUTING.md says how to make one.
+name: convia
+
+services:
+  coturn:
+    image: coturn/coturn:4.7.0@sha256:a00afb5b4890de4df22bbe70379c6b316685dffee297d53cac1271dcb91fab93
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in .env}
+      - --realm=localhost
+      - --min-port=49160
+      - --max-port=49199
+      - --relay-ip=172.30.0.10
+      - --external-ip=127.0.0.1/172.30.0.10
+      # Peers on this machine reach the relay through Docker's own network, which production denies.
+      - --allow-loopback-peers
+      - --allowed-peer-ip=172.30.0.0-172.30.0.255
+      - --allowed-peer-ip=127.0.0.1
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    ports:
+      - 127.0.0.1:3478:3478/udp
+      - 127.0.0.1:3478:3478/tcp
+      - 127.0.0.1:49160-49199:49160-49199/udp
+    networks:
+      convia:
+        ipv4_address: 172.30.0.10
+
+  rendezvous:
+    build:
+      context: .
+      dockerfile: deploy/rendezvous/Dockerfile
+    command:
+      - -listen=:8443
+      - -address=ws://127.0.0.1:8443
+      - -stun=stun:127.0.0.1:3478
+      - -turn=turn:127.0.0.1:3478?transport=udp,turn:127.0.0.1:3478?transport=tcp
+      - -logs=/logs
+    environment:
+      TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
+    tmpfs:
+      - /logs:mode=1777
+    ports:
+      - 127.0.0.1:8443:8443
+    networks:
+      - convia
+
+networks:
+  convia:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

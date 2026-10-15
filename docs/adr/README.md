@@ -28,3 +28,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0020](0020-the-rendezvous-service-lives-beside-the-application.md) | The rendezvous service lives beside the application |
 | [0021](0021-the-rendezvous-service-limits-every-peer.md) | The rendezvous service limits every peer |
 | [0022](0022-the-rendezvous-service-logs-nobody.md) | The rendezvous service logs nobody |
+| [0023](0023-the-rendezvous-service-hands-out-turn-credentials.md) | The rendezvous service hands out TURN credentials |

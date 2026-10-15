@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/rendezvous.proto.
  */
 export const file_convia_v1_rendezvous: GenFile = /*@__PURE__*/
-  fileDesc("Chpjb252aWEvdjEvcmVuZGV6dm91cy5wcm90bxIJY29udmlhLnYxIqACCglUb1NlcnZpY2USLwoMYXV0aGVudGljYXRlGAEgASgLMhcuY29udmlhLnYxLkF1dGhlbnRpY2F0ZUgAEiMKBnNpZ25hbBgCIAEoCzIRLmNvbnZpYS52MS5TaWduYWxIABIrCglzdWJzY3JpYmUYAyABKAsyFi5jb252aWEudjEuSWRlbnRpZmllcnNIABItCgt1bnN1YnNjcmliZRgEIAEoCzIWLmNvbnZpYS52MS5JZGVudGlmaWVyc0gAEioKCGFubm91bmNlGAUgASgLMhYuY29udmlhLnYxLklkZW50aWZpZXJzSAASKgoId2l0aGRyYXcYBiABKAsyFi5jb252aWEudjEuSWRlbnRpZmllcnNIAEIJCgdtZXNzYWdlIroBCgtGcm9tU2VydmljZRIoCgVoZWxsbxgBIAEoCzIXLmNvbnZpYS52MS5TZXJ2aWNlSGVsbG9IABIlCgd3ZWxjb21lGAIgASgLMhIuY29udmlhLnYxLldlbGNvbWVIABIjCgZzaWduYWwYAyABKAsyES5jb252aWEudjEuU2lnbmFsSAASEwoJcmVhY2hhYmxlGAQgASgMSAASFQoLdW5yZWFjaGFibGUYBSABKAxIAEIJCgdtZXNzYWdlIjMKDFNlcnZpY2VIZWxsbxIQCgh2ZXJzaW9ucxgBIAMoDRIRCgljaGFsbGVuZ2UYAiABKAwiRAoMQXV0aGVudGljYXRlEg8KB3ZlcnNpb24YASABKA0SEAoIaWRlbnRpdHkYAiABKAwSEQoJc2lnbmF0dXJlGAMgASgMIgkKB1dlbGNvbWUibAoGU2lnbmFsEgwKBHBlZXIYASABKAwSDwoFb2ZmZXIYAiABKAlIABIQCgZhbnN3ZXIYAyABKAlIABIpCgljYW5kaWRhdGUYBCABKAsyFC5jb252aWEudjEuQ2FuZGlkYXRlSABCBgoEa2luZCJkCglDYW5kaWRhdGUSEQoJY2FuZGlkYXRlGAEgASgJEg8KB3NkcF9taWQYAiABKAkSGAoQc2RwX21fbGluZV9pbmRleBgDIAEoDRIZChF1c2VybmFtZV9mcmFnbWVudBgEIAEoCSIaCgtJZGVudGlmaWVycxILCgNpZHMYASADKAxCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw");
+  fileDesc("Chpjb252aWEvdjEvcmVuZGV6dm91cy5wcm90bxIJY29udmlhLnYxIqACCglUb1NlcnZpY2USLwoMYXV0aGVudGljYXRlGAEgASgLMhcuY29udmlhLnYxLkF1dGhlbnRpY2F0ZUgAEiMKBnNpZ25hbBgCIAEoCzIRLmNvbnZpYS52MS5TaWduYWxIABIrCglzdWJzY3JpYmUYAyABKAsyFi5jb252aWEudjEuSWRlbnRpZmllcnNIABItCgt1bnN1YnNjcmliZRgEIAEoCzIWLmNvbnZpYS52MS5JZGVudGlmaWVyc0gAEioKCGFubm91bmNlGAUgASgLMhYuY29udmlhLnYxLklkZW50aWZpZXJzSAASKgoId2l0aGRyYXcYBiABKAsyFi5jb252aWEudjEuSWRlbnRpZmllcnNIAEIJCgdtZXNzYWdlIugBCgtGcm9tU2VydmljZRIoCgVoZWxsbxgBIAEoCzIXLmNvbnZpYS52MS5TZXJ2aWNlSGVsbG9IABIlCgd3ZWxjb21lGAIgASgLMhIuY29udmlhLnYxLldlbGNvbWVIABIjCgZzaWduYWwYAyABKAsyES5jb252aWEudjEuU2lnbmFsSAASEwoJcmVhY2hhYmxlGAQgASgMSAASFQoLdW5yZWFjaGFibGUYBSABKAxIABIsCgtpY2Vfc2VydmVycxgGIAEoCzIVLmNvbnZpYS52MS5JY2VTZXJ2ZXJzSABCCQoHbWVzc2FnZSJECgpJY2VTZXJ2ZXJzEiUKB3NlcnZlcnMYASADKAsyFC5jb252aWEudjEuSWNlU2VydmVyEg8KB2V4cGlyZXMYAiABKAMiPwoJSWNlU2VydmVyEgwKBHVybHMYASADKAkSEAoIdXNlcm5hbWUYAiABKAkSEgoKY3JlZGVudGlhbBgDIAEoCSIzCgxTZXJ2aWNlSGVsbG8SEAoIdmVyc2lvbnMYASADKA0SEQoJY2hhbGxlbmdlGAIgASgMIkQKDEF1dGhlbnRpY2F0ZRIPCgd2ZXJzaW9uGAEgASgNEhAKCGlkZW50aXR5GAIgASgMEhEKCXNpZ25hdHVyZRgDIAEoDCIJCgdXZWxjb21lImwKBlNpZ25hbBIMCgRwZWVyGAEgASgMEg8KBW9mZmVyGAIgASgJSAASEAoGYW5zd2VyGAMgASgJSAASKQoJY2FuZGlkYXRlGAQgASgLMhQuY29udmlhLnYxLkNhbmRpZGF0ZUgAQgYKBGtpbmQiZAoJQ2FuZGlkYXRlEhEKCWNhbmRpZGF0ZRgBIAEoCRIPCgdzZHBfbWlkGAIgASgJEhgKEHNkcF9tX2xpbmVfaW5kZXgYAyABKA0SGQoRdXNlcm5hbWVfZnJhZ21lbnQYBCABKAkiGgoLSWRlbnRpZmllcnMSCwoDaWRzGAEgAygMQj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM");
 
 /**
  * ToService is every message a peer sends the rendezvous service, one per WebSocket binary message.
@@ -110,6 +110,12 @@ export type FromService = Message<"convia.v1.FromService"> & {
      */
     value: Uint8Array;
     case: "unreachable";
+  } | {
+    /**
+     * @generated from field: convia.v1.IceServers ice_servers = 6;
+     */
+    value: IceServers;
+    case: "iceServers";
   } | { case: undefined; value?: undefined };
 };
 
@@ -119,6 +125,59 @@ export type FromService = Message<"convia.v1.FromService"> & {
  */
 export const FromServiceSchema: GenMessage<FromService> = /*@__PURE__*/
   messageDesc(file_convia_v1_rendezvous, 1);
+
+/**
+ * IceServers are the STUN and TURN servers a peer gives its connections, until expires, in Unix seconds (ADR 0023).
+ *
+ * @generated from message convia.v1.IceServers
+ */
+export type IceServers = Message<"convia.v1.IceServers"> & {
+  /**
+   * @generated from field: repeated convia.v1.IceServer servers = 1;
+   */
+  servers: IceServer[];
+
+  /**
+   * @generated from field: int64 expires = 2;
+   */
+  expires: bigint;
+};
+
+/**
+ * Describes the message convia.v1.IceServers.
+ * Use `create(IceServersSchema)` to create a new message.
+ */
+export const IceServersSchema: GenMessage<IceServers> = /*@__PURE__*/
+  messageDesc(file_convia_v1_rendezvous, 2);
+
+/**
+ * IceServer is one entry of RTCConfiguration.iceServers.
+ *
+ * @generated from message convia.v1.IceServer
+ */
+export type IceServer = Message<"convia.v1.IceServer"> & {
+  /**
+   * @generated from field: repeated string urls = 1;
+   */
+  urls: string[];
+
+  /**
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string credential = 3;
+   */
+  credential: string;
+};
+
+/**
+ * Describes the message convia.v1.IceServer.
+ * Use `create(IceServerSchema)` to create a new message.
+ */
+export const IceServerSchema: GenMessage<IceServer> = /*@__PURE__*/
+  messageDesc(file_convia_v1_rendezvous, 3);
 
 /**
  * ServiceHello opens a connection: the versions the service speaks, and a fresh challenge (ADR 0009).
@@ -142,7 +201,7 @@ export type ServiceHello = Message<"convia.v1.ServiceHello"> & {
  * Use `create(ServiceHelloSchema)` to create a new message.
  */
 export const ServiceHelloSchema: GenMessage<ServiceHello> = /*@__PURE__*/
-  messageDesc(file_convia_v1_rendezvous, 2);
+  messageDesc(file_convia_v1_rendezvous, 4);
 
 /**
  * Authenticate answers the challenge, signed over docs/protocol/canonical-encodings.md's rendezvous answer.
@@ -171,7 +230,7 @@ export type Authenticate = Message<"convia.v1.Authenticate"> & {
  * Use `create(AuthenticateSchema)` to create a new message.
  */
 export const AuthenticateSchema: GenMessage<Authenticate> = /*@__PURE__*/
-  messageDesc(file_convia_v1_rendezvous, 3);
+  messageDesc(file_convia_v1_rendezvous, 5);
 
 /**
  * Welcome says the peer is authenticated.
@@ -186,7 +245,7 @@ export type Welcome = Message<"convia.v1.Welcome"> & {
  * Use `create(WelcomeSchema)` to create a new message.
  */
 export const WelcomeSchema: GenMessage<Welcome> = /*@__PURE__*/
-  messageDesc(file_convia_v1_rendezvous, 4);
+  messageDesc(file_convia_v1_rendezvous, 6);
 
 /**
  * Signal carries WebRTC negotiation; peer is the recipient going in, and the sender coming out.
@@ -228,7 +287,7 @@ export type Signal = Message<"convia.v1.Signal"> & {
  * Use `create(SignalSchema)` to create a new message.
  */
 export const SignalSchema: GenMessage<Signal> = /*@__PURE__*/
-  messageDesc(file_convia_v1_rendezvous, 5);
+  messageDesc(file_convia_v1_rendezvous, 7);
 
 /**
  * Candidate is an ICE candidate, as RTCIceCandidateInit holds it.
@@ -262,7 +321,7 @@ export type Candidate = Message<"convia.v1.Candidate"> & {
  * Use `create(CandidateSchema)` to create a new message.
  */
 export const CandidateSchema: GenMessage<Candidate> = /*@__PURE__*/
-  messageDesc(file_convia_v1_rendezvous, 6);
+  messageDesc(file_convia_v1_rendezvous, 8);
 
 /**
  * Identifiers are opaque 32-byte reachability identifiers (ADR 0012, ADR 0014).
@@ -281,5 +340,5 @@ export type Identifiers = Message<"convia.v1.Identifiers"> & {
  * Use `create(IdentifiersSchema)` to create a new message.
  */
 export const IdentifiersSchema: GenMessage<Identifiers> = /*@__PURE__*/
-  messageDesc(file_convia_v1_rendezvous, 7);
+  messageDesc(file_convia_v1_rendezvous, 9);
 
