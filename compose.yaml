@@ -4,7 +4,7 @@ name: convia
 
 services:
   coturn:
-    image: coturn/coturn:4.7.0@sha256:a00afb5b4890de4df22bbe70379c6b316685dffee297d53cac1271dcb91fab93
+    image: coturn/coturn:4.18.0@sha256:bbefd3e1fdfdc0d58770fe01b581fd8b00d9f3a5580d00acb77cf719a6bc78e3
     command:
       - -c
       - /etc/coturn/turnserver.conf
@@ -51,7 +51,7 @@ services:
   # docker compose --profile e2e run --rm e2e
   coturn-e2e:
     profiles: [e2e]
-    image: coturn/coturn:4.7.0@sha256:a00afb5b4890de4df22bbe70379c6b316685dffee297d53cac1271dcb91fab93
+    image: coturn/coturn:4.18.0@sha256:bbefd3e1fdfdc0d58770fe01b581fd8b00d9f3a5580d00acb77cf719a6bc78e3
     command:
       - -c
       - /etc/coturn/turnserver.conf
