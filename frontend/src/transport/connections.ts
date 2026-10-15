@@ -33,8 +33,7 @@ export class Connections {
   }
 
   open(id: string, offerer: boolean, iceServers: RTCIceServer[]) {
-    if (this.#entries.has(id))
-      return;
+    if (this.#entries.has(id)) return;
 
     const pc = this.#create({ iceServers, bundlePolicy: "max-bundle" });
 
@@ -57,8 +56,7 @@ export class Connections {
       }
     };
     pc.onicecandidate = (event) => {
-      if (event.candidate)
-        this.#core.candidate(id, event.candidate.toJSON());
+      if (event.candidate) this.#core.candidate(id, event.candidate.toJSON());
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
@@ -77,8 +75,7 @@ export class Connections {
 
   describe(id: string, kind: Kind, sdp: string) {
     const entry = this.#entries.get(id);
-    if (!entry)
-      return;
+    if (!entry) return;
 
     this.#then(id, entry, async () => {
       await entry.pc.setRemoteDescription({ type: kind, sdp });
@@ -91,8 +88,7 @@ export class Connections {
 
   candidate(id: string, candidate: RTCIceCandidateInit) {
     const entry = this.#entries.get(id);
-    if (!entry)
-      return;
+    if (!entry) return;
 
     // A candidate the connection cannot use is no reason to end it.
     this.#then(id, entry, () =>
@@ -102,15 +98,13 @@ export class Connections {
 
   send(id: string, data: Uint8Array) {
     const channel = this.#entries.get(id)?.channel;
-    if (channel?.readyState === "open")
-      channel.send(new Uint8Array(data));
+    if (channel?.readyState === "open") channel.send(new Uint8Array(data));
   }
 
   // close ends a connection the core no longer wants; the core is not told.
   close(id: string) {
     const entry = this.#entries.get(id);
-    if (!entry)
-      return;
+    if (!entry) return;
 
     this.#entries.delete(id);
     entry.pc.close();
@@ -126,8 +120,7 @@ export class Connections {
 
       if (entry.offerer) {
         this.#then(id, entry, async () => {
-          if (await relayed(entry.pc))
-            entry.pc.restartIce();
+          if (await relayed(entry.pc)) entry.pc.restartIce();
         });
       }
     }
@@ -136,15 +129,13 @@ export class Connections {
   #then(id: string, entry: Entry, step: () => Promise<unknown>) {
     entry.queue = entry.queue
       .then(async () => {
-        if (this.#entries.get(id) === entry)
-          await step();
+        if (this.#entries.get(id) === entry) await step();
       })
       .catch(() => this.#end(id, entry));
   }
 
   #end(id: string, entry: Entry) {
-    if (this.#entries.get(id) !== entry)
-      return;
+    if (this.#entries.get(id) !== entry) return;
 
     this.#entries.delete(id);
     entry.pc.close();

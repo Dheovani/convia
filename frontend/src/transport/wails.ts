@@ -47,8 +47,7 @@ export function carry(connections: Connections, order: Order) {
         connections.describe(id, order.kind, order.sdp);
       break;
     case "candidate":
-      if (order.candidate)
-        connections.candidate(id, order.candidate);
+      if (order.candidate) connections.candidate(id, order.candidate);
       break;
     case "send":
       connections.send(id, fromBase64(order.data ?? ""));

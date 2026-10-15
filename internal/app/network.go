@@ -116,9 +116,9 @@ func (w webview) Candidate(id string, c peers.Candidate) {
 	w.emit(order{Op: "candidate", ID: id, Candidate: &c})
 }
 
-func (w webview) Send(id string, data []byte)     { w.emit(order{Op: "send", ID: id, Data: data}) }
+func (w webview) Send(id string, data []byte) { w.emit(order{Op: "send", ID: id, Data: data}) }
 
-func (w webview) Close(id string)                 { w.emit(order{Op: "close", ID: id}) }
+func (w webview) Close(id string) { w.emit(order{Op: "close", ID: id}) }
 
 func (w webview) Configure(ice []peers.ICEServer) { w.emit(order{Op: "configure", ICE: ice}) }
 
