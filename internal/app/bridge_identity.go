@@ -70,7 +70,7 @@ func (b *Bridge) CreateIdentity(name string) (*MeView, error) {
 	if err != nil {
 		return nil, refusal(err)
 	}
-	b.network.Start(id)
+	b.network.Start(id, b.data.Store())
 
 	return view(id), nil
 }
@@ -120,7 +120,7 @@ func (b *Bridge) ImportIdentity(path, password string, replace bool) (*MeView, e
 	if err != nil {
 		return nil, refusal(err)
 	}
-	b.network.Start(id)
+	b.network.Start(id, b.data.Store())
 
 	return view(id), nil
 }

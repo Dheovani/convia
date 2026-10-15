@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"github.com/Dheovani/convia/internal/app"
 	"github.com/Dheovani/convia/internal/autostart"
@@ -70,10 +71,13 @@ func main() {
 			UniqueId:               home.InstanceID(dir),
 			OnSecondInstanceLaunch: application.SecondInstance,
 		},
+		// The WebView's own files belong with the rest, one set per data directory (ADR 0016).
+		Windows:    &windows.Options{WebviewUserDataPath: filepath.Join(dir, "webview")},
 		OnStartup:  application.Startup,
 		OnShutdown: application.Shutdown,
 		Bind:       []any{application.Bridge},
 	})
+
 	if err != nil {
 		logger.Error("run the window", "error", err)
 		log.Fatalf("convia: %v", err)

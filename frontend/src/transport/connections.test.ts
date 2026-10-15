@@ -82,6 +82,7 @@ class FakePeerConnection {
 
 let created: FakePeerConnection[];
 let reported: string[];
+let states: string[];
 let connections: Connections;
 
 const core: Core = {
@@ -90,6 +91,7 @@ const core: Core = {
   opened: (id) => reported.push(`${id} opened`),
   received: (id, data) => reported.push(`${id} received ${data.join(",")}`),
   closed: (id) => reported.push(`${id} closed`),
+  state: (id, state) => states.push(`${id} ${state}`),
 };
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -97,6 +99,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
   created = [];
   reported = [];
+  states = [];
   connections = new Connections(core, (configuration) => {
     const pc = new FakePeerConnection(configuration);
     created.push(pc);
@@ -185,6 +188,7 @@ describe("a connection", () => {
     connections.describe("a", "offer", "remote offer");
     await settle();
     expect(reported).toEqual(["a closed"]);
+    expect(states).toEqual(["a failed: Error"]);
   });
 
   it("restarts ICE on new servers only where it offered and is relayed", async () => {

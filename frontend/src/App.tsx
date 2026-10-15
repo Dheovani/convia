@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Me as readMe, StorageProblem } from "../wailsjs/go/app/Bridge";
 import { DataProblem, type Problem } from "./screens/DataProblem";
-import { Me, type Identity } from "./screens/Me";
+import { Home } from "./screens/Home";
+import type { Identity } from "./screens/Me";
 import { Welcome } from "./screens/Welcome";
 
 type State =
@@ -39,12 +40,6 @@ export default function App() {
     case "welcome":
       return <Welcome onReady={refresh} />;
     case "ready":
-      return (
-        <Me
-          key={state.me.publicKey + state.me.name}
-          me={state.me}
-          onChanged={refresh}
-        />
-      );
+      return <Home me={state.me} onChanged={refresh} />;
   }
 }

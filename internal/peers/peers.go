@@ -54,9 +54,13 @@ type Transport interface {
 	Configure(ice []ICEServer)
 }
 
-// Signaling sends negotiation through the rendezvous service.
+// Signaling is the rendezvous service: negotiation, and the reachability identifiers of ADR 0012.
 type Signaling interface {
 	Signal(*conviav1.Signal) error
+	Announce(ids ...[]byte) error
+	Withdraw(ids ...[]byte) error
+	Subscribe(ids ...[]byte) error
+	Unsubscribe(ids ...[]byte) error
 }
 
 // Observer is told what happens to connections. Its functions run on the Manager's goroutine.
@@ -64,6 +68,10 @@ type Observer struct {
 	Ready    func(peer ed25519.PublicKey)
 	Lost     func(peer ed25519.PublicKey)
 	Outdated func(peer ed25519.PublicKey, theirs bool)
+	// Message is anything but the handshake and interest, from a proven peer.
+	Message func(peer ed25519.PublicKey, message *conviav1.PeerMessage)
+	// Reachable is an identifier subscribed to, announced by another peer.
+	Reachable func(id []byte)
 }
 
 // Timing is ADR 0024's, and how long a connection may take to be proven.
@@ -120,6 +128,8 @@ type Manager struct {
 	stopped   chan struct{}
 
 	signaling Signaling
+	announced map[string]bool
+	watched   map[string]bool
 	ice       []ICEServer
 	peers     map[key]*peer
 	conns     map[string]*conn
@@ -132,6 +142,7 @@ func New(identity ed25519.PrivateKey, transport Transport, accept func(ed25519.P
 		key: identity, me: key(identity.Public().(ed25519.PublicKey)), transport: transport, accept: accept,
 		observer: observer, timing: timing, logger: logger, now: time.Now, jitter: mathrand.Float64,
 		work: make(chan func(), 256), stopped: make(chan struct{}), peers: map[key]*peer{}, conns: map[string]*conn{},
+		announced: map[string]bool{}, watched: map[string]bool{},
 	}
 }
 
@@ -164,6 +175,14 @@ func (m *Manager) do(f func()) {
 func (m *Manager) Online(s Signaling) {
 	m.do(func() {
 		m.signaling = s
+		if ids := keys(m.announced); len(ids) > 0 {
+			s.Announce(ids...)
+		}
+
+		if ids := keys(m.watched); len(ids) > 0 {
+			s.Subscribe(ids...)
+		}
+
 		for _, p := range m.peers {
 			if m.wanted(p) && p.conn == nil && !p.parked {
 				m.connect(p)
@@ -184,6 +203,10 @@ func (m *Manager) FromService(message *conviav1.FromService) {
 		case *conviav1.FromService_Unreachable:
 			if len(msg.Unreachable) == ed25519.PublicKeySize {
 				m.unreachable(key(msg.Unreachable))
+			}
+		case *conviav1.FromService_Reachable:
+			if m.observer.Reachable != nil {
+				m.observer.Reachable(msg.Reachable)
 			}
 		case *conviav1.FromService_IceServers:
 			m.ice = iceServers(msg.IceServers)
@@ -248,6 +271,95 @@ func (m *Manager) retryNow() {
 			m.connect(p)
 		}
 	}
+}
+
+/*
+Reachability makes announce the identifiers this peer announces, and watch those it subscribes to,
+now and whenever the rendezvous service is reached again.
+*/
+func (m *Manager) Reachability(announce, watch [][]byte) {
+	m.do(func() {
+		added, removed := update(m.announced, announce)
+		m.toService(func(s Signaling) { s.Withdraw(removed...) }, removed)
+		m.toService(func(s Signaling) { s.Announce(added...) }, added)
+		added, removed = update(m.watched, watch)
+		m.toService(func(s Signaling) { s.Unsubscribe(removed...) }, removed)
+		m.toService(func(s Signaling) { s.Subscribe(added...) }, added)
+	})
+}
+
+func (m *Manager) toService(f func(Signaling), ids [][]byte) {
+	if m.signaling != nil && len(ids) > 0 {
+		f(m.signaling)
+	}
+}
+
+// update makes set hold exactly ids, and says what that added and removed.
+func update(set map[string]bool, ids [][]byte) (added, removed [][]byte) {
+	want := map[string]bool{}
+	for _, id := range ids {
+		want[string(id)] = true
+		if !set[string(id)] {
+			added = append(added, id)
+		}
+	}
+
+	for id := range set {
+		if !want[id] {
+			removed = append(removed, []byte(id))
+		}
+	}
+
+	clear(set)
+	for id := range want {
+		set[id] = true
+	}
+
+	return added, removed
+}
+
+func keys(set map[string]bool) [][]byte {
+	out := make([][]byte, 0, len(set))
+	for id := range set {
+		out = append(out, []byte(id))
+	}
+	return out
+}
+
+// Send sends message to peer over its proven connection, and reports false if there is none.
+func (m *Manager) Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bool {
+	sent := make(chan bool, 1)
+	m.do(func() {
+		p := m.peers[key(peer)]
+		ok := p != nil && p.conn != nil && p.conn.ready
+		if ok {
+			m.send(p.conn, message)
+		}
+		sent <- ok
+	})
+
+	select {
+	case ok := <-sent:
+		return ok
+	case <-m.stopped:
+		return false
+	}
+}
+
+// Disconnect ends the connection to peer, if there is one, and forgets every reason for it.
+func (m *Manager) Disconnect(peer ed25519.PublicKey) {
+	m.do(func() {
+		p := m.peers[key(peer)]
+		if p == nil {
+			return
+		}
+		clear(p.reasons)
+		p.retry = time.Time{}
+		if p.conn != nil {
+			m.transport.Close(p.conn.id)
+			m.drop(p.conn)
+		}
+	})
 }
 
 // Reset says the WebView lost every connection, as when its page reloads: the wanted ones are made again.
@@ -453,6 +565,9 @@ func (m *Manager) receive(c *conn, data []byte) {
 			return
 		}
 		if !isHandshake(message) {
+			if message.Message != nil && m.observer.Message != nil {
+				m.observer.Message(ed25519.PublicKey(c.peer.key[:]), message)
+			}
 			return
 		}
 		m.fail(c, "a handshake message after the handshake")

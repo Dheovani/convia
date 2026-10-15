@@ -158,7 +158,7 @@ One `RTCPeerConnection` per pair of peers, in the WebView, orchestrated by the c
 - [x] **M09-008:** Reconnect accordingly, including after the page reloads.
 - [x] **M09-009:** Decide how the transport is tested: the WebView's connection cannot be exercised by `go test`.
 - [x] **M09-010:** Test the handshake in Go with the transport replaced, including every way it can be forged or replayed.
-- [ ] **M09-011:** Test a real connection between two instances, on one machine and across two networks.
+- [x] **M09-011:** Test a real connection between two instances, on one machine and across two networks.
 
 ### M10 — Invitations and contacts
 
@@ -166,17 +166,17 @@ How two people first find each other ([ADR 0005](docs/adr/0005-peers-connect-ove
 
 **Depends on:** M09.
 
-- [ ] **M10-001:** Encode and decode invitations — version, identity, suggested name, rendezvous hint, signature — as Bech32m with the prefix `convia`.
-- [ ] **M10-002:** Refuse an invitation whose checksum or signature does not verify, and say why.
-- [ ] **M10-003:** Decide whether accepting an invitation needs the inviter's consent before the two become contacts, and what the inviter sees.
-- [ ] **M10-004:** Add a contact from a pasted invitation, connect, and agree on the pair's secret when they first connect.
-- [ ] **M10-005:** Derive the pair's rotating reachability identifiers, announce them, and subscribe to them.
-- [ ] **M10-006:** Show the safety code of a contact, and let the person mark the contact as verified.
-- [ ] **M10-007:** Decide what happens when a contact's identity changes — an identity imported anew, a key that no longer matches.
-- [ ] **M10-008:** Decide how a person removes or blocks a contact, and what the other side learns.
-- [ ] **M10-009:** Build it.
-- [ ] **M10-010:** Fuzz the invitation decoder.
-- [ ] **M10-011:** Tell the person when a contact has to update Convia to talk to them, or they do ([ADR 0008](docs/adr/0008-the-protocol-between-peers.md)).
+- [x] **M10-001:** Encode and decode invitations — version, identity, suggested name, rendezvous hint, signature — as Bech32m with the prefix `convia`.
+- [x] **M10-002:** Refuse an invitation whose checksum or signature does not verify, and say why.
+- [x] **M10-003:** Decide whether accepting an invitation needs the inviter's consent before the two become contacts, and what the inviter sees.
+- [x] **M10-004:** Add a contact from a pasted invitation, connect, and agree on the pair's secret when they first connect.
+- [x] **M10-005:** Derive the pair's rotating reachability identifiers, announce them, and subscribe to them.
+- [x] **M10-006:** Show the safety code of a contact, and let the person mark the contact as verified.
+- [x] **M10-007:** Decide what happens when a contact's identity changes — an identity imported anew, a key that no longer matches.
+- [x] **M10-008:** Decide how a person removes or blocks a contact, and what the other side learns.
+- [x] **M10-009:** Build it.
+- [x] **M10-010:** Fuzz the invitation decoder.
+- [x] **M10-011:** Tell the person when a contact has to update Convia to talk to them, or they do ([ADR 0008](docs/adr/0008-the-protocol-between-peers.md)).
 
 ## Phase 4 — Conversations between two people
 

@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIrIBCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SABCCQoHbWVzc2FnZSIaCghJbnRlcmVzdBIOCgZ3YW50ZWQYASABKAhCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxItoCCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSABCCQoHbWVzc2FnZSIsCg5Db250YWN0UmVxdWVzdBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiLQoPQ29udGFjdEFjY2VwdGVkEgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCISChBDb250YWN0Q29uZmlybWVkIhoKCEludGVyZXN0Eg4KBndhbnRlZBgBIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z", [file_convia_v1_handshake]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -47,6 +47,24 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
      */
     value: Interest;
     case: "interest";
+  } | {
+    /**
+     * @generated from field: convia.v1.ContactRequest contact_request = 5;
+     */
+    value: ContactRequest;
+    case: "contactRequest";
+  } | {
+    /**
+     * @generated from field: convia.v1.ContactAccepted contact_accepted = 6;
+     */
+    value: ContactAccepted;
+    case: "contactAccepted";
+  } | {
+    /**
+     * @generated from field: convia.v1.ContactConfirmed contact_confirmed = 7;
+     */
+    value: ContactConfirmed;
+    case: "contactConfirmed";
   } | { case: undefined; value?: undefined };
 };
 
@@ -56,6 +74,69 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
  */
 export const PeerMessageSchema: GenMessage<PeerMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_peer, 0);
+
+/**
+ * ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
+ *
+ * @generated from message convia.v1.ContactRequest
+ */
+export type ContactRequest = Message<"convia.v1.ContactRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bytes part = 2;
+   */
+  part: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.ContactRequest.
+ * Use `create(ContactRequestSchema)` to create a new message.
+ */
+export const ContactRequestSchema: GenMessage<ContactRequest> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 1);
+
+/**
+ * ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
+ *
+ * @generated from message convia.v1.ContactAccepted
+ */
+export type ContactAccepted = Message<"convia.v1.ContactAccepted"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bytes part = 2;
+   */
+  part: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.ContactAccepted.
+ * Use `create(ContactAcceptedSchema)` to create a new message.
+ */
+export const ContactAcceptedSchema: GenMessage<ContactAccepted> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 2);
+
+/**
+ * ContactConfirmed says the requester holds the pair secret too.
+ *
+ * @generated from message convia.v1.ContactConfirmed
+ */
+export type ContactConfirmed = Message<"convia.v1.ContactConfirmed"> & {
+};
+
+/**
+ * Describes the message convia.v1.ContactConfirmed.
+ * Use `create(ContactConfirmedSchema)` to create a new message.
+ */
+export const ContactConfirmedSchema: GenMessage<ContactConfirmed> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 3);
 
 /**
  * Interest says whether the sender still wants the connection (ADR 0024).
@@ -74,5 +155,5 @@ export type Interest = Message<"convia.v1.Interest"> & {
  * Use `create(InterestSchema)` to create a new message.
  */
 export const InterestSchema: GenMessage<Interest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 1);
+  messageDesc(file_convia_v1_peer, 4);
 

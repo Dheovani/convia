@@ -6,6 +6,7 @@ import {
   TransportOpened,
   TransportReceived,
   TransportReset,
+  TransportState,
 } from "../../wailsjs/go/app/Bridge";
 import { peers } from "../../wailsjs/go/models";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
@@ -76,6 +77,7 @@ const core: Core = {
   opened: (id) => void TransportOpened(id),
   received: (id, data) => void TransportReceived(id, toBase64(data)),
   closed: (id) => void TransportClosed(id),
+  state: (id, state) => void TransportState(id, state),
 };
 
 // startTransport carries out the core's orders for as long as the page lives.
