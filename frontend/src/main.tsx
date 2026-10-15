@@ -4,6 +4,7 @@ import App from "./App";
 import { Recoverable } from "./components/Recoverable";
 import { Speaking } from "./i18n/language";
 import { applyTheme, rememberedTheme } from "./state/preferences";
+import { startTransport } from "./transport/wails";
 import "./styles/theme.css";
 
 const root = document.getElementById("root");
@@ -13,6 +14,7 @@ if (!root) {
 
 // The theme is put on the document before anything is drawn, so nothing flashes in the other one.
 applyTheme(rememberedTheme());
+startTransport();
 
 createRoot(root).render(
   <StrictMode>

@@ -148,16 +148,16 @@ One `RTCPeerConnection` per pair of peers, in the WebView, orchestrated by the c
 
 **Depends on:** M05, M07, M08.
 
-- [ ] **M09-001:** Manage the connections in the WebView: create, track and close one per pair, and carry opaque payloads between them and the core.
-- [ ] **M09-002:** Orchestrate signaling in the core: when to connect, to whom, with which ICE servers.
-- [ ] **M09-003:** Open the one reliable, ordered data channel of the first version.
-- [ ] **M09-004:** Negotiate the protocol's version, and tell the person when the other side needs to update.
-- [ ] **M09-005:** Run the handshake: nonces, the transcript of both identities, fingerprints, nonces, version and roles, signed and verified; accept nothing else before it completes.
-- [ ] **M09-006:** Disconnect a peer whose proof does not verify.
-- [ ] **M09-007:** Decide how a peer reconnects after a connection drops — how often, how long, and with what back-off.
-- [ ] **M09-008:** Reconnect accordingly, including after the page reloads.
-- [ ] **M09-009:** Decide how the transport is tested: the WebView's connection cannot be exercised by `go test`.
-- [ ] **M09-010:** Test the handshake in Go with the transport replaced, including every way it can be forged or replayed.
+- [x] **M09-001:** Manage the connections in the WebView: create, track and close one per pair, and carry opaque payloads between them and the core.
+- [x] **M09-002:** Orchestrate signaling in the core: when to connect, to whom, with which ICE servers.
+- [x] **M09-003:** Open the one reliable, ordered data channel of the first version.
+- [x] **M09-004:** Negotiate the protocol's version, and tell the person when the other side needs to update.
+- [x] **M09-005:** Run the handshake: nonces, the transcript of both identities, fingerprints, nonces, version and roles, signed and verified; accept nothing else before it completes.
+- [x] **M09-006:** Disconnect a peer whose proof does not verify.
+- [x] **M09-007:** Decide how a peer reconnects after a connection drops — how often, how long, and with what back-off.
+- [x] **M09-008:** Reconnect accordingly, including after the page reloads.
+- [x] **M09-009:** Decide how the transport is tested: the WebView's connection cannot be exercised by `go test`.
+- [x] **M09-010:** Test the handshake in Go with the transport replaced, including every way it can be forged or replayed.
 - [ ] **M09-011:** Test a real connection between two instances, on one machine and across two networks.
 
 ### M10 — Invitations and contacts
@@ -176,6 +176,7 @@ How two people first find each other ([ADR 0005](docs/adr/0005-peers-connect-ove
 - [ ] **M10-008:** Decide how a person removes or blocks a contact, and what the other side learns.
 - [ ] **M10-009:** Build it.
 - [ ] **M10-010:** Fuzz the invitation decoder.
+- [ ] **M10-011:** Tell the person when a contact has to update Convia to talk to them, or they do ([ADR 0008](docs/adr/0008-the-protocol-between-peers.md)).
 
 ## Phase 4 — Conversations between two people
 

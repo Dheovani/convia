@@ -3,3 +3,5 @@ wailsjs
 node_modules
 package-lock.json
 src/wire
+test-results
+playwright-report

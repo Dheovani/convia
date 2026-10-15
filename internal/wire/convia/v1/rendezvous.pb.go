@@ -591,7 +591,9 @@ type Signal struct {
 	//	*Signal_Offer
 	//	*Signal_Answer
 	//	*Signal_Candidate
-	Kind          isSignal_Kind `protobuf_oneof:"kind"`
+	Kind isSignal_Kind `protobuf_oneof:"kind"`
+	// The connection the negotiation belongs to, chosen by the peer that made its first offer.
+	Session       []byte `protobuf:"bytes,5,opt,name=session,proto3" json:"session,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -663,6 +665,13 @@ func (x *Signal) GetCandidate() *Candidate {
 		if x, ok := x.Kind.(*Signal_Candidate); ok {
 			return x.Candidate
 		}
+	}
+	return nil
+}
+
+func (x *Signal) GetSession() []byte {
+	if x != nil {
+		return x.Session
 	}
 	return nil
 }
@@ -842,12 +851,13 @@ const file_convia_v1_rendezvous_proto_rawDesc = "" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x1a\n" +
 	"\bidentity\x18\x02 \x01(\fR\bidentity\x12\x1c\n" +
 	"\tsignature\x18\x03 \x01(\fR\tsignature\"\t\n" +
-	"\aWelcome\"\x8c\x01\n" +
+	"\aWelcome\"\xa6\x01\n" +
 	"\x06Signal\x12\x12\n" +
 	"\x04peer\x18\x01 \x01(\fR\x04peer\x12\x16\n" +
 	"\x05offer\x18\x02 \x01(\tH\x00R\x05offer\x12\x18\n" +
 	"\x06answer\x18\x03 \x01(\tH\x00R\x06answer\x124\n" +
-	"\tcandidate\x18\x04 \x01(\v2\x14.convia.v1.CandidateH\x00R\tcandidateB\x06\n" +
+	"\tcandidate\x18\x04 \x01(\v2\x14.convia.v1.CandidateH\x00R\tcandidate\x12\x18\n" +
+	"\asession\x18\x05 \x01(\fR\asessionB\x06\n" +
 	"\x04kind\"\x98\x01\n" +
 	"\tCandidate\x12\x1c\n" +
 	"\tcandidate\x18\x01 \x01(\tR\tcandidate\x12\x17\n" +

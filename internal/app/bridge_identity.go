@@ -70,6 +70,7 @@ func (b *Bridge) CreateIdentity(name string) (*MeView, error) {
 	if err != nil {
 		return nil, refusal(err)
 	}
+	b.network.Start(id)
 
 	return view(id), nil
 }
@@ -119,9 +120,13 @@ func (b *Bridge) ImportIdentity(path, password string, replace bool) (*MeView, e
 	if err != nil {
 		return nil, refusal(err)
 	}
+	b.network.Start(id)
 
 	return view(id), nil
 }
 
 // DeleteIdentity destroys the identity, its contacts and its history.
-func (b *Bridge) DeleteIdentity() error { return refusal(b.data.DeleteIdentity()) }
+func (b *Bridge) DeleteIdentity() error {
+	b.network.Stop()
+	return refusal(b.data.DeleteIdentity())
+}

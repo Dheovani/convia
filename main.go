@@ -43,7 +43,15 @@ func main() {
 	if err != nil {
 		logger.Error("locate the executable", "error", err)
 	}
-	application := app.New(logger, autostart.Default, executable, trayIcon, app.OpenData(dir, protect.DPAPI{}))
+
+	application := app.New(
+		logger,
+		autostart.Default,
+		executable,
+		trayIcon,
+		app.OpenData(dir, protect.DPAPI{}),
+		app.NewNetwork(os.Getenv(app.RendezvousOverride), logger),
+	)
 
 	err = wails.Run(&options.App{
 		Title:     "Convia",

@@ -42,4 +42,10 @@ docker compose up -d --build    # rendezvous on ws://127.0.0.1:8443, STUN and TU
 CONVIA_COTURN=1 TURN_SECRET=<the value in .env> go test ./internal/turn    # the credentials, against that coturn
 ```
 
-The protocol the service speaks is in [`docs/protocol/rendezvous.md`](docs/protocol/rendezvous.md).
+Real WebRTC is tested in Chromium with Playwright (ADR 0025): `npm run e2e` in `frontend` for direct connections, or, for the relay as well, Chromium and a coturn of its own in Docker, as CI runs them:
+
+```text
+docker compose --profile e2e run --rm e2e
+```
+
+The protocols are in [`docs/protocol`](docs/protocol).

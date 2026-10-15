@@ -29,3 +29,5 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0021](0021-the-rendezvous-service-limits-every-peer.md) | The rendezvous service limits every peer |
 | [0022](0022-the-rendezvous-service-logs-nobody.md) | The rendezvous service logs nobody |
 | [0023](0023-the-rendezvous-service-hands-out-turn-credentials.md) | The rendezvous service hands out TURN credentials |
+| [0024](0024-peers-connect-on-demand-and-reconnect-when-they-can.md) | Peers connect on demand, and reconnect when they can |
+| [0025](0025-the-transport-is-tested-in-three-layers.md) | The transport is tested in three layers |

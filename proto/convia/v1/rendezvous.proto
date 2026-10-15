@@ -67,6 +67,8 @@ message Signal {
     string answer = 3;
     Candidate candidate = 4;
   }
+  // The connection the negotiation belongs to, chosen by the peer that made its first offer.
+  bytes session = 5;
 }
 
 // Candidate is an ICE candidate, as RTCIceCandidateInit holds it.

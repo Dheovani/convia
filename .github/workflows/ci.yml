@@ -83,6 +83,20 @@ jobs:
       - name: Tests
         run: npm test
 
+  # Real WebRTC in Chromium, directly and through coturn (ADR 0025), in the containers of compose.yaml.
+  webrtc:
+    name: WebRTC
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: A secret for this run only
+        run: echo "TURN_SECRET=$(openssl rand -hex 32)" > .env
+      - name: Playwright
+        run: docker compose --profile e2e run --rm e2e
+
   windows-build:
     name: Windows build
     runs-on: windows-latest

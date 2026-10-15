@@ -53,3 +53,7 @@ desktop.ini
 
 # Wails's record of when it last installed the frontend's dependencies.
 frontend/package.json.md5
+
+# Playwright
+frontend/test-results/
+frontend/playwright-report/
