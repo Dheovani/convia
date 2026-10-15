@@ -30,6 +30,7 @@ type Bridge struct {
 	autostart  Autostart
 	executable string
 	data       *Data
+	network    *Network
 }
 
 // StorageProblem names what stopped Convia's data from opening, or is empty.
@@ -55,12 +56,13 @@ type App struct {
 	logger   *slog.Logger
 	trayIcon []byte
 	data     *Data
+	network  *Network
 	Bridge   *Bridge
 }
 
-func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon []byte, data *Data) *App {
-	return &App{logger: logger, trayIcon: trayIcon, data: data,
-		Bridge: &Bridge{autostart: autostart, executable: executable, data: data}}
+func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon []byte, data *Data, network *Network) *App {
+	return &App{logger: logger, trayIcon: trayIcon, data: data, network: network,
+		Bridge: &Bridge{autostart: autostart, executable: executable, data: data, network: network}}
 }
 
 // Startup is Wails's OnStartup.
@@ -78,6 +80,11 @@ func (a *App) Startup(ctx context.Context) {
 		a.logger.Error("open the data", "problem", a.data.Problem(), "error", err)
 	}
 
+	a.network.attach(ctx)
+	if me, err := a.data.Me(); err == nil {
+		a.network.Start(me)
+	}
+
 	a.logger.Info("convia started")
 }
 
@@ -90,6 +97,7 @@ func (a *App) SecondInstance(options.SecondInstanceData) {
 
 // Shutdown is Wails's OnShutdown.
 func (a *App) Shutdown(context.Context) {
+	a.network.Stop()
 	tray.Stop()
 	if err := a.data.Close(); err != nil {
 		a.logger.Error("close the data", "error", err)

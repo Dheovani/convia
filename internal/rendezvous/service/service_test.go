@@ -212,9 +212,9 @@ func TestTwoPeersExchangeTheirNegotiation(t *testing.T) {
 	alice, aliceKey := h.peer()
 	bob, bobKey := h.peer()
 
-	alice.Signal(&conviav1.Signal{Peer: public(bobKey), Kind: &conviav1.Signal_Offer{Offer: "the offer"}})
+	alice.Signal(&conviav1.Signal{Peer: public(bobKey), Session: id(3), Kind: &conviav1.Signal_Offer{Offer: "the offer"}})
 	got := next(t, bob).GetSignal()
-	if !bytes.Equal(got.GetPeer(), public(aliceKey)) || got.GetOffer() != "the offer" {
+	if !bytes.Equal(got.GetPeer(), public(aliceKey)) || got.GetOffer() != "the offer" || !bytes.Equal(got.GetSession(), id(3)) {
 		t.Fatalf("bob received %v", got)
 	}
 

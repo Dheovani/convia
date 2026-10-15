@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package convia.v1;
+
+import "convia/v1/handshake.proto";
+
+option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
+
+// PeerMessage is every message on the data channel between two peers, one per data channel message.
+message PeerMessage {
+  oneof message {
+    Hello hello = 1;
+    Challenge challenge = 2;
+    Proof proof = 3;
+    Interest interest = 4;
+  }
+}
+
+// Interest says whether the sender still wants the connection (ADR 0024).
+message Interest {
+  bool wanted = 1;
+}

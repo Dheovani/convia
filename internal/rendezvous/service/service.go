@@ -302,7 +302,7 @@ func (s *Service) relay(p *peer, signal *conviav1.Signal) error {
 		return nil
 	}
 	to.send(&conviav1.FromService{Message: &conviav1.FromService_Signal{Signal: &conviav1.Signal{
-		Peer: p.identity[:], Kind: signal.Kind}}})
+		Peer: p.identity[:], Kind: signal.Kind, Session: signal.Session}}})
 	s.count.signals.Add(1)
 	return nil
 }

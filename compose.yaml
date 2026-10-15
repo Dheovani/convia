@@ -47,6 +47,41 @@ services:
     networks:
       - convia
 
+  # The third layer of ADR 0025: Chromium beside a coturn of its own, both on Docker's network, as in CI.
+  # docker compose --profile e2e run --rm e2e
+  coturn-e2e:
+    profiles: [e2e]
+    image: coturn/coturn:4.7.0@sha256:a00afb5b4890de4df22bbe70379c6b316685dffee297d53cac1271dcb91fab93
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+      - --static-auth-secret=${TURN_SECRET:?set TURN_SECRET in .env}
+      - --realm=localhost
+      - --relay-ip=172.30.0.11
+      - --allowed-peer-ip=172.30.0.0-172.30.0.255
+    volumes:
+      - ./deploy/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    networks:
+      convia:
+        ipv4_address: 172.30.0.11
+
+  e2e:
+    profiles: [e2e]
+    image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    depends_on: [coturn-e2e]
+    working_dir: /work
+    entrypoint: [sh, -c, "npm ci --no-audit --no-fund && npx playwright test \"$$@\"", e2e]
+    environment:
+      CI: "1"
+      TURN_SECRET: ${TURN_SECRET:?set TURN_SECRET in .env}
+      CONVIA_TURN_URL: turn:172.30.0.11:3478?transport=udp
+    volumes:
+      - ./frontend:/work
+      # Linux's own packages, never the ones installed on the machine running Docker.
+      - /work/node_modules
+    networks:
+      - convia
+
 networks:
   convia:
     ipam:

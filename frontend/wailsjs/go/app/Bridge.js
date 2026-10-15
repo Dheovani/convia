@@ -26,6 +26,10 @@ export function Me() {
   return window['go']['app']['Bridge']['Me']();
 }
 
+export function NetworkChanged() {
+  return window['go']['app']['Bridge']['NetworkChanged']();
+}
+
 export function RenameIdentity(arg1) {
   return window['go']['app']['Bridge']['RenameIdentity'](arg1);
 }
@@ -44,4 +48,28 @@ export function StartsWithWindows() {
 
 export function StorageProblem() {
   return window['go']['app']['Bridge']['StorageProblem']();
+}
+
+export function TransportCandidate(arg1, arg2) {
+  return window['go']['app']['Bridge']['TransportCandidate'](arg1, arg2);
+}
+
+export function TransportClosed(arg1) {
+  return window['go']['app']['Bridge']['TransportClosed'](arg1);
+}
+
+export function TransportLocal(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['TransportLocal'](arg1, arg2, arg3);
+}
+
+export function TransportOpened(arg1) {
+  return window['go']['app']['Bridge']['TransportOpened'](arg1);
+}
+
+export function TransportReceived(arg1, arg2) {
+  return window['go']['app']['Bridge']['TransportReceived'](arg1, arg2);
+}
+
+export function TransportReset() {
+  return window['go']['app']['Bridge']['TransportReset']();
 }

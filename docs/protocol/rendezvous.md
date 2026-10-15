@@ -25,7 +25,7 @@ A peer that connects again with the same identity replaces its earlier connectio
 
 ## Signaling
 
-A peer sends `signal` with `peer` set to the identity it wants to reach, and an offer, an answer or an ICE candidate. The service delivers it to that identity with `peer` set to the sender's identity, and changes nothing else. When the identity is not connected, the service answers `unreachable` with it.
+A peer sends `signal` with `peer` set to the identity it wants to reach, and an offer, an answer or an ICE candidate. The service delivers it to that identity with `peer` set to the sender's identity, and changes nothing else — `session` included, which names the connection the negotiation belongs to ([the protocol between peers](peers.md)). When the identity is not connected, the service answers `unreachable` with it.
 
 ## Reachability
 
