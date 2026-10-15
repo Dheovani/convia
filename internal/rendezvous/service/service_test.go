@@ -25,6 +25,7 @@ import (
 
 	"github.com/Dheovani/convia/internal/canonical"
 	"github.com/Dheovani/convia/internal/rendezvous"
+	"github.com/Dheovani/convia/internal/turn"
 	conviav1 "github.com/Dheovani/convia/internal/wire/convia/v1"
 )
 
@@ -67,16 +68,22 @@ type harness struct {
 	svc     *Service
 	address string
 	log     *lockedBuffer
+	ice     turn.Servers
 	clock   *clock
 }
 
 func start(t *testing.T, limits Limits) *harness {
 	t.Helper()
-	h := &harness{t: t, log: &lockedBuffer{}, clock: &clock{at: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}}
+	return startWith(t, limits, turn.Servers{})
+}
+
+func startWith(t *testing.T, limits Limits, ice turn.Servers) *harness {
+	t.Helper()
+	h := &harness{t: t, log: &lockedBuffer{}, ice: ice, clock: &clock{at: time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.svc.ServeHTTP(w, r) }))
 	t.Cleanup(server.Close)
 	h.address = "ws" + strings.TrimPrefix(server.URL, "http")
-	h.svc = New(h.address, limits, slog.New(slog.NewTextHandler(h.log, nil)))
+	h.svc = New(h.address, limits, h.ice, slog.New(slog.NewTextHandler(h.log, nil)))
 	h.svc.now = h.clock.now
 	t.Cleanup(h.svc.Close)
 	return h
@@ -589,7 +596,7 @@ func TestTwoPeersOverTLS(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 	address := "wss" + strings.TrimPrefix(server.URL, "https")
-	svc = New(address, Default, slog.New(slog.DiscardHandler))
+	svc = New(address, Default, turn.Servers{}, slog.New(slog.DiscardHandler))
 	defer svc.Close()
 
 	roots := x509.NewCertPool()
@@ -616,5 +623,42 @@ func TestTwoPeersOverTLS(t *testing.T) {
 	}
 	if _, err := (rendezvous.Dialer{}).Dial(ctx, address, identity(t)); err == nil {
 		t.Fatal("a certificate nobody trusts was accepted")
+	}
+}
+
+func TestAPeerIsGivenIceServersAndANewCredentialBeforeItExpires(t *testing.T) {
+	ice := turn.Servers{STUN: []string{"stun:turn.example:3478"}, TURN: []string{"turn:turn.example:3478?transport=udp"},
+		Secret: []byte("north-wind"), Lifetime: time.Second}
+	h := startWith(t, Default, ice)
+	alice, _ := h.peer()
+
+	first := next(t, alice).GetIceServers()
+	received := time.Now()
+	if len(first.GetServers()) != 2 || first.Servers[1].Username == "" {
+		t.Fatalf("after the welcome: %v", first)
+	}
+	username, password := first.Servers[1].Username, first.Servers[1].Credential
+	expires, _, _ := strings.Cut(username, ":")
+	tag, _ := hex.DecodeString(username[len(expires)+1:])
+	if _, want := turn.Credential(ice.Secret, time.Unix(first.Expires, 0), tag); password != want {
+		t.Fatal("the credential is not the secret's")
+	}
+
+	renewed := next(t, alice).GetIceServers()
+	if renewed == nil || renewed.Servers[1].Username == username {
+		t.Fatalf("no new credential: %v", renewed)
+	}
+	if late := time.Since(received); late >= ice.Lifetime {
+		t.Fatalf("the new credential came %v after the first, which lasts %v", late, ice.Lifetime)
+	}
+}
+
+func TestTheLogNamesNoCredential(t *testing.T) {
+	h := startWith(t, Default, turn.Servers{TURN: []string{"turn:turn.example:3478"}, Secret: []byte("north-wind")})
+	alice, _ := h.peer()
+	credential := next(t, alice).GetIceServers().Servers[0]
+	h.svc.Report()
+	if logged := h.log.String(); strings.Contains(logged, credential.Username) || strings.Contains(logged, credential.Credential) || strings.Contains(logged, "north-wind") {
+		t.Fatalf("the log names a credential:\n%s", logged)
 	}
 }

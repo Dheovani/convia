@@ -26,7 +26,21 @@ message FromService {
     bytes reachable = 4;
     // The identity a signal was addressed to, which is not connected.
     bytes unreachable = 5;
+    IceServers ice_servers = 6;
   }
+}
+
+// IceServers are the STUN and TURN servers a peer gives its connections, until expires, in Unix seconds (ADR 0023).
+message IceServers {
+  repeated IceServer servers = 1;
+  int64 expires = 2;
+}
+
+// IceServer is one entry of RTCConfiguration.iceServers.
+message IceServer {
+  repeated string urls = 1;
+  string username = 2;
+  string credential = 3;
 }
 
 // ServiceHello opens a connection: the versions the service speaks, and a fresh challenge (ADR 0009).

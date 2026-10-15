@@ -22,3 +22,15 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+  - package-ecosystem: docker
+    directory: /deploy/rendezvous
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build

@@ -13,11 +13,13 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Dheovani/convia/internal/logging"
 	"github.com/Dheovani/convia/internal/rendezvous/service"
+	"github.com/Dheovani/convia/internal/turn"
 )
 
 func main() {
@@ -26,15 +28,22 @@ func main() {
 	cert := flag.String("cert", "", "the TLS certificate file")
 	key := flag.String("key", "", "the TLS private key file")
 	logs := flag.String("logs", "logs", "the directory of the log")
+	stun := flag.String("stun", "", "the stun: addresses peers are given, separated by commas")
+	relays := flag.String("turn", "", "the turn: addresses peers are given, separated by commas; TURN_SECRET holds coturn's secret")
 	flag.Parse()
 
-	if err := run(*listen, *address, *cert, *key, *logs); err != nil {
+	ice, err := servers(*stun, *relays, os.Getenv("TURN_SECRET"))
+	if err == nil {
+		err = run(*listen, *address, *cert, *key, *logs, ice)
+	}
+
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "rendezvous:", err)
 		os.Exit(1)
 	}
 }
 
-func run(listen, address, cert, key, logs string) error {
+func run(listen, address, cert, key, logs string, ice turn.Servers) error {
 	secure, err := check(address, cert, key)
 	if err != nil {
 		return err
@@ -47,7 +56,7 @@ func run(listen, address, cert, key, logs string) error {
 	defer files.Close()
 	logger := logging.New(files)
 
-	svc := service.New(address, service.Default, logger)
+	svc := service.New(address, service.Default, ice, logger)
 	server := &http.Server{
 		Addr:              listen,
 		Handler:           svc,
@@ -108,4 +117,28 @@ func check(address, cert, key string) (bool, error) {
 		return false, errors.New("a ws:// address is only for this machine")
 	}
 	return false, nil
+}
+
+// MinimumSecret is the shortest secret accepted for coturn, in bytes.
+const MinimumSecret = 32
+
+func servers(stun, relays, secret string) (turn.Servers, error) {
+	ice := turn.Servers{STUN: list(stun), TURN: list(relays)}
+	if len(ice.TURN) > 0 {
+		if len(secret) < MinimumSecret {
+			return ice, fmt.Errorf("-turn needs TURN_SECRET, the secret coturn holds, of at least %d characters", MinimumSecret)
+		}
+		ice.Secret = []byte(secret)
+	}
+	return ice, nil
+}
+
+func list(addresses string) []string {
+	var out []string
+	for address := range strings.SplitSeq(addresses, ",") {
+		if address = strings.TrimSpace(address); address != "" {
+			out = append(out, address)
+		}
+	}
+	return out
 }

@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"slices"
+	"strings"
+	"testing"
+)
 
 func TestOnlyAnAddressTheServiceCanServeIsAccepted(t *testing.T) {
 	for _, c := range []struct {
@@ -23,5 +27,19 @@ func TestOnlyAnAddressTheServiceCanServeIsAccepted(t *testing.T) {
 		if secure != c.secure || (err == nil) != c.ok {
 			t.Errorf("check(%q, %q, %q) = %v, %v", c.address, c.cert, c.key, secure, err)
 		}
+	}
+}
+
+func TestTURNNeedsALongEnoughSecret(t *testing.T) {
+	long := strings.Repeat("s", MinimumSecret)
+	if _, err := servers("", "turn:turn.example:3478", long[1:]); err == nil {
+		t.Fatal("a short secret was accepted")
+	}
+	ice, err := servers(" stun:a.example:3478, stun:b.example:3478 ,", "turn:turn.example:3478", long)
+	if err != nil || !slices.Equal(ice.STUN, []string{"stun:a.example:3478", "stun:b.example:3478"}) || string(ice.Secret) != long {
+		t.Fatalf("servers = %+v, %v", ice, err)
+	}
+	if ice, err := servers("stun:a.example:3478", "", ""); err != nil || ice.Secret != nil {
+		t.Fatalf("STUN alone: %+v, %v", ice, err)
 	}
 }

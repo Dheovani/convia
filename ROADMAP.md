@@ -137,10 +137,10 @@ The fallback for peers that cannot reach each other directly ([ADR 0005](docs/ad
 
 **Depends on:** M07.
 
-- [ ] **M08-001:** Decide how a peer obtains short-lived TURN credentials, without the application ever carrying a long-lived secret.
-- [ ] **M08-002:** Configure coturn for STUN and TURN accordingly.
-- [ ] **M08-003:** Issue and expire credentials that way.
-- [ ] **M08-004:** Run coturn and the rendezvous service together for development and tests, on one machine.
+- [x] **M08-001:** Decide how a peer obtains short-lived TURN credentials, without the application ever carrying a long-lived secret.
+- [x] **M08-002:** Configure coturn for STUN and TURN accordingly.
+- [x] **M08-003:** Issue and expire credentials that way.
+- [x] **M08-004:** Run coturn and the rendezvous service together for development and tests, on one machine.
 
 ### M09 — The authenticated peer connection
 
@@ -354,6 +354,7 @@ The default rendezvous service and coturn the project runs, and a person's freed
 - [ ] **M23-005:** Document how to run one's own rendezvous service and coturn.
 - [ ] **M23-006:** Decide whether Convia needs a privacy policy for its infrastructure, and write it if so.
 - [ ] **M23-007:** Decide how an operator blocks an address permanently, without the service logging who it blocked ([ADR 0021](docs/adr/0021-the-rendezvous-service-limits-every-peer.md), [ADR 0022](docs/adr/0022-the-rendezvous-service-logs-nobody.md)).
+- [ ] **M23-008:** Decide coturn's quotas — bandwidth and allocations — for the project's relay.
 
 ## Later
 

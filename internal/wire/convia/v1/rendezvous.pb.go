@@ -178,6 +178,7 @@ type FromService struct {
 	//	*FromService_Signal
 	//	*FromService_Reachable
 	//	*FromService_Unreachable
+	//	*FromService_IceServers
 	Message       isFromService_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -265,6 +266,15 @@ func (x *FromService) GetUnreachable() []byte {
 	return nil
 }
 
+func (x *FromService) GetIceServers() *IceServers {
+	if x != nil {
+		if x, ok := x.Message.(*FromService_IceServers); ok {
+			return x.IceServers
+		}
+	}
+	return nil
+}
+
 type isFromService_Message interface {
 	isFromService_Message()
 }
@@ -291,6 +301,10 @@ type FromService_Unreachable struct {
 	Unreachable []byte `protobuf:"bytes,5,opt,name=unreachable,proto3,oneof"`
 }
 
+type FromService_IceServers struct {
+	IceServers *IceServers `protobuf:"bytes,6,opt,name=ice_servers,json=iceServers,proto3,oneof"`
+}
+
 func (*FromService_Hello) isFromService_Message() {}
 
 func (*FromService_Welcome) isFromService_Message() {}
@@ -300,6 +314,122 @@ func (*FromService_Signal) isFromService_Message() {}
 func (*FromService_Reachable) isFromService_Message() {}
 
 func (*FromService_Unreachable) isFromService_Message() {}
+
+func (*FromService_IceServers) isFromService_Message() {}
+
+// IceServers are the STUN and TURN servers a peer gives its connections, until expires, in Unix seconds (ADR 0023).
+type IceServers struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Servers       []*IceServer           `protobuf:"bytes,1,rep,name=servers,proto3" json:"servers,omitempty"`
+	Expires       int64                  `protobuf:"varint,2,opt,name=expires,proto3" json:"expires,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IceServers) Reset() {
+	*x = IceServers{}
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IceServers) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IceServers) ProtoMessage() {}
+
+func (x *IceServers) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IceServers.ProtoReflect.Descriptor instead.
+func (*IceServers) Descriptor() ([]byte, []int) {
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *IceServers) GetServers() []*IceServer {
+	if x != nil {
+		return x.Servers
+	}
+	return nil
+}
+
+func (x *IceServers) GetExpires() int64 {
+	if x != nil {
+		return x.Expires
+	}
+	return 0
+}
+
+// IceServer is one entry of RTCConfiguration.iceServers.
+type IceServer struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Urls          []string               `protobuf:"bytes,1,rep,name=urls,proto3" json:"urls,omitempty"`
+	Username      string                 `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	Credential    string                 `protobuf:"bytes,3,opt,name=credential,proto3" json:"credential,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *IceServer) Reset() {
+	*x = IceServer{}
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *IceServer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*IceServer) ProtoMessage() {}
+
+func (x *IceServer) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use IceServer.ProtoReflect.Descriptor instead.
+func (*IceServer) Descriptor() ([]byte, []int) {
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *IceServer) GetUrls() []string {
+	if x != nil {
+		return x.Urls
+	}
+	return nil
+}
+
+func (x *IceServer) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *IceServer) GetCredential() string {
+	if x != nil {
+		return x.Credential
+	}
+	return ""
+}
 
 // ServiceHello opens a connection: the versions the service speaks, and a fresh challenge (ADR 0009).
 type ServiceHello struct {
@@ -312,7 +442,7 @@ type ServiceHello struct {
 
 func (x *ServiceHello) Reset() {
 	*x = ServiceHello{}
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[2]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -324,7 +454,7 @@ func (x *ServiceHello) String() string {
 func (*ServiceHello) ProtoMessage() {}
 
 func (x *ServiceHello) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[2]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -337,7 +467,7 @@ func (x *ServiceHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ServiceHello.ProtoReflect.Descriptor instead.
 func (*ServiceHello) Descriptor() ([]byte, []int) {
-	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{2}
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ServiceHello) GetVersions() []uint32 {
@@ -366,7 +496,7 @@ type Authenticate struct {
 
 func (x *Authenticate) Reset() {
 	*x = Authenticate{}
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[3]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -378,7 +508,7 @@ func (x *Authenticate) String() string {
 func (*Authenticate) ProtoMessage() {}
 
 func (x *Authenticate) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[3]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -391,7 +521,7 @@ func (x *Authenticate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Authenticate.ProtoReflect.Descriptor instead.
 func (*Authenticate) Descriptor() ([]byte, []int) {
-	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{3}
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Authenticate) GetVersion() uint32 {
@@ -424,7 +554,7 @@ type Welcome struct {
 
 func (x *Welcome) Reset() {
 	*x = Welcome{}
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[4]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +566,7 @@ func (x *Welcome) String() string {
 func (*Welcome) ProtoMessage() {}
 
 func (x *Welcome) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[4]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +579,7 @@ func (x *Welcome) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Welcome.ProtoReflect.Descriptor instead.
 func (*Welcome) Descriptor() ([]byte, []int) {
-	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{4}
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{6}
 }
 
 // Signal carries WebRTC negotiation; peer is the recipient going in, and the sender coming out.
@@ -468,7 +598,7 @@ type Signal struct {
 
 func (x *Signal) Reset() {
 	*x = Signal{}
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[5]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -480,7 +610,7 @@ func (x *Signal) String() string {
 func (*Signal) ProtoMessage() {}
 
 func (x *Signal) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[5]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -493,7 +623,7 @@ func (x *Signal) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Signal.ProtoReflect.Descriptor instead.
 func (*Signal) Descriptor() ([]byte, []int) {
-	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{5}
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Signal) GetPeer() []byte {
@@ -572,7 +702,7 @@ type Candidate struct {
 
 func (x *Candidate) Reset() {
 	*x = Candidate{}
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[6]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -584,7 +714,7 @@ func (x *Candidate) String() string {
 func (*Candidate) ProtoMessage() {}
 
 func (x *Candidate) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[6]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -597,7 +727,7 @@ func (x *Candidate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Candidate.ProtoReflect.Descriptor instead.
 func (*Candidate) Descriptor() ([]byte, []int) {
-	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{6}
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Candidate) GetCandidate() string {
@@ -638,7 +768,7 @@ type Identifiers struct {
 
 func (x *Identifiers) Reset() {
 	*x = Identifiers{}
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[7]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -650,7 +780,7 @@ func (x *Identifiers) String() string {
 func (*Identifiers) ProtoMessage() {}
 
 func (x *Identifiers) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_rendezvous_proto_msgTypes[7]
+	mi := &file_convia_v1_rendezvous_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -663,7 +793,7 @@ func (x *Identifiers) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Identifiers.ProtoReflect.Descriptor instead.
 func (*Identifiers) Descriptor() ([]byte, []int) {
-	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{7}
+	return file_convia_v1_rendezvous_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Identifiers) GetIds() [][]byte {
@@ -685,14 +815,26 @@ const file_convia_v1_rendezvous_proto_rawDesc = "" +
 	"\vunsubscribe\x18\x04 \x01(\v2\x16.convia.v1.IdentifiersH\x00R\vunsubscribe\x124\n" +
 	"\bannounce\x18\x05 \x01(\v2\x16.convia.v1.IdentifiersH\x00R\bannounce\x124\n" +
 	"\bwithdraw\x18\x06 \x01(\v2\x16.convia.v1.IdentifiersH\x00R\bwithdrawB\t\n" +
-	"\amessage\"\xea\x01\n" +
+	"\amessage\"\xa4\x02\n" +
 	"\vFromService\x12/\n" +
 	"\x05hello\x18\x01 \x01(\v2\x17.convia.v1.ServiceHelloH\x00R\x05hello\x12.\n" +
 	"\awelcome\x18\x02 \x01(\v2\x12.convia.v1.WelcomeH\x00R\awelcome\x12+\n" +
 	"\x06signal\x18\x03 \x01(\v2\x11.convia.v1.SignalH\x00R\x06signal\x12\x1e\n" +
 	"\treachable\x18\x04 \x01(\fH\x00R\treachable\x12\"\n" +
-	"\vunreachable\x18\x05 \x01(\fH\x00R\vunreachableB\t\n" +
-	"\amessage\"H\n" +
+	"\vunreachable\x18\x05 \x01(\fH\x00R\vunreachable\x128\n" +
+	"\vice_servers\x18\x06 \x01(\v2\x15.convia.v1.IceServersH\x00R\n" +
+	"iceServersB\t\n" +
+	"\amessage\"V\n" +
+	"\n" +
+	"IceServers\x12.\n" +
+	"\aservers\x18\x01 \x03(\v2\x14.convia.v1.IceServerR\aservers\x12\x18\n" +
+	"\aexpires\x18\x02 \x01(\x03R\aexpires\"[\n" +
+	"\tIceServer\x12\x12\n" +
+	"\x04urls\x18\x01 \x03(\tR\x04urls\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x1e\n" +
+	"\n" +
+	"credential\x18\x03 \x01(\tR\n" +
+	"credential\"H\n" +
 	"\fServiceHello\x12\x1a\n" +
 	"\bversions\x18\x01 \x03(\rR\bversions\x12\x1c\n" +
 	"\tchallenge\x18\x02 \x01(\fR\tchallenge\"b\n" +
@@ -727,33 +869,37 @@ func file_convia_v1_rendezvous_proto_rawDescGZIP() []byte {
 	return file_convia_v1_rendezvous_proto_rawDescData
 }
 
-var file_convia_v1_rendezvous_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_convia_v1_rendezvous_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
 var file_convia_v1_rendezvous_proto_goTypes = []any{
 	(*ToService)(nil),    // 0: convia.v1.ToService
 	(*FromService)(nil),  // 1: convia.v1.FromService
-	(*ServiceHello)(nil), // 2: convia.v1.ServiceHello
-	(*Authenticate)(nil), // 3: convia.v1.Authenticate
-	(*Welcome)(nil),      // 4: convia.v1.Welcome
-	(*Signal)(nil),       // 5: convia.v1.Signal
-	(*Candidate)(nil),    // 6: convia.v1.Candidate
-	(*Identifiers)(nil),  // 7: convia.v1.Identifiers
+	(*IceServers)(nil),   // 2: convia.v1.IceServers
+	(*IceServer)(nil),    // 3: convia.v1.IceServer
+	(*ServiceHello)(nil), // 4: convia.v1.ServiceHello
+	(*Authenticate)(nil), // 5: convia.v1.Authenticate
+	(*Welcome)(nil),      // 6: convia.v1.Welcome
+	(*Signal)(nil),       // 7: convia.v1.Signal
+	(*Candidate)(nil),    // 8: convia.v1.Candidate
+	(*Identifiers)(nil),  // 9: convia.v1.Identifiers
 }
 var file_convia_v1_rendezvous_proto_depIdxs = []int32{
-	3,  // 0: convia.v1.ToService.authenticate:type_name -> convia.v1.Authenticate
-	5,  // 1: convia.v1.ToService.signal:type_name -> convia.v1.Signal
-	7,  // 2: convia.v1.ToService.subscribe:type_name -> convia.v1.Identifiers
-	7,  // 3: convia.v1.ToService.unsubscribe:type_name -> convia.v1.Identifiers
-	7,  // 4: convia.v1.ToService.announce:type_name -> convia.v1.Identifiers
-	7,  // 5: convia.v1.ToService.withdraw:type_name -> convia.v1.Identifiers
-	2,  // 6: convia.v1.FromService.hello:type_name -> convia.v1.ServiceHello
-	4,  // 7: convia.v1.FromService.welcome:type_name -> convia.v1.Welcome
-	5,  // 8: convia.v1.FromService.signal:type_name -> convia.v1.Signal
-	6,  // 9: convia.v1.Signal.candidate:type_name -> convia.v1.Candidate
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	5,  // 0: convia.v1.ToService.authenticate:type_name -> convia.v1.Authenticate
+	7,  // 1: convia.v1.ToService.signal:type_name -> convia.v1.Signal
+	9,  // 2: convia.v1.ToService.subscribe:type_name -> convia.v1.Identifiers
+	9,  // 3: convia.v1.ToService.unsubscribe:type_name -> convia.v1.Identifiers
+	9,  // 4: convia.v1.ToService.announce:type_name -> convia.v1.Identifiers
+	9,  // 5: convia.v1.ToService.withdraw:type_name -> convia.v1.Identifiers
+	4,  // 6: convia.v1.FromService.hello:type_name -> convia.v1.ServiceHello
+	6,  // 7: convia.v1.FromService.welcome:type_name -> convia.v1.Welcome
+	7,  // 8: convia.v1.FromService.signal:type_name -> convia.v1.Signal
+	2,  // 9: convia.v1.FromService.ice_servers:type_name -> convia.v1.IceServers
+	3,  // 10: convia.v1.IceServers.servers:type_name -> convia.v1.IceServer
+	8,  // 11: convia.v1.Signal.candidate:type_name -> convia.v1.Candidate
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_rendezvous_proto_init() }
@@ -775,8 +921,9 @@ func file_convia_v1_rendezvous_proto_init() {
 		(*FromService_Signal)(nil),
 		(*FromService_Reachable)(nil),
 		(*FromService_Unreachable)(nil),
+		(*FromService_IceServers)(nil),
 	}
-	file_convia_v1_rendezvous_proto_msgTypes[5].OneofWrappers = []any{
+	file_convia_v1_rendezvous_proto_msgTypes[7].OneofWrappers = []any{
 		(*Signal_Offer)(nil),
 		(*Signal_Answer)(nil),
 		(*Signal_Candidate)(nil),
@@ -787,7 +934,7 @@ func file_convia_v1_rendezvous_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_rendezvous_proto_rawDesc), len(file_convia_v1_rendezvous_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

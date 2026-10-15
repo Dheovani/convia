@@ -19,6 +19,7 @@ peer                                   service
 1. The service sends `hello`: the versions of the protocol it speaks ([ADR 0019](../adr/0019-the-protocol-version-is-a-whole-number.md)) and a fresh 32-byte challenge, valid for this connection only and for 30 seconds.
 2. The peer chooses the highest version both speak, and sends `authenticate`: that version, its 32-byte Ed25519 public key, and its signature of the [rendezvous answer](canonical-encodings.md#the-answer-to-a-rendezvous-service) over the address it connected to and the challenge. If the two share no version, the peer closes the connection with code 4002.
 3. The service verifies the signature against its own address, and sends `welcome`.
+4. When it has STUN or TURN servers to give, it sends `ice_servers` right after: the entries of `RTCConfiguration.iceServers`, with a TURN credential valid for 24 hours, and the moment it expires ([ADR 0023](../adr/0023-the-rendezvous-service-hands-out-turn-credentials.md)). It sends new ones every 12 hours while the peer stays connected.
 
 A peer that connects again with the same identity replaces its earlier connection, which is closed with code 4000.
 
@@ -53,7 +54,9 @@ The service enforces [ADR 0021](../adr/0021-the-rendezvous-service-limits-every-
 ## Running the service
 
 ```sh
-go run ./cmd/rendezvous -address wss://rendezvous.example -cert cert.pem -key key.pem
+TURN_SECRET=… go run ./cmd/rendezvous -address wss://rendezvous.example -cert cert.pem -key key.pem   -stun stun:turn.example:3478 -turn "turn:turn.example:3478?transport=udp,turns:turn.example:5349?transport=tcp"
 ```
 
 `-address` is the address peers connect to, exactly as they sign it. The service serves TLS itself, because behind a proxy every peer would appear to come from the proxy's address; plain `ws://` is accepted only for an address on the same machine, for development. It logs to `-logs` (by default `logs`) only what [ADR 0022](../adr/0022-the-rendezvous-service-logs-nobody.md) allows.
+
+`-stun` and `-turn` are the servers peers are given, separated by commas. `-turn` needs `TURN_SECRET` in the environment: the secret coturn holds as `static-auth-secret`, of at least 32 characters. coturn's configuration is [`deploy/coturn/turnserver.conf`](../../deploy/coturn/turnserver.conf).
