@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
+	"github.com/Dheovani/convia/internal/invitation"
 	"github.com/Dheovani/convia/internal/protect"
 )
 
@@ -119,5 +121,33 @@ func TestRefusalsCrossTheBridgeAsCodes(t *testing.T) {
 	other := errors.New("disk full")
 	if got := refusal(other); got != other {
 		t.Errorf("an unknown error became %v", got)
+	}
+}
+
+func TestContactRefusalsCrossTheBridgeAsCodes(t *testing.T) {
+	for err, code := range map[error]Refusal{
+		invitation.ErrChecksum:  "invitation-checksum",
+		invitation.ErrMalformed: "invitation-malformed",
+		invitation.ErrVersion:   "invitation-newer",
+		invitation.ErrSignature: "invitation-signature",
+		contacts.ErrYourself:    "invitation-yours",
+		contacts.ErrContact:     "already-contact",
+		contacts.ErrBlocked:     "blocked",
+		contacts.ErrNoSuch:      "no-such-contact",
+		identity.ErrName:        "name",
+	} {
+		if got := contactRefusal(err); got != code {
+			t.Errorf("contactRefusal(%v) = %v, want %q", err, got, code)
+		}
+	}
+}
+
+func TestContactsNeedAnIdentity(t *testing.T) {
+	b := &Bridge{network: NewNetwork("", nil)}
+	if _, err := b.Contacts(); err != Refusal("no-identity") {
+		t.Fatalf("Contacts without an identity: %v", err)
+	}
+	if err := b.AcceptRequest("00"); err != Refusal("no-identity") {
+		t.Fatalf("AcceptRequest without an identity: %v", err)
 	}
 }

@@ -39,7 +39,25 @@ The service address is the `wss://` address the peer connected to, so an answer 
 "convia/v1/invitation" | version | inviter's identity | suggested name | rendezvous hint
 ```
 
-The inviter signs these bytes; the invitation's text form, `convia1…`, is defined with invitations themselves.
+The inviter signs these bytes; the invitation's text form, `convia1…`, is in [invitations](invitations.md).
+
+## The pair secret
+
+Two contacts share a secret ([ADR 0012](../adr/0012-only-contacts-can-tell-when-a-person-is-online.md)), made when the inviter accepts the request ([ADR 0026](../adr/0026-a-contact-needs-the-inviters-consent.md)) from a random 32-byte part each sends over their proven connection:
+
+```text
+secret = SHA-256("convia/v1/pair-secret" | requester's identity | inviter's identity | requester's part | inviter's part)
+```
+
+## Reachability identifiers
+
+A contact is reachable, on a given day, under an identifier only the pair can compute; each announces their own, and watches the other's:
+
+```text
+identifier = HMAC-SHA-256(secret, "convia/v1/reachability" | announcer's identity | day)
+```
+
+The day is the number of whole UTC days since 1970, as a 32-bit integer, so the identifier changes every day. A peer watching a contact watches the day before and after too, for clocks that disagree on the date.
 
 ## Test vectors
 
@@ -61,4 +79,16 @@ Inputs: Alice's identity is 32 bytes of `a1`, Bob's 32 bytes of `b0`; Alice's no
 
 ```text
 00000014636f6e7669612f76312f696e7669746174696f6e000000040000000100000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000a416e61204cc3ba636961000000187773733a2f2f72656e64657a766f75732e6578616d706c65
+```
+
+**Pair secret**, Alice requesting and Bob inviting, Alice's part 32 bytes of `01`, Bob's 32 bytes of `02`:
+
+```text
+ba07ea0f2e073376b9ff449882e400c71002cabe4ca48082a95d80cb2496a71c
+```
+
+**Reachability identifier** of Bob, under that secret, on day 20376:
+
+```text
+88a285f583b268bc1aa183606d17ec1e5cb254aabced25c48b4fc55b3b731021
 ```

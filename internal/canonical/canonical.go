@@ -1,7 +1,9 @@
-// Package canonical encodes what Convia signs, byte for byte, as docs/protocol/canonical-encodings.md specifies.
+// Package canonical encodes what Convia signs and derives, byte for byte, as docs/protocol/canonical-encodings.md specifies.
 package canonical
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/binary"
 	"strings"
 )
@@ -10,6 +12,8 @@ const (
 	PeerAuthDomain       = "convia/v1/peer-auth"
 	RendezvousAuthDomain = "convia/v1/rendezvous-auth"
 	InvitationDomain     = "convia/v1/invitation"
+	PairSecretDomain     = "convia/v1/pair-secret"
+	ReachabilityDomain   = "convia/v1/reachability"
 )
 
 // Role is a peer's part in a WebRTC negotiation.
@@ -69,4 +73,17 @@ func RendezvousAuth(serviceAddress string, challenge []byte) []byte {
 // Invitation is what an inviter signs: the invitation's version, identity, suggested name and rendezvous hint.
 func Invitation(version uint32, identity []byte, name, rendezvousHint string) []byte {
 	return Encode([]byte(InvitationDomain), Uint32(version), identity, []byte(name), []byte(rendezvousHint))
+}
+
+// PairSecret is the secret two contacts share, from the random part each contributed when they became contacts (ADR 0012).
+func PairSecret(requester, inviter, requesterPart, inviterPart []byte) []byte {
+	sum := sha256.Sum256(Encode([]byte(PairSecretDomain), requester, inviter, requesterPart, inviterPart))
+	return sum[:]
+}
+
+// Reachability is the identifier under which announcer is reachable on day, counted in whole UTC days since 1970.
+func Reachability(secret, announcer []byte, day uint32) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(Encode([]byte(ReachabilityDomain), announcer, Uint32(day)))
+	return mac.Sum(nil)
 }

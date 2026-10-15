@@ -29,6 +29,7 @@ function start(ice: RTCIceServer[], relayOnly: boolean) {
     closed: () => {
       sides[i].closed = true;
     },
+    state: () => undefined,
   });
   for (const i of [0, 1]) {
     const pcs: RTCPeerConnection[] = [];

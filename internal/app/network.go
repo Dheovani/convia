@@ -4,15 +4,18 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
 	"github.com/Dheovani/convia/internal/peers"
 	"github.com/Dheovani/convia/internal/rendezvous"
+	"github.com/Dheovani/convia/internal/storage"
 )
 
 // RendezvousOverride names the rendezvous service to use, until a person can choose one (ROADMAP M23-004).
@@ -21,15 +24,22 @@ const RendezvousOverride = "CONVIA_RENDEZVOUS"
 // TransportEvent is the event the core sends the WebView's connections through.
 const TransportEvent = "transport"
 
-// Network runs this peer's connections while it has an identity and a rendezvous service.
+// Events the interface listens to.
+const (
+	ContactsEvent = "contacts"
+	OutdatedEvent = "outdated"
+)
+
+// Network runs this peer's connections and contacts while it has an identity.
 type Network struct {
 	address string
 	logger  *slog.Logger
 
-	mu      sync.Mutex
-	ctx     context.Context
-	stop    context.CancelFunc
-	manager *peers.Manager
+	mu       sync.Mutex
+	ctx      context.Context
+	stop     context.CancelFunc
+	manager  *peers.Manager
+	contacts *contacts.Service
 }
 
 func NewNetwork(address string, logger *slog.Logger) *Network {
@@ -42,33 +52,68 @@ func (n *Network) attach(ctx context.Context) {
 	n.ctx = ctx
 }
 
-// Start connects as id, ending whatever ran before.
-func (n *Network) Start(id identity.Identity) {
+// OutdatedView says which contact cannot be talked to until one of the two updates Convia.
+type OutdatedView struct {
+	PublicKey string `json:"publicKey"`
+	Theirs    bool   `json:"theirs"`
+}
+
+/*
+Start runs id's contacts from store and connects as id, ending whatever ran before; without a
+rendezvous service, the contacts are there but nobody is reached.
+*/
+func (n *Network) Start(id identity.Identity, store *storage.Store) {
 	n.Stop()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
-	if n.address == "" || n.ctx == nil {
+	if n.ctx == nil || store == nil {
 		return
 	}
 
 	ctx, stop := context.WithCancel(n.ctx)
-
-	// Nobody is accepted until there are contacts to accept (ROADMAP M10).
+	emit := func(event string, data ...any) { runtime.EventsEmit(n.ctx, event, data...) }
+	service := contacts.NewService(
+		contacts.NewBook(store, id.Public),
+		id,
+		func() string { return displayName(store, id.Name) },
+		func() { emit(ContactsEvent) },
+		n.logger,
+	)
 	manager := peers.New(
 		id.Private,
 		webview{ctx: n.ctx},
-		func(ed25519.PublicKey) bool { return false },
-		peers.Observer{},
+		service.Accept,
+		peers.Observer{
+			Ready:     service.Ready,
+			Message:   service.Message,
+			Reachable: service.Reachable,
+			Outdated: func(peer ed25519.PublicKey, theirs bool) {
+				emit(OutdatedEvent, OutdatedView{PublicKey: hex.EncodeToString(peer), Theirs: theirs})
+			},
+		},
 		peers.Default,
 		n.logger,
 	)
+	service.Attach(manager)
 
 	go manager.Run(ctx)
-	go manager.Link(ctx, func(ctx context.Context) (peers.Session, error) {
-		return rendezvous.Dial(ctx, n.address, id.Private)
-	}, time.Second, time.Minute)
-	n.stop, n.manager = stop, manager
+	go service.Run(ctx)
+	if n.address != "" {
+		go manager.Link(ctx, func(ctx context.Context) (peers.Session, error) {
+			return rendezvous.Dial(ctx, n.address, id.Private)
+		}, time.Second, time.Minute)
+	}
+	n.stop, n.manager, n.contacts = stop, manager, service
+}
+
+// displayName is the name this person goes by now, which they may have changed since Start.
+func displayName(store *storage.Store, fallback string) string {
+	var name string
+	if store.DB.QueryRow("SELECT display_name FROM identity WHERE id = 1").Scan(&name) != nil {
+		return fallback
+	}
+	return name
 }
 
 // Stop ends every connection.
@@ -78,13 +123,19 @@ func (n *Network) Stop() {
 	if n.stop != nil {
 		n.stop()
 	}
-	n.stop, n.manager = nil, nil
+	n.stop, n.manager, n.contacts = nil, nil, nil
 }
 
 func (n *Network) current() *peers.Manager {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.manager
+}
+
+func (n *Network) people() *contacts.Service {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.contacts
 }
 
 // webview is the Transport of the WebView's connections, ordered through TransportEvent.
@@ -153,6 +204,15 @@ func (b *Bridge) TransportClosed(id string) { b.manager(func(m *peers.Manager) {
 
 // TransportReset says the page loaded, holding no connection.
 func (b *Bridge) TransportReset() { b.manager(func(m *peers.Manager) { m.Reset() }) }
+
+// TransportState is a connection's new WebRTC state, for the log: it names no peer and no address (ADR 0016).
+func (b *Bridge) TransportState(id, state string) {
+	if b.network.logger != nil {
+		b.network.logger.Info("peer connection state", "connection", shortID(id), "state", state)
+	}
+}
+
+func shortID(id string) string { return id[:min(len(id), 8)] }
 
 // NetworkChanged says the machine's network changed.
 func (b *Bridge) NetworkChanged() { b.manager(func(m *peers.Manager) { m.NetworkChanged() }) }

@@ -37,3 +37,20 @@ Before the handshake completes, anything but these messages, a message twice, or
 ## Interest
 
 Once proven, each peer sends `interest`, saying whether it wants the connection, and again whenever that changes. A connection that neither wants for 10 minutes is closed ([ADR 0024](../adr/0024-peers-connect-on-demand-and-reconnect-when-they-can.md)).
+
+## Becoming contacts
+
+A proven peer that is not a contact may send only a request, within 30 seconds, or it is disconnected ([ADR 0026](../adr/0026-a-contact-needs-the-inviters-consent.md)).
+
+```text
+requester                                 inviter
+ │ ── contact_request: name, part ──────────► │   the person decides
+ │ ◄──────────── contact_accepted: name, part │
+ │ ── contact_confirmed ────────────────────► │
+```
+
+- The requester sends `contact_request`, with the name it suggests and its random 32-byte part of the [pair secret](canonical-encodings.md#the-pair-secret), each time it connects while the request waits. Sending the same part again does not make the request younger.
+- The inviter answers with `contact_accepted` once the person accepts, then or whenever the requester next connects, until the requester sends `contact_confirmed`.
+- A declined request is never answered: the inviter's peer refuses the requester's connections until the request would have expired.
+- Two people asking each other become contacts through the request of the one whose key is lower; the other's request is ignored.
+- A contact who asks again — having removed the other, say — is accepted at once, with a new pair secret.

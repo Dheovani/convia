@@ -82,7 +82,7 @@ func (a *App) Startup(ctx context.Context) {
 
 	a.network.attach(ctx)
 	if me, err := a.data.Me(); err == nil {
-		a.network.Start(me)
+		a.network.Start(me, a.data.Store())
 	}
 
 	a.logger.Info("convia started")

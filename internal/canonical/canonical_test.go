@@ -54,3 +54,9 @@ func TestLengthsKeepFieldsApart(t *testing.T) {
 		t.Fatal("moving a byte between fields gave the same encoding")
 	}
 }
+
+func TestDerivationsMatchTheirSpecification(t *testing.T) {
+	secret := PairSecret(alice, bob, bytes.Repeat([]byte{1}, 32), bytes.Repeat([]byte{2}, 32))
+	expect(t, "PairSecret", secret, "ba07ea0f2e073376b9ff449882e400c71002cabe4ca48082a95d80cb2496a71c")
+	expect(t, "Reachability", Reachability(secret, bob, 20376), "88a285f583b268bc1aa183606d17ec1e5cb254aabced25c48b4fc55b3b731021")
+}

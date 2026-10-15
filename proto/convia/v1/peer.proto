@@ -13,8 +13,26 @@ message PeerMessage {
     Challenge challenge = 2;
     Proof proof = 3;
     Interest interest = 4;
+    ContactRequest contact_request = 5;
+    ContactAccepted contact_accepted = 6;
+    ContactConfirmed contact_confirmed = 7;
   }
 }
+
+// ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
+message ContactRequest {
+  string name = 1;
+  bytes part = 2;
+}
+
+// ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
+message ContactAccepted {
+  string name = 1;
+  bytes part = 2;
+}
+
+// ContactConfirmed says the requester holds the pair secret too.
+message ContactConfirmed {}
 
 // Interest says whether the sender still wants the connection (ADR 0024).
 message Interest {

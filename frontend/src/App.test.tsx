@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
 import { answers, reset } from "./test/bridge";
@@ -6,6 +6,10 @@ import { answers, reset } from "./test/bridge";
 vi.mock(
   "../wailsjs/go/app/Bridge",
   async () => (await import("./test/bridge")).bridge,
+);
+vi.mock(
+  "../wailsjs/runtime/runtime",
+  async () => (await import("./test/runtime")).runtime,
 );
 
 beforeEach(reset);
@@ -22,6 +26,7 @@ test("a person with an identity sees it", async () => {
   answers.Me = () =>
     Promise.resolve({ name: "Alice", publicKey: "00112233aabbccdd" });
   render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "You" }));
   expect(await screen.findByText("0011 2233 aabb ccdd")).toBeTruthy();
 });
 

@@ -3,11 +3,25 @@
 import {app} from '../models';
 import {peers} from '../models';
 
+export function AcceptRequest(arg1:string):Promise<void>;
+
+export function AddContact(arg1:string):Promise<app.RequestView>;
+
+export function BlockContact(arg1:string,arg2:boolean):Promise<void>;
+
+export function Blocked():Promise<Array<string>>;
+
 export function ChooseIdentityFile():Promise<string>;
+
+export function Contacts():Promise<Array<app.ContactView>>;
 
 export function CreateIdentity(arg1:string):Promise<app.MeView>;
 
+export function DeclineRequest(arg1:string):Promise<void>;
+
 export function DeleteIdentity():Promise<void>;
+
+export function DismissRequest(arg1:string):Promise<void>;
 
 export function ExportIdentity(arg1:string):Promise<boolean>;
 
@@ -15,11 +29,19 @@ export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app
 
 export function Me():Promise<app.MeView>;
 
+export function MyInvitation():Promise<string>;
+
 export function NetworkChanged():Promise<void>;
+
+export function RemoveContact(arg1:string,arg2:boolean):Promise<void>;
 
 export function RenameIdentity(arg1:string):Promise<void>;
 
+export function Requests():Promise<app.RequestsView>;
+
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;
+
+export function SetVerified(arg1:string,arg2:boolean):Promise<void>;
 
 export function StartOver():Promise<void>;
 
@@ -38,3 +60,7 @@ export function TransportOpened(arg1:string):Promise<void>;
 export function TransportReceived(arg1:string,arg2:string):Promise<void>;
 
 export function TransportReset():Promise<void>;
+
+export function TransportState(arg1:string,arg2:string):Promise<void>;
+
+export function Unblock(arg1:string):Promise<void>;

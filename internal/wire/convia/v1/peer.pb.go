@@ -30,6 +30,9 @@ type PeerMessage struct {
 	//	*PeerMessage_Challenge
 	//	*PeerMessage_Proof
 	//	*PeerMessage_Interest
+	//	*PeerMessage_ContactRequest
+	//	*PeerMessage_ContactAccepted
+	//	*PeerMessage_ContactConfirmed
 	Message       isPeerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -108,6 +111,33 @@ func (x *PeerMessage) GetInterest() *Interest {
 	return nil
 }
 
+func (x *PeerMessage) GetContactRequest() *ContactRequest {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_ContactRequest); ok {
+			return x.ContactRequest
+		}
+	}
+	return nil
+}
+
+func (x *PeerMessage) GetContactAccepted() *ContactAccepted {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_ContactAccepted); ok {
+			return x.ContactAccepted
+		}
+	}
+	return nil
+}
+
+func (x *PeerMessage) GetContactConfirmed() *ContactConfirmed {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_ContactConfirmed); ok {
+			return x.ContactConfirmed
+		}
+	}
+	return nil
+}
+
 type isPeerMessage_Message interface {
 	isPeerMessage_Message()
 }
@@ -128,6 +158,18 @@ type PeerMessage_Interest struct {
 	Interest *Interest `protobuf:"bytes,4,opt,name=interest,proto3,oneof"`
 }
 
+type PeerMessage_ContactRequest struct {
+	ContactRequest *ContactRequest `protobuf:"bytes,5,opt,name=contact_request,json=contactRequest,proto3,oneof"`
+}
+
+type PeerMessage_ContactAccepted struct {
+	ContactAccepted *ContactAccepted `protobuf:"bytes,6,opt,name=contact_accepted,json=contactAccepted,proto3,oneof"`
+}
+
+type PeerMessage_ContactConfirmed struct {
+	ContactConfirmed *ContactConfirmed `protobuf:"bytes,7,opt,name=contact_confirmed,json=contactConfirmed,proto3,oneof"`
+}
+
 func (*PeerMessage_Hello) isPeerMessage_Message() {}
 
 func (*PeerMessage_Challenge) isPeerMessage_Message() {}
@@ -135,6 +177,155 @@ func (*PeerMessage_Challenge) isPeerMessage_Message() {}
 func (*PeerMessage_Proof) isPeerMessage_Message() {}
 
 func (*PeerMessage_Interest) isPeerMessage_Message() {}
+
+func (*PeerMessage_ContactRequest) isPeerMessage_Message() {}
+
+func (*PeerMessage_ContactAccepted) isPeerMessage_Message() {}
+
+func (*PeerMessage_ContactConfirmed) isPeerMessage_Message() {}
+
+// ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
+type ContactRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Part          []byte                 `protobuf:"bytes,2,opt,name=part,proto3" json:"part,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactRequest) Reset() {
+	*x = ContactRequest{}
+	mi := &file_convia_v1_peer_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactRequest) ProtoMessage() {}
+
+func (x *ContactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactRequest.ProtoReflect.Descriptor instead.
+func (*ContactRequest) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *ContactRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ContactRequest) GetPart() []byte {
+	if x != nil {
+		return x.Part
+	}
+	return nil
+}
+
+// ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
+type ContactAccepted struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Part          []byte                 `protobuf:"bytes,2,opt,name=part,proto3" json:"part,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactAccepted) Reset() {
+	*x = ContactAccepted{}
+	mi := &file_convia_v1_peer_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactAccepted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactAccepted) ProtoMessage() {}
+
+func (x *ContactAccepted) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactAccepted.ProtoReflect.Descriptor instead.
+func (*ContactAccepted) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *ContactAccepted) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ContactAccepted) GetPart() []byte {
+	if x != nil {
+		return x.Part
+	}
+	return nil
+}
+
+// ContactConfirmed says the requester holds the pair secret too.
+type ContactConfirmed struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ContactConfirmed) Reset() {
+	*x = ContactConfirmed{}
+	mi := &file_convia_v1_peer_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ContactConfirmed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ContactConfirmed) ProtoMessage() {}
+
+func (x *ContactConfirmed) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ContactConfirmed.ProtoReflect.Descriptor instead.
+func (*ContactConfirmed) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{3}
+}
 
 // Interest says whether the sender still wants the connection (ADR 0024).
 type Interest struct {
@@ -146,7 +337,7 @@ type Interest struct {
 
 func (x *Interest) Reset() {
 	*x = Interest{}
-	mi := &file_convia_v1_peer_proto_msgTypes[1]
+	mi := &file_convia_v1_peer_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -158,7 +349,7 @@ func (x *Interest) String() string {
 func (*Interest) ProtoMessage() {}
 
 func (x *Interest) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[1]
+	mi := &file_convia_v1_peer_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -171,7 +362,7 @@ func (x *Interest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Interest.ProtoReflect.Descriptor instead.
 func (*Interest) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{1}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Interest) GetWanted() bool {
@@ -185,13 +376,23 @@ var File_convia_v1_peer_proto protoreflect.FileDescriptor
 
 const file_convia_v1_peer_proto_rawDesc = "" +
 	"\n" +
-	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\"\xd5\x01\n" +
+	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\"\xb0\x03\n" +
 	"\vPeerMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.convia.v1.HelloH\x00R\x05hello\x124\n" +
 	"\tchallenge\x18\x02 \x01(\v2\x14.convia.v1.ChallengeH\x00R\tchallenge\x12(\n" +
 	"\x05proof\x18\x03 \x01(\v2\x10.convia.v1.ProofH\x00R\x05proof\x121\n" +
-	"\binterest\x18\x04 \x01(\v2\x13.convia.v1.InterestH\x00R\binterestB\t\n" +
-	"\amessage\"\"\n" +
+	"\binterest\x18\x04 \x01(\v2\x13.convia.v1.InterestH\x00R\binterest\x12D\n" +
+	"\x0fcontact_request\x18\x05 \x01(\v2\x19.convia.v1.ContactRequestH\x00R\x0econtactRequest\x12G\n" +
+	"\x10contact_accepted\x18\x06 \x01(\v2\x1a.convia.v1.ContactAcceptedH\x00R\x0fcontactAccepted\x12J\n" +
+	"\x11contact_confirmed\x18\a \x01(\v2\x1b.convia.v1.ContactConfirmedH\x00R\x10contactConfirmedB\t\n" +
+	"\amessage\"8\n" +
+	"\x0eContactRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04part\x18\x02 \x01(\fR\x04part\"9\n" +
+	"\x0fContactAccepted\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04part\x18\x02 \x01(\fR\x04part\"\x12\n" +
+	"\x10ContactConfirmed\"\"\n" +
 	"\bInterest\x12\x16\n" +
 	"\x06wanted\x18\x01 \x01(\bR\x06wantedB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
@@ -207,24 +408,30 @@ func file_convia_v1_peer_proto_rawDescGZIP() []byte {
 	return file_convia_v1_peer_proto_rawDescData
 }
 
-var file_convia_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_convia_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_convia_v1_peer_proto_goTypes = []any{
-	(*PeerMessage)(nil), // 0: convia.v1.PeerMessage
-	(*Interest)(nil),    // 1: convia.v1.Interest
-	(*Hello)(nil),       // 2: convia.v1.Hello
-	(*Challenge)(nil),   // 3: convia.v1.Challenge
-	(*Proof)(nil),       // 4: convia.v1.Proof
+	(*PeerMessage)(nil),      // 0: convia.v1.PeerMessage
+	(*ContactRequest)(nil),   // 1: convia.v1.ContactRequest
+	(*ContactAccepted)(nil),  // 2: convia.v1.ContactAccepted
+	(*ContactConfirmed)(nil), // 3: convia.v1.ContactConfirmed
+	(*Interest)(nil),         // 4: convia.v1.Interest
+	(*Hello)(nil),            // 5: convia.v1.Hello
+	(*Challenge)(nil),        // 6: convia.v1.Challenge
+	(*Proof)(nil),            // 7: convia.v1.Proof
 }
 var file_convia_v1_peer_proto_depIdxs = []int32{
-	2, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
-	3, // 1: convia.v1.PeerMessage.challenge:type_name -> convia.v1.Challenge
-	4, // 2: convia.v1.PeerMessage.proof:type_name -> convia.v1.Proof
-	1, // 3: convia.v1.PeerMessage.interest:type_name -> convia.v1.Interest
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
+	6, // 1: convia.v1.PeerMessage.challenge:type_name -> convia.v1.Challenge
+	7, // 2: convia.v1.PeerMessage.proof:type_name -> convia.v1.Proof
+	4, // 3: convia.v1.PeerMessage.interest:type_name -> convia.v1.Interest
+	1, // 4: convia.v1.PeerMessage.contact_request:type_name -> convia.v1.ContactRequest
+	2, // 5: convia.v1.PeerMessage.contact_accepted:type_name -> convia.v1.ContactAccepted
+	3, // 6: convia.v1.PeerMessage.contact_confirmed:type_name -> convia.v1.ContactConfirmed
+	7, // [7:7] is the sub-list for method output_type
+	7, // [7:7] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_peer_proto_init() }
@@ -238,6 +445,9 @@ func file_convia_v1_peer_proto_init() {
 		(*PeerMessage_Challenge)(nil),
 		(*PeerMessage_Proof)(nil),
 		(*PeerMessage_Interest)(nil),
+		(*PeerMessage_ContactRequest)(nil),
+		(*PeerMessage_ContactAccepted)(nil),
+		(*PeerMessage_ContactConfirmed)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -245,7 +455,7 @@ func file_convia_v1_peer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_peer_proto_rawDesc), len(file_convia_v1_peer_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

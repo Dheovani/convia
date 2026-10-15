@@ -8,6 +8,8 @@ export interface Core {
   opened(id: string): void;
   received(id: string, data: Uint8Array): void;
   closed(id: string): void;
+  // state is what the connection is doing, for the log.
+  state(id: string, state: string): void;
 }
 
 export type Create = (configuration: RTCConfiguration) => RTCPeerConnection;
@@ -58,7 +60,10 @@ export class Connections {
     pc.onicecandidate = (event) => {
       if (event.candidate) this.#core.candidate(id, event.candidate.toJSON());
     };
+    pc.oniceconnectionstatechange = () =>
+      this.#core.state(id, `ice ${pc.iceConnectionState}`);
     pc.onconnectionstatechange = () => {
+      this.#core.state(id, pc.connectionState);
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
         this.#end(id, entry);
       }
@@ -131,7 +136,13 @@ export class Connections {
       .then(async () => {
         if (this.#entries.get(id) === entry) await step();
       })
-      .catch(() => this.#end(id, entry));
+      .catch((error: unknown) => {
+        this.#core.state(
+          id,
+          `failed: ${error instanceof Error ? error.name : "error"}`,
+        );
+        this.#end(id, entry);
+      });
   }
 
   #end(id: string, entry: Entry) {
