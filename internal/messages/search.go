@@ -38,10 +38,7 @@ func (s *Store) Search(query string) ([]Found, error) {
 		return nil, nil
 	}
 
-	rows, err := s.db.DB.Query(`SELECT c.contact_key, m.id, m.author_key, m.author_sequence, m.hlc_wall, m.hlc_counter, m.content,
-			o.message_id IS NOT NULL, o.transmitted_at IS NOT NULL
-		FROM messages m JOIN conversations c ON m.conversation_id = c.id
-		LEFT JOIN outbox o ON o.message_id = m.id
+	rows, err := s.db.DB.Query(`SELECT c.contact_key, ` + columns + ` ` + from + ` WHERE m.kind = 'text'
 		ORDER BY m.hlc_wall DESC, m.hlc_counter DESC, m.id DESC`)
 
 	if err != nil {

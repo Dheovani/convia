@@ -82,6 +82,10 @@ export function OpenLink(arg1) {
   return window['go']['app']['Bridge']['OpenLink'](arg1);
 }
 
+export function React(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['Bridge']['React'](arg1, arg2, arg3, arg4);
+}
+
 export function RemoveContact(arg1, arg2) {
   return window['go']['app']['Bridge']['RemoveContact'](arg1, arg2);
 }
@@ -98,8 +102,8 @@ export function SearchMessages(arg1) {
   return window['go']['app']['Bridge']['SearchMessages'](arg1);
 }
 
-export function SendMessage(arg1, arg2) {
-  return window['go']['app']['Bridge']['SendMessage'](arg1, arg2);
+export function SendMessage(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['SendMessage'](arg1, arg2, arg3);
 }
 
 export function SetStartsWithWindows(arg1) {

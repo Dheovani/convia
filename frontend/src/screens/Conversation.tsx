@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
+  React as react,
   Conversation as readConversation,
   SendMessage,
 } from "../../wailsjs/go/app/Bridge";
@@ -9,6 +10,20 @@ import { LinkDialog } from "../components/LinkDialog";
 import { useLanguage, useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
 import { Formatted } from "../text/Formatted";
+import { plain } from "../text/markdown";
+
+export interface Reaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+
+export interface Quote {
+  id: string;
+  mine: boolean;
+  text: string;
+  missing: boolean;
+}
 
 export interface Message {
   id: string;
@@ -16,7 +31,12 @@ export interface Message {
   text: string;
   status: "waiting" | "sent" | "delivered" | "received";
   at: number;
+  reactions?: Reaction[];
+  replyTo?: Quote;
 }
+
+// The reactions offered at a click; any single emoji is one (ADR 0035).
+export const offered = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "👀"];
 
 export interface Person {
   publicKey: string;
@@ -51,6 +71,9 @@ export function Conversation({
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [answering, setAnswering] = useState<Message | null>(null);
+  const [choosing, setChoosing] = useState<string | null>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
 
   const load = useCallback(
@@ -86,13 +109,26 @@ export function Conversation({
     if (tooLong || empty) return;
     setNotice(null);
     try {
-      await SendMessage(contact.publicKey, draft);
+      await SendMessage(contact.publicKey, draft, answering?.id ?? "");
       setDraft("");
+      setAnswering(null);
       await load();
     } catch (error) {
       setNotice(refused(words, error));
     }
   }
+
+  async function toggle(m: Message, emoji: string, on: boolean) {
+    setChoosing(null);
+    try {
+      await react(contact.publicKey, m.id, emoji, on);
+      await load();
+    } catch (error) {
+      setNotice(refused(words, error));
+    }
+  }
+
+  const author = (mine: boolean) => (mine ? meName : contact.name);
 
   const status = (m: Message) =>
     m.status === "waiting"
@@ -138,8 +174,50 @@ export function Conversation({
                 key={m.id}
                 id={`message-${m.id}`}
                 aria-current={m.id === focus ? "true" : undefined}
-                className={`flex flex-col rounded-sm px-2 hover:bg-surface-hover ${starts ? "mt-3" : ""} ${m.id === focus ? "bg-accent-soft" : ""}`}
+                className={`group relative flex flex-col rounded-sm px-2 hover:bg-surface-hover focus-within:bg-surface-hover ${starts ? "mt-3" : ""} ${m.id === focus ? "bg-accent-soft" : ""}`}
               >
+                <div className="absolute -top-3 right-2 flex gap-1 rounded-sm border border-line bg-surface-raised opacity-0 shadow-raised group-hover:opacity-100 group-focus-within:opacity-100">
+                  <button
+                    type="button"
+                    className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                    onClick={() => {
+                      setAnswering(m);
+                      field.current?.focus();
+                    }}
+                  >
+                    {words.conversation.reply}
+                  </button>
+                  <button
+                    type="button"
+                    className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                    aria-expanded={choosing === m.id}
+                    onClick={() => setChoosing(choosing === m.id ? null : m.id)}
+                  >
+                    {words.conversation.react}
+                  </button>
+                </div>
+                {choosing === m.id && (
+                  <div
+                    role="group"
+                    aria-label={words.conversation.chooseReaction}
+                    className="flex flex-wrap gap-1 py-1"
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") setChoosing(null);
+                    }}
+                  >
+                    {offered.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className="cursor-pointer rounded-sm px-1.5 py-0.5 text-lg hover:bg-surface-raised"
+                        aria-label={words.conversation.reactWith(emoji)}
+                        onClick={() => void toggle(m, emoji, true)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {starts && (
                   <div className="flex items-baseline gap-2">
                     <span
@@ -154,6 +232,30 @@ export function Conversation({
                       {time.format(m.at)}
                     </time>
                   </div>
+                )}
+                {m.replyTo && (
+                  <button
+                    type="button"
+                    className="mt-1 flex cursor-pointer gap-1 truncate border-l-2 border-line-strong pl-2 text-left text-[0.75rem] text-ink-faint hover:text-ink-dim"
+                    onClick={() =>
+                      document
+                        .getElementById(`message-${m.replyTo?.id}`)
+                        ?.scrollIntoView?.({ block: "center" })
+                    }
+                  >
+                    {m.replyTo.missing ? (
+                      words.conversation.quoteMissing
+                    ) : (
+                      <>
+                        <span className="font-medium">
+                          {author(m.replyTo.mine)}
+                        </span>
+                        <span className="truncate">
+                          {plain(m.replyTo.text)}
+                        </span>
+                      </>
+                    )}
+                  </button>
                 )}
                 <div className="flex items-end gap-2">
                   <div className="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">
@@ -172,6 +274,30 @@ export function Conversation({
                     </span>
                   )}
                 </div>
+                {m.reactions && m.reactions.length > 0 && (
+                  <div className="flex flex-wrap gap-1 py-1">
+                    {m.reactions.map((r) => (
+                      <button
+                        key={r.emoji}
+                        type="button"
+                        aria-pressed={r.mine}
+                        aria-label={words.conversation.reaction(
+                          r.emoji,
+                          r.count,
+                          r.mine,
+                        )}
+                        className={`cursor-pointer rounded-full border px-2 text-sm ${
+                          r.mine
+                            ? "border-accent bg-accent-soft"
+                            : "border-line bg-surface-raised hover:border-line-strong"
+                        }`}
+                        onClick={() => void toggle(m, r.emoji, !r.mine)}
+                      >
+                        {r.emoji} {r.count}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </li>
             );
           })}
@@ -185,10 +311,22 @@ export function Conversation({
             {notice}
           </p>
         )}
+        {answering && (
+          <div className="flex items-center justify-between gap-2 rounded-sm bg-surface-raised px-3 py-1 text-[0.8rem]">
+            <span className="truncate text-ink-dim">
+              {words.conversation.replyingTo(author(answering.mine))}{" "}
+              <span className="text-ink-faint">{plain(answering.text)}</span>
+            </span>
+            <Button size="small" onClick={() => setAnswering(null)}>
+              {words.conversation.cancelReply}
+            </Button>
+          </div>
+        )}
         <label htmlFor={fieldId} className="sr-only">
           {words.conversation.field(contact.name)}
         </label>
         <textarea
+          ref={field}
           id={fieldId}
           className={`${input} resize-none text-sm`}
           rows={2}
@@ -197,6 +335,9 @@ export function Conversation({
           aria-invalid={tooLong}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            if (event.key === "Escape" && answering) {
+              setAnswering(null);
+            }
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
               void send();

@@ -168,7 +168,7 @@ func TestMessageRefusalsCrossTheBridgeAsCodes(t *testing.T) {
 		}
 	}
 	b := &Bridge{network: NewNetwork("", nil)}
-	if _, err := b.SendMessage("00", "hi"); err != Refusal("no-identity") {
+	if _, err := b.SendMessage("00", "hi", ""); err != Refusal("no-identity") {
 		t.Fatalf("SendMessage without an identity: %v", err)
 	}
 }

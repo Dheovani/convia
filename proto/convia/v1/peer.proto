@@ -22,14 +22,28 @@ message PeerMessage {
   }
 }
 
-// DirectMessage is one message of a conversation between two contacts (ADR 0010), at most 4,000 characters (ADR 0029).
+/*
+DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
+4,000 characters (ADR 0029), which may answer another (ADR 0035), or a reaction to one.
+*/
 message DirectMessage {
   bytes id = 1;
   uint64 sequence = 2;
   // The hybrid logical clock: milliseconds since 1970, and a counter for messages within one.
   int64 wall = 3;
   uint32 counter = 4;
+  // A message's text; an entry that is not a message has none.
   string text = 5;
+  // The message this one answers.
+  bytes reply_to = 6;
+  Reaction reaction = 7;
+}
+
+// Reaction puts an emoji on a message, or takes it off (ADR 0035).
+message Reaction {
+  bytes target = 1;
+  string emoji = 2;
+  bool on = 3;
 }
 
 // Acknowledgement says the sender stored these messages (ADR 0011).

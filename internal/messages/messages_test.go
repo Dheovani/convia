@@ -137,12 +137,48 @@ func (w *world) settle() {
 func (w *world) write(i int, text string) Message {
 	w.t.Helper()
 	p := w.peers[i]
-	m, err := p.s.Write(p.other().key, text)
+	m, err := p.s.Write(p.other().key, text, nil)
 	if err != nil {
 		w.t.Fatal(err)
 	}
 	p.s.work.drain()
 	return m
+}
+
+func (w *world) react(i int, target [IDSize]byte, emoji string, on bool) {
+	w.t.Helper()
+	p := w.peers[i]
+	if _, err := p.s.React(p.other().key, target, emoji, on); err != nil {
+		w.t.Fatal(err)
+	}
+	p.s.work.drain()
+}
+
+func (w *world) reply(i int, to [IDSize]byte, text string) Message {
+	w.t.Helper()
+	p := w.peers[i]
+	m, err := p.s.Write(p.other().key, text, &to)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	p.s.work.drain()
+	return m
+}
+
+// reactions describes a message's reactions, but not whose they are, which each peer sees from its side.
+func reactions(m Message) string {
+	var b strings.Builder
+	for _, r := range m.Reactions {
+		fmt.Fprintf(&b, "%s%d ", r.Emoji, r.Count)
+	}
+	return b.String()
+}
+
+func quoted(m Message) string {
+	if m.ReplyTo == nil {
+		return ""
+	}
+	return fmt.Sprintf("%x %v %s", m.ReplyTo.ID[:2], m.ReplyTo.Missing, m.ReplyTo.Text)
 }
 
 func (w *world) conversation(i int) []Message {
@@ -174,6 +210,9 @@ func (w *world) converged(written int) {
 		if a[i].ID != b[i].ID || a[i].Text != b[i].Text || a[i].Sequence != b[i].Sequence || a[i].Time != b[i].Time || !a[i].Author.Equal(b[i].Author) {
 			w.t.Fatalf("the two conversations differ at %d:\n%s\n%s", i, describe(a), describe(b))
 		}
+		if reactions(a[i]) != reactions(b[i]) || quoted(a[i]) != quoted(b[i]) {
+			w.t.Fatalf("message %d reads %s / %s on one peer and %s / %s on the other", i, reactions(a[i]), quoted(a[i]), reactions(b[i]), quoted(b[i]))
+		}
 	}
 	for i, p := range w.peers {
 		for _, m := range w.conversation(i) {
@@ -188,9 +227,13 @@ func (w *world) converged(written int) {
 		if waiting, _ := p.s.store.HasWaiting(p.other().key); waiting || p.wants[outboxReason] {
 			w.t.Fatalf("peer %d still has something waiting", i)
 		}
+		entries, err := p.s.store.entries(p.other().key)
+		if err != nil {
+			w.t.Fatal(err)
+		}
 		for _, author := range w.peers {
 			next := uint64(1)
-			for _, m := range w.conversation(i) {
+			for _, m := range entries {
 				if m.Author.Equal(author.key) {
 					if m.Sequence != next {
 						w.t.Fatalf("peer %d holds sequence %d where %d was next", i, m.Sequence, next)
@@ -211,9 +254,21 @@ func TestEveryHistoryEndsInTheSameConversation(t *testing.T) {
 			written := 0
 			for range 60 {
 				switch step := r.IntN(100); {
-				case step < 30:
+				case step < 22:
 					w.write(r.IntN(2), fmt.Sprintf("message %d", written))
 					written++
+				case step < 26:
+					// A reaction, on or off, on a message the reacting peer holds.
+					author := r.IntN(2)
+					if held := w.conversation(author); len(held) > 0 {
+						w.react(author, held[r.IntN(len(held))].ID, []string{"👍", "🎉"}[r.IntN(2)], r.IntN(3) > 0)
+					}
+				case step < 30:
+					author := r.IntN(2)
+					if held := w.conversation(author); len(held) > 0 {
+						w.reply(author, held[r.IntN(len(held))].ID, fmt.Sprintf("message %d", written))
+						written++
+					}
 				case step < 60:
 					w.deliver(r.IntN(2))
 				case step < 68:
@@ -322,7 +377,7 @@ func TestWhatTheProtocolDoesNotAllowIsNeitherStoredNorAcknowledged(t *testing.T)
 func TestOnlyAContactIsWrittenToOrHeard(t *testing.T) {
 	w := newWorld(t)
 	stranger, _, _ := ed25519.GenerateKey(nil)
-	if _, err := w.peers[0].s.Write(stranger, "hi"); !errors.Is(err, ErrNotContact) {
+	if _, err := w.peers[0].s.Write(stranger, "hi", nil); !errors.Is(err, ErrNotContact) {
 		t.Fatalf("writing to a stranger: %v", err)
 	}
 	w.up = true
@@ -348,7 +403,7 @@ func TestAMessageHoldsAtMost4000Characters(t *testing.T) {
 		}
 	}
 	w := newWorld(t)
-	if _, err := w.peers[0].s.Write(w.peers[1].key, strings.Repeat("a", MaxCharacters+1)); !errors.Is(err, ErrTooLong) {
+	if _, err := w.peers[0].s.Write(w.peers[1].key, strings.Repeat("a", MaxCharacters+1), nil); !errors.Is(err, ErrTooLong) {
 		t.Fatalf("writing too much: %v", err)
 	}
 	if got := w.conversation(0); len(got) != 0 {
@@ -522,5 +577,145 @@ func TestSearchStopsAtItsLimit(t *testing.T) {
 	found, _ := w.peers[0].s.Search("needle")
 	if len(found) != MaxFound || found[0].Message.Text != fmt.Sprintf("needle %d", MaxFound+4) {
 		t.Fatalf("found %d, the first %q", len(found), found[0].Message.Text)
+	}
+}
+
+func TestTheLatestReactionOfEachPersonDecides(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "react to me")
+	w.settle()
+	w.react(0, m.ID, "👍", true)
+	w.react(1, m.ID, "👍", true)
+	w.react(1, m.ID, "🎉", true)
+	w.react(1, m.ID, "🎉", false)
+	w.settle()
+
+	for i := range w.peers {
+		got := w.conversation(i)[0].Reactions
+		if len(got) != 1 || got[0].Emoji != "👍" || got[0].Count != 2 || !got[0].Mine {
+			t.Fatalf("peer %d sees %+v", i, got)
+		}
+	}
+	w.react(0, m.ID, "👍", false)
+	w.settle()
+	if got := w.conversation(1)[0].Reactions; len(got) != 1 || got[0].Count != 1 || !got[0].Mine {
+		t.Fatalf("after Ana took hers off, Bruno sees %+v", got)
+	}
+	if got := w.conversation(0)[0].Reactions; len(got) != 1 || got[0].Mine {
+		t.Fatalf("after taking hers off, Ana sees %+v", got)
+	}
+	w.converged(1)
+}
+
+func TestAReactionIsNoMessage(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "the only message")
+	w.settle()
+	w.peers[1].s.MarkRead(w.peers[0].key)
+	var told int
+	w.peers[1].s.Received = func(ed25519.PublicKey, Message) { told++ }
+	w.react(0, m.ID, "❤️", true)
+	w.settle()
+	if n, _ := w.peers[1].s.Unread(); n != 0 || told != 0 {
+		t.Fatalf("a reaction counted as unread (%d) or was told of (%d)", n, told)
+	}
+	if found, _ := w.peers[1].s.Search("❤"); len(found) != 0 {
+		t.Fatal("a search found a reaction")
+	}
+	if summaries, _ := w.peers[1].s.Summaries(); summaries[0].Last.Text != "the only message" {
+		t.Fatalf("the latest message is %q", summaries[0].Last.Text)
+	}
+}
+
+func TestAReplyQuotesWhatItAnswers(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, strings.Repeat("é", 200))
+	w.settle()
+	r := w.reply(1, m.ID, "yes")
+	w.settle()
+	for i := range w.peers {
+		got := w.conversation(i)[1]
+		if got.ID != r.ID || got.ReplyTo == nil || got.ReplyTo.ID != m.ID || got.ReplyTo.Missing ||
+			[]rune(got.ReplyTo.Text)[excerpt] != '…' || !got.ReplyTo.Author.Equal(w.peers[0].key) {
+			t.Fatalf("peer %d sees the reply as %+v", i, got.ReplyTo)
+		}
+	}
+}
+
+func TestWhatAnEntryIsAboutMustBeAMessageOfTheConversation(t *testing.T) {
+	w := newWorld(t)
+	nowhere := [IDSize]byte{9}
+	if _, err := w.peers[0].s.React(w.peers[1].key, nowhere, "👍", true); !errors.Is(err, ErrNoTarget) {
+		t.Fatalf("reacting to nothing: %v", err)
+	}
+	if _, err := w.peers[0].s.Write(w.peers[1].key, "answering nothing", &nowhere); !errors.Is(err, ErrNoTarget) {
+		t.Fatalf("answering nothing: %v", err)
+	}
+
+	// From a peer, an entry about a message not held yet is kept, and shows nothing by itself.
+	w.connect()
+	w.settle()
+	w.peers[1].s.Message(w.peers[0].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
+		Id: bytes.Repeat([]byte{8}, IDSize), Sequence: 1, Wall: 5, Reaction: &conviav1.Reaction{Target: nowhere[:], Emoji: "👍", On: true}}}})
+	w.peers[1].s.work.drain()
+	if len(w.queues[1]) != 1 {
+		t.Fatal("a reaction to a message not held yet was not acknowledged")
+	}
+	if got := w.conversation(1); len(got) != 0 {
+		t.Fatalf("a reaction alone shows as %v", got)
+	}
+}
+
+func TestWhatIsNotOneEmojiIsNoReaction(t *testing.T) {
+	for emoji, want := range map[string]error{
+		"👍": nil, "❤️": nil, "👍🏽": nil, "👨‍👩‍👧": nil, "🇧🇷": nil, "1️⃣": nil, "🏴󠁧󠁢󠁳󠁣󠁴󠁿": nil,
+		"": ErrEmoji, "a": ErrEmoji, "👍 ": ErrEmoji, "<b>": ErrEmoji, "1": ErrEmoji, strings.Repeat("👍", 9): ErrEmoji, "\xff": ErrEmoji,
+	} {
+		if got := CheckEmoji(emoji); !errors.Is(got, want) {
+			t.Errorf("CheckEmoji(%q) = %v, want %v", emoji, got, want)
+		}
+	}
+}
+
+func TestAnEntryOfNoSingleKindIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "hello")
+	w.deliver(0)
+	w.queues[1] = nil
+	for name, d := range map[string]*conviav1.DirectMessage{
+		"a reaction with text":    {Text: "both", Reaction: &conviav1.Reaction{Target: m.ID[:], Emoji: "👍", On: true}},
+		"a reaction that replies": {ReplyTo: m.ID[:], Reaction: &conviav1.Reaction{Target: m.ID[:], Emoji: "👍", On: true}},
+		"a reaction on nothing":   {Reaction: &conviav1.Reaction{Emoji: "👍", On: true}},
+		"a reaction of a word":    {Reaction: &conviav1.Reaction{Target: m.ID[:], Emoji: "nice", On: true}},
+		"a reply to no message":   {Text: "hi", ReplyTo: []byte{1, 2}},
+	} {
+		d.Id, d.Sequence = bytes.Repeat([]byte{7}, IDSize), 2
+		w.peers[1].s.Message(w.peers[0].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: d}})
+		w.peers[1].s.work.drain()
+		if len(w.queues[1]) != 0 {
+			t.Errorf("%s was acknowledged", name)
+		}
+		w.queues[1] = nil
+	}
+}
+
+func TestAReplyToAMessageNotHeldSaysSo(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	w.peers[1].s.Message(w.peers[0].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
+		Id: bytes.Repeat([]byte{8}, IDSize), Sequence: 1, Wall: 5, Text: "about something you lost", ReplyTo: bytes.Repeat([]byte{9}, IDSize)}}})
+	w.peers[1].s.work.drain()
+	got := w.conversation(1)
+	if len(got) != 1 || got[0].ReplyTo == nil || !got[0].ReplyTo.Missing || got[0].ReplyTo.Text != "" {
+		t.Fatalf("the reply shows %+v", got)
 	}
 }

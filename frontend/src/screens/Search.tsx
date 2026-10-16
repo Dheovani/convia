@@ -32,8 +32,7 @@ export function Search({
   const [found, setFound] = useState<Found[] | null>(null);
 
   useEffect(() => {
-    if (query.trim() === "")
-      return;
+    if (query.trim() === "") return;
 
     let current = true;
     const timer = setTimeout(() => {

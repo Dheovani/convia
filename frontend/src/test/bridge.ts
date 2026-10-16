@@ -51,5 +51,6 @@ export const bridge = Object.fromEntries(
     "OpenLink",
     "TrayWords",
     "SearchMessages",
+    "React",
   ].map((name) => [name, stub(name)]),
 );

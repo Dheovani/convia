@@ -54,7 +54,7 @@ test("Enter sends, and Shift+Enter does not", async () => {
   expect(calls.SendMessage).toBeUndefined();
   fireEvent.keyDown(field, { key: "Enter" });
   await waitFor(() =>
-    expect(calls.SendMessage).toEqual([[bruno.publicKey, "hello"]]),
+    expect(calls.SendMessage).toEqual([[bruno.publicKey, "hello", ""]]),
   );
 });
 
@@ -111,4 +111,86 @@ test("a refusal is said in the interface's words", async () => {
   expect(
     await screen.findByText("A message holds at most 4,000 characters."),
   ).toBeTruthy();
+});
+
+test("a reply names the message it answers, and shows what it quotes", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      ...said,
+      {
+        id: "05",
+        mine: false,
+        text: "about that",
+        status: "received",
+        at: 5,
+        reactions: [],
+        replyTo: { id: "03", mine: true, text: "**arrived**", missing: false },
+      },
+      {
+        id: "06",
+        mine: false,
+        text: "and this",
+        status: "received",
+        at: 6,
+        reactions: [],
+        replyTo: { id: "99", mine: false, text: "", missing: true },
+      },
+    ]);
+  open();
+  expect(await screen.findByText("arrived", { selector: "span" })).toBeTruthy();
+  expect(screen.getByText("The message replied to is not here.")).toBeTruthy();
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Reply" })[3]);
+  expect(screen.getByText("Replying to Bruno:")).toBeTruthy();
+  const field = screen.getByLabelText("Message to Bruno");
+  fireEvent.change(field, { target: { value: "yes" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() =>
+    expect(calls.SendMessage).toEqual([[bruno.publicKey, "yes", "04"]]),
+  );
+  await waitFor(() =>
+    expect(screen.queryByText("Replying to Bruno:")).toBeNull(),
+  );
+});
+
+test("Escape gives up replying", async () => {
+  open();
+  fireEvent.click((await screen.findAllByRole("button", { name: "Reply" }))[0]);
+  fireEvent.keyDown(screen.getByLabelText("Message to Bruno"), {
+    key: "Escape",
+  });
+  expect(screen.queryByText(/Replying to/)).toBeNull();
+});
+
+test("a reaction is put on, and a reaction of one's own taken off", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      {
+        ...said[3],
+        reactions: [
+          { emoji: "👍", count: 2, mine: true },
+          { emoji: "🎉", count: 1, mine: false },
+        ],
+      },
+    ]);
+  open();
+  const mine = await screen.findByRole("button", {
+    name: "👍 2, including you",
+  });
+  expect(mine.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(mine);
+  await waitFor(() =>
+    expect(calls.React).toEqual([[bruno.publicKey, "04", "👍", false]]),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "🎉 1" }));
+  await waitFor(() =>
+    expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "🎉", true]),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "React" }));
+  fireEvent.click(screen.getByRole("button", { name: "React with 😂" }));
+  await waitFor(() =>
+    expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "😂", true]),
+  );
+  expect(screen.queryByRole("group", { name: "Choose a reaction" })).toBeNull();
 });

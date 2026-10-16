@@ -27,6 +27,8 @@ export const ptBR: Words = {
     "no-such-contact": "Esse contato ou pedido não existe mais.",
     "message-too-long": "Uma mensagem tem no máximo 4.000 caracteres.",
     "message-empty": "Não há nada para enviar.",
+    "no-such-message": "Essa mensagem não está nesta conversa.",
+    "not-an-emoji": "Uma reação é um emoji.",
     unknown: "Algo deu errado.",
   },
   home: {
@@ -126,6 +128,15 @@ export const ptBR: Words = {
     waiting: "Aguardando",
     sent: "Enviada",
     delivered: "Entregue",
+    reply: "Responder",
+    react: "Reagir",
+    chooseReaction: "Escolha uma reação",
+    reactWith: (emoji: string) => `Reagir com ${emoji}`,
+    reaction: (emoji: string, count: number, mine: boolean) =>
+      `${emoji} ${count}${mine ? ", incluindo você" : ""}`,
+    replyingTo: (name: string) => `Respondendo a ${name}:`,
+    cancelReply: "Cancelar",
+    quoteMissing: "A mensagem respondida não está aqui.",
     waitingHint: (name: string) =>
       `Ela espera neste computador até ${name} ficar online.`,
   },

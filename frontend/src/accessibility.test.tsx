@@ -94,7 +94,15 @@ beforeEach(() => {
   answers.Conversation = () =>
     Promise.resolve([
       ana.last,
-      { id: "02", mine: true, text: "hello", status: "delivered", at: 2 },
+      {
+        id: "02",
+        mine: true,
+        text: "hello",
+        status: "delivered",
+        at: 2,
+        reactions: [{ emoji: "👍", count: 1, mine: false }],
+        replyTo: { id: "01", mine: false, text: "hi", missing: false },
+      },
     ]);
 });
 

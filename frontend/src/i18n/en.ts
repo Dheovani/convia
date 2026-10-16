@@ -26,6 +26,8 @@ export const en = {
     "no-such-contact": "That contact or request no longer exists.",
     "message-too-long": "A message holds at most 4,000 characters.",
     "message-empty": "There is nothing to send.",
+    "no-such-message": "That message is not in this conversation.",
+    "not-an-emoji": "A reaction is one emoji.",
     unknown: "Something went wrong.",
   },
   home: {
@@ -125,6 +127,15 @@ export const en = {
     waiting: "Waiting",
     sent: "Sent",
     delivered: "Delivered",
+    reply: "Reply",
+    react: "React",
+    chooseReaction: "Choose a reaction",
+    reactWith: (emoji: string) => `React with ${emoji}`,
+    reaction: (emoji: string, count: number, mine: boolean) =>
+      `${emoji} ${count}${mine ? ", including you" : ""}`,
+    replyingTo: (name: string) => `Replying to ${name}:`,
+    cancelReply: "Cancel",
+    quoteMissing: "The message replied to is not here.",
     waitingHint: (name: string) =>
       `It waits on this computer until ${name} is online.`,
   },

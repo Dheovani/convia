@@ -79,11 +79,20 @@ func (s *Service) Run(ctx context.Context) {
 func (s *Service) do(f func()) { s.work.push(f) }
 
 // Write stores a message to contact, and sends it as soon as contact can be reached.
-func (s *Service) Write(contact ed25519.PublicKey, text string) (Message, error) {
+func (s *Service) Write(contact ed25519.PublicKey, text string, replyTo *[IDSize]byte) (Message, error) {
+	return s.add(contact, func(at hlc.Time) (Message, error) { return s.store.Write(contact, text, replyTo, at) })
+}
+
+// React puts emoji on a message of contact's conversation, or takes it off, and sends that as a message is sent.
+func (s *Service) React(contact ed25519.PublicKey, target [IDSize]byte, emoji string, on bool) (Message, error) {
+	return s.add(contact, func(at hlc.Time) (Message, error) { return s.store.React(contact, target, emoji, on, at) })
+}
+
+func (s *Service) add(contact ed25519.PublicKey, store func(hlc.Time) (Message, error)) (Message, error) {
 	if !s.conns.IsContact(contact) {
 		return Message{}, ErrNotContact
 	}
-	m, err := s.store.Write(contact, text, s.clock.Now())
+	m, err := store(s.clock.Now())
 	if err != nil {
 		return Message{}, err
 	}
@@ -158,8 +167,11 @@ func (s *Service) receive(peer ed25519.PublicKey, d *conviav1.DirectMessage) {
 	if len(d.Id) != IDSize {
 		return
 	}
-	m := Message{Sequence: d.Sequence, Time: hlc.Time{Wall: d.Wall, Counter: d.Counter}, Text: d.Text}
-	copy(m.ID[:], d.Id)
+	m, ok := fromWire(d)
+	if !ok {
+		s.logger.Info("refuse a message", "reason", "an entry the protocol does not allow")
+		return
+	}
 	fresh, err := s.store.Receive(peer, m)
 	if err != nil {
 		// Not stored, so never acknowledged: a message the protocol does not allow (ADR 0029).
@@ -170,7 +182,7 @@ func (s *Service) receive(peer ed25519.PublicKey, d *conviav1.DirectMessage) {
 	s.conns.Send(peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Acknowledgement{
 		Acknowledgement: &conviav1.Acknowledgement{Ids: [][]byte{d.Id}}}})
 	if fresh {
-		if s.Received != nil {
+		if s.Received != nil && m.Kind == Text {
 			m.Author, m.Status = peer, Received
 			s.Received(peer, m)
 		}
@@ -182,8 +194,7 @@ func (s *Service) receive(peer ed25519.PublicKey, d *conviav1.DirectMessage) {
 func (s *Service) transmit(contact ed25519.PublicKey, messages []Message) {
 	var sent [][IDSize]byte
 	for _, m := range messages {
-		if !s.conns.Send(contact, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
-			Id: m.ID[:], Sequence: m.Sequence, Wall: m.Time.Wall, Counter: m.Time.Counter, Text: m.Text}}}) {
+		if !s.conns.Send(contact, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: toWire(m)}}) {
 			break
 		}
 		if m.Status != Delivered {
@@ -217,4 +228,47 @@ func (s *Service) again() {
 			s.transmit(contact, late)
 		}
 	}
+}
+
+func toWire(m Message) *conviav1.DirectMessage {
+	d := &conviav1.DirectMessage{Id: m.ID[:], Sequence: m.Sequence, Wall: m.Time.Wall, Counter: m.Time.Counter}
+	switch m.Kind {
+	case Text:
+		d.Text = m.Text
+		if m.Target != nil {
+			d.ReplyTo = m.Target[:]
+		}
+	case Reacting:
+		d.Reaction = &conviav1.Reaction{Target: m.Target[:], Emoji: m.Text, On: m.On}
+	}
+	return d
+}
+
+// fromWire reads an entry, and reports false for one that is no single kind the protocol allows.
+func fromWire(d *conviav1.DirectMessage) (Message, bool) {
+	if len(d.Id) != IDSize {
+		return Message{}, false
+	}
+	m := Message{Sequence: d.Sequence, Time: hlc.Time{Wall: d.Wall, Counter: d.Counter}}
+	copy(m.ID[:], d.Id)
+	target := func(b []byte) (*[IDSize]byte, bool) {
+		switch len(b) {
+		case 0:
+			return nil, true
+		case IDSize:
+			return (*[IDSize]byte)(b), true
+		}
+		return nil, false
+	}
+	var ok bool
+	switch {
+	case d.Reaction != nil && d.Text == "" && len(d.ReplyTo) == 0:
+		m.Kind, m.Text, m.On = Reacting, d.Reaction.Emoji, d.Reaction.On
+		m.Target, ok = target(d.Reaction.Target)
+		ok = ok && m.Target != nil
+	case d.Reaction == nil:
+		m.Kind, m.Text = Text, d.Text
+		m.Target, ok = target(d.ReplyTo)
+	}
+	return m, ok
 }

@@ -18,12 +18,48 @@ export namespace app {
 	        this.safetyCode = source["safetyCode"];
 	    }
 	}
+	export class QuoteView {
+	    id: string;
+	    mine: boolean;
+	    text: string;
+	    missing: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new QuoteView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.mine = source["mine"];
+	        this.text = source["text"];
+	        this.missing = source["missing"];
+	    }
+	}
+	export class ReactionView {
+	    emoji: string;
+	    count: number;
+	    mine: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReactionView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.emoji = source["emoji"];
+	        this.count = source["count"];
+	        this.mine = source["mine"];
+	    }
+	}
 	export class MessageView {
 	    id: string;
 	    mine: boolean;
 	    text: string;
 	    status: string;
 	    at: number;
+	    reactions: ReactionView[];
+	    replyTo?: QuoteView;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageView(source);
@@ -36,7 +72,27 @@ export namespace app {
 	        this.text = source["text"];
 	        this.status = source["status"];
 	        this.at = source["at"];
+	        this.reactions = this.convertValues(source["reactions"], ReactionView);
+	        this.replyTo = this.convertValues(source["replyTo"], QuoteView);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ConversationView {
 	    publicKey: string;
@@ -126,6 +182,8 @@ export namespace app {
 	        this.publicKey = source["publicKey"];
 	    }
 	}
+	
+	
 	
 	export class RequestView {
 	    publicKey: string;
