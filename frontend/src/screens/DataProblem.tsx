@@ -34,16 +34,15 @@ export function DataProblem({
   }
 
   return (
-    <main
-      role="alert"
-      className="flex h-full flex-col items-center justify-center gap-4 bg-surface px-8 text-center text-ink"
-    >
-      <h1 className="font-display text-xl font-semibold">
-        {words.dataProblem.title[problem]}
-      </h1>
-      <p className="max-w-prose text-ink-dim">
-        {words.dataProblem.explanation[problem]}
-      </p>
+    <main className="flex h-full flex-col items-center justify-center gap-4 bg-surface px-8 text-center text-ink">
+      <div role="alert" className="flex flex-col items-center gap-4">
+        <h1 className="font-display text-xl font-semibold">
+          {words.dataProblem.title[problem]}
+        </h1>
+        <p className="max-w-prose text-ink-dim">
+          {words.dataProblem.explanation[problem]}
+        </p>
+      </div>
       {problem !== "newer" &&
         (importing ? (
           <ImportIdentity

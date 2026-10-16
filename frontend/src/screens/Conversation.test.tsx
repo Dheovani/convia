@@ -35,7 +35,7 @@ beforeEach(() => {
 });
 
 function open() {
-  render(<Conversation contact={bruno} onBack={() => {}} />);
+  render(<Conversation contact={bruno} meName="Ana" />);
 }
 
 test("each message of ours says whether it waits, went or arrived", async () => {

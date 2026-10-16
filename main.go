@@ -26,6 +26,9 @@ var assets embed.FS
 //go:embed build/windows/icon.ico
 var trayIcon []byte
 
+//go:embed build/windows/tray-unread.ico
+var unreadIcon []byte
+
 func main() {
 	dir, err := home.Dir()
 	if err != nil {
@@ -50,6 +53,7 @@ func main() {
 		autostart.Default,
 		executable,
 		trayIcon,
+		unreadIcon,
 		app.OpenData(dir, protect.DPAPI{}),
 		app.NewNetwork(os.Getenv(app.RendezvousOverride), logger),
 	)

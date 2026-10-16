@@ -419,3 +419,64 @@ func TestAMessageLostOnAnOpenConnectionIsSentAgain(t *testing.T) {
 	w.settle()
 	w.converged(1)
 }
+
+func TestUnreadMessagesAreCountedUntilRead(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	var told []string
+	w.peers[1].s.Received = func(_ ed25519.PublicKey, m Message) { told = append(told, m.Text) }
+
+	w.write(0, "one")
+	w.write(0, "two")
+	w.write(1, "mine is never unread")
+	w.settle()
+	b := w.peers[1].s
+	if n, _ := b.Unread(); n != 2 {
+		t.Fatalf("%d unread, want 2", n)
+	}
+	summaries, err := b.Summaries()
+	if err != nil || len(summaries) != 1 || summaries[0].Unread != 2 || summaries[0].Last.Text != "mine is never unread" {
+		t.Fatalf("summaries = %+v, %v", summaries, err)
+	}
+	if strings.Join(told, ",") != "one,two" {
+		t.Fatalf("told of %q", told)
+	}
+
+	b.MarkRead(w.peers[0].key)
+	if n, _ := b.Unread(); n != 0 {
+		t.Fatalf("%d unread after reading", n)
+	}
+	w.write(0, "three")
+	w.settle()
+	if n, _ := b.Unread(); n != 1 {
+		t.Fatalf("%d unread after another, want 1", n)
+	}
+	var three Message
+	for _, m := range w.conversation(0) {
+		if m.Text == "three" {
+			three = m
+		}
+	}
+	w.queues[0] = append(w.queues[0], delivery{from: 0, message: &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
+		Id: three.ID[:], Sequence: three.Sequence, Wall: three.Time.Wall, Counter: three.Time.Counter, Text: "three"}}}})
+	w.deliver(0)
+	if len(w.queues[1]) != 1 {
+		t.Fatal("the message received again was not acknowledged")
+	}
+	if len(told) != 3 {
+		t.Fatalf("a message received again was told of: %q", told)
+	}
+}
+
+func TestConversationsAreListedLatestFirst(t *testing.T) {
+	w := newWorld(t)
+	if summaries, _ := w.peers[0].s.Summaries(); len(summaries) != 0 {
+		t.Fatal("a conversation with nothing in it is listed")
+	}
+	w.write(0, "hello")
+	summaries, _ := w.peers[0].s.Summaries()
+	if len(summaries) != 1 || summaries[0].Last.Status != Waiting || summaries[0].Unread != 0 {
+		t.Fatalf("summaries = %+v", summaries)
+	}
+}

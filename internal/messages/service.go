@@ -33,10 +33,12 @@ type Service struct {
 	clock   *hlc.Clock
 	conns   Connections
 	changed func(contact ed25519.PublicKey)
-	logger  *slog.Logger
-	now     func() time.Time
-	work    *queue
-	resend  time.Duration
+	// Received is told of each new message from a contact.
+	Received func(contact ed25519.PublicKey, m Message)
+	logger   *slog.Logger
+	now      func() time.Time
+	work     *queue
+	resend   time.Duration
 }
 
 // NewService delivers store's conversations over conns; changed is called when contact's conversation changes.
@@ -89,6 +91,15 @@ func (s *Service) Write(contact ed25519.PublicKey, text string) (Message, error)
 	s.do(func() { s.transmit(contact, []Message{m}) })
 	return m, nil
 }
+
+// Summaries is every conversation with a message, the latest first.
+func (s *Service) Summaries() ([]Summary, error) { return s.store.Summaries() }
+
+// MarkRead says the person has read contact's conversation.
+func (s *Service) MarkRead(contact ed25519.PublicKey) error { return s.store.MarkRead(contact) }
+
+// Unread is how many messages are unread in every conversation.
+func (s *Service) Unread() (int, error) { return s.store.Unread() }
 
 // Conversation is every message with contact, in order.
 func (s *Service) Conversation(contact ed25519.PublicKey) ([]Message, error) {
@@ -156,6 +167,10 @@ func (s *Service) receive(peer ed25519.PublicKey, d *conviav1.DirectMessage) {
 	s.conns.Send(peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Acknowledgement{
 		Acknowledgement: &conviav1.Acknowledgement{Ids: [][]byte{d.Id}}}})
 	if fresh {
+		if s.Received != nil {
+			m.Author, m.Status = peer, Received
+			s.Received(peer, m)
+		}
 		s.changed(peer)
 	}
 }
