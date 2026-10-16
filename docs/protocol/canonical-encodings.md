@@ -54,8 +54,10 @@ secret = SHA-256("convia/v1/pair-secret" | requester's identity | inviter's iden
 A contact is reachable, on a given day, under an identifier only the pair can compute; each announces their own, and watches the other's:
 
 ```text
-identifier = HMAC-SHA-256(secret, "convia/v1/reachability" | announcer's identity | day)
+identifier = HMAC-SHA-256(K, "convia/v1/reachability" | announcer's identity | day)
 ```
+
+where `K` is the pair secret.
 
 The day is the number of whole UTC days since 1970, as a 32-bit integer, so the identifier changes every day. A peer watching a contact watches the day before and after too, for clocks that disagree on the date.
 

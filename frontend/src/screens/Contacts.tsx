@@ -75,7 +75,7 @@ function SafetyCode({ code }: { code: string }) {
 const card = "flex flex-col gap-3 rounded-md bg-surface-raised p-4";
 
 // Contacts is who this person talks to, who asks to, and how to be asked (ADR 0026, ADR 0028).
-export function Contacts() {
+export function Contacts({ onOpen }: { onOpen: (contact: Contact) => void }) {
   const words = useWords();
   const [state, setState] = useState<State | null>(null);
   const [code, setCode] = useState("");
@@ -182,6 +182,9 @@ export function Contacts() {
                 </span>
               )}
             </h3>
+            <Button tone="primary" size="small" onClick={() => onOpen(c)}>
+              {words.contacts.open}
+            </Button>
             <SafetyCode code={c.safetyCode} />
             <p className="text-xs text-ink-faint">
               {words.contacts.safetyHint}

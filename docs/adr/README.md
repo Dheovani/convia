@@ -34,3 +34,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0026](0026-a-contact-needs-the-inviters-consent.md) | A contact needs the inviter's consent, and a request expires |
 | [0027](0027-a-new-key-is-a-new-person.md) | A new key is a new person |
 | [0028](0028-removing-or-blocking-a-contact-is-silent.md) | Removing or blocking a contact is silent |
+| [0029](0029-a-message-holds-at-most-4000-characters.md) | A message holds at most 4,000 characters |

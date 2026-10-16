@@ -432,6 +432,8 @@ func (b *Book) forget(tx *sql.Tx, k ed25519.PublicKey, forgetConversation bool) 
 	statements := []string{
 		`DELETE FROM requests_sent WHERE inviter_key = ?`,
 		`DELETE FROM requests_received WHERE requester_key = ?`,
+		// What waited for them waits no more: they are not reached again (ADR 0028).
+		`DELETE FROM outbox WHERE recipient_key = ?`,
 	}
 	var conversations int
 	if err := tx.QueryRow(`SELECT count(*) FROM conversations WHERE contact_key = ?`, []byte(k)).Scan(&conversations); err != nil {

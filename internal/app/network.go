@@ -13,9 +13,11 @@ import (
 
 	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
+	"github.com/Dheovani/convia/internal/messages"
 	"github.com/Dheovani/convia/internal/peers"
 	"github.com/Dheovani/convia/internal/rendezvous"
 	"github.com/Dheovani/convia/internal/storage"
+	conviav1 "github.com/Dheovani/convia/internal/wire/convia/v1"
 )
 
 // RendezvousOverride names the rendezvous service to use, until a person can choose one (ROADMAP M23-004).
@@ -26,8 +28,9 @@ const TransportEvent = "transport"
 
 // Events the interface listens to.
 const (
-	ContactsEvent = "contacts"
-	OutdatedEvent = "outdated"
+	ContactsEvent     = "contacts"
+	OutdatedEvent     = "outdated"
+	ConversationEvent = "conversation"
 )
 
 // Network runs this peer's connections and contacts while it has an identity.
@@ -40,6 +43,7 @@ type Network struct {
 	stop     context.CancelFunc
 	manager  *peers.Manager
 	contacts *contacts.Service
+	messages *messages.Service
 }
 
 func NewNetwork(address string, logger *slog.Logger) *Network {
@@ -80,13 +84,31 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		func() { emit(ContactsEvent) },
 		n.logger,
 	)
+	link := &delivery{contacts: service}
+	conversations, err := messages.NewService(
+		messages.NewStore(store, id.Public),
+		link,
+		func(contact ed25519.PublicKey) { emit(ConversationEvent, hex.EncodeToString(contact)) },
+		n.logger,
+	)
+	if err != nil {
+		n.logger.Error("open the conversations", "error", err)
+		stop()
+		return
+	}
 	manager := peers.New(
 		id.Private,
 		webview{ctx: n.ctx},
 		service.Accept,
 		peers.Observer{
-			Ready:     service.Ready,
-			Message:   service.Message,
+			Ready: func(peer ed25519.PublicKey) {
+				service.Ready(peer)
+				conversations.Ready(peer)
+			},
+			Message: func(peer ed25519.PublicKey, message *conviav1.PeerMessage) {
+				service.Message(peer, message)
+				conversations.Message(peer, message)
+			},
 			Reachable: service.Reachable,
 			Outdated: func(peer ed25519.PublicKey, theirs bool) {
 				emit(OutdatedEvent, OutdatedView{PublicKey: hex.EncodeToString(peer), Theirs: theirs})
@@ -96,15 +118,33 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		n.logger,
 	)
 	service.Attach(manager)
+	link.manager = manager
 
 	go manager.Run(ctx)
 	go service.Run(ctx)
+	go conversations.Run(ctx)
 	if n.address != "" {
 		go manager.Link(ctx, func(ctx context.Context) (peers.Session, error) {
 			return rendezvous.Dial(ctx, n.address, id.Private)
 		}, time.Second, time.Minute)
 	}
-	n.stop, n.manager, n.contacts = stop, manager, service
+	n.stop, n.manager, n.contacts, n.messages = stop, manager, service, conversations
+}
+
+// delivery is what the conversations need of the connections and the contacts.
+type delivery struct {
+	manager  *peers.Manager
+	contacts *contacts.Service
+}
+
+func (d *delivery) Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bool {
+	return d.manager.Send(peer, message)
+}
+func (d *delivery) Want(peer ed25519.PublicKey, reason string)    { d.contacts.Want(peer, reason) }
+func (d *delivery) Release(peer ed25519.PublicKey, reason string) { d.contacts.Release(peer, reason) }
+func (d *delivery) IsContact(peer ed25519.PublicKey) bool {
+	_, ok, err := d.contacts.Book().Contact(peer)
+	return ok && err == nil
 }
 
 // displayName is the name this person goes by now, which they may have changed since Start.
@@ -123,13 +163,19 @@ func (n *Network) Stop() {
 	if n.stop != nil {
 		n.stop()
 	}
-	n.stop, n.manager, n.contacts = nil, nil, nil
+	n.stop, n.manager, n.contacts, n.messages = nil, nil, nil, nil
 }
 
 func (n *Network) current() *peers.Manager {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.manager
+}
+
+func (n *Network) conversations() *messages.Service {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.messages
 }
 
 func (n *Network) people() *contacts.Service {

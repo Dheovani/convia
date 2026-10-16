@@ -25,6 +25,8 @@ export const ptBR: Words = {
     "already-contact": "Esta pessoa já é um dos seus contatos.",
     blocked: "Você bloqueou esta pessoa. Desbloqueie-a antes.",
     "no-such-contact": "Esse contato ou pedido não existe mais.",
+    "message-too-long": "Uma mensagem tem no máximo 4.000 caracteres.",
+    "message-empty": "Não há nada para enviar.",
     unknown: "Algo deu errado.",
   },
   home: {
@@ -68,6 +70,21 @@ export const ptBR: Words = {
     removeHint: "A pessoa não é avisada.",
     blocked: "Bloqueados",
     unblock: "Desbloquear",
+    open: "Abrir a conversa",
+  },
+  conversation: {
+    back: "Voltar",
+    none: "Nada foi dito ainda.",
+    field: (name: string) => `Mensagem para ${name}`,
+    send: "Enviar",
+    sendHint: "Enter envia; Shift+Enter começa uma nova linha.",
+    left: (count: number) => `Restam ${count} caracteres`,
+    over: (count: number) => `${count} caracteres a mais`,
+    waiting: "Aguardando",
+    sent: "Enviada",
+    delivered: "Entregue",
+    waitingHint: (name: string) =>
+      `Ela espera neste computador até ${name} ficar online.`,
   },
   welcome: {
     title: "Boas-vindas à Convia",

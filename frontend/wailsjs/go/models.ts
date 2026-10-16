@@ -32,6 +32,26 @@ export namespace app {
 	        this.publicKey = source["publicKey"];
 	    }
 	}
+	export class MessageView {
+	    id: string;
+	    mine: boolean;
+	    text: string;
+	    status: string;
+	    at: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.mine = source["mine"];
+	        this.text = source["text"];
+	        this.status = source["status"];
+	        this.at = source["at"];
+	    }
+	}
 	export class RequestView {
 	    publicKey: string;
 	    name: string;
