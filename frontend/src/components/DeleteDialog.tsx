@@ -42,7 +42,7 @@ export function DeleteDialog({
     <dialog
       ref={dialog}
       aria-labelledby={title}
-      className="m-auto flex max-w-md flex-col gap-3 rounded-md border border-line bg-surface-raised p-5 text-ink shadow-raised backdrop:bg-black/50"
+      className="m-auto flex max-w-lg flex-col gap-3 rounded-md border border-line bg-surface-raised p-5 text-ink shadow-raised backdrop:bg-black/50"
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -52,7 +52,7 @@ export function DeleteDialog({
         {words.deleting.title}
       </h2>
       <p className="text-sm text-ink-dim">{explanation}</p>
-      <div className="flex flex-wrap justify-end gap-2">
+      <div className="flex justify-end gap-2 whitespace-nowrap">
         <Button autoFocus onClick={onClose}>
           {words.deleting.cancel}
         </Button>
