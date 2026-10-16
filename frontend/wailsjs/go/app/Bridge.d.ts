@@ -15,6 +15,8 @@ export function ChooseIdentityFile():Promise<string>;
 
 export function Contacts():Promise<Array<app.ContactView>>;
 
+export function Conversation(arg1:string):Promise<Array<app.MessageView>>;
+
 export function CreateIdentity(arg1:string):Promise<app.MeView>;
 
 export function DeclineRequest(arg1:string):Promise<void>;
@@ -27,6 +29,8 @@ export function ExportIdentity(arg1:string):Promise<boolean>;
 
 export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app.MeView>;
 
+export function MaxMessageCharacters():Promise<number>;
+
 export function Me():Promise<app.MeView>;
 
 export function MyInvitation():Promise<string>;
@@ -38,6 +42,8 @@ export function RemoveContact(arg1:string,arg2:boolean):Promise<void>;
 export function RenameIdentity(arg1:string):Promise<void>;
 
 export function Requests():Promise<app.RequestsView>;
+
+export function SendMessage(arg1:string,arg2:string):Promise<app.MessageView>;
 
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;
 

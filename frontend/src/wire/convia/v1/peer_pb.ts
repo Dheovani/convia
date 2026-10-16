@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxItoCCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSABCCQoHbWVzc2FnZSIsCg5Db250YWN0UmVxdWVzdBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiLQoPQ29udGFjdEFjY2VwdGVkEgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCISChBDb250YWN0Q29uZmlybWVkIhoKCEludGVyZXN0Eg4KBndhbnRlZBgBIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z", [file_convia_v1_handshake]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIuwDCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIAEIJCgdtZXNzYWdlIloKDURpcmVjdE1lc3NhZ2USCgoCaWQYASABKAwSEAoIc2VxdWVuY2UYAiABKAQSDAoEd2FsbBgDIAEoAxIPCgdjb3VudGVyGAQgASgNEgwKBHRleHQYBSABKAkiHgoPQWNrbm93bGVkZ2VtZW50EgsKA2lkcxgBIAMoDCIbCgdIb2xkaW5nEhAKCHNlcXVlbmNlGAEgASgEIiwKDkNvbnRhY3RSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCItCg9Db250YWN0QWNjZXB0ZWQSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIhIKEENvbnRhY3RDb25maXJtZWQiGgoISW50ZXJlc3QSDgoGd2FudGVkGAEgASgIQj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM", [file_convia_v1_handshake]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -65,6 +65,24 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
      */
     value: ContactConfirmed;
     case: "contactConfirmed";
+  } | {
+    /**
+     * @generated from field: convia.v1.DirectMessage direct_message = 8;
+     */
+    value: DirectMessage;
+    case: "directMessage";
+  } | {
+    /**
+     * @generated from field: convia.v1.Acknowledgement acknowledgement = 9;
+     */
+    value: Acknowledgement;
+    case: "acknowledgement";
+  } | {
+    /**
+     * @generated from field: convia.v1.Holding holding = 10;
+     */
+    value: Holding;
+    case: "holding";
   } | { case: undefined; value?: undefined };
 };
 
@@ -74,6 +92,85 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
  */
 export const PeerMessageSchema: GenMessage<PeerMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_peer, 0);
+
+/**
+ * DirectMessage is one message of a conversation between two contacts (ADR 0010), at most 4,000 characters (ADR 0029).
+ *
+ * @generated from message convia.v1.DirectMessage
+ */
+export type DirectMessage = Message<"convia.v1.DirectMessage"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: uint64 sequence = 2;
+   */
+  sequence: bigint;
+
+  /**
+   * The hybrid logical clock: milliseconds since 1970, and a counter for messages within one.
+   *
+   * @generated from field: int64 wall = 3;
+   */
+  wall: bigint;
+
+  /**
+   * @generated from field: uint32 counter = 4;
+   */
+  counter: number;
+
+  /**
+   * @generated from field: string text = 5;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message convia.v1.DirectMessage.
+ * Use `create(DirectMessageSchema)` to create a new message.
+ */
+export const DirectMessageSchema: GenMessage<DirectMessage> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 1);
+
+/**
+ * Acknowledgement says the sender stored these messages (ADR 0011).
+ *
+ * @generated from message convia.v1.Acknowledgement
+ */
+export type Acknowledgement = Message<"convia.v1.Acknowledgement"> & {
+  /**
+   * @generated from field: repeated bytes ids = 1;
+   */
+  ids: Uint8Array[];
+};
+
+/**
+ * Describes the message convia.v1.Acknowledgement.
+ * Use `create(AcknowledgementSchema)` to create a new message.
+ */
+export const AcknowledgementSchema: GenMessage<Acknowledgement> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 2);
+
+/**
+ * Holding is the highest sequence number of the receiver's messages the sender holds, with every one before it.
+ *
+ * @generated from message convia.v1.Holding
+ */
+export type Holding = Message<"convia.v1.Holding"> & {
+  /**
+   * @generated from field: uint64 sequence = 1;
+   */
+  sequence: bigint;
+};
+
+/**
+ * Describes the message convia.v1.Holding.
+ * Use `create(HoldingSchema)` to create a new message.
+ */
+export const HoldingSchema: GenMessage<Holding> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 3);
 
 /**
  * ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
@@ -97,7 +194,7 @@ export type ContactRequest = Message<"convia.v1.ContactRequest"> & {
  * Use `create(ContactRequestSchema)` to create a new message.
  */
 export const ContactRequestSchema: GenMessage<ContactRequest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 1);
+  messageDesc(file_convia_v1_peer, 4);
 
 /**
  * ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
@@ -121,7 +218,7 @@ export type ContactAccepted = Message<"convia.v1.ContactAccepted"> & {
  * Use `create(ContactAcceptedSchema)` to create a new message.
  */
 export const ContactAcceptedSchema: GenMessage<ContactAccepted> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 2);
+  messageDesc(file_convia_v1_peer, 5);
 
 /**
  * ContactConfirmed says the requester holds the pair secret too.
@@ -136,7 +233,7 @@ export type ContactConfirmed = Message<"convia.v1.ContactConfirmed"> & {
  * Use `create(ContactConfirmedSchema)` to create a new message.
  */
 export const ContactConfirmedSchema: GenMessage<ContactConfirmed> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 3);
+  messageDesc(file_convia_v1_peer, 6);
 
 /**
  * Interest says whether the sender still wants the connection (ADR 0024).
@@ -155,5 +252,5 @@ export type Interest = Message<"convia.v1.Interest"> & {
  * Use `create(InterestSchema)` to create a new message.
  */
 export const InterestSchema: GenMessage<Interest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 4);
+  messageDesc(file_convia_v1_peer, 7);
 

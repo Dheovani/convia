@@ -46,7 +46,7 @@ beforeEach(() => {
 });
 
 test("shows the contacts, the requests and the invitation", async () => {
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   expect(await screen.findByText("Bruno")).toBeTruthy();
   expect(screen.getByText("Carla")).toBeTruthy();
   expect(screen.getByText("33333 44444")).toBeTruthy();
@@ -56,7 +56,7 @@ test("shows the contacts, the requests and the invitation", async () => {
 });
 
 test("a received request is accepted, declined or blocked by its key", async () => {
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   fireEvent.click(await screen.findByRole("button", { name: "Accept" }));
   await waitFor(() => expect(calls.AcceptRequest).toEqual([[carla.publicKey]]));
   fireEvent.click(screen.getByRole("button", { name: "Decline" }));
@@ -72,7 +72,7 @@ test("a received request is accepted, declined or blocked by its key", async () 
 test("a pasted invitation sends a request and says to whom", async () => {
   answers.AddContact = () =>
     Promise.resolve({ ...davi, name: "Fábio", publicKey: "ff".repeat(32) });
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   fireEvent.change(await screen.findByLabelText("Their invitation"), {
     target: { value: "convia1fabio" },
   });
@@ -83,7 +83,7 @@ test("a pasted invitation sends a request and says to whom", async () => {
 
 test("an invitation that does not read says why", async () => {
   answers.AddContact = () => Promise.reject(new Error("invitation-checksum"));
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   fireEvent.change(await screen.findByLabelText("Their invitation"), {
     target: { value: "convia1typo" },
   });
@@ -94,7 +94,7 @@ test("an invitation that does not read says why", async () => {
 });
 
 test("a contact is verified, and removed with or without the conversation", async () => {
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   fireEvent.click(
     await screen.findByLabelText("I compared this code with Bruno"),
   );
@@ -114,7 +114,7 @@ test("a contact is verified, and removed with or without the conversation", asyn
 });
 
 test("a sent request is dismissed", async () => {
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   fireEvent.click(
     (await screen.findAllByRole("button", { name: "Dismiss" }))[1],
   );
@@ -124,7 +124,7 @@ test("a sent request is dismissed", async () => {
 });
 
 test("the list follows the core when it changes", async () => {
-  render(<Contacts />);
+  render(<Contacts onOpen={() => {}} />);
   await screen.findByText("Bruno");
   answers.Contacts = () =>
     Promise.resolve([

@@ -16,7 +16,30 @@ message PeerMessage {
     ContactRequest contact_request = 5;
     ContactAccepted contact_accepted = 6;
     ContactConfirmed contact_confirmed = 7;
+    DirectMessage direct_message = 8;
+    Acknowledgement acknowledgement = 9;
+    Holding holding = 10;
   }
+}
+
+// DirectMessage is one message of a conversation between two contacts (ADR 0010), at most 4,000 characters (ADR 0029).
+message DirectMessage {
+  bytes id = 1;
+  uint64 sequence = 2;
+  // The hybrid logical clock: milliseconds since 1970, and a counter for messages within one.
+  int64 wall = 3;
+  uint32 counter = 4;
+  string text = 5;
+}
+
+// Acknowledgement says the sender stored these messages (ADR 0011).
+message Acknowledgement {
+  repeated bytes ids = 1;
+}
+
+// Holding is the highest sequence number of the receiver's messages the sender holds, with every one before it.
+message Holding {
+  uint64 sequence = 1;
 }
 
 // ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).

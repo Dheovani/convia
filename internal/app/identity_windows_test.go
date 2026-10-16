@@ -9,6 +9,7 @@ import (
 	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
 	"github.com/Dheovani/convia/internal/invitation"
+	"github.com/Dheovani/convia/internal/messages"
 	"github.com/Dheovani/convia/internal/protect"
 )
 
@@ -149,5 +150,22 @@ func TestContactsNeedAnIdentity(t *testing.T) {
 	}
 	if err := b.AcceptRequest("00"); err != Refusal("no-identity") {
 		t.Fatalf("AcceptRequest without an identity: %v", err)
+	}
+}
+
+func TestMessageRefusalsCrossTheBridgeAsCodes(t *testing.T) {
+	for err, code := range map[error]Refusal{
+		messages.ErrTooLong:    "message-too-long",
+		messages.ErrEmpty:      "message-empty",
+		messages.ErrNotContact: "no-such-contact",
+		contacts.ErrNoSuch:     "no-such-contact",
+	} {
+		if got := messageRefusal(err); got != code {
+			t.Errorf("messageRefusal(%v) = %v, want %q", err, got, code)
+		}
+	}
+	b := &Bridge{network: NewNetwork("", nil)}
+	if _, err := b.SendMessage("00", "hi"); err != Refusal("no-identity") {
+		t.Fatalf("SendMessage without an identity: %v", err)
 	}
 }

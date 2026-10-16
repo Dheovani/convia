@@ -3,7 +3,8 @@ import { Contacts as readContacts } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { Wordmark } from "../components/Mark";
 import { useWords } from "../i18n/language";
-import { Contacts } from "./Contacts";
+import { Contacts, type Contact } from "./Contacts";
+import { Conversation } from "./Conversation";
 import { Me, type Identity } from "./Me";
 
 interface Outdated {
@@ -22,6 +23,7 @@ export function Home({
   const words = useWords();
   const [tab, setTab] = useState<"contacts" | "you">("contacts");
   const [outdated, setOutdated] = useState<string | null>(null);
+  const [talkingTo, setTalkingTo] = useState<Contact | null>(null);
 
   useEffect(
     () =>
@@ -76,8 +78,10 @@ export function Home({
           {outdated}
         </p>
       )}
-      {tab === "contacts" ? (
-        <Contacts />
+      {tab === "contacts" && talkingTo ? (
+        <Conversation contact={talkingTo} onBack={() => setTalkingTo(null)} />
+      ) : tab === "contacts" ? (
+        <Contacts onOpen={setTalkingTo} />
       ) : (
         <Me key={me.publicKey + me.name} me={me} onChanged={onChanged} />
       )}

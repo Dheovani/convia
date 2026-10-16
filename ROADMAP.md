@@ -188,15 +188,15 @@ The conversation itself ([ADR 0010](docs/adr/0010-a-conversation-is-kept-on-each
 
 **Depends on:** M10.
 
-- [ ] **M11-001:** Give every message a 16-byte random identifier, its sender's sequence number and a hybrid logical clock timestamp.
-- [ ] **M11-002:** Order a conversation by timestamp, then identifier, identically on both peers.
-- [ ] **M11-003:** Store a message before showing it as sent, and keep the outbox in storage, so that waiting messages survive restarts of the application and the machine.
-- [ ] **M11-004:** Send waiting messages when the contact becomes reachable, and retransmit until acknowledged.
-- [ ] **M11-005:** Acknowledge a message only after storing it, and acknowledge again, storing nothing, a message already held.
-- [ ] **M11-006:** Catch up on reconnection by each sender's highest sequence number.
-- [ ] **M11-007:** Decide the largest message, and what happens to a larger one.
-- [ ] **M11-008:** Show each message as waiting, sent or delivered.
-- [ ] **M11-009:** Test ordering, idempotency and catching up with property-based tests: many orders of arrival, duplicates and interruptions, one result.
+- [x] **M11-001:** Give every message a 16-byte random identifier, its sender's sequence number and a hybrid logical clock timestamp.
+- [x] **M11-002:** Order a conversation by timestamp, then identifier, identically on both peers.
+- [x] **M11-003:** Store a message before showing it as sent, and keep the outbox in storage, so that waiting messages survive restarts of the application and the machine.
+- [x] **M11-004:** Send waiting messages when the contact becomes reachable, and retransmit until acknowledged.
+- [x] **M11-005:** Acknowledge a message only after storing it, and acknowledge again, storing nothing, a message already held.
+- [x] **M11-006:** Catch up on reconnection by each sender's highest sequence number.
+- [x] **M11-007:** Decide the largest message, and what happens to a larger one.
+- [x] **M11-008:** Show each message as waiting, sent or delivered.
+- [x] **M11-009:** Test ordering, idempotency and catching up with property-based tests: many orders of arrival, duplicates and interruptions, one result.
 
 ### M12 — The workspace and the conversation view
 

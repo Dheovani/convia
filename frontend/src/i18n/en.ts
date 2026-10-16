@@ -24,6 +24,8 @@ export const en = {
     "already-contact": "This person is already one of your contacts.",
     blocked: "You blocked this person. Unblock them first.",
     "no-such-contact": "That contact or request no longer exists.",
+    "message-too-long": "A message holds at most 4,000 characters.",
+    "message-empty": "There is nothing to send.",
     unknown: "Something went wrong.",
   },
   home: {
@@ -67,6 +69,21 @@ export const en = {
     removeHint: "They are not told.",
     blocked: "Blocked",
     unblock: "Unblock",
+    open: "Open the conversation",
+  },
+  conversation: {
+    back: "Back",
+    none: "Nothing said yet.",
+    field: (name: string) => `Message to ${name}`,
+    send: "Send",
+    sendHint: "Enter sends; Shift+Enter starts a new line.",
+    left: (count: number) => `${count} characters left`,
+    over: (count: number) => `${count} characters too many`,
+    waiting: "Waiting",
+    sent: "Sent",
+    delivered: "Delivered",
+    waitingHint: (name: string) =>
+      `It waits on this computer until ${name} is online.`,
   },
   welcome: {
     title: "Welcome to Convia",

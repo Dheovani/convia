@@ -717,3 +717,32 @@ func TestABlockedPersonsRequestIsNotRecorded(t *testing.T) {
 		t.Fatal("a blocked person's request waits")
 	}
 }
+
+func TestRemovingAContactDropsWhatWaitedForThem(t *testing.T) {
+	w := newWorld()
+	ana, bruno := w.join(t, "Ana"), w.join(t, "Bruno")
+	bruno.s.Ask(ana.invitation())
+	eventually(t, func() bool { return ana.asked(bruno) })
+	ana.s.AcceptRequest(bruno.id.Public)
+	eventually(t, func() bool { return bruno.hasContact(ana) })
+
+	conversation, message := bytes.Repeat([]byte{1}, 16), bytes.Repeat([]byte{2}, 16)
+	for _, statement := range []string{
+		`INSERT INTO conversations (id, contact_key, created_at) VALUES (?1, ?2, 0)`,
+		`INSERT INTO messages (id, conversation_id, author_key, author_sequence, hlc_wall, hlc_counter, content, stored_at) VALUES (?3, ?1, ?4, 1, 0, 0, x'00', 0)`,
+		`INSERT INTO outbox (message_id, recipient_key, queued_at) VALUES (?3, ?2, 0)`,
+	} {
+		if _, err := ana.store.DB.Exec(statement, conversation, []byte(bruno.id.Public), message, []byte(ana.id.Public)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ana.s.Remove(bruno.id.Public, false); err != nil {
+		t.Fatal(err)
+	}
+	var waiting, kept int
+	ana.store.DB.QueryRow(`SELECT count(*) FROM outbox`).Scan(&waiting)
+	ana.store.DB.QueryRow(`SELECT count(*) FROM messages`).Scan(&kept)
+	if waiting != 0 || kept != 1 {
+		t.Fatalf("after removing, %d messages wait and %d are kept", waiting, kept)
+	}
+}

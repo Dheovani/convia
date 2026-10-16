@@ -54,3 +54,20 @@ requester                                 inviter
 - A declined request is never answered: the inviter's peer refuses the requester's connections until the request would have expired.
 - Two people asking each other become contacts through the request of the one whose key is lower; the other's request is ignored.
 - A contact who asks again — having removed the other, say — is accepted at once, with a new pair secret.
+
+## A conversation
+
+Contacts exchange their messages over their connection ([ADR 0010](../adr/0010-a-conversation-is-kept-on-each-peer.md), [ADR 0011](../adr/0011-a-message-waits-with-its-sender.md)); a peer that is not a contact is neither written to nor heard.
+
+```text
+each peer                                 the other
+ │ ── holding: highest held, every one before ──► │
+ │ ◄──── direct_message … (what is missing) ───── │
+ │ ── acknowledgement: ids ─────────────────────► │
+```
+
+- **A message** is `direct_message`: a random 16-byte identifier, its author's sequence number in the conversation (1, 2, 3, …), its hybrid logical clock — milliseconds since 1970, and a counter for messages in the same millisecond — and its text, of 1 to 4,000 characters ([ADR 0029](../adr/0029-a-message-holds-at-most-4000-characters.md)).
+- **The order** of a conversation is by clock, then by identifier compared byte by byte, so both peers show the same order. A peer's clock moves past every message it receives, so a reply always comes after what it answers.
+- **Catching up:** once proven, each peer sends `holding`, the highest sequence number of the other's messages it holds with every one before it. The other takes everything up to it out of its outbox, and sends, in order, every message after it.
+- **Delivery:** a message is stored, and in the outbox, before it is shown as sent. It is sent when a connection opens, and again after 30 seconds without an acknowledgement. The recipient answers `acknowledgement` only once the message is stored — again for one it already holds, storing nothing — and the sender then takes it out of the outbox: it is delivered.
+- **Refused:** a message longer than 4,000 characters, empty, not UTF-8, or whose identifier or sequence number another message already has, is neither stored nor acknowledged.

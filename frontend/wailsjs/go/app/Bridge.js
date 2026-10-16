@@ -26,6 +26,10 @@ export function Contacts() {
   return window['go']['app']['Bridge']['Contacts']();
 }
 
+export function Conversation(arg1) {
+  return window['go']['app']['Bridge']['Conversation'](arg1);
+}
+
 export function CreateIdentity(arg1) {
   return window['go']['app']['Bridge']['CreateIdentity'](arg1);
 }
@@ -50,6 +54,10 @@ export function ImportIdentity(arg1, arg2, arg3) {
   return window['go']['app']['Bridge']['ImportIdentity'](arg1, arg2, arg3);
 }
 
+export function MaxMessageCharacters() {
+  return window['go']['app']['Bridge']['MaxMessageCharacters']();
+}
+
 export function Me() {
   return window['go']['app']['Bridge']['Me']();
 }
@@ -72,6 +80,10 @@ export function RenameIdentity(arg1) {
 
 export function Requests() {
   return window['go']['app']['Bridge']['Requests']();
+}
+
+export function SendMessage(arg1, arg2) {
+  return window['go']['app']['Bridge']['SendMessage'](arg1, arg2);
 }
 
 export function SetStartsWithWindows(arg1) {
