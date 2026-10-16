@@ -3,7 +3,7 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { answers, calls, reset } from "../test/bridge";
 import { emit, resetEvents } from "../test/runtime";
 import { Contacts } from "./Contacts";
-import { Home } from "./Home";
+import { Workspace } from "./Workspace";
 
 vi.mock(
   "../../wailsjs/go/app/Bridge",
@@ -136,7 +136,10 @@ test("the list follows the core when it changes", async () => {
 });
 
 test("the person is told which contact has to update", async () => {
-  render(<Home me={{ name: "Me", publicKey: "00" }} onChanged={() => {}} />);
+  answers.Conversations = () => Promise.resolve([bruno]);
+  render(
+    <Workspace me={{ name: "Me", publicKey: "00" }} onChanged={() => {}} />,
+  );
   await screen.findByText("Bruno");
   emit("outdated", { publicKey: bruno.publicKey, theirs: true });
   expect(

@@ -72,6 +72,45 @@ export const ptBR: Words = {
     unblock: "Desbloquear",
     open: "Abrir a conversa",
   },
+  workspace: {
+    directMessages: "Mensagens diretas",
+    contacts: "Contatos",
+    settings: "Configurações",
+    home: "Mensagens diretas",
+    conversations: "Conversas",
+    unread: (count: number) => `${count} não lidas`,
+    requests: (count: number) => `${count} aguardando a sua resposta`,
+    noConversations:
+      "Ainda não há com quem conversar. Adicione um contato com o convite dele.",
+    choose: "Escolha uma conversa.",
+    you: "Você",
+    verified: "Verificado",
+  },
+  settings: {
+    title: "Configurações",
+    language: "Idioma",
+    languageSystem: (name: string) => `Como o sistema (${name})`,
+    theme: "Tema",
+    themes: { system: "Como o sistema", dark: "Escuro", light: "Claro" },
+    notificationsTitle: "Notificações",
+    notificationText: "Mostrar o que a mensagem diz na notificação",
+    notificationTextHint:
+      "Desligado, a notificação diz só quem escreveu, para ninguém perto da tela ler.",
+  },
+  tray: {
+    open: "Abrir a Convia",
+    autostart: "Iniciar com o Windows",
+    quit: "Sair da Convia",
+  },
+  notification: {
+    title: (name: string) => `Nova mensagem de ${name}`,
+  },
+  link: {
+    title: "Abrir este link?",
+    explanation: "Ele abre no seu navegador, e o site vai ver o acesso.",
+    open: "Abrir",
+    cancel: "Cancelar",
+  },
   conversation: {
     back: "Voltar",
     none: "Nada foi dito ainda.",

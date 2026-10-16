@@ -18,20 +18,6 @@ export namespace app {
 	        this.safetyCode = source["safetyCode"];
 	    }
 	}
-	export class MeView {
-	    name: string;
-	    publicKey: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new MeView(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.name = source["name"];
-	        this.publicKey = source["publicKey"];
-	    }
-	}
 	export class MessageView {
 	    id: string;
 	    mine: boolean;
@@ -52,6 +38,61 @@ export namespace app {
 	        this.at = source["at"];
 	    }
 	}
+	export class ConversationView {
+	    publicKey: string;
+	    name: string;
+	    verified: boolean;
+	    safetyCode: string;
+	    last?: MessageView;
+	    unread: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.publicKey = source["publicKey"];
+	        this.name = source["name"];
+	        this.verified = source["verified"];
+	        this.safetyCode = source["safetyCode"];
+	        this.last = this.convertValues(source["last"], MessageView);
+	        this.unread = source["unread"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MeView {
+	    name: string;
+	    publicKey: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MeView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.publicKey = source["publicKey"];
+	    }
+	}
+	
 	export class RequestView {
 	    publicKey: string;
 	    name: string;

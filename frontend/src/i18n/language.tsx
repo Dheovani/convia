@@ -5,6 +5,7 @@ import {
   rememberLanguage,
   type LanguageChoice,
 } from "../state/preferences";
+import { TrayWords } from "../../wailsjs/go/app/Bridge";
 import { en, type Words } from "./en";
 import { ptBR } from "./pt-BR";
 
@@ -124,7 +125,9 @@ export function Speaking({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     document.documentElement.lang = language.tag;
-  }, [language.tag]);
+    const { open, autostart, quit } = language.words.tray;
+    void TrayWords(open, autostart, quit).catch(() => undefined);
+  }, [language]);
 
   return (
     <ChoosingContext.Provider value={choosing}>

@@ -71,6 +71,45 @@ export const en = {
     unblock: "Unblock",
     open: "Open the conversation",
   },
+  workspace: {
+    directMessages: "Direct messages",
+    contacts: "Contacts",
+    settings: "Settings",
+    home: "Direct messages",
+    conversations: "Conversations",
+    unread: (count: number) => `${count} unread`,
+    requests: (count: number) => `${count} waiting for your answer`,
+    noConversations:
+      "Nobody to talk to yet. Add a contact with their invitation.",
+    choose: "Choose a conversation.",
+    you: "You",
+    verified: "Verified",
+  },
+  settings: {
+    title: "Settings",
+    language: "Language",
+    languageSystem: (name: string) => `As the system (${name})`,
+    theme: "Theme",
+    themes: { system: "As the system", dark: "Dark", light: "Light" },
+    notificationsTitle: "Notifications",
+    notificationText: "Show what a message says in its notification",
+    notificationTextHint:
+      "Off, a notification says only who wrote, so nobody near the screen reads it.",
+  },
+  tray: {
+    open: "Open Convia",
+    autostart: "Start with Windows",
+    quit: "Quit Convia",
+  },
+  notification: {
+    title: (name: string) => `New message from ${name}`,
+  },
+  link: {
+    title: "Open this link?",
+    explanation: "It opens in your browser, which the site will see.",
+    open: "Open",
+    cancel: "Cancel",
+  },
   conversation: {
     back: "Back",
     none: "Nothing said yet.",

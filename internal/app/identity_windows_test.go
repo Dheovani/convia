@@ -169,3 +169,12 @@ func TestMessageRefusalsCrossTheBridgeAsCodes(t *testing.T) {
 		t.Fatalf("SendMessage without an identity: %v", err)
 	}
 }
+
+func TestOnlyAWebAddressIsOpened(t *testing.T) {
+	b := &Bridge{network: NewNetwork("", nil)}
+	for _, address := range []string{"javascript:alert(1)", "file:///C:/Windows/system32", "data:text/html,x", "convia://x", "https://", "notaurl", "ms-settings:privacy"} {
+		if err := b.OpenLink(address); !errors.Is(err, errNotALink) {
+			t.Errorf("OpenLink(%q) = %v", address, err)
+		}
+	}
+}

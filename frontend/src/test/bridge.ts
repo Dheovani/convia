@@ -45,5 +45,10 @@ export const bridge = Object.fromEntries(
     "SetVerified",
     "Conversation",
     "SendMessage",
+    "Conversations",
+    "Viewing",
+    "Notify",
+    "OpenLink",
+    "TrayWords",
   ].map((name) => [name, stub(name)]),
 );

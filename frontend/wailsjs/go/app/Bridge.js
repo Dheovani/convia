@@ -30,6 +30,10 @@ export function Conversation(arg1) {
   return window['go']['app']['Bridge']['Conversation'](arg1);
 }
 
+export function Conversations() {
+  return window['go']['app']['Bridge']['Conversations']();
+}
+
 export function CreateIdentity(arg1) {
   return window['go']['app']['Bridge']['CreateIdentity'](arg1);
 }
@@ -68,6 +72,14 @@ export function MyInvitation() {
 
 export function NetworkChanged() {
   return window['go']['app']['Bridge']['NetworkChanged']();
+}
+
+export function Notify(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['Notify'](arg1, arg2, arg3);
+}
+
+export function OpenLink(arg1) {
+  return window['go']['app']['Bridge']['OpenLink'](arg1);
 }
 
 export function RemoveContact(arg1, arg2) {
@@ -134,6 +146,14 @@ export function TransportState(arg1, arg2) {
   return window['go']['app']['Bridge']['TransportState'](arg1, arg2);
 }
 
+export function TrayWords(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['TrayWords'](arg1, arg2, arg3);
+}
+
 export function Unblock(arg1) {
   return window['go']['app']['Bridge']['Unblock'](arg1);
+}
+
+export function Viewing(arg1, arg2) {
+  return window['go']['app']['Bridge']['Viewing'](arg1, arg2);
 }

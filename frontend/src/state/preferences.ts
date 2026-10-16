@@ -67,3 +67,14 @@ export function rememberedLanguage(): LanguageChoice {
 export function rememberLanguage(choice: LanguageChoice): void {
   write(languageKey, choice);
 }
+
+const notificationTextKey = "convia.notificationText";
+
+// rememberedNotificationText is whether a notification shows what the message says; off unless chosen (ADR 0033).
+export function rememberedNotificationText(): boolean {
+  return read(notificationTextKey, ["on", "off"] as const, "off") === "on";
+}
+
+export function rememberNotificationText(on: boolean): void {
+  write(notificationTextKey, on ? "on" : "off");
+}

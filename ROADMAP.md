@@ -204,17 +204,17 @@ The Discord-like window where conversations happen ([`README.md`](README.md)).
 
 **Depends on:** M11.
 
-- [ ] **M12-001:** Lay out the workspace: the rail, the sidebar and the conversation, from the design carried over in M01-011.
-- [ ] **M12-002:** List conversations, open one, and show its history.
-- [ ] **M12-003:** Write and send messages.
-- [ ] **M12-004:** Decide how messages are formatted — plain text, Markdown, and which of it — and how links are shown.
-- [ ] **M12-005:** Decide whether link previews exist, given that fetching one reveals the reader to the linked site.
-- [ ] **M12-006:** Decide whether unread counts, read receipts and typing indicators exist, and which travel between peers.
-- [ ] **M12-007:** Decide whether the interface shows that a contact is online, given that reachability does not have to be shown ([ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
-- [ ] **M12-008:** Decide how a hidden Convia tells the person something arrived — Windows notifications, the icon, both — and what a notification may reveal.
-- [ ] **M12-009:** Build what those decisions keep.
+- [x] **M12-001:** Lay out the workspace: the rail, the sidebar and the conversation, from the design carried over in M01-011.
+- [x] **M12-002:** List conversations, open one, and show its history.
+- [x] **M12-003:** Write and send messages.
+- [x] **M12-004:** Decide how messages are formatted — plain text, Markdown, and which of it — and how links are shown.
+- [x] **M12-005:** Decide whether link previews exist, given that fetching one reveals the reader to the linked site.
+- [x] **M12-006:** Decide whether unread counts, read receipts and typing indicators exist, and which travel between peers.
+- [x] **M12-007:** Decide whether the interface shows that a contact is online, given that reachability does not have to be shown ([ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
+- [x] **M12-008:** Decide how a hidden Convia tells the person something arrived — Windows notifications, the icon, both — and what a notification may reveal.
+- [x] **M12-009:** Build what those decisions keep.
 - [ ] **M12-010:** Meet WCAG 2.2 AA throughout, including keyboard navigation, as the theme's contrast test already requires of colour.
-- [ ] **M12-011:** Speak English and Brazilian Portuguese everywhere, with every phrase translated.
+- [x] **M12-011:** Speak English and Brazilian Portuguese everywhere, with every phrase translated.
 
 ### M13 — More of a conversation
 
@@ -364,4 +364,5 @@ Not planned yet, each recorded where it was left open:
 - **Several devices per person**, which [ADR 0004](docs/adr/0004-a-person-is-a-key-their-application-made.md) leaves room for.
 - **macOS and Linux**, which [ADR 0001](docs/adr/0001-a-go-core-in-a-wails-window-for-windows.md) defers.
 - **Encryption above DTLS**, which [ADR 0009](docs/adr/0009-the-cryptography.md) reconsiders if a message could pass through anything but a session between members.
+- **Link previews**, fetched only by their sender, which [ADR 0031](docs/adr/0031-link-previews-may-come-later.md) allows and leaves for later.
 - **Spaces larger than 50, and calls larger than a mesh carries**, which [ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md) and [ADR 0015](docs/adr/0015-calls-and-screen-sharing-ride-the-peer-connection.md) limit for now.

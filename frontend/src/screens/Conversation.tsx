@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   Conversation as readConversation,
   SendMessage,
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { Button, input } from "../components/controls";
-import { useWords } from "../i18n/language";
+import { LinkDialog } from "../components/LinkDialog";
+import { useLanguage, useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
-import type { Contact } from "./Contacts";
+import { Formatted } from "../text/Formatted";
 
 export interface Message {
   id: string;
@@ -17,25 +18,37 @@ export interface Message {
   at: number;
 }
 
+export interface Person {
+  publicKey: string;
+  name: string;
+  verified: boolean;
+}
+
 // MaxCharacters is the most a message holds (ADR 0029); the core refuses more too.
 export const MaxCharacters = 4000;
 
 // The counter appears only as the limit nears.
 const showCounterFrom = MaxCharacters - 400;
 
-// Conversation is everything said with one contact, until the workspace of M12 replaces it.
+// Messages from one author within this long of each other are shown as one group, as Discord does.
+const groupWithin = 5 * 60 * 1000;
+
+// Conversation is everything said with one contact, and where to say more.
 export function Conversation({
   contact,
-  onBack,
+  meName,
 }: {
-  contact: Contact;
-  onBack: () => void;
+  contact: Person;
+  meName: string;
 }) {
   const words = useWords();
+  const { formatting } = useLanguage();
   const fieldId = useId();
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const end = useRef<HTMLDivElement>(null);
 
   const load = useCallback(
     () =>
@@ -52,6 +65,10 @@ export function Conversation({
       if (publicKey === contact.publicKey) void load();
     });
   }, [contact.publicKey, load]);
+
+  useEffect(() => {
+    end.current?.scrollIntoView?.({ block: "end" });
+  }, [messages.length]);
 
   const length = [...draft].length;
   const tooLong = length > MaxCharacters;
@@ -76,53 +93,93 @@ export function Conversation({
         ? words.conversation.sent
         : words.conversation.delivered;
 
+  const time = new Intl.DateTimeFormat(formatting, {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
   return (
-    <section className="flex w-full max-w-lg flex-col gap-4">
-      <header className="flex items-center gap-3">
-        <Button size="small" onClick={onBack}>
-          {words.conversation.back}
-        </Button>
-        <h2 className="font-display text-lg font-semibold">{contact.name}</h2>
+    <section
+      aria-label={contact.name}
+      className="flex h-full min-w-0 flex-1 flex-col"
+    >
+      <header className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 shadow-raised">
+        <h2 className="font-display font-semibold">{contact.name}</h2>
+        {contact.verified && (
+          <span className="rounded-sm bg-accent-soft px-1.5 text-[0.72rem] text-accent-ink">
+            {words.workspace.verified}
+          </span>
+        )}
       </header>
 
-      <ol className="flex flex-col gap-2">
+      <ol className="flex flex-1 flex-col overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
-          <li className="text-sm text-ink-dim">{words.conversation.none}</li>
-        )}
-        {messages.map((m) => (
-          <li
-            key={m.id}
-            className={`flex max-w-[85%] flex-col gap-1 rounded-md px-3 py-2 ${
-              m.mine
-                ? "self-end bg-accent-soft"
-                : "self-start bg-surface-raised"
-            }`}
-          >
-            <p className="text-sm break-words whitespace-pre-wrap">{m.text}</p>
-            {m.mine && (
-              <span
-                className="self-end text-[0.72rem] text-ink-faint"
-                title={
-                  m.status === "waiting"
-                    ? words.conversation.waitingHint(contact.name)
-                    : undefined
-                }
-              >
-                {status(m)}
-              </span>
-            )}
+          <li className="m-auto text-sm text-ink-dim">
+            {words.conversation.none}
           </li>
-        ))}
+        )}
+        {messages.map((m, i) => {
+          const previous = messages[i - 1];
+          const starts =
+            !previous ||
+            previous.mine !== m.mine ||
+            m.at - previous.at > groupWithin;
+          return (
+            <li
+              key={m.id}
+              className={`flex flex-col rounded-sm px-2 hover:bg-surface-hover ${starts ? "mt-3" : ""}`}
+            >
+              {starts && (
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`font-medium ${m.mine ? "text-accent-ink" : ""}`}
+                  >
+                    {m.mine ? meName : contact.name}
+                  </span>
+                  <time
+                    className="text-[0.72rem] text-ink-faint"
+                    dateTime={new Date(m.at).toISOString()}
+                  >
+                    {time.format(m.at)}
+                  </time>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <div className="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">
+                  <Formatted text={m.text} onLink={setLink} />
+                </div>
+                {m.mine && (
+                  <span
+                    className="shrink-0 text-[0.72rem] text-ink-faint"
+                    title={
+                      m.status === "waiting"
+                        ? words.conversation.waitingHint(contact.name)
+                        : undefined
+                    }
+                  >
+                    {status(m)}
+                  </span>
+                )}
+              </div>
+            </li>
+          );
+        })}
+        <div ref={end} />
       </ol>
 
-      <div className="flex flex-col gap-1">
+      <div className="flex shrink-0 flex-col gap-1 px-4 pb-4">
+        {notice && (
+          <p role="status" className="text-sm">
+            {notice}
+          </p>
+        )}
         <label htmlFor={fieldId} className="sr-only">
           {words.conversation.field(contact.name)}
         </label>
         <textarea
           id={fieldId}
-          className={`${input} text-sm`}
-          rows={3}
+          className={`${input} resize-none text-sm`}
+          rows={2}
           placeholder={words.conversation.field(contact.name)}
           value={draft}
           aria-invalid={tooLong}
@@ -135,7 +192,7 @@ export function Conversation({
           }}
         />
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-ink-faint">
+          <span className="text-xs text-ink-faint" aria-live="polite">
             {length >= showCounterFrom
               ? tooLong
                 ? words.conversation.over(length - MaxCharacters)
@@ -153,11 +210,7 @@ export function Conversation({
         </div>
       </div>
 
-      {notice && (
-        <p role="status" className="text-sm">
-          {notice}
-        </p>
-      )}
+      {link && <LinkDialog url={link} onClose={() => setLink(null)} />}
     </section>
   );
 }

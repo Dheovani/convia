@@ -52,16 +52,17 @@ func (b *Bridge) SetStartsWithWindows(on bool) error {
 
 // App is the process's lifecycle, never exposed to the interface.
 type App struct {
-	ctx      context.Context
-	logger   *slog.Logger
-	trayIcon []byte
-	data     *Data
-	network  *Network
-	Bridge   *Bridge
+	ctx        context.Context
+	logger     *slog.Logger
+	trayIcon   []byte
+	unreadIcon []byte
+	data       *Data
+	network    *Network
+	Bridge     *Bridge
 }
 
-func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon []byte, data *Data, network *Network) *App {
-	return &App{logger: logger, trayIcon: trayIcon, data: data, network: network,
+func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon, unreadIcon []byte, data *Data, network *Network) *App {
+	return &App{logger: logger, trayIcon: trayIcon, unreadIcon: unreadIcon, data: data, network: network,
 		Bridge: &Bridge{autostart: autostart, executable: executable, data: data, network: network}}
 }
 
@@ -69,7 +70,17 @@ func New(logger *slog.Logger, autostart Autostart, executable string, trayIcon [
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 	a.Bridge.ctx = ctx
-	tray.Start(a.trayIcon, tray.Actions{
+	if err := runtime.InitializeNotifications(ctx); err != nil {
+		a.logger.Warn("prepare notifications", "error", err)
+	}
+	runtime.OnNotificationResponse(ctx, func(result runtime.NotificationResult) {
+		a.show()
+		if contact, ok := result.Response.UserInfo["contact"].(string); ok {
+			runtime.EventsEmit(ctx, OpenEvent, contact)
+		}
+	})
+	a.network.onUnread = tray.SetUnread
+	tray.Start(a.trayIcon, a.unreadIcon, tray.Actions{
 		Show:                 a.show,
 		Quit:                 func() { runtime.Quit(a.ctx) },
 		StartsWithWindows:    a.Bridge.StartsWithWindows,

@@ -17,6 +17,8 @@ export function Contacts():Promise<Array<app.ContactView>>;
 
 export function Conversation(arg1:string):Promise<Array<app.MessageView>>;
 
+export function Conversations():Promise<Array<app.ConversationView>>;
+
 export function CreateIdentity(arg1:string):Promise<app.MeView>;
 
 export function DeclineRequest(arg1:string):Promise<void>;
@@ -36,6 +38,10 @@ export function Me():Promise<app.MeView>;
 export function MyInvitation():Promise<string>;
 
 export function NetworkChanged():Promise<void>;
+
+export function Notify(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function OpenLink(arg1:string):Promise<void>;
 
 export function RemoveContact(arg1:string,arg2:boolean):Promise<void>;
 
@@ -69,4 +75,8 @@ export function TransportReset():Promise<void>;
 
 export function TransportState(arg1:string,arg2:string):Promise<void>;
 
+export function TrayWords(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function Unblock(arg1:string):Promise<void>;
+
+export function Viewing(arg1:string,arg2:boolean):Promise<void>;

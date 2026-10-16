@@ -12,7 +12,11 @@ vi.mock(
   async () => (await import("./test/runtime")).runtime,
 );
 
-beforeEach(reset);
+beforeEach(() => {
+  reset();
+  answers.Conversations = () => Promise.resolve([]);
+  answers.Requests = () => Promise.resolve({ received: [], sent: [] });
+});
 
 test("a first run welcomes the person", async () => {
   answers.StorageProblem = () => Promise.resolve("");
@@ -26,7 +30,7 @@ test("a person with an identity sees it", async () => {
   answers.Me = () =>
     Promise.resolve({ name: "Alice", publicKey: "00112233aabbccdd" });
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: "You" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
   expect(await screen.findByText("0011 2233 aabb ccdd")).toBeTruthy();
 });
 

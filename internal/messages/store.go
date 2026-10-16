@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -327,4 +328,89 @@ func (s *Store) HasWaiting(contact ed25519.PublicKey) (bool, error) {
 	var n int
 	err := s.db.DB.QueryRow(`SELECT count(*) FROM outbox WHERE recipient_key = ?`, []byte(contact)).Scan(&n)
 	return n > 0, err
+}
+
+// Summary is a conversation as a list of them shows it: its latest message, and how many are unread.
+type Summary struct {
+	Contact ed25519.PublicKey
+	Last    *Message
+	Unread  int
+}
+
+// Summaries is every conversation that has a message, the latest first.
+func (s *Store) Summaries() ([]Summary, error) {
+	rows, err := s.db.DB.Query(`SELECT c.contact_key,
+			(SELECT count(*) FROM messages u WHERE u.conversation_id = c.id AND u.author_key = c.contact_key
+				AND (u.hlc_wall > c.read_wall OR u.hlc_wall = c.read_wall AND u.hlc_counter > c.read_counter))
+		FROM conversations c
+		WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)`)
+	if err != nil {
+		return nil, err
+	}
+	var out []Summary
+	for rows.Next() {
+		var key []byte
+		var unread int
+		if err := rows.Scan(&key, &unread); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out = append(out, Summary{Contact: key, Unread: unread})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		last, err := s.last(out[i].Contact)
+		if err != nil {
+			return nil, err
+		}
+		out[i].Last = last
+	}
+	slices.SortStableFunc(out, func(a, b Summary) int {
+		switch {
+		case b.Last.Time.Before(a.Last.Time):
+			return -1
+		case a.Last.Time.Before(b.Last.Time):
+			return 1
+		}
+		return 0
+	})
+	return out, nil
+}
+
+func (s *Store) last(contact ed25519.PublicKey) (*Message, error) {
+	rows, err := s.db.DB.Query(`SELECT m.id, m.author_key, m.author_sequence, m.hlc_wall, m.hlc_counter, m.content,
+			o.message_id IS NOT NULL, o.transmitted_at IS NOT NULL
+		FROM messages m JOIN conversations c ON m.conversation_id = c.id
+		LEFT JOIN outbox o ON o.message_id = m.id
+		WHERE c.contact_key = ?
+		ORDER BY m.hlc_wall DESC, m.hlc_counter DESC, m.id DESC LIMIT 1`, []byte(contact))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	m, err := s.scan(rows)
+	return &m, err
+}
+
+// MarkRead says the person has read contact's conversation up to its latest message.
+func (s *Store) MarkRead(contact ed25519.PublicKey) error {
+	_, err := s.db.DB.Exec(`UPDATE conversations SET (read_wall, read_counter) = (
+			SELECT m.hlc_wall, m.hlc_counter FROM messages m WHERE m.conversation_id = conversations.id
+			ORDER BY m.hlc_wall DESC, m.hlc_counter DESC LIMIT 1)
+		WHERE contact_key = ? AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = conversations.id)`, []byte(contact))
+	return err
+}
+
+// Unread is how many messages are unread in every conversation.
+func (s *Store) Unread() (int, error) {
+	var n int
+	err := s.db.DB.QueryRow(`SELECT count(*) FROM messages u JOIN conversations c ON u.conversation_id = c.id
+		WHERE u.author_key = c.contact_key AND (u.hlc_wall > c.read_wall OR u.hlc_wall = c.read_wall AND u.hlc_counter > c.read_counter)`).Scan(&n)
+	return n, err
 }

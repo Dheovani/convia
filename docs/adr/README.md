@@ -35,3 +35,7 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0027](0027-a-new-key-is-a-new-person.md) | A new key is a new person |
 | [0028](0028-removing-or-blocking-a-contact-is-silent.md) | Removing or blocking a contact is silent |
 | [0029](0029-a-message-holds-at-most-4000-characters.md) | A message holds at most 4,000 characters |
+| [0030](0030-messages-are-written-in-a-subset-of-markdown.md) | Messages are written in a subset of Markdown |
+| [0031](0031-link-previews-may-come-later.md) | Link previews may come later, fetched only by their sender |
+| [0032](0032-reading-and-presence-stay-on-the-readers-machine.md) | Reading and presence stay on the reader's machine |
+| [0033](0033-a-hidden-convia-says-who-wrote-not-what.md) | A hidden Convia says who wrote, not what |

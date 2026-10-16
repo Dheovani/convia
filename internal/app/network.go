@@ -31,6 +31,8 @@ const (
 	ContactsEvent     = "contacts"
 	OutdatedEvent     = "outdated"
 	ConversationEvent = "conversation"
+	ReceivedEvent     = "received"
+	OpenEvent         = "open-conversation"
 )
 
 // Network runs this peer's connections and contacts while it has an identity.
@@ -44,6 +46,9 @@ type Network struct {
 	manager  *peers.Manager
 	contacts *contacts.Service
 	messages *messages.Service
+	viewing  ed25519.PublicKey
+	focused  bool
+	onUnread func(bool)
 }
 
 func NewNetwork(address string, logger *slog.Logger) *Network {
@@ -88,13 +93,23 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 	conversations, err := messages.NewService(
 		messages.NewStore(store, id.Public),
 		link,
-		func(contact ed25519.PublicKey) { emit(ConversationEvent, hex.EncodeToString(contact)) },
+		func(contact ed25519.PublicKey) {
+			emit(ConversationEvent, hex.EncodeToString(contact))
+			n.unreadChanged()
+		},
 		n.logger,
 	)
 	if err != nil {
 		n.logger.Error("open the conversations", "error", err)
 		stop()
 		return
+	}
+	conversations.Received = func(contact ed25519.PublicKey, m messages.Message) {
+		if n.watching(contact) {
+			conversations.MarkRead(contact)
+			return
+		}
+		emit(ReceivedEvent, ReceivedView{PublicKey: hex.EncodeToString(contact), Text: m.Text})
 	}
 	manager := peers.New(
 		id.Private,
@@ -129,6 +144,53 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		}, time.Second, time.Minute)
 	}
 	n.stop, n.manager, n.contacts, n.messages = stop, manager, service, conversations
+	n.viewing, n.focused = nil, false
+	go n.unreadChanged()
+}
+
+// ReceivedView is a message that arrived while its conversation was not on screen, for the interface to tell of.
+type ReceivedView struct {
+	PublicKey string `json:"publicKey"`
+	Text      string `json:"text"`
+}
+
+// view records the conversation on screen, if any, and whether the window has the person's attention.
+func (n *Network) view(contact ed25519.PublicKey, focused bool) {
+	n.mu.Lock()
+	previous, people, conversations := n.viewing, n.contacts, n.messages
+	n.viewing, n.focused = contact, focused
+	n.mu.Unlock()
+	if people == nil {
+		return
+	}
+	// A conversation on screen is a reason to be connected (ADR 0024).
+	if previous != nil && !previous.Equal(contact) {
+		people.Release(previous, "conversation")
+	}
+	if contact != nil && !contact.Equal(previous) {
+		people.Want(contact, "conversation")
+	}
+	if contact != nil && focused {
+		conversations.MarkRead(contact)
+		n.unreadChanged()
+	}
+}
+
+func (n *Network) watching(contact ed25519.PublicKey) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.focused && n.viewing.Equal(contact)
+}
+
+// unreadChanged shows in the tray whether anything is unread (ADR 0033).
+func (n *Network) unreadChanged() {
+	conversations := n.conversations()
+	if conversations == nil {
+		return
+	}
+	if unread, err := conversations.Unread(); err == nil && n.onUnread != nil {
+		n.onUnread(unread > 0)
+	}
 }
 
 // delivery is what the conversations need of the connections and the contacts.
