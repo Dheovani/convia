@@ -222,12 +222,12 @@ What people expect of a conversation beyond writing to each other.
 
 **Depends on:** M12.
 
-- [ ] **M13-001:** Decide editing a message: whether, until when, and what the other side keeps of the earlier text ([ADR 0010](docs/adr/0010-a-conversation-is-kept-on-each-peer.md)).
-- [ ] **M13-002:** Decide deleting a message: for oneself, and asking the other side to delete it too.
-- [ ] **M13-003:** Decide replies and reactions.
-- [ ] **M13-004:** Decide sending files and images: which channel carries them, the largest, whether they wait for an offline peer, and how they are stored.
-- [ ] **M13-005:** Decide searching history, given that content is encrypted on disk.
-- [ ] **M13-006:** Build what those decisions keep.
+- [x] **M13-001:** Decide editing a message: whether, until when, and what the other side keeps of the earlier text ([ADR 0010](docs/adr/0010-a-conversation-is-kept-on-each-peer.md)).
+- [x] **M13-002:** Decide deleting a message: for oneself, and asking the other side to delete it too.
+- [x] **M13-003:** Decide replies and reactions.
+- [x] **M13-004:** Decide sending files and images: which channel carries them, the largest, whether they wait for an offline peer, and how they are stored.
+- [x] **M13-005:** Decide searching history, given that content is encrypted on disk.
+- [x] **M13-006:** Build what those decisions keep.
 
 ## Phase 5 — Spaces
 

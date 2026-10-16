@@ -124,6 +124,7 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 				service.Message(peer, message)
 				conversations.Message(peer, message)
 			},
+			File:      conversations.File,
 			Reachable: service.Reachable,
 			Outdated: func(peer ed25519.PublicKey, theirs bool) {
 				emit(OutdatedEvent, OutdatedView{PublicKey: hex.EncodeToString(peer), Theirs: theirs})
@@ -202,6 +203,10 @@ type delivery struct {
 func (d *delivery) Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bool {
 	return d.manager.Send(peer, message)
 }
+
+func (d *delivery) SendFile(peer ed25519.PublicKey, data []byte) bool {
+	return d.manager.SendFile(peer, data)
+}
 func (d *delivery) Want(peer ed25519.PublicKey, reason string)    { d.contacts.Want(peer, reason) }
 func (d *delivery) Release(peer ed25519.PublicKey, reason string) { d.contacts.Release(peer, reason) }
 func (d *delivery) IsContact(peer ed25519.PublicKey) bool {
@@ -277,6 +282,8 @@ func (w webview) Candidate(id string, c peers.Candidate) {
 
 func (w webview) Send(id string, data []byte) { w.emit(order{Op: "send", ID: id, Data: data}) }
 
+func (w webview) SendFile(id string, data []byte) { w.emit(order{Op: "send-file", ID: id, Data: data}) }
+
 func (w webview) Close(id string) { w.emit(order{Op: "close", ID: id}) }
 
 func (w webview) Configure(ice []peers.ICEServer) { w.emit(order{Op: "configure", ICE: ice}) }
@@ -299,6 +306,13 @@ func (b *Bridge) TransportCandidate(id string, c peers.Candidate) {
 
 // TransportOpened says connection id's data channel opened.
 func (b *Bridge) TransportOpened(id string) { b.manager(func(m *peers.Manager) { m.Opened(id) }) }
+
+// TransportFileReceived is data from connection id's channel for files, in Base64.
+func (b *Bridge) TransportFileReceived(id, data string) {
+	if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
+		b.manager(func(m *peers.Manager) { m.FileReceived(id, decoded) })
+	}
+}
 
 // TransportReceived is a message from connection id's data channel, in Base64.
 func (b *Bridge) TransportReceived(id, data string) {

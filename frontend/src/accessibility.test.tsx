@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
+import { DeleteDialog } from "./components/DeleteDialog";
 import { LinkDialog } from "./components/LinkDialog";
 import { DataProblem } from "./screens/DataProblem";
 import { Workspace } from "./screens/Workspace";
@@ -94,7 +95,15 @@ beforeEach(() => {
   answers.Conversation = () =>
     Promise.resolve([
       ana.last,
-      { id: "02", mine: true, text: "hello", status: "delivered", at: 2 },
+      {
+        id: "02",
+        mine: true,
+        text: "hello",
+        status: "delivered",
+        at: 2,
+        reactions: [{ emoji: "👍", count: 1, mine: false }],
+        replyTo: { id: "01", mine: false, text: "hi", missing: false },
+      },
     ]);
 });
 
@@ -151,4 +160,83 @@ test("the question before a link opens", async () => {
     <LinkDialog url="https://convia.example" onClose={() => {}} />,
   );
   expect(await violations(container, false)).toEqual([]);
+});
+
+test("a search's results", async () => {
+  answers.SearchMessages = () =>
+    Promise.resolve([
+      { publicKey: ana.publicKey, name: "Ana", message: ana.last },
+    ]);
+  const { container } = workspace();
+  await screen.findByText("Ana");
+  fireEvent.change(screen.getByLabelText("Search messages"), {
+    target: { value: "hi" },
+  });
+  await screen.findByText("hi https://convia.example");
+  expect(await violations(container)).toEqual([]);
+});
+
+test("the question before a message is deleted", async () => {
+  const { container } = render(
+    <DeleteDialog
+      mine={true}
+      delivered={true}
+      onBoth={() => {}}
+      onHere={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(await violations(container, false)).toEqual([]);
+});
+
+test("a message being edited", async () => {
+  const { container } = workspace();
+  fireEvent.click(await screen.findByText("Ana"));
+  await screen.findByText("hello");
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await screen.findByLabelText("The message's new text");
+  expect(await violations(container)).toEqual([]);
+});
+
+test("a conversation with files", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      {
+        id: "07",
+        mine: false,
+        text: "beach.jpg",
+        status: "received",
+        at: 7,
+        reactions: [],
+        file: {
+          size: 3,
+          type: "image/png",
+          held: 3,
+          complete: true,
+          picture: true,
+          orientation: 1,
+          url: "/files/07",
+        },
+      },
+      {
+        id: "08",
+        mine: false,
+        text: "report.pdf",
+        status: "received",
+        at: 8,
+        reactions: [],
+        file: {
+          size: 10,
+          type: "application/octet-stream",
+          held: 4,
+          complete: false,
+          picture: false,
+          orientation: 1,
+        },
+      },
+    ]);
+  const { container } = workspace();
+  fireEvent.click(await screen.findByText("Ana"));
+  await screen.findByText("report.pdf");
+  expect(await violations(container)).toEqual([]);
 });

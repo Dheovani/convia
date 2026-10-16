@@ -7,6 +7,8 @@ export interface Core {
   candidate(id: string, candidate: RTCIceCandidateInit): void;
   opened(id: string): void;
   received(id: string, data: Uint8Array): void;
+  // fileReceived is data from the channel for files.
+  fileReceived(id: string, data: Uint8Array): void;
   closed(id: string): void;
   // state is what the connection is doing, for the log.
   state(id: string, state: string): void;
@@ -17,9 +19,19 @@ export type Create = (configuration: RTCConfiguration) => RTCPeerConnection;
 interface Entry {
   pc: RTCPeerConnection;
   channel: RTCDataChannel;
+  files: RTCDataChannel;
+  // Pieces of files waiting for the channel's buffer to empty.
+  pending: Uint8Array<ArrayBuffer>[];
   offerer: boolean;
   queue: Promise<void>;
 }
+
+/*
+How much the channel for files may hold unsent before pieces wait here, and how low it must fall before
+they go on: a browser closes a channel whose buffer overflows.
+*/
+export const fullBuffer = 4 << 20;
+export const lowBuffer = 1 << 20;
 
 export class Connections {
   readonly #core: Core;
@@ -47,8 +59,33 @@ export class Connections {
     });
 
     channel.binaryType = "arraybuffer";
-    const entry: Entry = { pc, channel, offerer, queue: Promise.resolve() };
+
+    // Files travel beside the messages, so a message never waits behind one (ADR 0036).
+    const files = pc.createDataChannel("convia-files", {
+      negotiated: true,
+      id: 1,
+      ordered: true,
+    });
+    files.binaryType = "arraybuffer";
+    files.bufferedAmountLowThreshold = lowBuffer;
+
+    const entry: Entry = {
+      pc,
+      channel,
+      files,
+      pending: [],
+      offerer,
+      queue: Promise.resolve(),
+    };
     this.#entries.set(id, entry);
+
+    files.onmessage = (event: MessageEvent) => {
+      if (event.data instanceof ArrayBuffer) {
+        this.#core.fileReceived(id, new Uint8Array(event.data));
+      }
+    };
+    files.onbufferedamountlow = () => this.#flush(entry);
+    files.onopen = () => this.#flush(entry);
 
     channel.onopen = () => this.#core.opened(id);
     channel.onclose = () => this.#end(id, entry);
@@ -104,6 +141,27 @@ export class Connections {
   send(id: string, data: Uint8Array) {
     const channel = this.#entries.get(id)?.channel;
     if (channel?.readyState === "open") channel.send(new Uint8Array(data));
+  }
+
+  // sendFile sends a piece of a file, holding it back while the channel's buffer is full.
+  sendFile(id: string, data: Uint8Array) {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+
+    entry.pending.push(new Uint8Array(data));
+    this.#flush(entry);
+  }
+
+  #flush(entry: Entry) {
+    const { files, pending } = entry;
+    while (
+      files.readyState === "open" &&
+      pending.length > 0 &&
+      files.bufferedAmount < fullBuffer
+    ) {
+      const next = pending.shift();
+      if (next) files.send(next);
+    }
   }
 
   // close ends a connection the core no longer wants; the core is not told.

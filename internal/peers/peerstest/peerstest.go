@@ -43,6 +43,7 @@ type Owner interface {
 	LocalDescription(id, kind, sdp string)
 	Opened(id string)
 	Received(id string, data []byte)
+	FileReceived(id string, data []byte)
 	Closed(id string)
 }
 
@@ -129,6 +130,14 @@ func (w *WebView) Send(id string, data []byte) {
 	defer w.views.mu.Unlock()
 	if other := w.views.other(id, w); other != nil && other.open {
 		other.view.inbox <- func() { other.view.owner.Received(id, data) }
+	}
+}
+
+func (w *WebView) SendFile(id string, data []byte) {
+	w.views.mu.Lock()
+	defer w.views.mu.Unlock()
+	if other := w.views.other(id, w); other != nil && other.open {
+		other.view.inbox <- func() { other.view.owner.FileReceived(id, data) }
 	}
 }
 

@@ -1,16 +1,25 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Connections, type Core } from "./connections";
+import { Connections, fullBuffer, type Core } from "./connections";
 import { carry, fromBase64, toBase64 } from "./wails";
 
 class FakeChannel {
   readyState: RTCDataChannelState = "connecting";
   binaryType = "blob";
   sent: unknown[] = [];
+  bufferedAmount = 0;
+  bufferedAmountLowThreshold = 0;
   onopen?: () => void;
   onmessage?: (event: MessageEvent) => void;
   onclose?: () => void;
+  onbufferedamountlow?: () => void;
   send(data: unknown) {
     this.sent.push(data);
+    if (data instanceof Uint8Array) this.bufferedAmount += data.length;
+  }
+  // drain plays the network carrying everything buffered away.
+  drain() {
+    this.bufferedAmount = 0;
+    this.onbufferedamountlow?.();
   }
   open() {
     this.readyState = "open";
@@ -22,7 +31,9 @@ class FakePeerConnection {
   calls: string[] = [];
   configuration: RTCConfiguration;
   channel = new FakeChannel();
+  files = new FakeChannel();
   channelOptions?: RTCDataChannelInit;
+  filesOptions?: RTCDataChannelInit;
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   connectionState: RTCPeerConnectionState = "new";
@@ -37,6 +48,10 @@ class FakePeerConnection {
   }
   createDataChannel(label: string, options: RTCDataChannelInit) {
     this.calls.push(`channel ${label}`);
+    if (label === "convia-files") {
+      this.filesOptions = options;
+      return this.files;
+    }
     this.channelOptions = options;
     return this.channel;
   }
@@ -90,6 +105,7 @@ const core: Core = {
   candidate: (id, c) => reported.push(`${id} candidate ${c.candidate ?? ""}`),
   opened: (id) => reported.push(`${id} opened`),
   received: (id, data) => reported.push(`${id} received ${data.join(",")}`),
+  fileReceived: (id, data) => reported.push(`${id} file ${data.length} bytes`),
   closed: (id) => reported.push(`${id} closed`),
   state: (id, state) => states.push(`${id} ${state}`),
 };
@@ -135,6 +151,7 @@ describe("a connection", () => {
     await settle();
     expect(created[0].calls).toEqual([
       "channel convia",
+      "channel convia-files",
       "remote offer",
       "local answer",
       "candidate c1",
@@ -232,6 +249,7 @@ describe("the core's orders", () => {
     carry(connections, { op: "close", id: "a" });
     expect(created[0].calls).toEqual([
       "channel convia",
+      "channel convia-files",
       "remote offer",
       "local answer",
       "candidate c1",
@@ -244,5 +262,39 @@ describe("the core's orders", () => {
     const data = Uint8Array.from({ length: 100_000 }, (_, i) => i % 256);
     expect(fromBase64(toBase64(data))).toEqual(data);
     expect(toBase64(new Uint8Array([0, 255]))).toBe("AP8=");
+  });
+});
+
+describe("the channel for files", () => {
+  it("is a second negotiated channel, beside the one for messages", () => {
+    connections.open("a", true, []);
+    expect(created[0].filesOptions).toEqual({
+      negotiated: true,
+      id: 1,
+      ordered: true,
+    });
+    created[0].files.onmessage?.(
+      new MessageEvent("message", { data: new Uint8Array(7).buffer }),
+    );
+    expect(reported).toEqual(["a file 7 bytes"]);
+  });
+
+  it("holds pieces back while its buffer is full, and sends them as it empties", () => {
+    connections.open("a", true, []);
+    const files = created[0].files;
+    const piece = new Uint8Array(1 << 20);
+    for (let i = 0; i < 10; i++) connections.sendFile("a", piece);
+    expect(files.sent).toHaveLength(0);
+
+    files.readyState = "open";
+    files.onopen?.();
+    expect(files.sent).toHaveLength(4);
+    expect(files.bufferedAmount).toBe(fullBuffer);
+
+    files.drain();
+    expect(files.sent).toHaveLength(8);
+    files.drain();
+    expect(files.sent).toHaveLength(10);
+    expect(created[0].channel.sent).toHaveLength(0);
   });
 });

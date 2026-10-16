@@ -18,6 +18,10 @@ export function Blocked() {
   return window['go']['app']['Bridge']['Blocked']();
 }
 
+export function ChooseFile() {
+  return window['go']['app']['Bridge']['ChooseFile']();
+}
+
 export function ChooseIdentityFile() {
   return window['go']['app']['Bridge']['ChooseIdentityFile']();
 }
@@ -46,12 +50,24 @@ export function DeleteIdentity() {
   return window['go']['app']['Bridge']['DeleteIdentity']();
 }
 
+export function DeleteMessage(arg1, arg2) {
+  return window['go']['app']['Bridge']['DeleteMessage'](arg1, arg2);
+}
+
 export function DismissRequest(arg1) {
   return window['go']['app']['Bridge']['DismissRequest'](arg1);
 }
 
+export function EditMessage(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['EditMessage'](arg1, arg2, arg3);
+}
+
 export function ExportIdentity(arg1) {
   return window['go']['app']['Bridge']['ExportIdentity'](arg1);
+}
+
+export function ForgetMessage(arg1, arg2) {
+  return window['go']['app']['Bridge']['ForgetMessage'](arg1, arg2);
 }
 
 export function ImportIdentity(arg1, arg2, arg3) {
@@ -82,6 +98,10 @@ export function OpenLink(arg1) {
   return window['go']['app']['Bridge']['OpenLink'](arg1);
 }
 
+export function React(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['Bridge']['React'](arg1, arg2, arg3, arg4);
+}
+
 export function RemoveContact(arg1, arg2) {
   return window['go']['app']['Bridge']['RemoveContact'](arg1, arg2);
 }
@@ -94,8 +114,20 @@ export function Requests() {
   return window['go']['app']['Bridge']['Requests']();
 }
 
-export function SendMessage(arg1, arg2) {
-  return window['go']['app']['Bridge']['SendMessage'](arg1, arg2);
+export function SaveFile(arg1, arg2) {
+  return window['go']['app']['Bridge']['SaveFile'](arg1, arg2);
+}
+
+export function SearchMessages(arg1) {
+  return window['go']['app']['Bridge']['SearchMessages'](arg1);
+}
+
+export function SendFile(arg1, arg2) {
+  return window['go']['app']['Bridge']['SendFile'](arg1, arg2);
+}
+
+export function SendMessage(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['SendMessage'](arg1, arg2, arg3);
 }
 
 export function SetStartsWithWindows(arg1) {
@@ -124,6 +156,10 @@ export function TransportCandidate(arg1, arg2) {
 
 export function TransportClosed(arg1) {
   return window['go']['app']['Bridge']['TransportClosed'](arg1);
+}
+
+export function TransportFileReceived(arg1, arg2) {
+  return window['go']['app']['Bridge']['TransportFileReceived'](arg1, arg2);
 }
 
 export function TransportLocal(arg1, arg2, arg3) {

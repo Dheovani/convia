@@ -11,6 +11,8 @@ export function BlockContact(arg1:string,arg2:boolean):Promise<void>;
 
 export function Blocked():Promise<Array<string>>;
 
+export function ChooseFile():Promise<string>;
+
 export function ChooseIdentityFile():Promise<string>;
 
 export function Contacts():Promise<Array<app.ContactView>>;
@@ -25,9 +27,15 @@ export function DeclineRequest(arg1:string):Promise<void>;
 
 export function DeleteIdentity():Promise<void>;
 
+export function DeleteMessage(arg1:string,arg2:string):Promise<void>;
+
 export function DismissRequest(arg1:string):Promise<void>;
 
+export function EditMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function ExportIdentity(arg1:string):Promise<boolean>;
+
+export function ForgetMessage(arg1:string,arg2:string):Promise<void>;
 
 export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app.MeView>;
 
@@ -43,13 +51,21 @@ export function Notify(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function OpenLink(arg1:string):Promise<void>;
 
+export function React(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
 export function RemoveContact(arg1:string,arg2:boolean):Promise<void>;
 
 export function RenameIdentity(arg1:string):Promise<void>;
 
 export function Requests():Promise<app.RequestsView>;
 
-export function SendMessage(arg1:string,arg2:string):Promise<app.MessageView>;
+export function SaveFile(arg1:string,arg2:string):Promise<boolean>;
+
+export function SearchMessages(arg1:string):Promise<Array<app.FoundView>>;
+
+export function SendFile(arg1:string,arg2:string):Promise<app.MessageView>;
+
+export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<app.MessageView>;
 
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;
 
@@ -64,6 +80,8 @@ export function StorageProblem():Promise<string>;
 export function TransportCandidate(arg1:string,arg2:peers.Candidate):Promise<void>;
 
 export function TransportClosed(arg1:string):Promise<void>;
+
+export function TransportFileReceived(arg1:string,arg2:string):Promise<void>;
 
 export function TransportLocal(arg1:string,arg2:string,arg3:string):Promise<void>;
 

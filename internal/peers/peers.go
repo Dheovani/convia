@@ -50,6 +50,8 @@ type Transport interface {
 	Describe(id, kind, sdp string)
 	Candidate(id string, c Candidate)
 	Send(id string, data []byte)
+	// SendFile sends on the connection's channel for files, beside the one for messages (ADR 0036).
+	SendFile(id string, data []byte)
 	Close(id string)
 	Configure(ice []ICEServer)
 }
@@ -70,6 +72,8 @@ type Observer struct {
 	Outdated func(peer ed25519.PublicKey, theirs bool)
 	// Message is anything but the handshake and interest, from a proven peer.
 	Message func(peer ed25519.PublicKey, message *conviav1.PeerMessage)
+	// File is what a proven peer sent on the channel for files.
+	File func(peer ed25519.PublicKey, data []byte)
 	// Reachable is an identifier subscribed to, announced by another peer.
 	Reachable func(id []byte)
 }
@@ -327,6 +331,25 @@ func keys(set map[string]bool) [][]byte {
 }
 
 // Send sends message to peer over its proven connection, and reports false if there is none.
+// SendFile sends data to peer on the channel for files of its proven connection, and reports false if there is none.
+func (m *Manager) SendFile(peer ed25519.PublicKey, data []byte) bool {
+	sent := make(chan bool, 1)
+	m.do(func() {
+		p := m.peers[key(peer)]
+		ok := p != nil && p.conn != nil && p.conn.ready
+		if ok {
+			m.transport.SendFile(p.conn.id, data)
+		}
+		sent <- ok
+	})
+	select {
+	case ok := <-sent:
+		return ok
+	case <-m.stopped:
+		return false
+	}
+}
+
 func (m *Manager) Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bool {
 	sent := make(chan bool, 1)
 	m.do(func() {
@@ -427,6 +450,20 @@ func (m *Manager) Opened(id string) {
 }
 
 // Received is a message from the data channel of connection id.
+// FileReceived is data from the channel for files of connection id; before the handshake completes, it ends the connection.
+func (m *Manager) FileReceived(id string, data []byte) {
+	m.do(func() {
+		c := m.conns[id]
+		switch {
+		case c == nil:
+		case !c.ready:
+			m.fail(c, "a file before the handshake")
+		case m.observer.File != nil:
+			m.observer.File(ed25519.PublicKey(c.peer.key[:]), data)
+		}
+	})
+}
+
 func (m *Manager) Received(id string, data []byte) {
 	m.do(func() {
 		if c := m.conns[id]; c != nil {

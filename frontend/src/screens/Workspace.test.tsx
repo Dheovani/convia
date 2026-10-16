@@ -124,3 +124,67 @@ test("leaving for the settings says no conversation is on screen", async () => {
   await waitFor(() => expect(calls.Viewing?.at(-1)?.[0]).toBe(""));
   expect(screen.getByLabelText("Language")).toBeTruthy();
 });
+
+test("a search shows what it found, and opens the conversation at the message", async () => {
+  answers.SearchMessages = (query) =>
+    Promise.resolve(
+      query === "beach"
+        ? [
+            {
+              publicKey: ana.publicKey,
+              name: "Ana",
+              message: { ...ana.last, id: "01", text: "to the **beach**" },
+            },
+          ]
+        : [],
+    );
+  open();
+  await screen.findByText("Bruno");
+  fireEvent.change(screen.getByLabelText("Search messages"), {
+    target: { value: "beach" },
+  });
+  const result = await screen.findByText("to the beach");
+  expect(screen.queryByText("Bruno")).toBeNull();
+  fireEvent.click(result);
+  expect(await screen.findByRole("region", { name: "Ana" })).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      document.getElementById("message-01")?.getAttribute("aria-current"),
+    ).toBe("true"),
+  );
+
+  fireEvent.change(screen.getByLabelText("Search messages"), {
+    target: { value: "nothing like it" },
+  });
+  expect(await screen.findByText("Nothing found.")).toBeTruthy();
+  fireEvent.keyDown(screen.getByLabelText("Search messages"), {
+    key: "Escape",
+  });
+  expect(await screen.findByText("Bruno")).toBeTruthy();
+});
+
+test("a conversation whose latest message is a file says so", async () => {
+  answers.Conversations = () =>
+    Promise.resolve([
+      {
+        ...bruno,
+        last: {
+          id: "09",
+          mine: true,
+          text: "plans.pdf",
+          status: "delivered",
+          at: 9,
+          file: {
+            size: 1,
+            type: "application/octet-stream",
+            held: 1,
+            complete: true,
+            picture: false,
+            orientation: 1,
+          },
+        },
+      },
+    ]);
+  open();
+  expect(await screen.findByText("📎 plans.pdf")).toBeTruthy();
+});

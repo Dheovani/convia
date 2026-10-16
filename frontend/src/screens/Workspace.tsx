@@ -13,6 +13,7 @@ import { plain } from "../text/markdown";
 import { Contacts } from "./Contacts";
 import { Conversation, type Message } from "./Conversation";
 import type { Identity } from "./Me";
+import { Search } from "./Search";
 import { Settings } from "./Settings";
 
 export interface ConversationSummary {
@@ -25,7 +26,7 @@ export interface ConversationSummary {
 }
 
 type Pane =
-  | { kind: "conversation"; publicKey: string }
+  | { kind: "conversation"; publicKey: string; focus?: string }
   | { kind: "contacts" }
   | { kind: "settings" }
   | { kind: "none" };
@@ -213,53 +214,61 @@ export function Workspace({
               </span>
             )}
           </button>
-          <h3 className="mt-3 px-2 text-[0.72rem] font-semibold tracking-wide text-ink-faint uppercase">
-            {words.workspace.conversations}
-          </h3>
-          {conversations.length === 0 && (
-            <p className="px-2 text-sm text-ink-dim">
-              {words.workspace.noConversations}
-            </p>
-          )}
-          <ul className="flex flex-col gap-0.5">
-            {conversations.map((c) => (
-              <li key={c.publicKey}>
-                <button
-                  type="button"
-                  className={`flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left ${
-                    open === c.publicKey
-                      ? "bg-surface-hover text-ink"
-                      : "text-ink-dim hover:bg-surface-hover hover:text-ink"
-                  }`}
-                  aria-current={open === c.publicKey ? "page" : undefined}
-                  onClick={() =>
-                    setPane({ kind: "conversation", publicKey: c.publicKey })
-                  }
-                >
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span
-                      className={`truncate text-sm ${c.unread > 0 ? "font-semibold text-ink" : ""}`}
-                    >
-                      {c.name}
+          <Search
+            onOpen={(publicKey, focus) =>
+              setPane({ kind: "conversation", publicKey, focus })
+            }
+          >
+            <h3 className="mt-3 px-2 text-[0.72rem] font-semibold tracking-wide text-ink-faint uppercase">
+              {words.workspace.conversations}
+            </h3>
+            {conversations.length === 0 && (
+              <p className="px-2 text-sm text-ink-dim">
+                {words.workspace.noConversations}
+              </p>
+            )}
+            <ul className="flex flex-col gap-0.5">
+              {conversations.map((c) => (
+                <li key={c.publicKey}>
+                  <button
+                    type="button"
+                    className={`flex w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-left ${
+                      open === c.publicKey
+                        ? "bg-surface-hover text-ink"
+                        : "text-ink-dim hover:bg-surface-hover hover:text-ink"
+                    }`}
+                    aria-current={open === c.publicKey ? "page" : undefined}
+                    onClick={() =>
+                      setPane({ kind: "conversation", publicKey: c.publicKey })
+                    }
+                  >
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span
+                        className={`truncate text-sm ${c.unread > 0 ? "font-semibold text-ink" : ""}`}
+                      >
+                        {c.name}
+                      </span>
+                      {c.last && (
+                        <span className="truncate text-[0.75rem] text-ink-faint">
+                          {c.last.file
+                            ? `📎 ${c.last.text}`
+                            : plain(c.last.text)}
+                        </span>
+                      )}
                     </span>
-                    {c.last && (
-                      <span className="truncate text-[0.75rem] text-ink-faint">
-                        {plain(c.last.text)}
+                    {c.unread > 0 && (
+                      <span
+                        className="rounded-full bg-accent px-1.5 text-[0.72rem] text-on-accent"
+                        aria-label={words.workspace.unread(c.unread)}
+                      >
+                        {c.unread}
                       </span>
                     )}
-                  </span>
-                  {c.unread > 0 && (
-                    <span
-                      className="rounded-full bg-accent px-1.5 text-[0.72rem] text-on-accent"
-                      aria-label={words.workspace.unread(c.unread)}
-                    >
-                      {c.unread}
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </Search>
         </div>
       </aside>
 
@@ -274,6 +283,7 @@ export function Workspace({
             key={current.publicKey}
             contact={current}
             meName={me.name}
+            focus={pane.focus}
           />
         ) : pane.kind === "contacts" ? (
           <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">

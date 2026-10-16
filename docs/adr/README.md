@@ -39,3 +39,7 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0031](0031-link-previews-may-come-later.md) | Link previews may come later, fetched only by their sender |
 | [0032](0032-reading-and-presence-stay-on-the-readers-machine.md) | Reading and presence stay on the reader's machine |
 | [0033](0033-a-hidden-convia-says-who-wrote-not-what.md) | A hidden Convia says who wrote, not what |
+| [0034](0034-a-message-is-edited-and-deleted-by-its-author.md) | A message is edited and deleted by its author |
+| [0035](0035-replies-and-reactions.md) | Replies and reactions |
+| [0036](0036-files-wait-with-their-sender-up-to-100-mb.md) | Files wait with their sender, up to 100 MB |
+| [0037](0037-search-reads-the-history-without-indexing-it.md) | Search reads the history without indexing it |
