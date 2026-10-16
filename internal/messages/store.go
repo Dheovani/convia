@@ -35,11 +35,15 @@ const (
 type Kind string
 
 const (
-	Text     Kind = "text"
-	Reacting Kind = "reaction"
-	Editing  Kind = "edit"
-	Deleting Kind = "deletion"
+	Text      Kind = "text"
+	Reacting  Kind = "reaction"
+	Editing   Kind = "edit"
+	Deleting  Kind = "deletion"
+	Attaching Kind = "file"
 )
+
+// shown is whether entries of a kind are messages a conversation shows, rather than entries about them.
+func (k Kind) shown() bool { return k == Text || k == Attaching }
 
 /*
 Message is an entry of a conversation. A message holds Text, and Target is the message it answers; a
@@ -59,6 +63,8 @@ type Message struct {
 	Wiped    bool
 	Hidden   bool
 	Status   Status
+	// File is what a file entry describes, whose name is its Text.
+	File *File
 
 	// What a conversation shows of a message, from the entries about it.
 	Reactions []Reaction
@@ -85,9 +91,11 @@ func NewStore(db *storage.Store, me ed25519.PublicKey) *Store {
 // The columns an entry is read from, and where they come from.
 const (
 	columns = `m.id, m.author_key, m.author_sequence, m.hlc_wall, m.hlc_counter, m.content, m.kind, m.target, m.flag,
-		m.wiped, m.hidden, o.message_id IS NOT NULL, o.transmitted_at IS NOT NULL`
+		m.wiped, m.hidden, o.message_id IS NOT NULL, o.transmitted_at IS NOT NULL,
+		f.size, f.type, f.sha256, f.orientation, f.held, f.complete`
 	from = `FROM messages m JOIN conversations c ON m.conversation_id = c.id
-		LEFT JOIN outbox o ON o.message_id = m.id`
+		LEFT JOIN outbox o ON o.message_id = m.id
+		LEFT JOIN files f ON f.id = m.id`
 )
 
 // Last is the latest moment of every conversation, from which this peer's clock starts again.
@@ -149,7 +157,7 @@ func (s *Store) add(contact ed25519.PublicKey, m Message) (Message, error) {
 		return Message{}, err
 	}
 	if m.Target != nil {
-		if err := s.targets(tx, conversation, *m.Target, m.Kind == Editing || m.Kind == Deleting); err != nil {
+		if err := s.targets(tx, conversation, *m.Target, m.Kind); err != nil {
 			return Message{}, err
 		}
 	}
@@ -158,7 +166,10 @@ func (s *Store) add(contact ed25519.PublicKey, m Message) (Message, error) {
 		conversation, []byte(s.me)).Scan(&last); err != nil {
 		return Message{}, err
 	}
-	m.ID, m.Author, m.Sequence, m.Status = s.newID(), s.me, last+1, Waiting
+	if m.ID == ([IDSize]byte{}) {
+		m.ID = s.newID()
+	}
+	m.Author, m.Sequence, m.Status = s.me, last+1, Waiting
 	if err := s.insert(tx, conversation, m); err != nil {
 		return Message{}, err
 	}
@@ -173,23 +184,24 @@ func (s *Store) add(contact ed25519.PublicKey, m Message) (Message, error) {
 }
 
 /*
-targets checks that what an entry of this peer's is about is a message of the conversation, not
-deleted, and — for an edit or a deletion — this person's own.
+targets checks that what an entry of this peer's is about is a message of the conversation, not deleted,
+and — for an edit or a deletion — this person's own. Only a message's text is edited, never a file.
 */
-func (s *Store) targets(tx *sql.Tx, conversation []byte, target [IDSize]byte, own bool) error {
+func (s *Store) targets(tx *sql.Tx, conversation []byte, target [IDSize]byte, kind Kind) error {
 	var author []byte
+	var targetKind string
 	var deleted int
-	err := tx.QueryRow(`SELECT author_key, (SELECT count(*) FROM messages d WHERE d.conversation_id = m.conversation_id
+	err := tx.QueryRow(`SELECT author_key, kind, (SELECT count(*) FROM messages d WHERE d.conversation_id = m.conversation_id
 			AND d.kind = 'deletion' AND d.target = m.id AND d.author_key = m.author_key)
-		FROM messages m WHERE conversation_id = ? AND id = ? AND kind = 'text' AND hidden = 0`,
-		conversation, target[:]).Scan(&author, &deleted)
-	if errors.Is(err, sql.ErrNoRows) || err == nil && deleted > 0 {
+		FROM messages m WHERE conversation_id = ? AND id = ? AND kind IN ('text', 'file') AND hidden = 0`,
+		conversation, target[:]).Scan(&author, &targetKind, &deleted)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && (deleted > 0 || kind == Editing && Kind(targetKind) != Text) {
 		return ErrNoTarget
 	}
 	if err != nil {
 		return err
 	}
-	if own && !s.me.Equal(ed25519.PublicKey(author)) {
+	if (kind == Editing || kind == Deleting) && !s.me.Equal(ed25519.PublicKey(author)) {
 		return ErrNotYours
 	}
 	return nil
@@ -216,7 +228,7 @@ func (s *Store) compact(contact ed25519.PublicKey) error {
 			continue
 		}
 		t, ok := byID[*e.Target]
-		if !ok || t.Kind != Text || !t.Author.Equal(e.Author) {
+		if !ok || !t.Kind.shown() || !t.Author.Equal(e.Author) {
 			continue
 		}
 		switch e.Kind {
@@ -229,7 +241,7 @@ func (s *Store) compact(contact ed25519.PublicKey) error {
 	var gone []Message
 	for id, t := range byID {
 		switch {
-		case t.Kind != Text:
+		case !t.Kind.shown():
 		case deleted[id]:
 			gone = append(gone, t)
 			gone = append(gone, edits[id]...)
@@ -244,6 +256,11 @@ func (s *Store) compact(contact ed25519.PublicKey) error {
 		}
 		if err := s.wipe(e.ID); err != nil {
 			return err
+		}
+		if e.Kind == Attaching {
+			if err := s.unfile(e.ID); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -263,7 +280,7 @@ func (s *Store) Forget(contact ed25519.PublicKey, target [IDSize]byte) error {
 	if err != nil {
 		return err
 	}
-	i := slices.IndexFunc(entries, func(e Message) bool { return e.ID == target && e.Kind == Text })
+	i := slices.IndexFunc(entries, func(e Message) bool { return e.ID == target && e.Kind.shown() })
 	if i < 0 {
 		return ErrNoTarget
 	}
@@ -272,6 +289,11 @@ func (s *Store) Forget(contact ed25519.PublicKey, target [IDSize]byte) error {
 	}
 	if _, err := s.db.DB.Exec(`UPDATE messages SET hidden = 1 WHERE id = ?`, target[:]); err != nil {
 		return err
+	}
+	if entries[i].Kind == Attaching {
+		if err := s.unfile(target); err != nil {
+			return err
+		}
 	}
 	return s.wipe(target)
 }
@@ -285,6 +307,12 @@ func (s *Store) insert(tx *sql.Tx, conversation []byte, m Message) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID[:], conversation, []byte(m.Author), m.Sequence, m.Time.Wall, m.Time.Counter,
 		s.db.Content.Seal(m.ID[:], []byte(m.Text)), s.now().UnixMilli(), string(m.Kind), target, m.On, m.Wiped)
+	if err != nil || m.Kind != Attaching || m.File == nil || m.Wiped {
+		return err
+	}
+	f := m.File
+	_, err = tx.Exec(`INSERT INTO files (id, size, type, sha256, orientation, held, complete) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		m.ID[:], f.Size, f.Type, f.SHA256, f.Orientation, f.Held, f.Complete)
 	return err
 }
 
@@ -367,9 +395,17 @@ func (s *Store) scanWith(rows *sql.Rows, before ...any) (Message, error) {
 	var id, author, sealed, target []byte
 	var kind string
 	var queued, transmitted bool
+	var size, orientation, held sql.NullInt64
+	var fileType sql.NullString
+	var sum []byte
+	var complete sql.NullBool
 	if err := rows.Scan(append(before, &id, &author, &m.Sequence, &m.Time.Wall, &m.Time.Counter, &sealed, &kind, &target, &m.On,
-		&m.Wiped, &m.Hidden, &queued, &transmitted)...); err != nil {
+		&m.Wiped, &m.Hidden, &queued, &transmitted, &size, &fileType, &sum, &orientation, &held, &complete)...); err != nil {
 		return m, err
+	}
+	if size.Valid {
+		m.File = &File{Size: uint64(size.Int64), Type: fileType.String, SHA256: sum, Orientation: int(orientation.Int64),
+			Held: uint64(held.Int64), Complete: complete.Bool}
 	}
 	copy(m.ID[:], id)
 	m.Author, m.Kind = author, Kind(kind)
@@ -496,14 +532,14 @@ type Summary struct {
 }
 
 // unread is the condition of a message of the contact's the person has not read; only messages count (ADR 0032).
-const unread = `u.kind = 'text' AND u.author_key = c.contact_key
+const unread = `u.kind IN ('text', 'file') AND u.author_key = c.contact_key
 	AND (u.hlc_wall > c.read_wall OR u.hlc_wall = c.read_wall AND u.hlc_counter > c.read_counter)`
 
 // Summaries is every conversation that has a message, the latest first.
 func (s *Store) Summaries() ([]Summary, error) {
 	rows, err := s.db.DB.Query(`SELECT c.contact_key, (SELECT count(*) FROM messages u WHERE u.conversation_id = c.id AND ` + unread + `)
 		FROM conversations c
-		WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.kind = 'text')`)
+		WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id AND m.kind IN ('text', 'file'))`)
 	if err != nil {
 		return nil, err
 	}
@@ -549,9 +585,9 @@ func (s *Store) Summaries() ([]Summary, error) {
 // MarkRead says the person has read contact's conversation up to its latest message.
 func (s *Store) MarkRead(contact ed25519.PublicKey) error {
 	_, err := s.db.DB.Exec(`UPDATE conversations SET (read_wall, read_counter) = (
-			SELECT m.hlc_wall, m.hlc_counter FROM messages m WHERE m.conversation_id = conversations.id AND m.kind = 'text'
+			SELECT m.hlc_wall, m.hlc_counter FROM messages m WHERE m.conversation_id = conversations.id AND m.kind IN ('text', 'file')
 			ORDER BY m.hlc_wall DESC, m.hlc_counter DESC LIMIT 1)
-		WHERE contact_key = ? AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = conversations.id AND m.kind = 'text')`, []byte(contact))
+		WHERE contact_key = ? AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = conversations.id AND m.kind IN ('text', 'file'))`, []byte(contact))
 	return err
 }
 

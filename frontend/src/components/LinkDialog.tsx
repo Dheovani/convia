@@ -17,14 +17,11 @@ export function LinkDialog({
 
   useEffect(() => {
     const d = dialog.current;
-    if (!d || d.open)
-      return;
+    if (!d || d.open) return;
 
     // Where showModal is missing, as in tests, the dialog opens all the same.
-    if (typeof d.showModal === "function")
-      d.showModal();
-    else
-      d.setAttribute("open", "");
+    if (typeof d.showModal === "function") d.showModal();
+    else d.setAttribute("open", "");
   }, []);
 
   return (

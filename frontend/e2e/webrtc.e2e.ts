@@ -88,3 +88,21 @@ test.describe("through coturn's relay", () => {
     ]);
   });
 });
+
+test("a large file crosses its own channel while messages keep flowing", async ({
+  page,
+}) => {
+  await connect(page, [], false);
+  const size = 20 << 20;
+  await page.evaluate((s) => window.harness.sendFile(0, s, 64 << 10), size);
+  await exchange(page, [42]);
+  await expect
+    .poll(() => page.evaluate(() => window.harness.fileReceived(1).bytes), {
+      timeout: 60_000,
+    })
+    .toBe(size);
+  expect(await page.evaluate(() => window.harness.closed())).toEqual([
+    false,
+    false,
+  ]);
+});

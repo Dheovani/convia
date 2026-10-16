@@ -3,10 +3,16 @@ package messages
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash/crc32"
+	"image"
+	"image/png"
+	"io"
 	"log/slog"
 	"math/rand/v2"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +40,7 @@ type world struct {
 	peers  [2]*peer
 	up     bool
 	queues [2][]delivery // what each peer sent, in order
+	pieces [2][][]byte   // what each peer sent on the channel for files, in order
 }
 
 type peer struct {
@@ -47,6 +54,14 @@ type peer struct {
 }
 
 func (p *peer) other() *peer { return p.w.peers[1-p.index] }
+
+func (p *peer) SendFile(_ ed25519.PublicKey, data []byte) bool {
+	if !p.w.up {
+		return false
+	}
+	p.w.pieces[p.index] = append(p.w.pieces[p.index], bytes.Clone(data))
+	return true
+}
 
 func (p *peer) Send(_ ed25519.PublicKey, m *conviav1.PeerMessage) bool {
 	if !p.w.up {
@@ -110,6 +125,7 @@ func (w *world) connect() {
 func (w *world) drop() {
 	w.up = false
 	w.queues = [2][]delivery{}
+	w.pieces = [2][][]byte{}
 }
 
 // deliver hands the oldest message peer from sent to the other peer, and reports whether there was one.
@@ -125,12 +141,25 @@ func (w *world) deliver(from int) bool {
 	return true
 }
 
+// deliverPiece hands the oldest piece of a file peer from sent to the other peer.
+func (w *world) deliverPiece(from int) bool {
+	if len(w.pieces[from]) == 0 {
+		return false
+	}
+	piece := w.pieces[from][0]
+	w.pieces[from] = w.pieces[from][1:]
+	to := w.peers[1-from]
+	to.s.File(w.peers[from].key, piece)
+	to.s.work.drain()
+	return true
+}
+
 // settle connects and delivers until nothing is left in flight.
 func (w *world) settle() {
 	if !w.up {
 		w.connect()
 	}
-	for w.deliver(0) || w.deliver(1) {
+	for w.deliver(0) || w.deliver(1) || w.deliverPiece(0) || w.deliverPiece(1) {
 	}
 }
 
@@ -980,5 +1009,312 @@ func TestAWipedMessageArrivingIsNotToldOf(t *testing.T) {
 	w.peers[1].s.work.drain()
 	if len(w.queues[1]) != 1 || told != 0 {
 		t.Fatalf("a wiped message was acknowledged %d times and told of %d", len(w.queues[1]), told)
+	}
+}
+
+func (w *world) attach(i int, name string, data []byte) Message {
+	w.t.Helper()
+	p := w.peers[i]
+	m, err := p.s.Attach(p.other().key, name, data)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	p.s.work.drain()
+	return m
+}
+
+// received is the whole of file id as peer i holds it.
+func (w *world) received(i int, id [IDSize]byte) ([]byte, File) {
+	w.t.Helper()
+	r, f, err := w.peers[i].s.Open(id)
+	if err != nil {
+		w.t.Fatalf("peer %d does not hold the file: %v", i, err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	return data, f
+}
+
+func randomBytes(r *rand.Rand, n int) []byte {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = byte(r.Uint32())
+	}
+	return b
+}
+
+func TestAFileArrivesWholeOnItsOwnChannel(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	data := randomBytes(rand.New(rand.NewPCG(1, 1)), 3*Span+12345)
+	m := w.attach(0, "report.pdf", data)
+	w.settle()
+
+	got, f := w.received(1, m.ID)
+	if !bytes.Equal(got, data) || f.Type != Opaque || !f.Complete || f.Size != uint64(len(data)) {
+		t.Fatalf("received %d bytes of type %s, complete %v", len(got), f.Type, f.Complete)
+	}
+	shown := w.conversation(1)
+	if len(shown) != 1 || shown[0].Kind != Attaching || shown[0].Text != "report.pdf" || shown[0].File == nil {
+		t.Fatalf("the conversation shows %+v", shown)
+	}
+	for _, d := range w.queues {
+		if len(d) != 0 {
+			t.Fatal("something is still in flight")
+		}
+	}
+	if w.peers[1].wants[filesReason] {
+		t.Fatal("still wanting a file held whole")
+	}
+}
+
+func TestAnInterruptedFileResumesWhereItStopped(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	data := randomBytes(rand.New(rand.NewPCG(2, 2)), 2*Span+Piece/2)
+	m := w.attach(0, "archive.zip", data)
+	for w.deliver(0) || w.deliver(1) {
+	}
+	// Half the first span crosses before the connection drops.
+	for range Span / Piece / 2 {
+		w.deliverPiece(0)
+	}
+	w.drop()
+	if f, _ := w.peers[1].s.store.file(m.ID); f.Held != Span/2 || f.Complete {
+		t.Fatalf("after the drop, %d bytes held", f.Held)
+	}
+	if !w.peers[1].wants[filesReason] {
+		t.Fatal("a file not yet whole is not wanted")
+	}
+
+	w.connect()
+	requested := false
+	for _, d := range w.queues[1] {
+		if r := d.message.GetFileRequest(); r != nil && r.Offset == Span/2 {
+			requested = true
+		}
+	}
+	if !requested {
+		t.Fatal("reconnecting did not ask from where it stopped")
+	}
+	w.settle()
+	if got, _ := w.received(1, m.ID); !bytes.Equal(got, data) {
+		t.Fatal("the resumed file differs")
+	}
+}
+
+func TestAPictureLosesItsMetadataBeforeItIsSent(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, img); err != nil {
+		t.Fatal(err)
+	}
+	raw := encoded.Bytes()
+	text := []byte("tEXt")
+	text = append(text, []byte("Location\x00São Paulo")...)
+	chunk := binary.BigEndian.AppendUint32(nil, uint32(len(text)-4))
+	chunk = append(chunk, text...)
+	chunk = binary.BigEndian.AppendUint32(chunk, crc32.ChecksumIEEE(text))
+	withText := append(append(bytes.Clone(raw[:33]), chunk...), raw[33:]...)
+
+	m := w.attach(0, "photo.png", withText)
+	w.settle()
+	got, f := w.received(1, m.ID)
+	if f.Type != "image/png" || bytes.Contains(got, []byte("São Paulo")) || !bytes.Equal(got, raw) {
+		t.Fatalf("the picture arrived as %s, %d bytes", f.Type, len(got))
+	}
+	if mine, _ := w.received(0, m.ID); !bytes.Equal(mine, raw) {
+		t.Fatal("the sender keeps the picture with its metadata")
+	}
+}
+
+func TestAPieceThatIsNotTheFilesIsRefused(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	data := randomBytes(rand.New(rand.NewPCG(3, 3)), Piece*3)
+	m := w.attach(0, "data.bin", data)
+	for w.deliver(0) || w.deliver(1) {
+	}
+	// A tampered piece fails the SHA-256 once the file is whole, and the file is asked for again.
+	w.pieces[0][1][len(w.pieces[0][1])-1] ^= 1
+	for w.deliverPiece(0) {
+	}
+	if f, _ := w.peers[1].s.store.file(m.ID); f.Complete {
+		t.Fatal("a file that does not match its SHA-256 was kept")
+	}
+	w.settle()
+	if got, _ := w.received(1, m.ID); !bytes.Equal(got, data) {
+		t.Fatal("asked again, the file still differs")
+	}
+
+	// A piece from the wrong place, or of somebody else's file, is not kept.
+	if _, err := w.peers[1].s.store.Arrived(w.peers[0].key, m.ID, 0, data[:Piece]); err == nil {
+		t.Fatal("a piece of a file already whole was kept")
+	}
+	other := w.attach(1, "mine.bin", data)
+	if _, err := w.peers[1].s.store.Arrived(w.peers[0].key, other.ID, 0, data[:Piece]); err == nil {
+		t.Fatal("a contact sent a piece of this person's own file")
+	}
+}
+
+func TestOnlyOnesOwnWholeFileIsServed(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	theirs := w.attach(1, "theirs.bin", []byte("their file"))
+	w.settle()
+	w.pieces = [2][][]byte{}
+	for _, r := range []*conviav1.FileRequest{
+		{Id: theirs.ID[:], Offset: 0, Length: Span},
+		{Id: bytes.Repeat([]byte{1}, IDSize), Offset: 0, Length: Span},
+		{Id: theirs.ID[:], Offset: 0, Length: Span + 1},
+	} {
+		w.peers[0].s.Message(w.peers[1].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_FileRequest{FileRequest: r}})
+		w.peers[0].s.work.drain()
+	}
+	if len(w.pieces[0]) != 0 {
+		t.Fatalf("served %d pieces of what is not this person's", len(w.pieces[0]))
+	}
+}
+
+func TestWhatIsNoFileIsRefused(t *testing.T) {
+	w := newWorld(t)
+	for name, c := range map[string]struct {
+		name string
+		data []byte
+		want error
+	}{
+		"empty":           {"a.txt", nil, ErrFileTooLarge},
+		"too large":       {"a.bin", make([]byte, MaxFileSize+1), ErrFileTooLarge},
+		"no name":         {"", []byte("x"), ErrFileName},
+		"a folder":        {"../secrets/a.txt", []byte("x"), ErrFileName},
+		"a Windows drive": {"C:evil.txt", []byte("x"), ErrFileName},
+		"a control":       {"a\x00b", []byte("x"), ErrFileName},
+	} {
+		if _, err := w.peers[0].s.Attach(w.peers[1].key, c.name, c.data); !errors.Is(err, c.want) {
+			t.Errorf("%s: %v, want %v", name, err, c.want)
+		}
+	}
+	if _, err := w.peers[0].s.Attach(w.peers[1].key, "largest.bin", make([]byte, MaxFileSize)); err != nil {
+		t.Fatalf("a file of exactly 100 MB: %v", err)
+	}
+}
+
+func TestADeletedFileLeavesNothingBehind(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.attach(0, "gone.bin", []byte("soon gone"))
+	w.settle()
+	w.remove(0, m.ID)
+	w.settle()
+	for i, p := range w.peers {
+		if _, err := os.Stat(p.s.store.filePath(m.ID)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("peer %d still keeps the file", i)
+		}
+		if got := w.conversation(i); len(got) != 1 || !got[0].Deleted || got[0].File != nil {
+			t.Fatalf("peer %d shows %+v", i, got)
+		}
+	}
+
+	kept := w.attach(0, "kept.bin", []byte("only theirs forgets"))
+	w.settle()
+	if err := w.peers[1].s.Forget(w.peers[0].key, kept.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(w.peers[1].s.store.filePath(kept.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("forgotten, the file is still kept")
+	}
+	if _, f := w.received(0, kept.ID); !f.Complete {
+		t.Fatal("the sender lost the file the other forgot")
+	}
+}
+
+func TestAFileIsFoundByItsNameAndToldOf(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	var told []string
+	w.peers[1].s.Received = func(_ ed25519.PublicKey, m Message) { told = append(told, m.Text) }
+	w.attach(0, "Relatório Anual.pdf", []byte("pdf"))
+	w.settle()
+	if found, _ := w.peers[1].s.Search("relatorio"); len(found) != 1 {
+		t.Fatal("a file was not found by its name")
+	}
+	if len(told) != 1 || told[0] != "Relatório Anual.pdf" {
+		t.Fatalf("told of %q", told)
+	}
+	if n, _ := w.peers[1].s.Unread(); n != 1 {
+		t.Fatalf("%d unread", n)
+	}
+}
+
+func TestAPieceIsKeptOnlyWhereTheFileStopsAndFromItsSender(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	data := randomBytes(rand.New(rand.NewPCG(4, 4)), Piece*3)
+	m := w.attach(0, "data.bin", data)
+	for w.deliver(0) || w.deliver(1) {
+	}
+	w.pieces = [2][][]byte{}
+	store := w.peers[1].s.store
+	if _, err := store.Arrived(w.peers[0].key, m.ID, Piece, data[Piece:2*Piece]); err == nil {
+		t.Fatal("a piece past where the file stops was kept")
+	}
+
+	// Another contact, sending a piece of the first one's file, is not its sender.
+	third, _, _ := ed25519.GenerateKey(nil)
+	if _, err := w.peers[1].db.DB.Exec(`INSERT INTO contacts (public_key, display_name, added_at) VALUES (?, 'third', 0)`, []byte(third)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Arrived(third, m.ID, 0, data[:Piece]); err == nil {
+		t.Fatal("a piece of one contact's file was taken from another")
+	}
+	if f, _ := store.file(m.ID); f.Held != 0 {
+		t.Fatalf("%d bytes held after refusing both", f.Held)
+	}
+}
+
+func TestNoMoreThanASpanIsServedAtOnce(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	mine := w.attach(0, "big.bin", randomBytes(rand.New(rand.NewPCG(5, 5)), 2*Span))
+	for w.deliver(0) || w.deliver(1) {
+	}
+	w.pieces = [2][][]byte{}
+	w.peers[0].s.Message(w.peers[1].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_FileRequest{FileRequest: &conviav1.FileRequest{
+		Id: mine.ID[:], Offset: 0, Length: Span + 1}}})
+	w.peers[0].s.work.drain()
+	if len(w.pieces[0]) != 0 {
+		t.Fatalf("served %d pieces for a request beyond a span", len(w.pieces[0]))
+	}
+}
+
+func TestAFileIsAskedForOnceAtATime(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	first := w.attach(0, "one.bin", randomBytes(rand.New(rand.NewPCG(6, 6)), Piece))
+	w.attach(0, "two.bin", randomBytes(rand.New(rand.NewPCG(7, 7)), Piece))
+	for w.deliver(0) {
+	}
+	asked := 0
+	for _, d := range w.queues[1] {
+		if r := d.message.GetFileRequest(); r != nil && bytes.Equal(r.Id, first.ID[:]) {
+			asked++
+		}
+	}
+	if asked != 1 {
+		t.Fatalf("the first file was asked for %d times", asked)
 	}
 }

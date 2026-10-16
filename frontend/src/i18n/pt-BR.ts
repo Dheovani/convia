@@ -31,6 +31,9 @@ export const ptBR: Words = {
     "not-an-emoji": "Uma reação é um emoji.",
     "not-yours": "Só quem escreveu uma mensagem a edita ou apaga para os dois.",
     "not-delivered": "Uma mensagem que ainda espera é apagada para os dois.",
+    "file-too-large": "Um arquivo tem no máximo 100 MB.",
+    "file-name": "O nome deste arquivo não pode ser enviado.",
+    "file-not-held": "Este arquivo ainda não está aqui.",
     unknown: "Algo deu errado.",
   },
   home: {
@@ -112,6 +115,14 @@ export const ptBR: Words = {
   },
   notification: {
     title: (name: string) => `Nova mensagem de ${name}`,
+  },
+  files: {
+    attach: "Anexar um arquivo",
+    save: "Salvar",
+    sending: "Aguardando envio",
+    waiting: (name: string) => `Aguardando ${name} ficar online`,
+    receiving: (percent: number) => `Recebendo… ${percent}%`,
+    progress: (name: string) => `Recebendo ${name}`,
   },
   deleting: {
     title: "Apagar esta mensagem?",

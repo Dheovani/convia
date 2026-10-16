@@ -18,6 +18,10 @@ export function Blocked() {
   return window['go']['app']['Bridge']['Blocked']();
 }
 
+export function ChooseFile() {
+  return window['go']['app']['Bridge']['ChooseFile']();
+}
+
 export function ChooseIdentityFile() {
   return window['go']['app']['Bridge']['ChooseIdentityFile']();
 }
@@ -110,8 +114,16 @@ export function Requests() {
   return window['go']['app']['Bridge']['Requests']();
 }
 
+export function SaveFile(arg1, arg2) {
+  return window['go']['app']['Bridge']['SaveFile'](arg1, arg2);
+}
+
 export function SearchMessages(arg1) {
   return window['go']['app']['Bridge']['SearchMessages'](arg1);
+}
+
+export function SendFile(arg1, arg2) {
+  return window['go']['app']['Bridge']['SendFile'](arg1, arg2);
 }
 
 export function SendMessage(arg1, arg2, arg3) {
@@ -144,6 +156,10 @@ export function TransportCandidate(arg1, arg2) {
 
 export function TransportClosed(arg1) {
   return window['go']['app']['Bridge']['TransportClosed'](arg1);
+}
+
+export function TransportFileReceived(arg1, arg2) {
+  return window['go']['app']['Bridge']['TransportFileReceived'](arg1, arg2);
 }
 
 export function TransportLocal(arg1, arg2, arg3) {

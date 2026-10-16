@@ -66,6 +66,8 @@ func main() {
 		MinHeight: 500,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
+			// The pictures of the conversations, served by the core to this window alone (ADR 0036).
+			Handler: application.Files(),
 		},
 		// The theme's surface, so the window does not flash another colour before it is drawn.
 		BackgroundColour:  &options.RGBA{R: 0x17, G: 0x17, B: 0x1f, A: 0xff},

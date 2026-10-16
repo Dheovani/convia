@@ -250,7 +250,9 @@ export function Workspace({
                       </span>
                       {c.last && (
                         <span className="truncate text-[0.75rem] text-ink-faint">
-                          {plain(c.last.text)}
+                          {c.last.file
+                            ? `📎 ${c.last.text}`
+                            : plain(c.last.text)}
                         </span>
                       )}
                     </span>

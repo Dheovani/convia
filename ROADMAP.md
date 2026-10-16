@@ -227,7 +227,7 @@ What people expect of a conversation beyond writing to each other.
 - [x] **M13-003:** Decide replies and reactions.
 - [x] **M13-004:** Decide sending files and images: which channel carries them, the largest, whether they wait for an offline peer, and how they are stored.
 - [x] **M13-005:** Decide searching history, given that content is encrypted on disk.
-- [ ] **M13-006:** Build what those decisions keep.
+- [x] **M13-006:** Build what those decisions keep.
 
 ## Phase 5 — Spaces
 

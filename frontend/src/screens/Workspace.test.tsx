@@ -162,3 +162,29 @@ test("a search shows what it found, and opens the conversation at the message", 
   });
   expect(await screen.findByText("Bruno")).toBeTruthy();
 });
+
+test("a conversation whose latest message is a file says so", async () => {
+  answers.Conversations = () =>
+    Promise.resolve([
+      {
+        ...bruno,
+        last: {
+          id: "09",
+          mine: true,
+          text: "plans.pdf",
+          status: "delivered",
+          at: 9,
+          file: {
+            size: 1,
+            type: "application/octet-stream",
+            held: 1,
+            complete: true,
+            picture: false,
+            orientation: 1,
+          },
+        },
+      },
+    ]);
+  open();
+  expect(await screen.findByText("📎 plans.pdf")).toBeTruthy();
+});

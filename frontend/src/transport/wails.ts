@@ -4,6 +4,7 @@ import {
   TransportClosed,
   TransportLocal,
   TransportOpened,
+  TransportFileReceived,
   TransportReceived,
   TransportReset,
   TransportState,
@@ -14,7 +15,14 @@ import { Connections, type Core, type Kind } from "./connections";
 
 // An order from the core, as internal/app/network.go sends it.
 export interface Order {
-  op: "open" | "describe" | "candidate" | "send" | "close" | "configure";
+  op:
+    | "open"
+    | "describe"
+    | "candidate"
+    | "send"
+    | "send-file"
+    | "close"
+    | "configure";
   id?: string;
   offerer?: boolean;
   ice?: RTCIceServer[];
@@ -53,6 +61,9 @@ export function carry(connections: Connections, order: Order) {
     case "send":
       connections.send(id, fromBase64(order.data ?? ""));
       break;
+    case "send-file":
+      connections.sendFile(id, fromBase64(order.data ?? ""));
+      break;
     case "close":
       connections.close(id);
       break;
@@ -76,6 +87,7 @@ const core: Core = {
     ),
   opened: (id) => void TransportOpened(id),
   received: (id, data) => void TransportReceived(id, toBase64(data)),
+  fileReceived: (id, data) => void TransportFileReceived(id, toBase64(data)),
   closed: (id) => void TransportClosed(id),
   state: (id, state) => void TransportState(id, state),
 };

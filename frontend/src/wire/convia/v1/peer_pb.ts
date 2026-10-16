@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIuwDCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIAEIJCgdtZXNzYWdlItMBCg1EaXJlY3RNZXNzYWdlEgoKAmlkGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEEgwKBHdhbGwYAyABKAMSDwoHY291bnRlchgEIAEoDRIMCgR0ZXh0GAUgASgJEhAKCHJlcGx5X3RvGAYgASgMEiUKCHJlYWN0aW9uGAcgASgLMhMuY29udmlhLnYxLlJlYWN0aW9uEh0KBGVkaXQYCCABKAsyDy5jb252aWEudjEuRWRpdBIQCghkZWxldGlvbhgJIAEoDBINCgV3aXBlZBgKIAEoCCIkCgRFZGl0Eg4KBnRhcmdldBgBIAEoDBIMCgR0ZXh0GAIgASgJIjUKCFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCCIeCg9BY2tub3dsZWRnZW1lbnQSCwoDaWRzGAEgAygMIhsKB0hvbGRpbmcSEAoIc2VxdWVuY2UYASABKAQiLAoOQ29udGFjdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIi0KD0NvbnRhY3RBY2NlcHRlZBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiEgoQQ29udGFjdENvbmZpcm1lZCIaCghJbnRlcmVzdBIOCgZ3YW50ZWQYASABKAhCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIpwECgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIABIuCgxmaWxlX3JlcXVlc3QYCyABKAsyFi5jb252aWEudjEuRmlsZVJlcXVlc3RIAEIJCgdtZXNzYWdlIv4BCg1EaXJlY3RNZXNzYWdlEgoKAmlkGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEEgwKBHdhbGwYAyABKAMSDwoHY291bnRlchgEIAEoDRIMCgR0ZXh0GAUgASgJEhAKCHJlcGx5X3RvGAYgASgMEiUKCHJlYWN0aW9uGAcgASgLMhMuY29udmlhLnYxLlJlYWN0aW9uEh0KBGVkaXQYCCABKAsyDy5jb252aWEudjEuRWRpdBIQCghkZWxldGlvbhgJIAEoDBINCgV3aXBlZBgKIAEoCBIpCgphdHRhY2htZW50GAsgASgLMhUuY29udmlhLnYxLkF0dGFjaG1lbnQiTQoKQXR0YWNobWVudBIMCgRzaXplGAEgASgEEgwKBHR5cGUYAiABKAkSDgoGc2hhMjU2GAMgASgMEhMKC29yaWVudGF0aW9uGAQgASgNIjkKC0ZpbGVSZXF1ZXN0EgoKAmlkGAEgASgMEg4KBm9mZnNldBgCIAEoBBIOCgZsZW5ndGgYAyABKAQiNQoJRmlsZUNodW5rEgoKAmlkGAEgASgMEg4KBm9mZnNldBgCIAEoBBIMCgRkYXRhGAMgASgMIiQKBEVkaXQSDgoGdGFyZ2V0GAEgASgMEgwKBHRleHQYAiABKAkiNQoIUmVhY3Rpb24SDgoGdGFyZ2V0GAEgASgMEg0KBWVtb2ppGAIgASgJEgoKAm9uGAMgASgIIh4KD0Fja25vd2xlZGdlbWVudBILCgNpZHMYASADKAwiGwoHSG9sZGluZxIQCghzZXF1ZW5jZRgBIAEoBCIsCg5Db250YWN0UmVxdWVzdBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiLQoPQ29udGFjdEFjY2VwdGVkEgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCISChBDb250YWN0Q29uZmlybWVkIhoKCEludGVyZXN0Eg4KBndhbnRlZBgBIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z", [file_convia_v1_handshake]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -83,6 +83,12 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
      */
     value: Holding;
     case: "holding";
+  } | {
+    /**
+     * @generated from field: convia.v1.FileRequest file_request = 11;
+     */
+    value: FileRequest;
+    case: "fileRequest";
   } | { case: undefined; value?: undefined };
 };
 
@@ -161,6 +167,13 @@ export type DirectMessage = Message<"convia.v1.DirectMessage"> & {
    * @generated from field: bool wiped = 10;
    */
   wiped: boolean;
+
+  /**
+   * A file, whose name is the text; its content travels on the channel for files (ADR 0036).
+   *
+   * @generated from field: convia.v1.Attachment attachment = 11;
+   */
+  attachment?: Attachment | undefined;
 };
 
 /**
@@ -169,6 +182,102 @@ export type DirectMessage = Message<"convia.v1.DirectMessage"> & {
  */
 export const DirectMessageSchema: GenMessage<DirectMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_peer, 1);
+
+/**
+ * Attachment describes a file of at most 100 MB, by its size, type and SHA-256 (ADR 0036).
+ *
+ * @generated from message convia.v1.Attachment
+ */
+export type Attachment = Message<"convia.v1.Attachment"> & {
+  /**
+   * @generated from field: uint64 size = 1;
+   */
+  size: bigint;
+
+  /**
+   * image/png, image/jpeg, image/gif or image/webp, or application/octet-stream for anything else.
+   *
+   * @generated from field: string type = 2;
+   */
+  type: string;
+
+  /**
+   * @generated from field: bytes sha256 = 3;
+   */
+  sha256: Uint8Array;
+
+  /**
+   * The EXIF orientation of a picture, 1 to 8, kept when its metadata was removed.
+   *
+   * @generated from field: uint32 orientation = 4;
+   */
+  orientation: number;
+};
+
+/**
+ * Describes the message convia.v1.Attachment.
+ * Use `create(AttachmentSchema)` to create a new message.
+ */
+export const AttachmentSchema: GenMessage<Attachment> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 2);
+
+/**
+ * FileRequest asks the sender of a file for length bytes of it from offset.
+ *
+ * @generated from message convia.v1.FileRequest
+ */
+export type FileRequest = Message<"convia.v1.FileRequest"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: uint64 offset = 2;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: uint64 length = 3;
+   */
+  length: bigint;
+};
+
+/**
+ * Describes the message convia.v1.FileRequest.
+ * Use `create(FileRequestSchema)` to create a new message.
+ */
+export const FileRequestSchema: GenMessage<FileRequest> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 3);
+
+/**
+ * FileChunk is a piece of a file, sent on the channel for files: never on the channel for messages.
+ *
+ * @generated from message convia.v1.FileChunk
+ */
+export type FileChunk = Message<"convia.v1.FileChunk"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: uint64 offset = 2;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: bytes data = 3;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.FileChunk.
+ * Use `create(FileChunkSchema)` to create a new message.
+ */
+export const FileChunkSchema: GenMessage<FileChunk> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 4);
 
 /**
  * Edit gives a message of its author's new text (ADR 0034).
@@ -192,7 +301,7 @@ export type Edit = Message<"convia.v1.Edit"> & {
  * Use `create(EditSchema)` to create a new message.
  */
 export const EditSchema: GenMessage<Edit> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 2);
+  messageDesc(file_convia_v1_peer, 5);
 
 /**
  * Reaction puts an emoji on a message, or takes it off (ADR 0035).
@@ -221,7 +330,7 @@ export type Reaction = Message<"convia.v1.Reaction"> & {
  * Use `create(ReactionSchema)` to create a new message.
  */
 export const ReactionSchema: GenMessage<Reaction> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 3);
+  messageDesc(file_convia_v1_peer, 6);
 
 /**
  * Acknowledgement says the sender stored these messages (ADR 0011).
@@ -240,7 +349,7 @@ export type Acknowledgement = Message<"convia.v1.Acknowledgement"> & {
  * Use `create(AcknowledgementSchema)` to create a new message.
  */
 export const AcknowledgementSchema: GenMessage<Acknowledgement> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 4);
+  messageDesc(file_convia_v1_peer, 7);
 
 /**
  * Holding is the highest sequence number of the receiver's messages the sender holds, with every one before it.
@@ -259,7 +368,7 @@ export type Holding = Message<"convia.v1.Holding"> & {
  * Use `create(HoldingSchema)` to create a new message.
  */
 export const HoldingSchema: GenMessage<Holding> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 5);
+  messageDesc(file_convia_v1_peer, 8);
 
 /**
  * ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
@@ -283,7 +392,7 @@ export type ContactRequest = Message<"convia.v1.ContactRequest"> & {
  * Use `create(ContactRequestSchema)` to create a new message.
  */
 export const ContactRequestSchema: GenMessage<ContactRequest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 6);
+  messageDesc(file_convia_v1_peer, 9);
 
 /**
  * ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
@@ -307,7 +416,7 @@ export type ContactAccepted = Message<"convia.v1.ContactAccepted"> & {
  * Use `create(ContactAcceptedSchema)` to create a new message.
  */
 export const ContactAcceptedSchema: GenMessage<ContactAccepted> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 7);
+  messageDesc(file_convia_v1_peer, 10);
 
 /**
  * ContactConfirmed says the requester holds the pair secret too.
@@ -322,7 +431,7 @@ export type ContactConfirmed = Message<"convia.v1.ContactConfirmed"> & {
  * Use `create(ContactConfirmedSchema)` to create a new message.
  */
 export const ContactConfirmedSchema: GenMessage<ContactConfirmed> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 8);
+  messageDesc(file_convia_v1_peer, 11);
 
 /**
  * Interest says whether the sender still wants the connection (ADR 0024).
@@ -341,5 +450,5 @@ export type Interest = Message<"convia.v1.Interest"> & {
  * Use `create(InterestSchema)` to create a new message.
  */
 export const InterestSchema: GenMessage<Interest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 9);
+  messageDesc(file_convia_v1_peer, 12);
 

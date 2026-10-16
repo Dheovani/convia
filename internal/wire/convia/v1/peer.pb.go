@@ -36,6 +36,7 @@ type PeerMessage struct {
 	//	*PeerMessage_DirectMessage
 	//	*PeerMessage_Acknowledgement
 	//	*PeerMessage_Holding
+	//	*PeerMessage_FileRequest
 	Message       isPeerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -168,6 +169,15 @@ func (x *PeerMessage) GetHolding() *Holding {
 	return nil
 }
 
+func (x *PeerMessage) GetFileRequest() *FileRequest {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_FileRequest); ok {
+			return x.FileRequest
+		}
+	}
+	return nil
+}
+
 type isPeerMessage_Message interface {
 	isPeerMessage_Message()
 }
@@ -212,6 +222,10 @@ type PeerMessage_Holding struct {
 	Holding *Holding `protobuf:"bytes,10,opt,name=holding,proto3,oneof"`
 }
 
+type PeerMessage_FileRequest struct {
+	FileRequest *FileRequest `protobuf:"bytes,11,opt,name=file_request,json=fileRequest,proto3,oneof"`
+}
+
 func (*PeerMessage_Hello) isPeerMessage_Message() {}
 
 func (*PeerMessage_Challenge) isPeerMessage_Message() {}
@@ -232,6 +246,8 @@ func (*PeerMessage_Acknowledgement) isPeerMessage_Message() {}
 
 func (*PeerMessage_Holding) isPeerMessage_Message() {}
 
+func (*PeerMessage_FileRequest) isPeerMessage_Message() {}
+
 // DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
 // 4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
 // or its deletion (ADR 0034).
@@ -251,7 +267,9 @@ type DirectMessage struct {
 	// The message its author deletes for both.
 	Deletion []byte `protobuf:"bytes,9,opt,name=deletion,proto3" json:"deletion,omitempty"`
 	// An entry whose text was edited or deleted since: it is sent without it, and holds its place in the sequence.
-	Wiped         bool `protobuf:"varint,10,opt,name=wiped,proto3" json:"wiped,omitempty"`
+	Wiped bool `protobuf:"varint,10,opt,name=wiped,proto3" json:"wiped,omitempty"`
+	// A file, whose name is the text; its content travels on the channel for files (ADR 0036).
+	Attachment    *Attachment `protobuf:"bytes,11,opt,name=attachment,proto3" json:"attachment,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -356,6 +374,206 @@ func (x *DirectMessage) GetWiped() bool {
 	return false
 }
 
+func (x *DirectMessage) GetAttachment() *Attachment {
+	if x != nil {
+		return x.Attachment
+	}
+	return nil
+}
+
+// Attachment describes a file of at most 100 MB, by its size, type and SHA-256 (ADR 0036).
+type Attachment struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Size  uint64                 `protobuf:"varint,1,opt,name=size,proto3" json:"size,omitempty"`
+	// image/png, image/jpeg, image/gif or image/webp, or application/octet-stream for anything else.
+	Type   string `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Sha256 []byte `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// The EXIF orientation of a picture, 1 to 8, kept when its metadata was removed.
+	Orientation   uint32 `protobuf:"varint,4,opt,name=orientation,proto3" json:"orientation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Attachment) Reset() {
+	*x = Attachment{}
+	mi := &file_convia_v1_peer_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Attachment) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Attachment) ProtoMessage() {}
+
+func (x *Attachment) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Attachment.ProtoReflect.Descriptor instead.
+func (*Attachment) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Attachment) GetSize() uint64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *Attachment) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *Attachment) GetSha256() []byte {
+	if x != nil {
+		return x.Sha256
+	}
+	return nil
+}
+
+func (x *Attachment) GetOrientation() uint32 {
+	if x != nil {
+		return x.Orientation
+	}
+	return 0
+}
+
+// FileRequest asks the sender of a file for length bytes of it from offset.
+type FileRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            []byte                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Offset        uint64                 `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
+	Length        uint64                 `protobuf:"varint,3,opt,name=length,proto3" json:"length,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileRequest) Reset() {
+	*x = FileRequest{}
+	mi := &file_convia_v1_peer_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileRequest) ProtoMessage() {}
+
+func (x *FileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileRequest.ProtoReflect.Descriptor instead.
+func (*FileRequest) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *FileRequest) GetId() []byte {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *FileRequest) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *FileRequest) GetLength() uint64 {
+	if x != nil {
+		return x.Length
+	}
+	return 0
+}
+
+// FileChunk is a piece of a file, sent on the channel for files: never on the channel for messages.
+type FileChunk struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            []byte                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Offset        uint64                 `protobuf:"varint,2,opt,name=offset,proto3" json:"offset,omitempty"`
+	Data          []byte                 `protobuf:"bytes,3,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileChunk) Reset() {
+	*x = FileChunk{}
+	mi := &file_convia_v1_peer_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileChunk) ProtoMessage() {}
+
+func (x *FileChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileChunk.ProtoReflect.Descriptor instead.
+func (*FileChunk) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *FileChunk) GetId() []byte {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *FileChunk) GetOffset() uint64 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+func (x *FileChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
 // Edit gives a message of its author's new text (ADR 0034).
 type Edit struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -367,7 +585,7 @@ type Edit struct {
 
 func (x *Edit) Reset() {
 	*x = Edit{}
-	mi := &file_convia_v1_peer_proto_msgTypes[2]
+	mi := &file_convia_v1_peer_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -379,7 +597,7 @@ func (x *Edit) String() string {
 func (*Edit) ProtoMessage() {}
 
 func (x *Edit) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[2]
+	mi := &file_convia_v1_peer_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -392,7 +610,7 @@ func (x *Edit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Edit.ProtoReflect.Descriptor instead.
 func (*Edit) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{2}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Edit) GetTarget() []byte {
@@ -421,7 +639,7 @@ type Reaction struct {
 
 func (x *Reaction) Reset() {
 	*x = Reaction{}
-	mi := &file_convia_v1_peer_proto_msgTypes[3]
+	mi := &file_convia_v1_peer_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -433,7 +651,7 @@ func (x *Reaction) String() string {
 func (*Reaction) ProtoMessage() {}
 
 func (x *Reaction) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[3]
+	mi := &file_convia_v1_peer_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -446,7 +664,7 @@ func (x *Reaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Reaction.ProtoReflect.Descriptor instead.
 func (*Reaction) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{3}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Reaction) GetTarget() []byte {
@@ -480,7 +698,7 @@ type Acknowledgement struct {
 
 func (x *Acknowledgement) Reset() {
 	*x = Acknowledgement{}
-	mi := &file_convia_v1_peer_proto_msgTypes[4]
+	mi := &file_convia_v1_peer_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -492,7 +710,7 @@ func (x *Acknowledgement) String() string {
 func (*Acknowledgement) ProtoMessage() {}
 
 func (x *Acknowledgement) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[4]
+	mi := &file_convia_v1_peer_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -505,7 +723,7 @@ func (x *Acknowledgement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Acknowledgement.ProtoReflect.Descriptor instead.
 func (*Acknowledgement) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{4}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Acknowledgement) GetIds() [][]byte {
@@ -525,7 +743,7 @@ type Holding struct {
 
 func (x *Holding) Reset() {
 	*x = Holding{}
-	mi := &file_convia_v1_peer_proto_msgTypes[5]
+	mi := &file_convia_v1_peer_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +755,7 @@ func (x *Holding) String() string {
 func (*Holding) ProtoMessage() {}
 
 func (x *Holding) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[5]
+	mi := &file_convia_v1_peer_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +768,7 @@ func (x *Holding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Holding.ProtoReflect.Descriptor instead.
 func (*Holding) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{5}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Holding) GetSequence() uint64 {
@@ -571,7 +789,7 @@ type ContactRequest struct {
 
 func (x *ContactRequest) Reset() {
 	*x = ContactRequest{}
-	mi := &file_convia_v1_peer_proto_msgTypes[6]
+	mi := &file_convia_v1_peer_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -583,7 +801,7 @@ func (x *ContactRequest) String() string {
 func (*ContactRequest) ProtoMessage() {}
 
 func (x *ContactRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[6]
+	mi := &file_convia_v1_peer_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -596,7 +814,7 @@ func (x *ContactRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContactRequest.ProtoReflect.Descriptor instead.
 func (*ContactRequest) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{6}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ContactRequest) GetName() string {
@@ -624,7 +842,7 @@ type ContactAccepted struct {
 
 func (x *ContactAccepted) Reset() {
 	*x = ContactAccepted{}
-	mi := &file_convia_v1_peer_proto_msgTypes[7]
+	mi := &file_convia_v1_peer_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -636,7 +854,7 @@ func (x *ContactAccepted) String() string {
 func (*ContactAccepted) ProtoMessage() {}
 
 func (x *ContactAccepted) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[7]
+	mi := &file_convia_v1_peer_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -649,7 +867,7 @@ func (x *ContactAccepted) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContactAccepted.ProtoReflect.Descriptor instead.
 func (*ContactAccepted) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{7}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ContactAccepted) GetName() string {
@@ -675,7 +893,7 @@ type ContactConfirmed struct {
 
 func (x *ContactConfirmed) Reset() {
 	*x = ContactConfirmed{}
-	mi := &file_convia_v1_peer_proto_msgTypes[8]
+	mi := &file_convia_v1_peer_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -687,7 +905,7 @@ func (x *ContactConfirmed) String() string {
 func (*ContactConfirmed) ProtoMessage() {}
 
 func (x *ContactConfirmed) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[8]
+	mi := &file_convia_v1_peer_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -700,7 +918,7 @@ func (x *ContactConfirmed) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContactConfirmed.ProtoReflect.Descriptor instead.
 func (*ContactConfirmed) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{8}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{11}
 }
 
 // Interest says whether the sender still wants the connection (ADR 0024).
@@ -713,7 +931,7 @@ type Interest struct {
 
 func (x *Interest) Reset() {
 	*x = Interest{}
-	mi := &file_convia_v1_peer_proto_msgTypes[9]
+	mi := &file_convia_v1_peer_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -725,7 +943,7 @@ func (x *Interest) String() string {
 func (*Interest) ProtoMessage() {}
 
 func (x *Interest) ProtoReflect() protoreflect.Message {
-	mi := &file_convia_v1_peer_proto_msgTypes[9]
+	mi := &file_convia_v1_peer_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -738,7 +956,7 @@ func (x *Interest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Interest.ProtoReflect.Descriptor instead.
 func (*Interest) Descriptor() ([]byte, []int) {
-	return file_convia_v1_peer_proto_rawDescGZIP(), []int{9}
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Interest) GetWanted() bool {
@@ -752,7 +970,7 @@ var File_convia_v1_peer_proto protoreflect.FileDescriptor
 
 const file_convia_v1_peer_proto_rawDesc = "" +
 	"\n" +
-	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\"\xeb\x04\n" +
+	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\"\xa8\x05\n" +
 	"\vPeerMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.convia.v1.HelloH\x00R\x05hello\x124\n" +
 	"\tchallenge\x18\x02 \x01(\v2\x14.convia.v1.ChallengeH\x00R\tchallenge\x12(\n" +
@@ -764,8 +982,9 @@ const file_convia_v1_peer_proto_rawDesc = "" +
 	"\x0edirect_message\x18\b \x01(\v2\x18.convia.v1.DirectMessageH\x00R\rdirectMessage\x12F\n" +
 	"\x0facknowledgement\x18\t \x01(\v2\x1a.convia.v1.AcknowledgementH\x00R\x0facknowledgement\x12.\n" +
 	"\aholding\x18\n" +
-	" \x01(\v2\x12.convia.v1.HoldingH\x00R\aholdingB\t\n" +
-	"\amessage\"\xa0\x02\n" +
+	" \x01(\v2\x12.convia.v1.HoldingH\x00R\aholding\x12;\n" +
+	"\ffile_request\x18\v \x01(\v2\x16.convia.v1.FileRequestH\x00R\vfileRequestB\t\n" +
+	"\amessage\"\xd7\x02\n" +
 	"\rDirectMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\x1a\n" +
 	"\bsequence\x18\x02 \x01(\x04R\bsequence\x12\x12\n" +
@@ -777,7 +996,24 @@ const file_convia_v1_peer_proto_rawDesc = "" +
 	"\x04edit\x18\b \x01(\v2\x0f.convia.v1.EditR\x04edit\x12\x1a\n" +
 	"\bdeletion\x18\t \x01(\fR\bdeletion\x12\x14\n" +
 	"\x05wiped\x18\n" +
-	" \x01(\bR\x05wiped\"2\n" +
+	" \x01(\bR\x05wiped\x125\n" +
+	"\n" +
+	"attachment\x18\v \x01(\v2\x15.convia.v1.AttachmentR\n" +
+	"attachment\"n\n" +
+	"\n" +
+	"Attachment\x12\x12\n" +
+	"\x04size\x18\x01 \x01(\x04R\x04size\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\fR\x06sha256\x12 \n" +
+	"\vorientation\x18\x04 \x01(\rR\vorientation\"M\n" +
+	"\vFileRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\fR\x02id\x12\x16\n" +
+	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x16\n" +
+	"\x06length\x18\x03 \x01(\x04R\x06length\"G\n" +
+	"\tFileChunk\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\fR\x02id\x12\x16\n" +
+	"\x06offset\x18\x02 \x01(\x04R\x06offset\x12\x12\n" +
+	"\x04data\x18\x03 \x01(\fR\x04data\"2\n" +
 	"\x04Edit\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\fR\x06target\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\"H\n" +
@@ -811,40 +1047,45 @@ func file_convia_v1_peer_proto_rawDescGZIP() []byte {
 	return file_convia_v1_peer_proto_rawDescData
 }
 
-var file_convia_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_convia_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_convia_v1_peer_proto_goTypes = []any{
 	(*PeerMessage)(nil),      // 0: convia.v1.PeerMessage
 	(*DirectMessage)(nil),    // 1: convia.v1.DirectMessage
-	(*Edit)(nil),             // 2: convia.v1.Edit
-	(*Reaction)(nil),         // 3: convia.v1.Reaction
-	(*Acknowledgement)(nil),  // 4: convia.v1.Acknowledgement
-	(*Holding)(nil),          // 5: convia.v1.Holding
-	(*ContactRequest)(nil),   // 6: convia.v1.ContactRequest
-	(*ContactAccepted)(nil),  // 7: convia.v1.ContactAccepted
-	(*ContactConfirmed)(nil), // 8: convia.v1.ContactConfirmed
-	(*Interest)(nil),         // 9: convia.v1.Interest
-	(*Hello)(nil),            // 10: convia.v1.Hello
-	(*Challenge)(nil),        // 11: convia.v1.Challenge
-	(*Proof)(nil),            // 12: convia.v1.Proof
+	(*Attachment)(nil),       // 2: convia.v1.Attachment
+	(*FileRequest)(nil),      // 3: convia.v1.FileRequest
+	(*FileChunk)(nil),        // 4: convia.v1.FileChunk
+	(*Edit)(nil),             // 5: convia.v1.Edit
+	(*Reaction)(nil),         // 6: convia.v1.Reaction
+	(*Acknowledgement)(nil),  // 7: convia.v1.Acknowledgement
+	(*Holding)(nil),          // 8: convia.v1.Holding
+	(*ContactRequest)(nil),   // 9: convia.v1.ContactRequest
+	(*ContactAccepted)(nil),  // 10: convia.v1.ContactAccepted
+	(*ContactConfirmed)(nil), // 11: convia.v1.ContactConfirmed
+	(*Interest)(nil),         // 12: convia.v1.Interest
+	(*Hello)(nil),            // 13: convia.v1.Hello
+	(*Challenge)(nil),        // 14: convia.v1.Challenge
+	(*Proof)(nil),            // 15: convia.v1.Proof
 }
 var file_convia_v1_peer_proto_depIdxs = []int32{
-	10, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
-	11, // 1: convia.v1.PeerMessage.challenge:type_name -> convia.v1.Challenge
-	12, // 2: convia.v1.PeerMessage.proof:type_name -> convia.v1.Proof
-	9,  // 3: convia.v1.PeerMessage.interest:type_name -> convia.v1.Interest
-	6,  // 4: convia.v1.PeerMessage.contact_request:type_name -> convia.v1.ContactRequest
-	7,  // 5: convia.v1.PeerMessage.contact_accepted:type_name -> convia.v1.ContactAccepted
-	8,  // 6: convia.v1.PeerMessage.contact_confirmed:type_name -> convia.v1.ContactConfirmed
+	13, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
+	14, // 1: convia.v1.PeerMessage.challenge:type_name -> convia.v1.Challenge
+	15, // 2: convia.v1.PeerMessage.proof:type_name -> convia.v1.Proof
+	12, // 3: convia.v1.PeerMessage.interest:type_name -> convia.v1.Interest
+	9,  // 4: convia.v1.PeerMessage.contact_request:type_name -> convia.v1.ContactRequest
+	10, // 5: convia.v1.PeerMessage.contact_accepted:type_name -> convia.v1.ContactAccepted
+	11, // 6: convia.v1.PeerMessage.contact_confirmed:type_name -> convia.v1.ContactConfirmed
 	1,  // 7: convia.v1.PeerMessage.direct_message:type_name -> convia.v1.DirectMessage
-	4,  // 8: convia.v1.PeerMessage.acknowledgement:type_name -> convia.v1.Acknowledgement
-	5,  // 9: convia.v1.PeerMessage.holding:type_name -> convia.v1.Holding
-	3,  // 10: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
-	2,  // 11: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
-	12, // [12:12] is the sub-list for method output_type
-	12, // [12:12] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	7,  // 8: convia.v1.PeerMessage.acknowledgement:type_name -> convia.v1.Acknowledgement
+	8,  // 9: convia.v1.PeerMessage.holding:type_name -> convia.v1.Holding
+	3,  // 10: convia.v1.PeerMessage.file_request:type_name -> convia.v1.FileRequest
+	6,  // 11: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
+	5,  // 12: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
+	2,  // 13: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_peer_proto_init() }
@@ -864,6 +1105,7 @@ func file_convia_v1_peer_proto_init() {
 		(*PeerMessage_DirectMessage)(nil),
 		(*PeerMessage_Acknowledgement)(nil),
 		(*PeerMessage_Holding)(nil),
+		(*PeerMessage_FileRequest)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -871,7 +1113,7 @@ func file_convia_v1_peer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_peer_proto_rawDesc), len(file_convia_v1_peer_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -8,6 +8,8 @@ interface Side {
   closed: boolean;
   offers: number;
   received: number[][];
+  fileBytes: number;
+  filePieces: number;
 }
 
 const sides: Side[] = [];
@@ -25,6 +27,10 @@ function start(ice: RTCIceServer[], relayOnly: boolean) {
     },
     received: (_, data) => {
       sides[i].received.push([...data]);
+    },
+    fileReceived: (_, data) => {
+      sides[i].fileBytes += data.length;
+      sides[i].filePieces += 1;
     },
     closed: () => {
       sides[i].closed = true;
@@ -49,6 +55,8 @@ function start(ice: RTCIceServer[], relayOnly: boolean) {
       closed: false,
       offers: 0,
       received: [],
+      fileBytes: 0,
+      filePieces: 0,
     };
   }
   sides[1].connections.open("x", false, ice);
@@ -78,6 +86,19 @@ const harness = {
   received: (i: number) => sides[i].received,
   send: (i: number, data: number[]) =>
     sides[i].connections.send("x", new Uint8Array(data)),
+  // sendFile sends size bytes in pieces of piece bytes on the channel for files, all at once.
+  sendFile: (i: number, size: number, piece: number) => {
+    for (let sent = 0; sent < size; sent += piece) {
+      sides[i].connections.sendFile(
+        "x",
+        new Uint8Array(Math.min(piece, size - sent)),
+      );
+    }
+  },
+  fileReceived: (i: number) => ({
+    bytes: sides[i].fileBytes,
+    pieces: sides[i].filePieces,
+  }),
   configure: (i: number, ice: RTCIceServer[]) =>
     sides[i].connections.configure(ice),
 };

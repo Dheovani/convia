@@ -35,12 +35,13 @@ type recorder struct {
 	offerer map[string]bool
 	sent    map[string][][]byte
 	closed  map[string]bool
+	files   map[string][][]byte
 	signals []*conviav1.Signal
 	service []string
 }
 
 func newRecorder() *recorder {
-	return &recorder{offerer: map[string]bool{}, sent: map[string][][]byte{}, closed: map[string]bool{}}
+	return &recorder{offerer: map[string]bool{}, sent: map[string][][]byte{}, closed: map[string]bool{}, files: map[string][][]byte{}}
 }
 
 func (r *recorder) Open(id string, offerer bool, _ []ICEServer) {
@@ -75,6 +76,12 @@ func (r *recorder) told() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return slices.Clone(r.service)
+}
+
+func (r *recorder) SendFile(id string, data []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.files[id] = append(r.files[id], data)
 }
 
 func (r *recorder) Send(id string, data []byte) {
@@ -636,5 +643,29 @@ func TestDisconnectingForgetsThePeer(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if n := s.opens(); n != 1 {
 		t.Fatalf("connected %d times after disconnecting", n)
+	}
+}
+
+func TestAFileBeforeTheHandshakeEndsTheConnection(t *testing.T) {
+	s := connect(t, false)
+	s.m.FileReceived(s.id, []byte("too soon"))
+	s.expectRefused()
+}
+
+func TestFilesTravelOnTheirOwnChannelOnceProven(t *testing.T) {
+	s := connect(t, false)
+	if s.m.SendFile(public(s.remote), []byte("x")) {
+		t.Fatal("a file went out before the handshake")
+	}
+	s.receive(hello(1), challenge(theirNonce), proof(public(s.remote), ed25519.Sign(s.remote, s.honest().bytes(public(s.me)))))
+	s.expectReady()
+	if !s.m.SendFile(public(s.remote), []byte("piece")) {
+		t.Fatal("a file did not go out on a proven connection")
+	}
+	s.r.mu.Lock()
+	got := s.r.files[s.id]
+	s.r.mu.Unlock()
+	if len(got) != 1 || string(got[0]) != "piece" {
+		t.Fatalf("the channel for files carried %q", got)
 	}
 }

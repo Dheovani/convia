@@ -100,6 +100,14 @@ func (m Message) check() error {
 		return CheckEmoji(m.Text)
 	case Deleting:
 		return nil
+	case Attaching:
+		if m.Wiped {
+			return nil
+		}
+		if err := checkFileName(m.Text); err != nil {
+			return err
+		}
+		return m.File.check()
 	}
 	return errKind
 }
@@ -119,7 +127,7 @@ func fold(entries []Message, me ed25519.PublicKey) []Message {
 	var out []Message
 	index := map[[IDSize]byte]int{}
 	for _, e := range entries {
-		if e.Kind == Text && !e.Hidden {
+		if e.Kind.shown() && !e.Hidden {
 			index[e.ID] = len(out)
 			out = append(out, e)
 		}
@@ -137,7 +145,7 @@ func fold(entries []Message, me ed25519.PublicKey) []Message {
 		}
 		switch e.Kind {
 		case Editing:
-			if e.Author.Equal(out[i].Author) && !e.Wiped {
+			if e.Author.Equal(out[i].Author) && !e.Wiped && out[i].Kind == Text {
 				out[i].Text, out[i].Edited = e.Text, true
 			}
 		case Deleting:
@@ -154,7 +162,7 @@ func fold(entries []Message, me ed25519.PublicKey) []Message {
 
 	for i := range out {
 		if out[i].Deleted || out[i].Wiped && !out[i].Edited {
-			out[i].Deleted, out[i].Edited, out[i].Text = true, false, ""
+			out[i].Deleted, out[i].Edited, out[i].Text, out[i].File = true, false, "", nil
 		}
 	}
 

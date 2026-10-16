@@ -30,6 +30,9 @@ export const en = {
     "not-an-emoji": "A reaction is one emoji.",
     "not-yours": "Only its author edits or deletes a message for both.",
     "not-delivered": "A message still waiting is deleted for both.",
+    "file-too-large": "A file holds at most 100 MB.",
+    "file-name": "This file's name cannot be sent.",
+    "file-not-held": "This file is not here yet.",
     unknown: "Something went wrong.",
   },
   home: {
@@ -111,6 +114,14 @@ export const en = {
   },
   notification: {
     title: (name: string) => `New message from ${name}`,
+  },
+  files: {
+    attach: "Attach a file",
+    save: "Save",
+    sending: "Waiting to be sent",
+    waiting: (name: string) => `Waiting for ${name} to be online`,
+    receiving: (percent: number) => `Receiving… ${percent}%`,
+    progress: (name: string) => `Receiving ${name}`,
   },
   deleting: {
     title: "Delete this message?",

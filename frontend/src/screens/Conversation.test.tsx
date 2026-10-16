@@ -274,3 +274,94 @@ test("a deleted message keeps its place, and a reply to it says so", async () =>
   expect(screen.getByText("The message replied to was deleted.")).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "Reply" })).toHaveLength(1);
 });
+
+const picture = {
+  id: "07",
+  mine: false,
+  text: "beach.jpg",
+  status: "received",
+  at: 7,
+  reactions: [],
+  file: {
+    size: 300_000,
+    type: "image/jpeg",
+    held: 300_000,
+    complete: true,
+    picture: true,
+    orientation: 6,
+    url: "/files/07",
+  },
+};
+const document = {
+  id: "08",
+  mine: false,
+  text: "report.pdf",
+  status: "received",
+  at: 8,
+  reactions: [],
+  file: {
+    size: 4 << 20,
+    type: "application/octet-stream",
+    held: 1 << 20,
+    complete: false,
+    picture: false,
+    orientation: 1,
+  },
+};
+
+test("a picture is shown as it was taken, and anything else offered to be saved", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      picture,
+      document,
+      {
+        ...document,
+        id: "09",
+        text: "done.zip",
+        file: { ...document.file, held: 4 << 20, complete: true },
+      },
+    ]);
+  open();
+  const img = (await screen.findByAltText("beach.jpg")) as HTMLImageElement;
+  expect(img.getAttribute("src")).toBe("/files/07");
+  expect(img.style.transform).toBe("rotate(90deg)");
+
+  expect(screen.getByText(/Receiving… 25%/)).toBeTruthy();
+  expect(screen.getByLabelText("Receiving report.pdf")).toBeTruthy();
+  const saves = screen.getAllByRole("button", { name: "Save" });
+  expect(saves).toHaveLength(2);
+  fireEvent.click(saves[1]);
+  await waitFor(() => expect(calls.SaveFile).toEqual([["09", "done.zip"]]));
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+});
+
+test("a file not yet started waits for its sender", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([{ ...document, file: { ...document.file, held: 0 } }]);
+  open();
+  expect(
+    await screen.findByText(/Waiting for Bruno to be online/),
+  ).toBeTruthy();
+});
+
+test("a file is attached from the one the person chooses", async () => {
+  answers.ChooseFile = () => Promise.resolve("C:\\photos\\cat.png");
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await waitFor(() =>
+    expect(calls.SendFile).toEqual([[bruno.publicKey, "C:\\photos\\cat.png"]]),
+  );
+
+  answers.ChooseFile = () => Promise.resolve("");
+  fireEvent.click(screen.getByRole("button", { name: "Attach a file" }));
+  await waitFor(() => expect(calls.ChooseFile).toHaveLength(2));
+  expect(calls.SendFile).toHaveLength(1);
+});
+
+test("a file too large is refused in the interface's words", async () => {
+  answers.ChooseFile = () => Promise.resolve("C:\\huge.iso");
+  answers.SendFile = () => Promise.reject(new Error("file-too-large"));
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Attach a file" }));
+  expect(await screen.findByText("A file holds at most 100 MB.")).toBeTruthy();
+});

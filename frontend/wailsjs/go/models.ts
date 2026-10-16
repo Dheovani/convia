@@ -18,6 +18,30 @@ export namespace app {
 	        this.safetyCode = source["safetyCode"];
 	    }
 	}
+	export class FileView {
+	    size: number;
+	    type: string;
+	    held: number;
+	    complete: boolean;
+	    picture: boolean;
+	    orientation: number;
+	    url?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.size = source["size"];
+	        this.type = source["type"];
+	        this.held = source["held"];
+	        this.complete = source["complete"];
+	        this.picture = source["picture"];
+	        this.orientation = source["orientation"];
+	        this.url = source["url"];
+	    }
+	}
 	export class QuoteView {
 	    id: string;
 	    mine: boolean;
@@ -64,6 +88,7 @@ export namespace app {
 	    replyTo?: QuoteView;
 	    edited: boolean;
 	    deleted: boolean;
+	    file?: FileView;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageView(source);
@@ -80,6 +105,7 @@ export namespace app {
 	        this.replyTo = this.convertValues(source["replyTo"], QuoteView);
 	        this.edited = source["edited"];
 	        this.deleted = source["deleted"];
+	        this.file = this.convertValues(source["file"], FileView);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -140,6 +166,7 @@ export namespace app {
 		    return a;
 		}
 	}
+	
 	export class FoundView {
 	    publicKey: string;
 	    name: string;

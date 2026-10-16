@@ -19,6 +19,7 @@ type MessageView struct {
 	ReplyTo   *QuoteView     `json:"replyTo,omitempty"`
 	Edited    bool           `json:"edited"`
 	Deleted   bool           `json:"deleted"`
+	File      *FileView      `json:"file,omitempty"`
 }
 
 // ReactionView is an emoji on a message, how many put it there, and whether this person did.
@@ -48,6 +49,9 @@ var messageRefusals = []struct {
 	{messages.ErrEmoji, "not-an-emoji"},
 	{messages.ErrNotYours, "not-yours"},
 	{messages.ErrNotDelivered, "not-delivered"},
+	{messages.ErrFileTooLarge, "file-too-large"},
+	{messages.ErrFileName, "file-name"},
+	{messages.ErrNotHeld, "file-not-held"},
 }
 
 func messageRefusal(err error) error {
@@ -62,6 +66,7 @@ func messageRefusal(err error) error {
 func messageView(m messages.Message) MessageView {
 	view := MessageView{ID: hex.EncodeToString(m.ID[:]), Mine: m.Status != messages.Received, Text: m.Text, Status: string(m.Status),
 		At: m.Time.Wall, Reactions: []ReactionView{}, Edited: m.Edited, Deleted: m.Deleted}
+	view.File = fileView(view.ID, m.File)
 	for _, r := range m.Reactions {
 		view.Reactions = append(view.Reactions, ReactionView{Emoji: r.Emoji, Count: r.Count, Mine: r.Mine})
 	}

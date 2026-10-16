@@ -197,3 +197,46 @@ test("a message being edited", async () => {
   await screen.findByLabelText("The message's new text");
   expect(await violations(container)).toEqual([]);
 });
+
+test("a conversation with files", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      {
+        id: "07",
+        mine: false,
+        text: "beach.jpg",
+        status: "received",
+        at: 7,
+        reactions: [],
+        file: {
+          size: 3,
+          type: "image/png",
+          held: 3,
+          complete: true,
+          picture: true,
+          orientation: 1,
+          url: "/files/07",
+        },
+      },
+      {
+        id: "08",
+        mine: false,
+        text: "report.pdf",
+        status: "received",
+        at: 8,
+        reactions: [],
+        file: {
+          size: 10,
+          type: "application/octet-stream",
+          held: 4,
+          complete: false,
+          picture: false,
+          orientation: 1,
+        },
+      },
+    ]);
+  const { container } = workspace();
+  fireEvent.click(await screen.findByText("Ana"));
+  await screen.findByText("report.pdf");
+  expect(await violations(container)).toEqual([]);
+});

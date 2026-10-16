@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   React as react,
+  ChooseFile,
   Conversation as readConversation,
   DeleteMessage,
   EditMessage,
   ForgetMessage,
+  SendFile,
   SendMessage,
 } from "../../wailsjs/go/app/Bridge";
+import { Attachment, type FileInfo } from "../components/Attachment";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { Button, input } from "../components/controls";
 import { DeleteDialog } from "../components/DeleteDialog";
@@ -40,6 +43,7 @@ export interface Message {
   replyTo?: Quote;
   edited?: boolean;
   deleted?: boolean;
+  file?: FileInfo;
 }
 
 // The reactions offered at a click; any single emoji is one (ADR 0035).
@@ -148,13 +152,23 @@ export function Conversation({
     }
   }
 
+  async function attach() {
+    setNotice(null);
+    try {
+      const path = await ChooseFile();
+      if (!path) return;
+      await SendFile(contact.publicKey, path);
+      await load();
+    } catch (error) {
+      setNotice(refused(words, error));
+    }
+  }
+
   async function saveEdit() {
-    if (!editing)
-      return;
+    if (!editing) return;
 
     const { id, text } = editing;
-    if (text.trim() === "" || [...text].length > MaxCharacters)
-      return;
+    if (text.trim() === "" || [...text].length > MaxCharacters) return;
 
     setEditing(null);
     await attempt(() => EditMessage(contact.publicKey, id, text));
@@ -230,7 +244,7 @@ export function Conversation({
                     >
                       {words.conversation.react}
                     </button>
-                    {m.mine && (
+                    {m.mine && !m.file && (
                       <button
                         type="button"
                         className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
@@ -356,6 +370,15 @@ export function Conversation({
                           </Button>
                         </div>
                       </div>
+                    ) : m.file ? (
+                      <Attachment
+                        id={m.id}
+                        name={m.text}
+                        file={m.file}
+                        mine={m.mine}
+                        from={contact.name}
+                        onError={(error) => setNotice(refused(words, error))}
+                      />
                     ) : (
                       <>
                         <Formatted text={m.text} onLink={setLink} />
@@ -451,7 +474,15 @@ export function Conversation({
           }}
         />
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-ink-faint" aria-live="polite">
+          <Button
+            size="small"
+            aria-label={words.files.attach}
+            title={words.files.attach}
+            onClick={() => void attach()}
+          >
+            📎
+          </Button>
+          <span className="flex-1 text-xs text-ink-faint" aria-live="polite">
             {length >= showCounterFrom
               ? tooLong
                 ? words.conversation.over(length - MaxCharacters)
