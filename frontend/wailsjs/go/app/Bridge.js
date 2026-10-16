@@ -46,12 +46,24 @@ export function DeleteIdentity() {
   return window['go']['app']['Bridge']['DeleteIdentity']();
 }
 
+export function DeleteMessage(arg1, arg2) {
+  return window['go']['app']['Bridge']['DeleteMessage'](arg1, arg2);
+}
+
 export function DismissRequest(arg1) {
   return window['go']['app']['Bridge']['DismissRequest'](arg1);
 }
 
+export function EditMessage(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['EditMessage'](arg1, arg2, arg3);
+}
+
 export function ExportIdentity(arg1) {
   return window['go']['app']['Bridge']['ExportIdentity'](arg1);
+}
+
+export function ForgetMessage(arg1, arg2) {
+  return window['go']['app']['Bridge']['ForgetMessage'](arg1, arg2);
 }
 
 export function ImportIdentity(arg1, arg2, arg3) {

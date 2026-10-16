@@ -88,6 +88,25 @@ func (s *Service) React(contact ed25519.PublicKey, target [IDSize]byte, emoji st
 	return s.add(contact, func(at hlc.Time) (Message, error) { return s.store.React(contact, target, emoji, on, at) })
 }
 
+// Edit gives a message of this person's its new text, and sends that as a message is sent (ADR 0034).
+func (s *Service) Edit(contact ed25519.PublicKey, target [IDSize]byte, text string) (Message, error) {
+	return s.add(contact, func(at hlc.Time) (Message, error) { return s.store.Edit(contact, target, text, at) })
+}
+
+// Delete deletes a message of this person's for both.
+func (s *Service) Delete(contact ed25519.PublicKey, target [IDSize]byte) (Message, error) {
+	return s.add(contact, func(at hlc.Time) (Message, error) { return s.store.Delete(contact, target, at) })
+}
+
+// Forget deletes a message on this machine alone.
+func (s *Service) Forget(contact ed25519.PublicKey, target [IDSize]byte) error {
+	if err := s.store.Forget(contact, target); err != nil {
+		return err
+	}
+	s.changed(contact)
+	return nil
+}
+
 func (s *Service) add(contact ed25519.PublicKey, store func(hlc.Time) (Message, error)) (Message, error) {
 	if !s.conns.IsContact(contact) {
 		return Message{}, ErrNotContact
@@ -182,7 +201,7 @@ func (s *Service) receive(peer ed25519.PublicKey, d *conviav1.DirectMessage) {
 	s.conns.Send(peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Acknowledgement{
 		Acknowledgement: &conviav1.Acknowledgement{Ids: [][]byte{d.Id}}}})
 	if fresh {
-		if s.Received != nil && m.Kind == Text {
+		if s.Received != nil && m.Kind == Text && !m.Wiped {
 			m.Author, m.Status = peer, Received
 			s.Received(peer, m)
 		}
@@ -231,7 +250,7 @@ func (s *Service) again() {
 }
 
 func toWire(m Message) *conviav1.DirectMessage {
-	d := &conviav1.DirectMessage{Id: m.ID[:], Sequence: m.Sequence, Wall: m.Time.Wall, Counter: m.Time.Counter}
+	d := &conviav1.DirectMessage{Id: m.ID[:], Sequence: m.Sequence, Wall: m.Time.Wall, Counter: m.Time.Counter, Wiped: m.Wiped}
 	switch m.Kind {
 	case Text:
 		d.Text = m.Text
@@ -240,6 +259,10 @@ func toWire(m Message) *conviav1.DirectMessage {
 		}
 	case Reacting:
 		d.Reaction = &conviav1.Reaction{Target: m.Target[:], Emoji: m.Text, On: m.On}
+	case Editing:
+		d.Edit = &conviav1.Edit{Target: m.Target[:], Text: m.Text}
+	case Deleting:
+		d.Deletion = m.Target[:]
 	}
 	return d
 }
@@ -249,7 +272,7 @@ func fromWire(d *conviav1.DirectMessage) (Message, bool) {
 	if len(d.Id) != IDSize {
 		return Message{}, false
 	}
-	m := Message{Sequence: d.Sequence, Time: hlc.Time{Wall: d.Wall, Counter: d.Counter}}
+	m := Message{Sequence: d.Sequence, Time: hlc.Time{Wall: d.Wall, Counter: d.Counter}, Wiped: d.Wiped}
 	copy(m.ID[:], d.Id)
 	target := func(b []byte) (*[IDSize]byte, bool) {
 		switch len(b) {
@@ -260,15 +283,30 @@ func fromWire(d *conviav1.DirectMessage) (Message, bool) {
 		}
 		return nil, false
 	}
+	// An entry is of exactly one kind: whatever names another kind's field is no entry.
+	kinds := 0
+	for _, named := range []bool{d.Reaction != nil, d.Edit != nil, len(d.Deletion) > 0} {
+		if named {
+			kinds++
+		}
+	}
+	plain := d.Text == "" && len(d.ReplyTo) == 0
 	var ok bool
 	switch {
-	case d.Reaction != nil && d.Text == "" && len(d.ReplyTo) == 0:
+	case kinds > 1:
+	case d.Reaction != nil && plain:
 		m.Kind, m.Text, m.On = Reacting, d.Reaction.Emoji, d.Reaction.On
 		m.Target, ok = target(d.Reaction.Target)
-		ok = ok && m.Target != nil
-	case d.Reaction == nil:
+	case d.Edit != nil && plain:
+		m.Kind, m.Text = Editing, d.Edit.Text
+		m.Target, ok = target(d.Edit.Target)
+	case len(d.Deletion) > 0 && plain:
+		m.Kind = Deleting
+		m.Target, ok = target(d.Deletion)
+	case kinds == 0:
 		m.Kind, m.Text = Text, d.Text
 		m.Target, ok = target(d.ReplyTo)
+		return m, ok
 	}
-	return m, ok
+	return m, ok && m.Target != nil
 }

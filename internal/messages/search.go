@@ -1,7 +1,9 @@
 package messages
 
 import (
+	"bytes"
 	"crypto/ed25519"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -29,8 +31,8 @@ func folded(text string) string {
 }
 
 /*
-Search finds the messages that hold query, decrypting each in memory and keeping no index of them
-(ADR 0037): the latest first, at most MaxFound.
+Search finds the messages that hold query, as they read now — edited text, never deleted text —
+decrypting each in memory and keeping no index of them (ADR 0037): the latest first, at most MaxFound.
 */
 func (s *Store) Search(query string) ([]Found, error) {
 	want := folded(strings.TrimSpace(query))
@@ -38,26 +40,46 @@ func (s *Store) Search(query string) ([]Found, error) {
 		return nil, nil
 	}
 
-	rows, err := s.db.DB.Query(`SELECT c.contact_key, ` + columns + ` ` + from + ` WHERE m.kind = 'text'
-		ORDER BY m.hlc_wall DESC, m.hlc_counter DESC, m.id DESC`)
-
+	rows, err := s.db.DB.Query(`SELECT contact_key FROM conversations`)
 	if err != nil {
 		return nil, err
 	}
+	var contacts []ed25519.PublicKey
+	for rows.Next() {
+		var key []byte
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		contacts = append(contacts, key)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	defer rows.Close()
 	var out []Found
-	for rows.Next() && len(out) < MaxFound {
-		var contact []byte
-		m, err := s.scanWith(rows, &contact)
+	for _, contact := range contacts {
+		messages, err := s.Conversation(contact)
 		if err != nil {
 			return nil, err
 		}
-
-		if strings.Contains(folded(m.Text), want) {
-			out = append(out, Found{Contact: contact, Message: m})
+		for _, m := range messages {
+			if !m.Deleted && strings.Contains(folded(m.Text), want) {
+				out = append(out, Found{Contact: contact, Message: m})
+			}
 		}
 	}
 
-	return out, rows.Err()
+	slices.SortFunc(out, func(a, b Found) int {
+		switch {
+		case b.Message.Time.Before(a.Message.Time):
+			return -1
+		case a.Message.Time.Before(b.Message.Time):
+			return 1
+		}
+		return bytes.Compare(b.Message.ID[:], a.Message.ID[:])
+	})
+
+	return out[:min(len(out), MaxFound)], nil
 }

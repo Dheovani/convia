@@ -29,6 +29,8 @@ export const ptBR: Words = {
     "message-empty": "Não há nada para enviar.",
     "no-such-message": "Essa mensagem não está nesta conversa.",
     "not-an-emoji": "Uma reação é um emoji.",
+    "not-yours": "Só quem escreveu uma mensagem a edita ou apaga para os dois.",
+    "not-delivered": "Uma mensagem que ainda espera é apagada para os dois.",
     unknown: "Algo deu errado.",
   },
   home: {
@@ -111,6 +113,15 @@ export const ptBR: Words = {
   notification: {
     title: (name: string) => `Nova mensagem de ${name}`,
   },
+  deleting: {
+    title: "Apagar esta mensagem?",
+    mine: "Apagar para os dois a remove também da Convia da outra pessoa; apagar para você a remove só aqui.",
+    waiting: "Ela ainda não foi entregue, então é apagada para os dois.",
+    theirs: "Ela é apagada só aqui; a outra pessoa mantém a cópia dela.",
+    both: "Apagar para os dois",
+    here: "Apagar para mim",
+    cancel: "Cancelar",
+  },
   link: {
     title: "Abrir este link?",
     explanation: "Ele abre no seu navegador, e o site vai ver o acesso.",
@@ -137,6 +148,14 @@ export const ptBR: Words = {
     replyingTo: (name: string) => `Respondendo a ${name}:`,
     cancelReply: "Cancelar",
     quoteMissing: "A mensagem respondida não está aqui.",
+    edit: "Editar",
+    editing: "O novo texto da mensagem",
+    save: "Salvar",
+    cancelEdit: "Cancelar",
+    edited: "(editada)",
+    delete: "Apagar",
+    deleted: "Mensagem apagada.",
+    quoteDeleted: "A mensagem respondida foi apagada.",
     waitingHint: (name: string) =>
       `Ela espera neste computador até ${name} ficar online.`,
   },

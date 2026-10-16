@@ -37,11 +37,15 @@ type Kind string
 const (
 	Text     Kind = "text"
 	Reacting Kind = "reaction"
+	Editing  Kind = "edit"
+	Deleting Kind = "deletion"
 )
 
 /*
 Message is an entry of a conversation. A message holds Text, and Target is the message it answers; a
-reaction holds its emoji in Text, the message it is on in Target, and whether it is on in On.
+reaction holds its emoji in Text, the message it is on in Target, and whether it is on in On; an edit
+holds the new text of the message in Target, and a deletion only the message. A wiped entry's text is
+gone, edited or deleted since; a hidden message was deleted on this machine alone.
 */
 type Message struct {
 	ID       [IDSize]byte
@@ -52,11 +56,15 @@ type Message struct {
 	Text     string
 	Target   *[IDSize]byte
 	On       bool
+	Wiped    bool
+	Hidden   bool
 	Status   Status
 
 	// What a conversation shows of a message, from the entries about it.
 	Reactions []Reaction
 	ReplyTo   *Quote
+	Edited    bool
+	Deleted   bool
 }
 
 // Store is the conversations in a peer's database.
@@ -77,7 +85,7 @@ func NewStore(db *storage.Store, me ed25519.PublicKey) *Store {
 // The columns an entry is read from, and where they come from.
 const (
 	columns = `m.id, m.author_key, m.author_sequence, m.hlc_wall, m.hlc_counter, m.content, m.kind, m.target, m.flag,
-		o.message_id IS NOT NULL, o.transmitted_at IS NOT NULL`
+		m.wiped, m.hidden, o.message_id IS NOT NULL, o.transmitted_at IS NOT NULL`
 	from = `FROM messages m JOIN conversations c ON m.conversation_id = c.id
 		LEFT JOIN outbox o ON o.message_id = m.id`
 )
@@ -117,6 +125,16 @@ func (s *Store) React(contact ed25519.PublicKey, target [IDSize]byte, emoji stri
 	return s.add(contact, Message{Kind: Reacting, Text: emoji, Target: &target, On: on, Time: at})
 }
 
+// Edit gives a message of this person's in contact's conversation its new text (ADR 0034).
+func (s *Store) Edit(contact ed25519.PublicKey, target [IDSize]byte, text string, at hlc.Time) (Message, error) {
+	return s.add(contact, Message{Kind: Editing, Text: text, Target: &target, Time: at})
+}
+
+// Delete deletes a message of this person's in contact's conversation for both (ADR 0034).
+func (s *Store) Delete(contact ed25519.PublicKey, target [IDSize]byte, at hlc.Time) (Message, error) {
+	return s.add(contact, Message{Kind: Deleting, Target: &target, Time: at})
+}
+
 func (s *Store) add(contact ed25519.PublicKey, m Message) (Message, error) {
 	if err := m.check(); err != nil {
 		return Message{}, err
@@ -131,7 +149,7 @@ func (s *Store) add(contact ed25519.PublicKey, m Message) (Message, error) {
 		return Message{}, err
 	}
 	if m.Target != nil {
-		if err := s.targets(tx, conversation, *m.Target); err != nil {
+		if err := s.targets(tx, conversation, *m.Target, m.Kind == Editing || m.Kind == Deleting); err != nil {
 			return Message{}, err
 		}
 	}
@@ -148,20 +166,114 @@ func (s *Store) add(contact ed25519.PublicKey, m Message) (Message, error) {
 		m.ID[:], []byte(contact), s.now().UnixMilli()); err != nil {
 		return Message{}, err
 	}
-	return m, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return Message{}, err
+	}
+	return m, s.compact(contact)
 }
 
-// targets checks that what an entry of this peer's is about is a message of the conversation.
-func (s *Store) targets(tx *sql.Tx, conversation []byte, target [IDSize]byte) error {
-	var n int
-	if err := tx.QueryRow(`SELECT count(*) FROM messages WHERE conversation_id = ? AND id = ? AND kind = 'text'`,
-		conversation, target[:]).Scan(&n); err != nil {
-		return err
-	}
-	if n == 0 {
+/*
+targets checks that what an entry of this peer's is about is a message of the conversation, not
+deleted, and — for an edit or a deletion — this person's own.
+*/
+func (s *Store) targets(tx *sql.Tx, conversation []byte, target [IDSize]byte, own bool) error {
+	var author []byte
+	var deleted int
+	err := tx.QueryRow(`SELECT author_key, (SELECT count(*) FROM messages d WHERE d.conversation_id = m.conversation_id
+			AND d.kind = 'deletion' AND d.target = m.id AND d.author_key = m.author_key)
+		FROM messages m WHERE conversation_id = ? AND id = ? AND kind = 'text' AND hidden = 0`,
+		conversation, target[:]).Scan(&author, &deleted)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && deleted > 0 {
 		return ErrNoTarget
 	}
+	if err != nil {
+		return err
+	}
+	if own && !s.me.Equal(ed25519.PublicKey(author)) {
+		return ErrNotYours
+	}
 	return nil
+}
+
+/*
+compact wipes, in contact's conversation, the text no peer keeps (ADR 0034): a message edited since, or
+deleted, and every edit before its latest. An entry still waiting to be delivered keeps its text, since
+it must reach the other side whole; it is wiped once delivered.
+*/
+func (s *Store) compact(contact ed25519.PublicKey) error {
+	entries, err := s.entries(contact)
+	if err != nil {
+		return err
+	}
+	byID := map[[IDSize]byte]Message{}
+	edits := map[[IDSize]byte][]Message{}
+	deleted := map[[IDSize]byte]bool{}
+	for _, e := range entries {
+		byID[e.ID] = e
+	}
+	for _, e := range entries {
+		if e.Target == nil {
+			continue
+		}
+		t, ok := byID[*e.Target]
+		if !ok || t.Kind != Text || !t.Author.Equal(e.Author) {
+			continue
+		}
+		switch e.Kind {
+		case Editing:
+			edits[t.ID] = append(edits[t.ID], e)
+		case Deleting:
+			deleted[t.ID] = true
+		}
+	}
+	var gone []Message
+	for id, t := range byID {
+		switch {
+		case t.Kind != Text:
+		case deleted[id]:
+			gone = append(gone, t)
+			gone = append(gone, edits[id]...)
+		case len(edits[id]) > 0:
+			gone = append(gone, t)
+			gone = append(gone, edits[id][:len(edits[id])-1]...)
+		}
+	}
+	for _, e := range gone {
+		if e.Wiped || e.Status == Waiting || e.Status == Sent {
+			continue
+		}
+		if err := s.wipe(e.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) wipe(id [IDSize]byte) error {
+	_, err := s.db.DB.Exec(`UPDATE messages SET content = ?, wiped = 1 WHERE id = ?`, s.db.Content.Seal(id[:], nil), id[:])
+	return err
+}
+
+/*
+Forget deletes a message on this machine alone, sending nothing (ADR 0034): one received, or one of this
+person's already delivered.
+*/
+func (s *Store) Forget(contact ed25519.PublicKey, target [IDSize]byte) error {
+	entries, err := s.entries(contact)
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(entries, func(e Message) bool { return e.ID == target && e.Kind == Text })
+	if i < 0 {
+		return ErrNoTarget
+	}
+	if m := entries[i]; m.Status == Waiting || m.Status == Sent {
+		return ErrNotDelivered
+	}
+	if _, err := s.db.DB.Exec(`UPDATE messages SET hidden = 1 WHERE id = ?`, target[:]); err != nil {
+		return err
+	}
+	return s.wipe(target)
 }
 
 func (s *Store) insert(tx *sql.Tx, conversation []byte, m Message) error {
@@ -169,10 +281,10 @@ func (s *Store) insert(tx *sql.Tx, conversation []byte, m Message) error {
 	if m.Target != nil {
 		target = m.Target[:]
 	}
-	_, err := tx.Exec(`INSERT INTO messages (id, conversation_id, author_key, author_sequence, hlc_wall, hlc_counter, content, stored_at, kind, target, flag)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := tx.Exec(`INSERT INTO messages (id, conversation_id, author_key, author_sequence, hlc_wall, hlc_counter, content, stored_at, kind, target, flag, wiped)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.ID[:], conversation, []byte(m.Author), m.Sequence, m.Time.Wall, m.Time.Counter,
-		s.db.Content.Seal(m.ID[:], []byte(m.Text)), s.now().UnixMilli(), string(m.Kind), target, m.On)
+		s.db.Content.Seal(m.ID[:], []byte(m.Text)), s.now().UnixMilli(), string(m.Kind), target, m.On, m.Wiped)
 	return err
 }
 
@@ -209,7 +321,13 @@ func (s *Store) Receive(contact ed25519.PublicKey, m Message) (bool, error) {
 	if err := s.insert(tx, conversation, m); err != nil {
 		return false, err
 	}
-	return true, tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	if m.Kind == Editing || m.Kind == Deleting {
+		return true, s.compact(contact)
+	}
+	return true, nil
 }
 
 func (s *Store) query(query string, args ...any) ([]Message, error) {
@@ -250,7 +368,7 @@ func (s *Store) scanWith(rows *sql.Rows, before ...any) (Message, error) {
 	var kind string
 	var queued, transmitted bool
 	if err := rows.Scan(append(before, &id, &author, &m.Sequence, &m.Time.Wall, &m.Time.Counter, &sealed, &kind, &target, &m.On,
-		&queued, &transmitted)...); err != nil {
+		&m.Wiped, &m.Hidden, &queued, &transmitted)...); err != nil {
 		return m, err
 	}
 	copy(m.ID[:], id)
@@ -330,7 +448,7 @@ func (s *Store) Acknowledged(contact ed25519.PublicKey, ids [][]byte) error {
 			return err
 		}
 	}
-	return nil
+	return s.compact(contact)
 }
 
 // HeldUpTo takes out of the outbox every entry to contact that contact holds, being at most sequence.
@@ -339,7 +457,10 @@ func (s *Store) HeldUpTo(contact ed25519.PublicKey, sequence uint64) error {
 		SELECT m.id FROM messages m JOIN conversations c ON m.conversation_id = c.id
 		WHERE c.contact_key = ? AND m.author_key = ? AND m.author_sequence <= ?)`,
 		[]byte(contact), []byte(contact), []byte(s.me), sequence)
-	return err
+	if err != nil {
+		return err
+	}
+	return s.compact(contact)
 }
 
 // Waiting is every contact with an entry waiting for them.
@@ -400,14 +521,19 @@ func (s *Store) Summaries() ([]Summary, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	for i := range out {
-		last, err := s.query(`SELECT `+columns+` `+from+` WHERE c.contact_key = ? AND m.kind = 'text'
-			ORDER BY m.hlc_wall DESC, m.hlc_counter DESC, m.id DESC LIMIT 1`, []byte(out[i].Contact))
+	shown := out[:0]
+	for _, summary := range out {
+		messages, err := s.Conversation(summary.Contact)
 		if err != nil {
 			return nil, err
 		}
-		out[i].Last = &last[0]
+		if len(messages) == 0 {
+			continue
+		}
+		summary.Last = &messages[len(messages)-1]
+		shown = append(shown, summary)
 	}
+	out = shown
 	slices.SortStableFunc(out, func(a, b Summary) int {
 		switch {
 		case b.Last.Time.Before(a.Last.Time):

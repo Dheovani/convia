@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIuwDCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIAEIJCgdtZXNzYWdlIpMBCg1EaXJlY3RNZXNzYWdlEgoKAmlkGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEEgwKBHdhbGwYAyABKAMSDwoHY291bnRlchgEIAEoDRIMCgR0ZXh0GAUgASgJEhAKCHJlcGx5X3RvGAYgASgMEiUKCHJlYWN0aW9uGAcgASgLMhMuY29udmlhLnYxLlJlYWN0aW9uIjUKCFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCCIeCg9BY2tub3dsZWRnZW1lbnQSCwoDaWRzGAEgAygMIhsKB0hvbGRpbmcSEAoIc2VxdWVuY2UYASABKAQiLAoOQ29udGFjdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIi0KD0NvbnRhY3RBY2NlcHRlZBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiEgoQQ29udGFjdENvbmZpcm1lZCIaCghJbnRlcmVzdBIOCgZ3YW50ZWQYASABKAhCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIuwDCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIAEIJCgdtZXNzYWdlItMBCg1EaXJlY3RNZXNzYWdlEgoKAmlkGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEEgwKBHdhbGwYAyABKAMSDwoHY291bnRlchgEIAEoDRIMCgR0ZXh0GAUgASgJEhAKCHJlcGx5X3RvGAYgASgMEiUKCHJlYWN0aW9uGAcgASgLMhMuY29udmlhLnYxLlJlYWN0aW9uEh0KBGVkaXQYCCABKAsyDy5jb252aWEudjEuRWRpdBIQCghkZWxldGlvbhgJIAEoDBINCgV3aXBlZBgKIAEoCCIkCgRFZGl0Eg4KBnRhcmdldBgBIAEoDBIMCgR0ZXh0GAIgASgJIjUKCFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCCIeCg9BY2tub3dsZWRnZW1lbnQSCwoDaWRzGAEgAygMIhsKB0hvbGRpbmcSEAoIc2VxdWVuY2UYASABKAQiLAoOQ29udGFjdFJlcXVlc3QSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIi0KD0NvbnRhY3RBY2NlcHRlZBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiEgoQQ29udGFjdENvbmZpcm1lZCIaCghJbnRlcmVzdBIOCgZ3YW50ZWQYASABKAhCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -96,7 +96,8 @@ export const PeerMessageSchema: GenMessage<PeerMessage> = /*@__PURE__*/
 /**
  *
  * DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
- * 4,000 characters (ADR 0029), which may answer another (ADR 0035), or a reaction to one.
+ * 4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
+ * or its deletion (ADR 0034).
  *
  * @generated from message convia.v1.DirectMessage
  */
@@ -141,6 +142,25 @@ export type DirectMessage = Message<"convia.v1.DirectMessage"> & {
    * @generated from field: convia.v1.Reaction reaction = 7;
    */
   reaction?: Reaction | undefined;
+
+  /**
+   * @generated from field: convia.v1.Edit edit = 8;
+   */
+  edit?: Edit | undefined;
+
+  /**
+   * The message its author deletes for both.
+   *
+   * @generated from field: bytes deletion = 9;
+   */
+  deletion: Uint8Array;
+
+  /**
+   * An entry whose text was edited or deleted since: it is sent without it, and holds its place in the sequence.
+   *
+   * @generated from field: bool wiped = 10;
+   */
+  wiped: boolean;
 };
 
 /**
@@ -149,6 +169,30 @@ export type DirectMessage = Message<"convia.v1.DirectMessage"> & {
  */
 export const DirectMessageSchema: GenMessage<DirectMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_peer, 1);
+
+/**
+ * Edit gives a message of its author's new text (ADR 0034).
+ *
+ * @generated from message convia.v1.Edit
+ */
+export type Edit = Message<"convia.v1.Edit"> & {
+  /**
+   * @generated from field: bytes target = 1;
+   */
+  target: Uint8Array;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message convia.v1.Edit.
+ * Use `create(EditSchema)` to create a new message.
+ */
+export const EditSchema: GenMessage<Edit> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 2);
 
 /**
  * Reaction puts an emoji on a message, or takes it off (ADR 0035).
@@ -177,7 +221,7 @@ export type Reaction = Message<"convia.v1.Reaction"> & {
  * Use `create(ReactionSchema)` to create a new message.
  */
 export const ReactionSchema: GenMessage<Reaction> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 2);
+  messageDesc(file_convia_v1_peer, 3);
 
 /**
  * Acknowledgement says the sender stored these messages (ADR 0011).
@@ -196,7 +240,7 @@ export type Acknowledgement = Message<"convia.v1.Acknowledgement"> & {
  * Use `create(AcknowledgementSchema)` to create a new message.
  */
 export const AcknowledgementSchema: GenMessage<Acknowledgement> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 3);
+  messageDesc(file_convia_v1_peer, 4);
 
 /**
  * Holding is the highest sequence number of the receiver's messages the sender holds, with every one before it.
@@ -215,7 +259,7 @@ export type Holding = Message<"convia.v1.Holding"> & {
  * Use `create(HoldingSchema)` to create a new message.
  */
 export const HoldingSchema: GenMessage<Holding> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 4);
+  messageDesc(file_convia_v1_peer, 5);
 
 /**
  * ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
@@ -239,7 +283,7 @@ export type ContactRequest = Message<"convia.v1.ContactRequest"> & {
  * Use `create(ContactRequestSchema)` to create a new message.
  */
 export const ContactRequestSchema: GenMessage<ContactRequest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 5);
+  messageDesc(file_convia_v1_peer, 6);
 
 /**
  * ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
@@ -263,7 +307,7 @@ export type ContactAccepted = Message<"convia.v1.ContactAccepted"> & {
  * Use `create(ContactAcceptedSchema)` to create a new message.
  */
 export const ContactAcceptedSchema: GenMessage<ContactAccepted> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 6);
+  messageDesc(file_convia_v1_peer, 7);
 
 /**
  * ContactConfirmed says the requester holds the pair secret too.
@@ -278,7 +322,7 @@ export type ContactConfirmed = Message<"convia.v1.ContactConfirmed"> & {
  * Use `create(ContactConfirmedSchema)` to create a new message.
  */
 export const ContactConfirmedSchema: GenMessage<ContactConfirmed> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 7);
+  messageDesc(file_convia_v1_peer, 8);
 
 /**
  * Interest says whether the sender still wants the connection (ADR 0024).
@@ -297,5 +341,5 @@ export type Interest = Message<"convia.v1.Interest"> & {
  * Use `create(InterestSchema)` to create a new message.
  */
 export const InterestSchema: GenMessage<Interest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 8);
+  messageDesc(file_convia_v1_peer, 9);
 

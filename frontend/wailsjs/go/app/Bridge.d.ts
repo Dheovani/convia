@@ -25,9 +25,15 @@ export function DeclineRequest(arg1:string):Promise<void>;
 
 export function DeleteIdentity():Promise<void>;
 
+export function DeleteMessage(arg1:string,arg2:string):Promise<void>;
+
 export function DismissRequest(arg1:string):Promise<void>;
 
+export function EditMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function ExportIdentity(arg1:string):Promise<boolean>;
+
+export function ForgetMessage(arg1:string,arg2:string):Promise<void>;
 
 export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app.MeView>;
 

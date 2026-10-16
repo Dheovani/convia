@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
+import { DeleteDialog } from "./components/DeleteDialog";
 import { LinkDialog } from "./components/LinkDialog";
 import { DataProblem } from "./screens/DataProblem";
 import { Workspace } from "./screens/Workspace";
@@ -172,5 +173,27 @@ test("a search's results", async () => {
     target: { value: "hi" },
   });
   await screen.findByText("hi https://convia.example");
+  expect(await violations(container)).toEqual([]);
+});
+
+test("the question before a message is deleted", async () => {
+  const { container } = render(
+    <DeleteDialog
+      mine={true}
+      delivered={true}
+      onBoth={() => {}}
+      onHere={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(await violations(container, false)).toEqual([]);
+});
+
+test("a message being edited", async () => {
+  const { container } = workspace();
+  fireEvent.click(await screen.findByText("Ana"));
+  await screen.findByText("hello");
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await screen.findByLabelText("The message's new text");
   expect(await violations(container)).toEqual([]);
 });

@@ -28,6 +28,8 @@ export const en = {
     "message-empty": "There is nothing to send.",
     "no-such-message": "That message is not in this conversation.",
     "not-an-emoji": "A reaction is one emoji.",
+    "not-yours": "Only its author edits or deletes a message for both.",
+    "not-delivered": "A message still waiting is deleted for both.",
     unknown: "Something went wrong.",
   },
   home: {
@@ -110,6 +112,15 @@ export const en = {
   notification: {
     title: (name: string) => `New message from ${name}`,
   },
+  deleting: {
+    title: "Delete this message?",
+    mine: "Deleting it for both removes it from their Convia too; deleting it for you removes it only here.",
+    waiting: "It has not been delivered yet, so it is deleted for both.",
+    theirs: "It is deleted only here; they keep their copy.",
+    both: "Delete for both",
+    here: "Delete for me",
+    cancel: "Cancel",
+  },
   link: {
     title: "Open this link?",
     explanation: "It opens in your browser, which the site will see.",
@@ -136,6 +147,14 @@ export const en = {
     replyingTo: (name: string) => `Replying to ${name}:`,
     cancelReply: "Cancel",
     quoteMissing: "The message replied to is not here.",
+    edit: "Edit",
+    editing: "The message's new text",
+    save: "Save",
+    cancelEdit: "Cancel",
+    edited: "(edited)",
+    delete: "Delete",
+    deleted: "Message deleted.",
+    quoteDeleted: "The message replied to was deleted.",
     waitingHint: (name: string) =>
       `It waits on this computer until ${name} is online.`,
   },

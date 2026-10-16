@@ -23,6 +23,7 @@ export namespace app {
 	    mine: boolean;
 	    text: string;
 	    missing: boolean;
+	    deleted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new QuoteView(source);
@@ -34,6 +35,7 @@ export namespace app {
 	        this.mine = source["mine"];
 	        this.text = source["text"];
 	        this.missing = source["missing"];
+	        this.deleted = source["deleted"];
 	    }
 	}
 	export class ReactionView {
@@ -60,6 +62,8 @@ export namespace app {
 	    at: number;
 	    reactions: ReactionView[];
 	    replyTo?: QuoteView;
+	    edited: boolean;
+	    deleted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageView(source);
@@ -74,6 +78,8 @@ export namespace app {
 	        this.at = source["at"];
 	        this.reactions = this.convertValues(source["reactions"], ReactionView);
 	        this.replyTo = this.convertValues(source["replyTo"], QuoteView);
+	        this.edited = source["edited"];
+	        this.deleted = source["deleted"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -181,6 +181,65 @@ func quoted(m Message) string {
 	return fmt.Sprintf("%x %v %s", m.ReplyTo.ID[:2], m.ReplyTo.Missing, m.ReplyTo.Text)
 }
 
+// standing is the messages peer i holds that are not deleted: what can still be answered or reacted to.
+func (w *world) standing(i int) []Message {
+	var out []Message
+	for _, m := range w.conversation(i) {
+		if !m.Deleted {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// own is the messages of peer i's it can still edit or delete.
+func (w *world) own(i int) []Message {
+	var out []Message
+	for _, m := range w.conversation(i) {
+		if m.Status != Received && !m.Deleted {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+func (w *world) edit(i int, target [IDSize]byte, text string) Message {
+	w.t.Helper()
+	p := w.peers[i]
+	m, err := p.s.Edit(p.other().key, target, text)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	p.s.work.drain()
+	return m
+}
+
+func (w *world) remove(i int, target [IDSize]byte) {
+	w.t.Helper()
+	p := w.peers[i]
+	if _, err := p.s.Delete(p.other().key, target); err != nil {
+		w.t.Fatal(err)
+	}
+	p.s.work.drain()
+}
+
+// stored is what peer i's database holds of an entry: its text, and whether it is wiped.
+func (w *world) stored(i int, id [IDSize]byte) (string, bool) {
+	w.t.Helper()
+	p := w.peers[i]
+	entries, err := p.s.store.entries(p.other().key)
+	if err != nil {
+		w.t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.ID == id {
+			return e.Text, e.Wiped
+		}
+	}
+	w.t.Fatalf("peer %d holds no %x", i, id[:2])
+	return "", false
+}
+
 func (w *world) conversation(i int) []Message {
 	w.t.Helper()
 	p := w.peers[i]
@@ -209,6 +268,9 @@ func (w *world) converged(written int) {
 	for i := range a {
 		if a[i].ID != b[i].ID || a[i].Text != b[i].Text || a[i].Sequence != b[i].Sequence || a[i].Time != b[i].Time || !a[i].Author.Equal(b[i].Author) {
 			w.t.Fatalf("the two conversations differ at %d:\n%s\n%s", i, describe(a), describe(b))
+		}
+		if a[i].Edited != b[i].Edited || a[i].Deleted != b[i].Deleted {
+			w.t.Fatalf("message %d is edited %v, deleted %v on one peer and edited %v, deleted %v on the other", i, a[i].Edited, a[i].Deleted, b[i].Edited, b[i].Deleted)
 		}
 		if reactions(a[i]) != reactions(b[i]) || quoted(a[i]) != quoted(b[i]) {
 			w.t.Fatalf("message %d reads %s / %s on one peer and %s / %s on the other", i, reactions(a[i]), quoted(a[i]), reactions(b[i]), quoted(b[i]))
@@ -260,14 +322,25 @@ func TestEveryHistoryEndsInTheSameConversation(t *testing.T) {
 				case step < 26:
 					// A reaction, on or off, on a message the reacting peer holds.
 					author := r.IntN(2)
-					if held := w.conversation(author); len(held) > 0 {
+					if held := w.standing(author); len(held) > 0 {
 						w.react(author, held[r.IntN(len(held))].ID, []string{"👍", "🎉"}[r.IntN(2)], r.IntN(3) > 0)
 					}
-				case step < 30:
+				case step < 28:
 					author := r.IntN(2)
-					if held := w.conversation(author); len(held) > 0 {
+					if held := w.standing(author); len(held) > 0 {
 						w.reply(author, held[r.IntN(len(held))].ID, fmt.Sprintf("message %d", written))
 						written++
+					}
+				case step < 30:
+					// The author edits one of theirs, or deletes it for both.
+					author := r.IntN(2)
+					if own := w.own(author); len(own) > 0 {
+						target := own[r.IntN(len(own))].ID
+						if r.IntN(3) > 0 {
+							w.edit(author, target, fmt.Sprintf("edited %d", r.IntN(1000)))
+						} else {
+							w.remove(author, target)
+						}
 					}
 				case step < 60:
 					w.deliver(r.IntN(2))
@@ -717,5 +790,195 @@ func TestAReplyToAMessageNotHeldSaysSo(t *testing.T) {
 	got := w.conversation(1)
 	if len(got) != 1 || got[0].ReplyTo == nil || !got[0].ReplyTo.Missing || got[0].ReplyTo.Text != "" {
 		t.Fatalf("the reply shows %+v", got)
+	}
+}
+
+func TestTheLatestEditIsWhatBothKeep(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "fisrt")
+	w.settle()
+	first := w.edit(0, m.ID, "first")
+	w.edit(0, m.ID, "first!")
+	w.settle()
+	for i := range w.peers {
+		got := w.conversation(i)[0]
+		if got.Text != "first!" || !got.Edited || got.Deleted {
+			t.Fatalf("peer %d sees %q, edited %v", i, got.Text, got.Edited)
+		}
+		if text, wiped := w.stored(i, m.ID); text != "" || !wiped {
+			t.Fatalf("peer %d still keeps the text before the edit: %q", i, text)
+		}
+		if text, wiped := w.stored(i, first.ID); text != "" || !wiped {
+			t.Fatalf("peer %d still keeps an earlier edit: %q", i, text)
+		}
+	}
+	w.converged(1)
+}
+
+func TestAWaitingEntryKeepsItsTextUntilDelivered(t *testing.T) {
+	w := newWorld(t)
+	m := w.write(0, "draft")
+	w.edit(0, m.ID, "final")
+	if text, wiped := w.stored(0, m.ID); text != "draft" || wiped {
+		t.Fatal("a message waiting to be delivered lost its text")
+	}
+	w.settle()
+	if _, wiped := w.stored(0, m.ID); !wiped {
+		t.Fatal("once delivered, the text before the edit was kept")
+	}
+	if got := w.conversation(1)[0]; got.Text != "final" || !got.Edited {
+		t.Fatalf("the other side reads %q", got.Text)
+	}
+}
+
+func TestAMessageDeletedForBothLeavesItsPlace(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "never mind")
+	w.settle()
+	w.react(1, m.ID, "👍", true)
+	reply := w.reply(1, m.ID, "what?")
+	edited := w.edit(0, m.ID, "never mind, really")
+	w.remove(0, m.ID)
+	w.settle()
+	for i := range w.peers {
+		got := w.conversation(i)
+		if !got[0].Deleted || got[0].Text != "" || len(got[0].Reactions) != 0 || got[0].Edited {
+			t.Fatalf("peer %d sees the deleted message as %+v", i, got[0])
+		}
+		if got[1].ID != reply.ID || got[1].ReplyTo == nil || !got[1].ReplyTo.Deleted || got[1].ReplyTo.Text != "" {
+			t.Fatalf("peer %d sees the reply to it as %+v", i, got[1].ReplyTo)
+		}
+		if found, _ := w.peers[i].s.Search("never"); len(found) != 0 {
+			t.Fatalf("peer %d found the deleted text", i)
+		}
+		if text, _ := w.stored(i, m.ID); text != "" {
+			t.Fatalf("peer %d keeps the deleted text", i)
+		}
+		if text, _ := w.stored(i, edited.ID); text != "" {
+			t.Fatalf("peer %d keeps the deleted message's edit", i)
+		}
+	}
+	if _, err := w.peers[0].s.Edit(w.peers[1].key, m.ID, "again"); !errors.Is(err, ErrNoTarget) {
+		t.Fatalf("editing a deleted message: %v", err)
+	}
+	w.converged(2)
+}
+
+func TestOnlyItsAuthorEditsOrDeletesAMessage(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "mine")
+	w.settle()
+	if _, err := w.peers[1].s.Edit(w.peers[0].key, m.ID, "yours now"); !errors.Is(err, ErrNotYours) {
+		t.Fatalf("editing another's message: %v", err)
+	}
+	if _, err := w.peers[1].s.Delete(w.peers[0].key, m.ID); !errors.Is(err, ErrNotYours) {
+		t.Fatalf("deleting another's message: %v", err)
+	}
+
+	// A peer that sends an edit of somebody else's message anyway is ignored.
+	w.peers[0].s.Message(w.peers[1].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
+		Id: bytes.Repeat([]byte{8}, IDSize), Sequence: 1, Wall: 1 << 50, Edit: &conviav1.Edit{Target: m.ID[:], Text: "forged"}}}})
+	w.peers[0].s.Message(w.peers[1].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
+		Id: bytes.Repeat([]byte{9}, IDSize), Sequence: 2, Wall: 1 << 50, Deletion: m.ID[:]}}})
+	w.peers[0].s.work.drain()
+	if got := w.conversation(0)[0]; got.Text != "mine" || got.Edited || got.Deleted {
+		t.Fatalf("somebody else changed the message: %+v", got)
+	}
+}
+
+func TestDeletingForOneselfSendsNothing(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	theirs := w.write(1, "a secret of theirs")
+	w.settle()
+	if err := w.peers[0].s.Forget(w.peers[1].key, theirs.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.queues[0]) != 0 {
+		t.Fatal("deleting for oneself sent something")
+	}
+	if got := w.conversation(0); len(got) != 0 {
+		t.Fatalf("still shown: %v", got)
+	}
+	if text, _ := w.stored(0, theirs.ID); text != "" {
+		t.Fatal("the text is still on disk")
+	}
+	if got := w.conversation(1); len(got) != 1 || got[0].Deleted {
+		t.Fatal("the other side lost it too")
+	}
+
+	w.drop()
+	waiting := w.write(0, "not sent yet")
+	if err := w.peers[0].s.Forget(w.peers[1].key, waiting.ID); !errors.Is(err, ErrNotDelivered) {
+		t.Fatalf("forgetting a message still waiting: %v", err)
+	}
+	w.settle()
+	if err := w.peers[0].s.Forget(w.peers[1].key, waiting.ID); err != nil {
+		t.Fatalf("forgetting one's own message once delivered: %v", err)
+	}
+}
+
+func TestAWipedEntryTravelsWithoutItsText(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	m := w.write(0, "gone")
+	w.remove(0, m.ID)
+	w.settle()
+	entries, _ := w.peers[0].s.store.entries(w.peers[1].key)
+	d := toWire(entries[0])
+	if !d.Wiped || d.Text != "" {
+		t.Fatalf("a wiped entry goes out as %v", d)
+	}
+	back, ok := fromWire(d)
+	if !ok || back.check() != nil {
+		t.Fatalf("a wiped entry is not taken back: %v, %v", ok, back.check())
+	}
+
+	for name, d := range map[string]*conviav1.DirectMessage{
+		"wiped with text":          {Wiped: true, Text: "still here"},
+		"a wiped reaction":         {Wiped: true, Reaction: &conviav1.Reaction{Target: m.ID[:], Emoji: "👍", On: true}},
+		"an edit and a reaction":   {Edit: &conviav1.Edit{Target: m.ID[:], Text: "x"}, Reaction: &conviav1.Reaction{Target: m.ID[:], Emoji: "👍"}},
+		"a deletion with text":     {Deletion: m.ID[:], Text: "why"},
+		"an edit that replies":     {Edit: &conviav1.Edit{Target: m.ID[:], Text: "x"}, ReplyTo: m.ID[:]},
+		"an empty edit":            {Edit: &conviav1.Edit{Target: m.ID[:]}},
+		"an edit of nothing":       {Edit: &conviav1.Edit{Text: "x"}},
+		"a deletion of no message": {Deletion: []byte{1, 2, 3}},
+	} {
+		d.Id, d.Sequence = bytes.Repeat([]byte{7}, IDSize), 9
+		m, ok := fromWire(d)
+		if ok && m.check() == nil {
+			t.Errorf("%s was taken", name)
+		}
+	}
+}
+
+func TestAMessageDeletedBeforeItWasDeliveredShowsNothing(t *testing.T) {
+	w := newWorld(t)
+	m := w.write(0, "oops")
+	w.remove(0, m.ID)
+	if got := w.conversation(0)[0]; !got.Deleted || got.Text != "" {
+		t.Fatalf("still waiting, the deleted message shows %q", got.Text)
+	}
+}
+
+func TestAWipedMessageArrivingIsNotToldOf(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	var told int
+	w.peers[1].s.Received = func(ed25519.PublicKey, Message) { told++ }
+	w.peers[1].s.Message(w.peers[0].key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_DirectMessage{DirectMessage: &conviav1.DirectMessage{
+		Id: bytes.Repeat([]byte{8}, IDSize), Sequence: 1, Wall: 5, Wiped: true}}})
+	w.peers[1].s.work.drain()
+	if len(w.queues[1]) != 1 || told != 0 {
+		t.Fatalf("a wiped message was acknowledged %d times and told of %d", len(w.queues[1]), told)
 	}
 }

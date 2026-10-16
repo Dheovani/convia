@@ -16,11 +16,13 @@ const MaxCharacters = 4000
 const excerpt = 140
 
 var (
-	ErrEmpty    = errors.New("messages: a message has some text")
-	ErrTooLong  = errors.New("messages: a message holds at most 4,000 characters")
-	ErrEmoji    = errors.New("messages: a reaction is one emoji")
-	ErrNoTarget = errors.New("messages: no such message in this conversation")
-	errKind     = errors.New("messages: an entry of a kind this version does not know")
+	ErrEmpty        = errors.New("messages: a message has some text")
+	ErrTooLong      = errors.New("messages: a message holds at most 4,000 characters")
+	ErrEmoji        = errors.New("messages: a reaction is one emoji")
+	ErrNoTarget     = errors.New("messages: no such message in this conversation")
+	ErrNotYours     = errors.New("messages: only its author edits or deletes a message for both")
+	ErrNotDelivered = errors.New("messages: a message still waiting is deleted for both, not only here")
+	errKind         = errors.New("messages: an entry of a kind this version does not know")
 )
 
 // Reaction is an emoji on a message, how many put it there, and whether this person is one of them.
@@ -37,6 +39,7 @@ type Quote struct {
 	Text    string
 	Mine    bool
 	Missing bool
+	Deleted bool
 }
 
 // Check reports whether text may be a message.
@@ -79,24 +82,33 @@ func CheckEmoji(emoji string) error {
 	return nil
 }
 
-// check reports whether an entry is one the protocol allows.
+// check reports whether an entry is one the protocol allows; a wiped one holds no text, so none is checked.
 func (m Message) check() error {
+	if m.Wiped && m.Text != "" {
+		return errKind
+	}
 	switch m.Kind {
-	case Text:
+	case Text, Editing:
 		if m.On {
 			return errKind
+		}
+		if m.Wiped {
+			return nil
 		}
 		return Check(m.Text)
 	case Reacting:
 		return CheckEmoji(m.Text)
+	case Deleting:
+		return nil
 	}
-
 	return errKind
 }
 
 /*
-fold turns a conversation's entries, in its order, into the messages it shows: each with the reactions
-on it, and what it answers. For each person, emoji and message, the latest reaction decides (ADR 0035).
+fold turns a conversation's entries, in its order, into the messages it shows: each with its latest
+text, whether it was edited or deleted, the reactions on it, and what it answers. Only a message's
+author edits or deletes it (ADR 0034); for each person, emoji and message, the latest reaction decides
+(ADR 0035).
 */
 func fold(entries []Message, me ed25519.PublicKey) []Message {
 	type reacting struct {
@@ -104,21 +116,35 @@ func fold(entries []Message, me ed25519.PublicKey) []Message {
 		author string
 		emoji  string
 	}
-
 	var out []Message
 	index := map[[IDSize]byte]int{}
-	on := map[reacting]bool{}
-	emojis := map[[IDSize]byte][]string{}
-
 	for _, e := range entries {
-		switch e.Kind {
-		case Text:
+		if e.Kind == Text && !e.Hidden {
 			index[e.ID] = len(out)
 			out = append(out, e)
-		case Reacting:
-			if e.Target == nil {
-				continue
+		}
+	}
+
+	on := map[reacting]bool{}
+	emojis := map[[IDSize]byte][]string{}
+	for _, e := range entries {
+		if e.Target == nil {
+			continue
+		}
+		i, ok := index[*e.Target]
+		if !ok {
+			continue
+		}
+		switch e.Kind {
+		case Editing:
+			if e.Author.Equal(out[i].Author) && !e.Wiped {
+				out[i].Text, out[i].Edited = e.Text, true
 			}
+		case Deleting:
+			if e.Author.Equal(out[i].Author) {
+				out[i].Deleted = true
+			}
+		case Reacting:
 			on[reacting{*e.Target, string(e.Author), e.Text}] = e.On
 			if !slices.Contains(emojis[*e.Target], e.Text) {
 				emojis[*e.Target] = append(emojis[*e.Target], e.Text)
@@ -126,9 +152,15 @@ func fold(entries []Message, me ed25519.PublicKey) []Message {
 		}
 	}
 
+	for i := range out {
+		if out[i].Deleted || out[i].Wiped && !out[i].Edited {
+			out[i].Deleted, out[i].Edited, out[i].Text = true, false, ""
+		}
+	}
+
 	for target, order := range emojis {
-		i, ok := index[target]
-		if !ok {
+		i := index[target]
+		if out[i].Deleted {
 			continue
 		}
 		for _, emoji := range order {
@@ -159,8 +191,7 @@ func fold(entries []Message, me ed25519.PublicKey) []Message {
 		if runes := []rune(text); len(runes) > excerpt {
 			text = string(runes[:excerpt]) + "…"
 		}
-		out[i].ReplyTo = &Quote{ID: *target, Author: out[j].Author, Text: text, Mine: out[j].Author.Equal(me)}
+		out[i].ReplyTo = &Quote{ID: *target, Author: out[j].Author, Text: text, Mine: out[j].Author.Equal(me), Deleted: out[j].Deleted}
 	}
-
 	return out
 }

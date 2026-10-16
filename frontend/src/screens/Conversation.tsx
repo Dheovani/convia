@@ -2,10 +2,14 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import {
   React as react,
   Conversation as readConversation,
+  DeleteMessage,
+  EditMessage,
+  ForgetMessage,
   SendMessage,
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { Button, input } from "../components/controls";
+import { DeleteDialog } from "../components/DeleteDialog";
 import { LinkDialog } from "../components/LinkDialog";
 import { useLanguage, useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
@@ -23,6 +27,7 @@ export interface Quote {
   mine: boolean;
   text: string;
   missing: boolean;
+  deleted?: boolean;
 }
 
 export interface Message {
@@ -33,6 +38,8 @@ export interface Message {
   at: number;
   reactions?: Reaction[];
   replyTo?: Quote;
+  edited?: boolean;
+  deleted?: boolean;
 }
 
 // The reactions offered at a click; any single emoji is one (ADR 0035).
@@ -73,6 +80,10 @@ export function Conversation({
   const [link, setLink] = useState<string | null>(null);
   const [answering, setAnswering] = useState<Message | null>(null);
   const [choosing, setChoosing] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<Message | null>(null);
+  const [editing, setEditing] = useState<{ id: string; text: string } | null>(
+    null,
+  );
   const field = useRef<HTMLTextAreaElement>(null);
   const end = useRef<HTMLDivElement>(null);
 
@@ -128,6 +139,27 @@ export function Conversation({
     }
   }
 
+  async function attempt(work: () => Promise<unknown>) {
+    try {
+      await work();
+      await load();
+    } catch (error) {
+      setNotice(refused(words, error));
+    }
+  }
+
+  async function saveEdit() {
+    if (!editing)
+      return;
+
+    const { id, text } = editing;
+    if (text.trim() === "" || [...text].length > MaxCharacters)
+      return;
+
+    setEditing(null);
+    await attempt(() => EditMessage(contact.publicKey, id, text));
+  }
+
   const author = (mine: boolean) => (mine ? meName : contact.name);
 
   const status = (m: Message) =>
@@ -176,26 +208,46 @@ export function Conversation({
                 aria-current={m.id === focus ? "true" : undefined}
                 className={`group relative flex flex-col rounded-sm px-2 hover:bg-surface-hover focus-within:bg-surface-hover ${starts ? "mt-3" : ""} ${m.id === focus ? "bg-accent-soft" : ""}`}
               >
-                <div className="absolute -top-3 right-2 flex gap-1 rounded-sm border border-line bg-surface-raised opacity-0 shadow-raised group-hover:opacity-100 group-focus-within:opacity-100">
-                  <button
-                    type="button"
-                    className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
-                    onClick={() => {
-                      setAnswering(m);
-                      field.current?.focus();
-                    }}
-                  >
-                    {words.conversation.reply}
-                  </button>
-                  <button
-                    type="button"
-                    className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
-                    aria-expanded={choosing === m.id}
-                    onClick={() => setChoosing(choosing === m.id ? null : m.id)}
-                  >
-                    {words.conversation.react}
-                  </button>
-                </div>
+                {!m.deleted && (
+                  <div className="absolute -top-3 right-2 flex gap-1 rounded-sm border border-line bg-surface-raised opacity-0 shadow-raised group-hover:opacity-100 group-focus-within:opacity-100">
+                    <button
+                      type="button"
+                      className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                      onClick={() => {
+                        setAnswering(m);
+                        field.current?.focus();
+                      }}
+                    >
+                      {words.conversation.reply}
+                    </button>
+                    <button
+                      type="button"
+                      className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                      aria-expanded={choosing === m.id}
+                      onClick={() =>
+                        setChoosing(choosing === m.id ? null : m.id)
+                      }
+                    >
+                      {words.conversation.react}
+                    </button>
+                    {m.mine && (
+                      <button
+                        type="button"
+                        className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                        onClick={() => setEditing({ id: m.id, text: m.text })}
+                      >
+                        {words.conversation.edit}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="cursor-pointer px-2 py-0.5 text-[0.72rem] text-danger hover:bg-surface-hover"
+                      onClick={() => setDeleting(m)}
+                    >
+                      {words.conversation.delete}
+                    </button>
+                  </div>
+                )}
                 {choosing === m.id && (
                   <div
                     role="group"
@@ -245,6 +297,8 @@ export function Conversation({
                   >
                     {m.replyTo.missing ? (
                       words.conversation.quoteMissing
+                    ) : m.replyTo.deleted ? (
+                      words.conversation.quoteDeleted
                     ) : (
                       <>
                         <span className="font-medium">
@@ -259,7 +313,59 @@ export function Conversation({
                 )}
                 <div className="flex items-end gap-2">
                   <div className="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">
-                    <Formatted text={m.text} onLink={setLink} />
+                    {m.deleted ? (
+                      <p className="text-ink-faint italic">
+                        {words.conversation.deleted}
+                      </p>
+                    ) : editing?.id === m.id ? (
+                      <div className="flex flex-col gap-1">
+                        <label htmlFor={`${fieldId}-edit`} className="sr-only">
+                          {words.conversation.editing}
+                        </label>
+                        <textarea
+                          id={`${fieldId}-edit`}
+                          autoFocus
+                          className={`${input} resize-none text-sm`}
+                          rows={2}
+                          value={editing.text}
+                          onChange={(event) =>
+                            setEditing({ id: m.id, text: event.target.value })
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") setEditing(null);
+                            if (event.key === "Enter" && !event.shiftKey) {
+                              event.preventDefault();
+                              void saveEdit();
+                            }
+                          }}
+                        />
+                        <div className="flex gap-2">
+                          <Button size="small" onClick={() => setEditing(null)}>
+                            {words.conversation.cancelEdit}
+                          </Button>
+                          <Button
+                            tone="primary"
+                            size="small"
+                            disabled={
+                              editing.text.trim() === "" ||
+                              [...editing.text].length > MaxCharacters
+                            }
+                            onClick={() => void saveEdit()}
+                          >
+                            {words.conversation.save}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <Formatted text={m.text} onLink={setLink} />
+                        {m.edited && (
+                          <span className="ml-1 text-[0.7rem] text-ink-faint">
+                            {words.conversation.edited}
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
                   {m.mine && (
                     <span
@@ -364,6 +470,23 @@ export function Conversation({
       </div>
 
       {link && <LinkDialog url={link} onClose={() => setLink(null)} />}
+      {deleting && (
+        <DeleteDialog
+          mine={deleting.mine}
+          delivered={deleting.status === "delivered"}
+          onBoth={() => {
+            const id = deleting.id;
+            setDeleting(null);
+            void attempt(() => DeleteMessage(contact.publicKey, id));
+          }}
+          onHere={() => {
+            const id = deleting.id;
+            setDeleting(null);
+            void attempt(() => ForgetMessage(contact.publicKey, id));
+          }}
+          onClose={() => setDeleting(null)}
+        />
+      )}
     </section>
   );
 }

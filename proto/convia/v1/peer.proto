@@ -24,7 +24,8 @@ message PeerMessage {
 
 /*
 DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
-4,000 characters (ADR 0029), which may answer another (ADR 0035), or a reaction to one.
+4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
+or its deletion (ADR 0034).
 */
 message DirectMessage {
   bytes id = 1;
@@ -37,6 +38,17 @@ message DirectMessage {
   // The message this one answers.
   bytes reply_to = 6;
   Reaction reaction = 7;
+  Edit edit = 8;
+  // The message its author deletes for both.
+  bytes deletion = 9;
+  // An entry whose text was edited or deleted since: it is sent without it, and holds its place in the sequence.
+  bool wiped = 10;
+}
+
+// Edit gives a message of its author's new text (ADR 0034).
+message Edit {
+  bytes target = 1;
+  string text = 2;
 }
 
 // Reaction puts an emoji on a message, or takes it off (ADR 0035).

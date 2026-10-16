@@ -194,3 +194,83 @@ test("a reaction is put on, and a reaction of one's own taken off", async () => 
   );
   expect(screen.queryByRole("group", { name: "Choose a reaction" })).toBeNull();
 });
+
+test("one's own message is edited in place, and shown as edited", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([{ ...said[2], text: "arived", edited: true }, said[3]]);
+  open();
+  expect(await screen.findByText("(edited)")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const field = screen.getByLabelText("The message's new text");
+  fireEvent.change(field, { target: { value: "arrived" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() =>
+    expect(calls.EditMessage).toEqual([[bruno.publicKey, "03", "arrived"]]),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  fireEvent.keyDown(screen.getByLabelText("The message's new text"), {
+    key: "Escape",
+  });
+  expect(screen.queryByLabelText("The message's new text")).toBeNull();
+  expect(calls.EditMessage).toHaveLength(1);
+});
+
+test("deleting asks how, as the message's author and state allow", async () => {
+  open();
+  await screen.findByText("an answer");
+  const deletes = () => screen.getAllByRole("button", { name: "Delete" });
+
+  // Delivered and one's own: for both, or only here.
+  fireEvent.click(deletes()[2]);
+  fireEvent.click(screen.getByRole("button", { name: "Delete for both" }));
+  await waitFor(() =>
+    expect(calls.DeleteMessage).toEqual([[bruno.publicKey, "03"]]),
+  );
+
+  // Still waiting: only for both.
+  fireEvent.click(deletes()[0]);
+  expect(
+    screen.getByText(
+      "It has not been delivered yet, so it is deleted for both.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete for me" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+  // Somebody else's: only here.
+  fireEvent.click(deletes()[3]);
+  expect(screen.queryByRole("button", { name: "Delete for both" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Delete for me" }));
+  await waitFor(() =>
+    expect(calls.ForgetMessage).toEqual([[bruno.publicKey, "04"]]),
+  );
+});
+
+test("a deleted message keeps its place, and a reply to it says so", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      { ...said[3], text: "", deleted: true, reactions: [] },
+      {
+        id: "05",
+        mine: true,
+        text: "what was that?",
+        status: "delivered",
+        at: 5,
+        reactions: [],
+        replyTo: {
+          id: "04",
+          mine: false,
+          text: "",
+          missing: false,
+          deleted: true,
+        },
+      },
+    ]);
+  open();
+  expect(await screen.findByText("Message deleted.")).toBeTruthy();
+  expect(screen.getByText("The message replied to was deleted.")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Reply" })).toHaveLength(1);
+});
