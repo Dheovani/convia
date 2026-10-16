@@ -1,10 +1,13 @@
 package app
 
 import (
+	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"golang.org/x/sys/windows/registry"
 
 	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
@@ -176,5 +179,21 @@ func TestOnlyAWebAddressIsOpened(t *testing.T) {
 		if err := b.OpenLink(address); !errors.Is(err, errNotALink) {
 			t.Errorf("OpenLink(%q) = %v", address, err)
 		}
+	}
+}
+
+func TestNotificationsAreNamedConvia(t *testing.T) {
+	path := `Software\ConviaTest\` + rand.Text()
+	t.Cleanup(func() { registry.DeleteKey(registry.CURRENT_USER, path) })
+	if err := nameApplication(path, "Convia"); err != nil {
+		t.Fatal(err)
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	if name, _, err := key.GetStringValue("DisplayName"); err != nil || name != "Convia" {
+		t.Fatalf("DisplayName = %q, %v", name, err)
 	}
 }

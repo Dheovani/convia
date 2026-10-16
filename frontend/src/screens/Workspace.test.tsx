@@ -57,6 +57,7 @@ test("the sidebar lists every conversation, its unread count and the requests wa
   expect(screen.getByText("Bruno")).toBeTruthy();
   expect(screen.getByLabelText("2 unread")).toBeTruthy();
   expect(screen.getByLabelText("1 waiting for your answer")).toBeTruthy();
+  expect(screen.getByText("see this https://convia.example")).toBeTruthy();
 });
 
 test("opening a conversation says it is on screen, and shows it formatted", async () => {

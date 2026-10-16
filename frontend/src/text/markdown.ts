@@ -147,3 +147,24 @@ function closing(text: string, from: number, mark: string): number {
   }
   return -1;
 }
+
+// plain is what a message says without its formatting, on one line, as a list of conversations previews it.
+export function plain(text: string): string {
+  const inline = (items: Inline[]): string =>
+    items
+      .map((item) =>
+        item.kind === "text" || item.kind === "code"
+          ? item.text
+          : item.kind === "link"
+            ? item.url
+            : inline(item.children),
+      )
+      .join("");
+  return parse(text)
+    .flatMap((block) =>
+      block.kind === "code" ? [block.text] : block.lines.map(inline),
+    )
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

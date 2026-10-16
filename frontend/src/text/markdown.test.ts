@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parse, parseInline, type Inline } from "./markdown";
+import { parse, parseInline, plain, type Inline } from "./markdown";
 
 const text = (t: string): Inline => ({ kind: "text", text: t });
 
@@ -127,5 +127,16 @@ describe("blocks", () => {
       }
       expect(() => parse(s)).not.toThrow();
     }
+  });
+});
+
+describe("a preview", () => {
+  it("is the text without its formatting, on one line", () => {
+    expect(
+      plain(
+        "**negrito** *itálico* e link: https://convia.example\n> citado\n```\ncódigo\n```",
+      ),
+    ).toBe("negrito itálico e link: https://convia.example citado código");
+    expect(plain("2 * 3 = 6")).toBe("2 * 3 = 6");
   });
 });

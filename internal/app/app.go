@@ -72,6 +72,8 @@ func (a *App) Startup(ctx context.Context) {
 	a.Bridge.ctx = ctx
 	if err := runtime.InitializeNotifications(ctx); err != nil {
 		a.logger.Warn("prepare notifications", "error", err)
+	} else if err := nameNotifications(); err != nil {
+		a.logger.Warn("name the notifications", "error", err)
 	}
 	runtime.OnNotificationResponse(ctx, func(result runtime.NotificationResult) {
 		a.show()

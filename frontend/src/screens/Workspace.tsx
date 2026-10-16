@@ -9,6 +9,7 @@ import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { Mark } from "../components/Mark";
 import { useWords } from "../i18n/language";
 import { rememberedNotificationText } from "../state/preferences";
+import { plain } from "../text/markdown";
 import { Contacts } from "./Contacts";
 import { Conversation, type Message } from "./Conversation";
 import type { Identity } from "./Me";
@@ -243,7 +244,7 @@ export function Workspace({
                     </span>
                     {c.last && (
                       <span className="truncate text-[0.75rem] text-ink-faint">
-                        {c.last.text}
+                        {plain(c.last.text)}
                       </span>
                     )}
                   </span>
