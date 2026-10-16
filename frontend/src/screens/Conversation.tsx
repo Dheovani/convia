@@ -37,9 +37,12 @@ const groupWithin = 5 * 60 * 1000;
 export function Conversation({
   contact,
   meName,
+  focus,
 }: {
   contact: Person;
   meName: string;
+  // focus is a message to bring into view and mark, as when a search found it.
+  focus?: string;
 }) {
   const words = useWords();
   const { formatting } = useLanguage();
@@ -67,8 +70,13 @@ export function Conversation({
   }, [contact.publicKey, load]);
 
   useEffect(() => {
-    end.current?.scrollIntoView?.({ block: "end" });
-  }, [messages.length]);
+    const found = focus && document.getElementById(`message-${focus}`);
+    if (found) {
+      found.scrollIntoView?.({ block: "center" });
+    } else {
+      end.current?.scrollIntoView?.({ block: "end" });
+    }
+  }, [messages.length, focus]);
 
   const length = [...draft].length;
   const tooLong = length > MaxCharacters;
@@ -128,7 +136,9 @@ export function Conversation({
             return (
               <li
                 key={m.id}
-                className={`flex flex-col rounded-sm px-2 hover:bg-surface-hover ${starts ? "mt-3" : ""}`}
+                id={`message-${m.id}`}
+                aria-current={m.id === focus ? "true" : undefined}
+                className={`flex flex-col rounded-sm px-2 hover:bg-surface-hover ${starts ? "mt-3" : ""} ${m.id === focus ? "bg-accent-soft" : ""}`}
               >
                 {starts && (
                   <div className="flex items-baseline gap-2">

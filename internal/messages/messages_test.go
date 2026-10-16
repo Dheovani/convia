@@ -480,3 +480,47 @@ func TestConversationsAreListedLatestFirst(t *testing.T) {
 		t.Fatalf("summaries = %+v", summaries)
 	}
 }
+
+func TestSearchFindsTextRegardlessOfCaseAndAccents(t *testing.T) {
+	w := newWorld(t)
+	w.connect()
+	w.settle()
+	w.write(0, "Vamos à praia amanhã?")
+	w.write(1, "AMANHA não posso")
+	w.write(0, "something else entirely")
+	w.settle()
+
+	found, err := w.peers[0].s.Search("  amanhã ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var texts []string
+	for _, f := range found {
+		texts = append(texts, f.Message.Text)
+		if !f.Contact.Equal(w.peers[1].key) {
+			t.Fatal("found in the wrong conversation")
+		}
+	}
+	if strings.Join(texts, "|") != "AMANHA não posso|Vamos à praia amanhã?" {
+		t.Fatalf("found %q", texts)
+	}
+	if found, _ := w.peers[0].s.Search("PRAIA"); len(found) != 1 || found[0].Message.Author.Equal(w.peers[1].key) {
+		t.Fatalf("searching in capitals found %v", found)
+	}
+	for _, nothing := range []string{"", "   ", "beach"} {
+		if found, _ := w.peers[0].s.Search(nothing); len(found) != 0 {
+			t.Errorf("Search(%q) found %d", nothing, len(found))
+		}
+	}
+}
+
+func TestSearchStopsAtItsLimit(t *testing.T) {
+	w := newWorld(t)
+	for i := range MaxFound + 5 {
+		w.write(0, fmt.Sprintf("needle %d", i))
+	}
+	found, _ := w.peers[0].s.Search("needle")
+	if len(found) != MaxFound || found[0].Message.Text != fmt.Sprintf("needle %d", MaxFound+4) {
+		t.Fatalf("found %d, the first %q", len(found), found[0].Message.Text)
+	}
+}

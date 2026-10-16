@@ -49,6 +49,8 @@ export function RenameIdentity(arg1:string):Promise<void>;
 
 export function Requests():Promise<app.RequestsView>;
 
+export function SearchMessages(arg1:string):Promise<Array<app.FoundView>>;
+
 export function SendMessage(arg1:string,arg2:string):Promise<app.MessageView>;
 
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;

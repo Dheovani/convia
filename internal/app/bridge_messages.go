@@ -86,3 +86,44 @@ func (b *Bridge) SendMessage(publicKey, text string) (*MessageView, error) {
 	view := messageView(m)
 	return &view, nil
 }
+
+// FoundView is a message a search found, with the contact whose conversation it is in.
+type FoundView struct {
+	PublicKey string      `json:"publicKey"`
+	Name      string      `json:"name"`
+	Message   MessageView `json:"message"`
+}
+
+// SearchMessages finds the messages that hold query, in every conversation, the latest first (ADR 0037).
+func (b *Bridge) SearchMessages(query string) ([]FoundView, error) {
+	people, conversations := b.network.people(), b.network.conversations()
+	if people == nil || conversations == nil {
+		return nil, contactRefusal(errNoContacts)
+	}
+
+	found, err := conversations.Search(query)
+	if err != nil {
+		return nil, err
+	}
+
+	all, err := people.Book().Contacts()
+	if err != nil {
+		return nil, err
+	}
+
+	names := map[string]string{}
+	for _, c := range all {
+		names[string(c.Key)] = c.Name
+	}
+
+	out := []FoundView{}
+	for _, f := range found {
+		name, listed := names[string(f.Contact)]
+		if !listed {
+			continue
+		}
+		out = append(out, FoundView{PublicKey: hex.EncodeToString(f.Contact), Name: name, Message: messageView(f.Message)})
+	}
+
+	return out, nil
+}

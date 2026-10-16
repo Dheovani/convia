@@ -94,6 +94,10 @@ export function Requests() {
   return window['go']['app']['Bridge']['Requests']();
 }
 
+export function SearchMessages(arg1) {
+  return window['go']['app']['Bridge']['SearchMessages'](arg1);
+}
+
 export function SendMessage(arg1, arg2) {
   return window['go']['app']['Bridge']['SendMessage'](arg1, arg2);
 }

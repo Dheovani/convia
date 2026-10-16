@@ -85,6 +85,10 @@ export const ptBR: Words = {
     choose: "Escolha uma conversa.",
     you: "Você",
     verified: "Verificado",
+    search: "Buscar mensagens",
+    searchNone: "Nada encontrado.",
+    searchFound: (count: number) =>
+      count === 1 ? "1 mensagem encontrada" : `${count} mensagens encontradas`,
   },
   settings: {
     title: "Configurações",

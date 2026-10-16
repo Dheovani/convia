@@ -84,6 +84,10 @@ export const en = {
     choose: "Choose a conversation.",
     you: "You",
     verified: "Verified",
+    search: "Search messages",
+    searchNone: "Nothing found.",
+    searchFound: (count: number) =>
+      count === 1 ? "1 message found" : `${count} messages found`,
   },
   settings: {
     title: "Settings",

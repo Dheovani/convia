@@ -101,6 +101,9 @@ func (s *Service) MarkRead(contact ed25519.PublicKey) error { return s.store.Mar
 // Unread is how many messages are unread in every conversation.
 func (s *Service) Unread() (int, error) { return s.store.Unread() }
 
+// Search finds the messages that hold query, the latest first (ADR 0037).
+func (s *Service) Search(query string) ([]Found, error) { return s.store.Search(query) }
+
 // Conversation is every message with contact, in order.
 func (s *Service) Conversation(contact ed25519.PublicKey) ([]Message, error) {
 	return s.store.Conversation(contact)

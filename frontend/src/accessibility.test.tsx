@@ -152,3 +152,17 @@ test("the question before a link opens", async () => {
   );
   expect(await violations(container, false)).toEqual([]);
 });
+
+test("a search's results", async () => {
+  answers.SearchMessages = () =>
+    Promise.resolve([
+      { publicKey: ana.publicKey, name: "Ana", message: ana.last },
+    ]);
+  const { container } = workspace();
+  await screen.findByText("Ana");
+  fireEvent.change(screen.getByLabelText("Search messages"), {
+    target: { value: "hi" },
+  });
+  await screen.findByText("hi https://convia.example");
+  expect(await violations(container)).toEqual([]);
+});

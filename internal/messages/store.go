@@ -195,11 +195,14 @@ func (s *Store) Conversation(contact ed25519.PublicKey) ([]Message, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) scan(rows *sql.Rows) (Message, error) {
+func (s *Store) scan(rows *sql.Rows) (Message, error) { return s.scanWith(rows) }
+
+// scanWith reads a message from rows, after the columns before it, if any, into before.
+func (s *Store) scanWith(rows *sql.Rows, before ...any) (Message, error) {
 	var m Message
 	var id, author, sealed []byte
 	var queued, transmitted bool
-	if err := rows.Scan(&id, &author, &m.Sequence, &m.Time.Wall, &m.Time.Counter, &sealed, &queued, &transmitted); err != nil {
+	if err := rows.Scan(append(before, &id, &author, &m.Sequence, &m.Time.Wall, &m.Time.Counter, &sealed, &queued, &transmitted)...); err != nil {
 		return m, err
 	}
 	copy(m.ID[:], id)
