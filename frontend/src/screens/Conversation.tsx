@@ -112,60 +112,62 @@ export function Conversation({
         )}
       </header>
 
-      <ol className="flex flex-1 flex-col overflow-y-auto px-4 py-3">
-        {messages.length === 0 && (
-          <li className="m-auto text-sm text-ink-dim">
-            {words.conversation.none}
-          </li>
-        )}
-        {messages.map((m, i) => {
-          const previous = messages[i - 1];
-          const starts =
-            !previous ||
-            previous.mine !== m.mine ||
-            m.at - previous.at > groupWithin;
-          return (
-            <li
-              key={m.id}
-              className={`flex flex-col rounded-sm px-2 hover:bg-surface-hover ${starts ? "mt-3" : ""}`}
-            >
-              {starts && (
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className={`font-medium ${m.mine ? "text-accent-ink" : ""}`}
-                  >
-                    {m.mine ? meName : contact.name}
-                  </span>
-                  <time
-                    className="text-[0.72rem] text-ink-faint"
-                    dateTime={new Date(m.at).toISOString()}
-                  >
-                    {time.format(m.at)}
-                  </time>
-                </div>
-              )}
-              <div className="flex items-end gap-2">
-                <div className="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">
-                  <Formatted text={m.text} onLink={setLink} />
-                </div>
-                {m.mine && (
-                  <span
-                    className="shrink-0 text-[0.72rem] text-ink-faint"
-                    title={
-                      m.status === "waiting"
-                        ? words.conversation.waitingHint(contact.name)
-                        : undefined
-                    }
-                  >
-                    {status(m)}
-                  </span>
-                )}
-              </div>
+      <div className="flex flex-1 flex-col overflow-y-auto px-4 py-3">
+        <ol className="flex flex-col">
+          {messages.length === 0 && (
+            <li className="py-8 text-center text-sm text-ink-dim">
+              {words.conversation.none}
             </li>
-          );
-        })}
+          )}
+          {messages.map((m, i) => {
+            const previous = messages[i - 1];
+            const starts =
+              !previous ||
+              previous.mine !== m.mine ||
+              m.at - previous.at > groupWithin;
+            return (
+              <li
+                key={m.id}
+                className={`flex flex-col rounded-sm px-2 hover:bg-surface-hover ${starts ? "mt-3" : ""}`}
+              >
+                {starts && (
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className={`font-medium ${m.mine ? "text-accent-ink" : ""}`}
+                    >
+                      {m.mine ? meName : contact.name}
+                    </span>
+                    <time
+                      className="text-[0.72rem] text-ink-faint"
+                      dateTime={new Date(m.at).toISOString()}
+                    >
+                      {time.format(m.at)}
+                    </time>
+                  </div>
+                )}
+                <div className="flex items-end gap-2">
+                  <div className="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">
+                    <Formatted text={m.text} onLink={setLink} />
+                  </div>
+                  {m.mine && (
+                    <span
+                      className="shrink-0 text-[0.72rem] text-ink-faint"
+                      title={
+                        m.status === "waiting"
+                          ? words.conversation.waitingHint(contact.name)
+                          : undefined
+                      }
+                    >
+                      {status(m)}
+                    </span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
         <div ref={end} />
-      </ol>
+      </div>
 
       <div className="flex shrink-0 flex-col gap-1 px-4 pb-4">
         {notice && (

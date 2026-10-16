@@ -213,7 +213,7 @@ The Discord-like window where conversations happen ([`README.md`](README.md)).
 - [x] **M12-007:** Decide whether the interface shows that a contact is online, given that reachability does not have to be shown ([ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
 - [x] **M12-008:** Decide how a hidden Convia tells the person something arrived — Windows notifications, the icon, both — and what a notification may reveal.
 - [x] **M12-009:** Build what those decisions keep.
-- [ ] **M12-010:** Meet WCAG 2.2 AA throughout, including keyboard navigation, as the theme's contrast test already requires of colour.
+- [x] **M12-010:** Meet WCAG 2.2 AA throughout, including keyboard navigation, as the theme's contrast test already requires of colour.
 - [x] **M12-011:** Speak English and Brazilian Portuguese everywhere, with every phrase translated.
 
 ### M13 — More of a conversation
