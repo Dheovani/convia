@@ -10,6 +10,12 @@ import {
   SendMessage,
 } from "../../wailsjs/go/app/Bridge";
 import { Attachment, type FileInfo } from "../components/Attachment";
+import {
+  AddReactionIcon,
+  DeleteIcon,
+  EditIcon,
+  ReplyIcon,
+} from "../components/Icons";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { Button, input } from "../components/controls";
 import { DeleteDialog } from "../components/DeleteDialog";
@@ -48,6 +54,9 @@ export interface Message {
 
 // The reactions offered at a click; any single emoji is one (ADR 0035).
 export const offered = ["👍", "❤️", "😂", "😮", "😢", "🙏", "🎉", "👀"];
+
+// The first of them are a hover away; the rest one click more.
+const quick = 3;
 
 export interface Person {
   publicKey: string;
@@ -223,42 +232,68 @@ export function Conversation({
                 className={`group relative flex flex-col rounded-sm px-2 hover:bg-surface-hover focus-within:bg-surface-hover ${starts ? "mt-3" : ""} ${m.id === focus ? "bg-accent-soft" : ""}`}
               >
                 {!m.deleted && (
-                  <div className="absolute -top-3 right-2 flex gap-1 rounded-sm border border-line bg-surface-raised opacity-0 shadow-raised group-hover:opacity-100 group-focus-within:opacity-100">
+                  <div
+                    className={`absolute -top-4 right-2 z-10 flex items-center gap-0.5 rounded-md border border-line bg-surface-raised p-0.5 shadow-raised group-hover:opacity-100 group-focus-within:opacity-100 ${choosing === m.id ? "opacity-100" : "opacity-0"}`}
+                  >
+                    {offered.slice(0, quick).map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-lg hover:bg-surface-hover"
+                        aria-label={words.conversation.reactWith(emoji)}
+                        title={words.conversation.reactWith(emoji)}
+                        onClick={() => void toggle(m, emoji, true)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                    <span
+                      aria-hidden="true"
+                      className="mx-0.5 h-5 w-px bg-line"
+                    />
                     <button
                       type="button"
-                      className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
-                      onClick={() => {
-                        setAnswering(m);
-                        field.current?.focus();
-                      }}
-                    >
-                      {words.conversation.reply}
-                    </button>
-                    <button
-                      type="button"
-                      className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-ink"
+                      aria-label={words.conversation.react}
+                      title={words.conversation.react}
                       aria-expanded={choosing === m.id}
                       onClick={() =>
                         setChoosing(choosing === m.id ? null : m.id)
                       }
                     >
-                      {words.conversation.react}
+                      <AddReactionIcon />
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-ink"
+                      aria-label={words.conversation.reply}
+                      title={words.conversation.reply}
+                      onClick={() => {
+                        setAnswering(m);
+                        field.current?.focus();
+                      }}
+                    >
+                      <ReplyIcon />
                     </button>
                     {m.mine && !m.file && (
                       <button
                         type="button"
-                        className="cursor-pointer px-2 py-0.5 text-[0.72rem] hover:bg-surface-hover"
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-ink"
+                        aria-label={words.conversation.edit}
+                        title={words.conversation.edit}
                         onClick={() => setEditing({ id: m.id, text: m.text })}
                       >
-                        {words.conversation.edit}
+                        <EditIcon />
                       </button>
                     )}
                     <button
                       type="button"
-                      className="cursor-pointer px-2 py-0.5 text-[0.72rem] text-danger hover:bg-surface-hover"
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-danger"
+                      aria-label={words.conversation.delete}
+                      title={words.conversation.delete}
                       onClick={() => setDeleting(m)}
                     >
-                      {words.conversation.delete}
+                      <DeleteIcon />
                     </button>
                   </div>
                 )}
@@ -266,16 +301,16 @@ export function Conversation({
                   <div
                     role="group"
                     aria-label={words.conversation.chooseReaction}
-                    className="flex flex-wrap gap-1 py-1"
+                    className="absolute top-5 right-2 z-20 flex gap-0.5 rounded-md border border-line bg-surface-raised p-1 shadow-raised"
                     onKeyDown={(event) => {
                       if (event.key === "Escape") setChoosing(null);
                     }}
                   >
-                    {offered.map((emoji) => (
+                    {offered.slice(quick).map((emoji) => (
                       <button
                         key={emoji}
                         type="button"
-                        className="cursor-pointer rounded-sm px-1.5 py-0.5 text-lg hover:bg-surface-raised"
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-lg hover:bg-surface-hover"
                         aria-label={words.conversation.reactWith(emoji)}
                         onClick={() => void toggle(m, emoji, true)}
                       >

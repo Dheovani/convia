@@ -150,7 +150,7 @@ export const en = {
     sent: "Sent",
     delivered: "Delivered",
     reply: "Reply",
-    react: "React",
+    react: "More reactions",
     chooseReaction: "Choose a reaction",
     reactWith: (emoji: string) => `React with ${emoji}`,
     reaction: (emoji: string, count: number, mine: boolean) =>

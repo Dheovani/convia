@@ -151,7 +151,7 @@ export const ptBR: Words = {
     sent: "Enviada",
     delivered: "Entregue",
     reply: "Responder",
-    react: "Reagir",
+    react: "Mais reações",
     chooseReaction: "Escolha uma reação",
     reactWith: (emoji: string) => `Reagir com ${emoji}`,
     reaction: (emoji: string, count: number, mine: boolean) =>

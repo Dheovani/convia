@@ -187,10 +187,16 @@ test("a reaction is put on, and a reaction of one's own taken off", async () => 
     expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "🎉", true]),
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "React" }));
   fireEvent.click(screen.getByRole("button", { name: "React with 😂" }));
   await waitFor(() =>
     expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "😂", true]),
+  );
+
+  expect(screen.queryByRole("button", { name: "React with 🙏" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "More reactions" }));
+  fireEvent.click(screen.getByRole("button", { name: "React with 🙏" }));
+  await waitFor(() =>
+    expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "🙏", true]),
   );
   expect(screen.queryByRole("group", { name: "Choose a reaction" })).toBeNull();
 });
