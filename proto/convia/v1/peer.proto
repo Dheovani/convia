@@ -3,6 +3,7 @@ syntax = "proto3";
 package convia.v1;
 
 import "convia/v1/handshake.proto";
+import "convia/v1/space.proto";
 
 option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
 
@@ -20,6 +21,12 @@ message PeerMessage {
     Acknowledgement acknowledgement = 9;
     Holding holding = 10;
     FileRequest file_request = 11;
+    SpaceSync space_sync = 12;
+    SpaceOperation space_operation = 13;
+    SpaceHolding space_holding = 14;
+    GroupMessage group_message = 15;
+    SpaceSecret space_secret = 16;
+    SpaceInvitation space_invitation = 17;
   }
 }
 

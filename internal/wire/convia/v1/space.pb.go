@@ -389,6 +389,347 @@ func (x *GroupMessage) GetSignature() []byte {
 	return nil
 }
 
+// SpaceSecret is a space's discovery secret for an epoch, made and signed by its owner or an administrator (ADR 0014).
+type SpaceSecret struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SpaceId       []byte                 `protobuf:"bytes,1,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	Epoch         []byte                 `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Author        []byte                 `protobuf:"bytes,3,opt,name=author,proto3" json:"author,omitempty"`
+	Secret        []byte                 `protobuf:"bytes,4,opt,name=secret,proto3" json:"secret,omitempty"`
+	Signature     []byte                 `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpaceSecret) Reset() {
+	*x = SpaceSecret{}
+	mi := &file_convia_v1_space_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpaceSecret) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpaceSecret) ProtoMessage() {}
+
+func (x *SpaceSecret) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpaceSecret.ProtoReflect.Descriptor instead.
+func (*SpaceSecret) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SpaceSecret) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetEpoch() []byte {
+	if x != nil {
+		return x.Epoch
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetAuthor() []byte {
+	if x != nil {
+		return x.Author
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+// SpaceSync is what a member who joined a space holds of its operations; the other sends every one missing (ADR 0013).
+type SpaceSync struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SpaceId       []byte                 `protobuf:"bytes,1,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	Hashes        [][]byte               `protobuf:"bytes,2,rep,name=hashes,proto3" json:"hashes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpaceSync) Reset() {
+	*x = SpaceSync{}
+	mi := &file_convia_v1_space_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpaceSync) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpaceSync) ProtoMessage() {}
+
+func (x *SpaceSync) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpaceSync.ProtoReflect.Descriptor instead.
+func (*SpaceSync) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SpaceSync) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *SpaceSync) GetHashes() [][]byte {
+	if x != nil {
+		return x.Hashes
+	}
+	return nil
+}
+
+// SpaceHolding is how far a member holds each channel; the other sends what comes after.
+type SpaceHolding struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SpaceId       []byte                 `protobuf:"bytes,1,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	Channels      []*ChannelHeld         `protobuf:"bytes,2,rep,name=channels,proto3" json:"channels,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpaceHolding) Reset() {
+	*x = SpaceHolding{}
+	mi := &file_convia_v1_space_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpaceHolding) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpaceHolding) ProtoMessage() {}
+
+func (x *SpaceHolding) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpaceHolding.ProtoReflect.Descriptor instead.
+func (*SpaceHolding) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SpaceHolding) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *SpaceHolding) GetChannels() []*ChannelHeld {
+	if x != nil {
+		return x.Channels
+	}
+	return nil
+}
+
+type ChannelHeld struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ChannelId     []byte                 `protobuf:"bytes,1,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Authors       []*AuthorHeld          `protobuf:"bytes,2,rep,name=authors,proto3" json:"authors,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChannelHeld) Reset() {
+	*x = ChannelHeld{}
+	mi := &file_convia_v1_space_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelHeld) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelHeld) ProtoMessage() {}
+
+func (x *ChannelHeld) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelHeld.ProtoReflect.Descriptor instead.
+func (*ChannelHeld) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ChannelHeld) GetChannelId() []byte {
+	if x != nil {
+		return x.ChannelId
+	}
+	return nil
+}
+
+func (x *ChannelHeld) GetAuthors() []*AuthorHeld {
+	if x != nil {
+		return x.Authors
+	}
+	return nil
+}
+
+// AuthorHeld is the highest sequence number of an author held with every one before it.
+type AuthorHeld struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Author        []byte                 `protobuf:"bytes,1,opt,name=author,proto3" json:"author,omitempty"`
+	Sequence      uint64                 `protobuf:"varint,2,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorHeld) Reset() {
+	*x = AuthorHeld{}
+	mi := &file_convia_v1_space_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorHeld) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorHeld) ProtoMessage() {}
+
+func (x *AuthorHeld) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorHeld.ProtoReflect.Descriptor instead.
+func (*AuthorHeld) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AuthorHeld) GetAuthor() []byte {
+	if x != nil {
+		return x.Author
+	}
+	return nil
+}
+
+func (x *AuthorHeld) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+// SpaceInvitation is a space a person was added to, and how it stands, until they accept or decline (ADR 0039).
+type SpaceInvitation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Genesis       *SpaceGenesis          `protobuf:"bytes,1,opt,name=genesis,proto3" json:"genesis,omitempty"`
+	Operations    []*SpaceOperation      `protobuf:"bytes,2,rep,name=operations,proto3" json:"operations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpaceInvitation) Reset() {
+	*x = SpaceInvitation{}
+	mi := &file_convia_v1_space_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpaceInvitation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpaceInvitation) ProtoMessage() {}
+
+func (x *SpaceInvitation) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpaceInvitation.ProtoReflect.Descriptor instead.
+func (*SpaceInvitation) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *SpaceInvitation) GetGenesis() *SpaceGenesis {
+	if x != nil {
+		return x.Genesis
+	}
+	return nil
+}
+
+func (x *SpaceInvitation) GetOperations() []*SpaceOperation {
+	if x != nil {
+		return x.Operations
+	}
+	return nil
+}
+
 var File_convia_v1_space_proto protoreflect.FileDescriptor
 
 const file_convia_v1_space_proto_rawDesc = "" +
@@ -434,7 +775,32 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\acontent\x18\t \x01(\fR\acontent\x12\x16\n" +
 	"\x06digest\x18\n" +
 	" \x01(\fR\x06digest\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignatureB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"\tsignature\x18\v \x01(\fR\tsignature\"\x8c\x01\n" +
+	"\vSpaceSecret\x12\x19\n" +
+	"\bspace_id\x18\x01 \x01(\fR\aspaceId\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\fR\x05epoch\x12\x16\n" +
+	"\x06author\x18\x03 \x01(\fR\x06author\x12\x16\n" +
+	"\x06secret\x18\x04 \x01(\fR\x06secret\x12\x1c\n" +
+	"\tsignature\x18\x05 \x01(\fR\tsignature\">\n" +
+	"\tSpaceSync\x12\x19\n" +
+	"\bspace_id\x18\x01 \x01(\fR\aspaceId\x12\x16\n" +
+	"\x06hashes\x18\x02 \x03(\fR\x06hashes\"]\n" +
+	"\fSpaceHolding\x12\x19\n" +
+	"\bspace_id\x18\x01 \x01(\fR\aspaceId\x122\n" +
+	"\bchannels\x18\x02 \x03(\v2\x16.convia.v1.ChannelHeldR\bchannels\"]\n" +
+	"\vChannelHeld\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x01 \x01(\fR\tchannelId\x12/\n" +
+	"\aauthors\x18\x02 \x03(\v2\x15.convia.v1.AuthorHeldR\aauthors\"@\n" +
+	"\n" +
+	"AuthorHeld\x12\x16\n" +
+	"\x06author\x18\x01 \x01(\fR\x06author\x12\x1a\n" +
+	"\bsequence\x18\x02 \x01(\x04R\bsequence\"\x7f\n" +
+	"\x0fSpaceInvitation\x121\n" +
+	"\agenesis\x18\x01 \x01(\v2\x17.convia.v1.SpaceGenesisR\agenesis\x129\n" +
+	"\n" +
+	"operations\x18\x02 \x03(\v2\x19.convia.v1.SpaceOperationR\n" +
+	"operationsB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_space_proto_rawDescOnce sync.Once
@@ -448,18 +814,28 @@ func file_convia_v1_space_proto_rawDescGZIP() []byte {
 	return file_convia_v1_space_proto_rawDescData
 }
 
-var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_convia_v1_space_proto_goTypes = []any{
-	(*SpaceGenesis)(nil),   // 0: convia.v1.SpaceGenesis
-	(*SpaceOperation)(nil), // 1: convia.v1.SpaceOperation
-	(*GroupMessage)(nil),   // 2: convia.v1.GroupMessage
+	(*SpaceGenesis)(nil),    // 0: convia.v1.SpaceGenesis
+	(*SpaceOperation)(nil),  // 1: convia.v1.SpaceOperation
+	(*GroupMessage)(nil),    // 2: convia.v1.GroupMessage
+	(*SpaceSecret)(nil),     // 3: convia.v1.SpaceSecret
+	(*SpaceSync)(nil),       // 4: convia.v1.SpaceSync
+	(*SpaceHolding)(nil),    // 5: convia.v1.SpaceHolding
+	(*ChannelHeld)(nil),     // 6: convia.v1.ChannelHeld
+	(*AuthorHeld)(nil),      // 7: convia.v1.AuthorHeld
+	(*SpaceInvitation)(nil), // 8: convia.v1.SpaceInvitation
 }
 var file_convia_v1_space_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	6, // 0: convia.v1.SpaceHolding.channels:type_name -> convia.v1.ChannelHeld
+	7, // 1: convia.v1.ChannelHeld.authors:type_name -> convia.v1.AuthorHeld
+	0, // 2: convia.v1.SpaceInvitation.genesis:type_name -> convia.v1.SpaceGenesis
+	1, // 3: convia.v1.SpaceInvitation.operations:type_name -> convia.v1.SpaceOperation
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_space_proto_init() }
@@ -473,7 +849,7 @@ func file_convia_v1_space_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_space_proto_rawDesc), len(file_convia_v1_space_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

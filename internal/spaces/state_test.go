@@ -503,10 +503,10 @@ func TestASpaceIsChangedAndKept(t *testing.T) {
 
 	// Bruno's operation, refused by the state, still arrives and is kept.
 	theirs, _ := NewOperation(bruno, g.Space, hlc.Time{Wall: 99}, []Hash{second.Hash()}, Change{Kind: DeleteChannel, Channel: general})
-	if err := s.Receive(theirs); err != nil {
+	if _, err := s.Receive(theirs); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Receive(theirs); err != nil {
+	if _, err := s.Receive(theirs); err != nil {
 		t.Fatalf("an operation received twice: %v", err)
 	}
 	state, err := s.State(g.Space)
@@ -515,11 +515,11 @@ func TestASpaceIsChangedAndKept(t *testing.T) {
 	}
 
 	elsewhere, _ := NewOperation(bruno, ID{7}, hlc.Time{}, []Hash{{1}}, Change{Kind: Leave})
-	if err := s.Receive(elsewhere); !errors.Is(err, ErrNoSpace) {
+	if _, err := s.Receive(elsewhere); !errors.Is(err, ErrNoSpace) {
 		t.Fatalf("an operation of an unknown space = %v", err)
 	}
 	theirs.Signature = nil
-	if err := s.Receive(theirs); !errors.Is(err, ErrOperation) {
+	if _, err := s.Receive(theirs); !errors.Is(err, ErrOperation) {
 		t.Fatalf("an unsigned operation = %v", err)
 	}
 	if _, err := s.Operate(ana, ID{7}, Change{Kind: Leave}); !errors.Is(err, ErrNoSpace) {

@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
+	"math"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -60,6 +61,7 @@ func TestAGroupMessageChangedOnTheWayIsRejected(t *testing.T) {
 	malformed := map[string]func(*Message){
 		"version":     func(m *Message) { m.Version = 2 },
 		"sequence 0":  func(m *Message) { m.Sequence = 0 },
+		"too far":     func(m *Message) { m.Sequence = math.MaxInt64 + 1 },
 		"before 1970": func(m *Message) { m.Time.Wall = -1 },
 		"no channel":  func(m *Message) { m.Channel = ChannelID{} },
 		"no key":      func(m *Message) { m.Author = m.Author[:8] },
