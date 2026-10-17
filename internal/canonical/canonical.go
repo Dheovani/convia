@@ -14,6 +14,7 @@ const (
 	InvitationDomain     = "convia/v1/invitation"
 	PairSecretDomain     = "convia/v1/pair-secret"
 	ReachabilityDomain   = "convia/v1/reachability"
+	SpaceGenesisDomain   = "convia/v1/space-genesis"
 )
 
 // Role is a peer's part in a WebRTC negotiation.
@@ -40,6 +41,9 @@ func Encode(fields ...[]byte) []byte {
 
 // Uint32 is v as four big-endian bytes.
 func Uint32(v uint32) []byte { return binary.BigEndian.AppendUint32(nil, v) }
+
+// Uint64 is v as eight big-endian bytes.
+func Uint64(v uint64) []byte { return binary.BigEndian.AppendUint64(nil, v) }
 
 // Fingerprint normalizes a DTLS fingerprint from a session description: "sha-256 AB:CD:...".
 func Fingerprint(sdpValue string) string {
@@ -86,4 +90,9 @@ func Reachability(secret, announcer []byte, day uint32) []byte {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(Encode([]byte(ReachabilityDomain), announcer, Uint32(day)))
 	return mac.Sum(nil)
+}
+
+// SpaceGenesis is what a space's creator signs to begin it (ADR 0013): its creation is a hybrid logical clock moment.
+func SpaceGenesis(version uint32, space, creator []byte, name string, wall int64, counter uint32) []byte {
+	return Encode([]byte(SpaceGenesisDomain), Uint32(version), space, creator, []byte(name), Uint64(uint64(wall)), Uint32(counter))
 }

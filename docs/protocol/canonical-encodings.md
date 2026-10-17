@@ -61,6 +61,16 @@ where `K` is the pair secret.
 
 The day is the number of whole UTC days since 1970, as a 32-bit integer, so the identifier changes every day. A peer watching a contact watches the day before and after too, for clocks that disagree on the date.
 
+## The genesis of a space
+
+A space begins with a genesis its creator signs ([ADR 0013](../adr/0013-a-space-is-replicated-by-its-members.md)):
+
+```text
+"convia/v1/space-genesis" | version | space identifier | creator's identity | name | wall | counter
+```
+
+The space identifier is 16 random bytes. The name is 1 to 100 characters with no control character, trimmed. Wall and counter are the hybrid logical clock moment of its creation: milliseconds since 1970 as a 64-bit big-endian integer, and a 32-bit counter.
+
 ## Test vectors
 
 Inputs: Alice's identity is 32 bytes of `a1`, Bob's 32 bytes of `b0`; Alice's nonce is the bytes `00` to `1f`, Bob's `20` to `3f`; Alice's fingerprint is given as `SHA-256 ab:cd:ef`, Bob's as `sha-256 01:23:45`.
@@ -93,4 +103,10 @@ ba07ea0f2e073376b9ff449882e400c71002cabe4ca48082a95d80cb2496a71c
 
 ```text
 88a285f583b268bc1aa183606d17ec1e5cb254aabced25c48b4fc55b3b731021
+```
+
+**Space genesis**, version 1, space identifier the bytes `00` to `0f`, created by Alice, named `Casa da Ana`, at wall 1700000000000 and counter 2:
+
+```text
+00000017636f6e7669612f76312f73706163652d67656e65736973000000040000000100000010000102030405060708090a0b0c0d0e0f00000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000b4361736120646120416e61000000080000018bcfe568000000000400000002
 ```

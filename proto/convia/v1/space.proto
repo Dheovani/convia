@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package convia.v1;
+
+option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
+
+// SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
+message SpaceGenesis {
+  uint32 version = 1;
+  bytes space_id = 2;
+  bytes creator = 3;
+  string name = 4;
+  int64 hlc_wall = 5;
+  uint32 hlc_counter = 6;
+  bytes signature = 7;
+}

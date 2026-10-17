@@ -240,7 +240,7 @@ The space as replicated, signed state.
 **Depends on:** M11.
 
 - [x] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
-- [ ] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
+- [x] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
 - [ ] **M14-003:** Represent every administrative change as a signed operation that names, by hash, the latest operations its author had seen.
 - [ ] **M14-004:** Order operations identically on every member: causes first, then timestamp, then identifier.
 - [ ] **M14-005:** Apply an operation only if its author held the authority it needs in the state before it; keep and show one that did not.
