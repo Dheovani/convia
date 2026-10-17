@@ -70,3 +70,16 @@ Members find one another through a secret of the space's current epoch ([ADR 001
 - **The epoch** is named by the hash of the latest operation applied that may revoke somebody's access — `remove-member`, `leave`, `take-role`, `delete-role`, `restrict-channel`, `unmake-admin` or `delete-space` — or by the genesis before any.
 - **Its secret** is 32 random bytes, made and signed by the owner or an administrator, who makes it on such a change, or on learning of one nobody has made a secret for yet. A secret counts only while its author is the owner or an administrator. Two made for the same epoch are settled alike everywhere: the one whose SHA-256 is lower.
 - **It is shared** only with current members, over their connections. A member who was removed, or left, never makes or receives the new one.
+
+## On the connection
+
+A space travels in `PeerMessage`s between members ([peers](peers.md)):
+
+- **`space_sync`** opens each space shared on a connection: the hashes of every operation held. The other answers with each `space_operation` missing, and the current `space_secret`.
+- **`space_holding`** follows it: how far each channel is held, author by author. The other answers with each `group_message` after it.
+- **Afterwards**, a member passes on at once each operation, entry and secret new to it to every member that opened the space on its connection, but the one it came from — an entry only to those who may read its channel. What it already held it passes on to nobody, so nothing circles.
+- **A member removed** is sent the operation that removed them, and nothing more.
+
+## Invitations
+
+When an administrator adds a person ([ADR 0039](../adr/0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md)), the person is sent `space_invitation`: the genesis and every operation, which must add them and come from an administrator. They are sent nothing else until they accept. Accepting keeps the space and opens it with every member connected; declining sends the inviter a `leave` operation, as soon as the inviter can be reached.

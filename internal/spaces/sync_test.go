@@ -51,7 +51,7 @@ func exchange(t *testing.T, a, b member, space ID) {
 		t.Fatal(err)
 	}
 	for _, op := range ops {
-		if err := a.store.Receive(op); err != nil {
+		if _, err := a.store.Receive(op); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -64,7 +64,7 @@ func exchange(t *testing.T, a, b member, space ID) {
 		t.Fatal(err)
 	}
 	for _, m := range supplied {
-		if err := a.store.Accept(m); err != nil {
+		if _, err := a.store.Accept(m); err != nil {
 			t.Fatalf("Accept(%d of %x) = %v", m.Sequence, m.Author[:2], err)
 		}
 	}
@@ -146,7 +146,7 @@ func TestHoldingCountsOnlyWhatComesWithEveryOneBefore(t *testing.T) {
 		bruno.store.Receive(op)
 	}
 	for _, m := range []Message{written[0], written[2]} {
-		if err := bruno.store.Accept(m); err != nil {
+		if _, err := bruno.store.Accept(m); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -159,7 +159,7 @@ func TestHoldingCountsOnlyWhatComesWithEveryOneBefore(t *testing.T) {
 		t.Fatalf("Supply() = %d messages", len(supplied))
 	}
 	for _, m := range supplied {
-		if err := bruno.store.Accept(m); err != nil {
+		if _, err := bruno.store.Accept(m); err != nil {
 			t.Fatalf("a message held already, accepted again: %v", err)
 		}
 	}
@@ -200,7 +200,7 @@ func TestARestrictedChannelGoesOnlyToThoseWhoMayReadIt(t *testing.T) {
 	}
 	// Even signed and passed on by someone, it is refused.
 	forged, _ := NewMessage(carla.me, g.Space, secret, 1, hlc.Time{Wall: 1}, []byte("entrei"))
-	if err := bruno.store.Accept(forged); !errors.Is(err, ErrNotReader) {
+	if _, err := bruno.store.Accept(forged); !errors.Is(err, ErrNotReader) {
 		t.Fatalf("Accept() of Carla's message in the team's channel = %v", err)
 	}
 }
@@ -225,7 +225,7 @@ func TestARemovedMemberIsGivenNothingAndHeardNoMore(t *testing.T) {
 	}
 	// Bruno, unaware, writes on: nobody takes it.
 	after := write(t, bruno, g.Space, general, "ainda aqui")
-	if err := ana.store.Accept(after); !errors.Is(err, ErrNotReader) {
+	if _, err := ana.store.Accept(after); !errors.Is(err, ErrNotReader) {
 		t.Fatalf("Accept() of a removed member's message = %v", err)
 	}
 	if got := texts(t, ana, g.Space, general); len(got) != 2 {
@@ -245,11 +245,11 @@ func TestAMessageInAnotherMessagesPlaceIsRefused(t *testing.T) {
 	operate(t, ana, g.Space, Change{Kind: AddMember, Member: bruno.me.Public})
 	exchange(t, bruno, ana, g.Space)
 	first := write(t, ana, g.Space, general, "um")
-	if err := bruno.store.Accept(first); err != nil {
+	if _, err := bruno.store.Accept(first); err != nil {
 		t.Fatal(err)
 	}
 	other, _ := NewMessage(ana.me, g.Space, general, 1, first.Time, []byte("outro um"))
-	if err := bruno.store.Accept(other); !errors.Is(err, ErrConflict) {
+	if _, err := bruno.store.Accept(other); !errors.Is(err, ErrConflict) {
 		t.Fatalf("a second first message = %v", err)
 	}
 	sameID := other
@@ -257,25 +257,25 @@ func TestAMessageInAnotherMessagesPlaceIsRefused(t *testing.T) {
 	sameID.Sequence = 2
 	sameID.Signature = nil
 	sameID = resignAs(ana.me, sameID)
-	if err := bruno.store.Accept(sameID); !errors.Is(err, ErrConflict) {
+	if _, err := bruno.store.Accept(sameID); !errors.Is(err, ErrConflict) {
 		t.Fatalf("a message reusing an identifier = %v", err)
 	}
-	if err := bruno.store.Accept(first.Wiped()); err != nil {
+	if _, err := bruno.store.Accept(first.Wiped()); err != nil {
 		t.Fatalf("the same message, wiped since = %v", err)
 	}
 	tampered := first
 	tampered.Content = []byte("mudei")
-	if err := bruno.store.Accept(tampered); !errors.Is(err, ErrMessage) {
+	if _, err := bruno.store.Accept(tampered); !errors.Is(err, ErrMessage) {
 		t.Fatalf("a changed message = %v", err)
 	}
 	if got := texts(t, bruno, g.Space, general); len(got) != 1 || !bytes.Equal([]byte(got[0]), []byte("um")) {
 		t.Fatalf("Bruno holds %q", got)
 	}
-	if err := bruno.store.Accept(first); err != nil {
+	if _, err := bruno.store.Accept(first); err != nil {
 		t.Fatal(err)
 	}
 	unknown, _ := NewMessage(ana.me, ID{9}, general, 1, first.Time, []byte("x"))
-	if err := bruno.store.Accept(unknown); !errors.Is(err, ErrNoSpace) {
+	if _, err := bruno.store.Accept(unknown); !errors.Is(err, ErrNoSpace) {
 		t.Fatalf("a message of an unknown space = %v", err)
 	}
 }

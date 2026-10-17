@@ -167,7 +167,7 @@ func (s *Store) Operate(me identity.Identity, id ID, change Change) (Operation, 
 		return Operation{}, refused
 	}
 
-	if err := s.keep(op); err != nil {
+	if _, err := s.keep(op); err != nil {
 		return Operation{}, err
 	}
 
@@ -180,22 +180,27 @@ func (s *Store) Operate(me identity.Identity, id ID, change Change) (Operation, 
 	return op, nil
 }
 
-// Receive keeps an operation another member made, of a space this peer belongs to; whether it applies is the state's to say.
-func (s *Store) Receive(op Operation) error {
+/*
+Receive keeps an operation another member made, of a space this peer belongs to, and says whether it was new;
+whether it applies is the state's to say.
+*/
+func (s *Store) Receive(op Operation) (bool, error) {
 	if err := op.Verify(); err != nil {
-		return err
+		return false, err
 	}
-
 	if _, err := s.Space(op.Space); err != nil {
-		return err
+		return false, err
 	}
-
 	return s.keep(op)
 }
 
-func (s *Store) keep(op Operation) error {
+func (s *Store) keep(op Operation) (bool, error) {
 	h := op.Hash()
-	_, err := s.db.DB.Exec(`INSERT INTO space_operations (hash, space_id, operation) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+	r, err := s.db.DB.Exec(`INSERT INTO space_operations (hash, space_id, operation) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
 		h[:], op.Space[:], s.db.Content.Seal(h[:], op.Marshal()))
-	return err
+	if err != nil {
+		return false, err
+	}
+	n, err := r.RowsAffected()
+	return n > 0, err
 }

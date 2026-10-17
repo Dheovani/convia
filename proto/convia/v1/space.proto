@@ -57,3 +57,32 @@ message SpaceSecret {
   bytes secret = 4;
   bytes signature = 5;
 }
+
+// SpaceSync is what a member who joined a space holds of its operations; the other sends every one missing (ADR 0013).
+message SpaceSync {
+  bytes space_id = 1;
+  repeated bytes hashes = 2;
+}
+
+// SpaceHolding is how far a member holds each channel; the other sends what comes after.
+message SpaceHolding {
+  bytes space_id = 1;
+  repeated ChannelHeld channels = 2;
+}
+
+message ChannelHeld {
+  bytes channel_id = 1;
+  repeated AuthorHeld authors = 2;
+}
+
+// AuthorHeld is the highest sequence number of an author held with every one before it.
+message AuthorHeld {
+  bytes author = 1;
+  uint64 sequence = 2;
+}
+
+// SpaceInvitation is a space a person was added to, and how it stands, until they accept or decline (ADR 0039).
+message SpaceInvitation {
+  SpaceGenesis genesis = 1;
+  repeated SpaceOperation operations = 2;
+}

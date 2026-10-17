@@ -102,28 +102,29 @@ func (s *Store) Write(me identity.Identity, id ID, channel ChannelID, content []
 		return Message{}, err
 	}
 
-	return m, s.keepMessage(m)
+	_, err = s.keepMessage(m)
+	return m, err
 }
 
-// Accept keeps a message another member passed on, whoever wrote it, once it verifies and its author may write there now.
-func (s *Store) Accept(m Message) error {
+/*
+Accept keeps a message another member passed on, whoever wrote it, once it verifies and its author may write there
+now, and says whether it was new.
+*/
+func (s *Store) Accept(m Message) (bool, error) {
 	if err := m.Verify(); err != nil {
-		return err
+		return false, err
 	}
-
 	state, err := s.State(m.Space)
 	if err != nil {
-		return err
+		return false, err
 	}
-
 	if !state.Sees(m.Author, m.Channel) {
-		return ErrNotReader
+		return false, ErrNotReader
 	}
-
 	return s.keepMessage(m)
 }
 
-func (s *Store) keepMessage(m Message) error {
+func (s *Store) keepMessage(m Message) (bool, error) {
 	var held []byte
 	err := s.db.DB.QueryRow(`SELECT message FROM space_messages WHERE id = ? OR
 		(space_id = ? AND channel_id = ? AND author = ? AND sequence = ?)`,
@@ -132,19 +133,19 @@ func (s *Store) keepMessage(m Message) error {
 	if err == nil {
 		was, err := s.openMessage(m.ID[:], held)
 		if err != nil || !bytes.Equal(was.signed(), m.signed()) {
-			return ErrConflict
+			return false, ErrConflict
 		}
-		return nil
+		return false, nil
 	}
 
 	if !errors.Is(err, sql.ErrNoRows) {
-		return err
+		return false, err
 	}
 
 	_, err = s.db.DB.Exec(`INSERT INTO space_messages (id, space_id, channel_id, author, sequence, hlc_wall, hlc_counter, message)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, m.ID[:], m.Space[:], m.Channel[:], []byte(m.Author), m.Sequence,
 		m.Time.Wall, m.Time.Counter, s.db.Content.Seal(m.ID[:], m.Marshal()))
-	return err
+	return err == nil, err
 }
 
 func (s *Store) openMessage(id, sealed []byte) (Message, error) {

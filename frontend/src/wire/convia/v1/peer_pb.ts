@@ -6,13 +6,15 @@ import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Challenge, Hello, Proof } from "./handshake_pb";
 import { file_convia_v1_handshake } from "./handshake_pb";
+import type { GroupMessage, SpaceHolding, SpaceInvitation, SpaceOperation, SpaceSecret, SpaceSync } from "./space_pb";
+import { file_convia_v1_space } from "./space_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIpwECgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIABIuCgxmaWxlX3JlcXVlc3QYCyABKAsyFi5jb252aWEudjEuRmlsZVJlcXVlc3RIAEIJCgdtZXNzYWdlIv4BCg1EaXJlY3RNZXNzYWdlEgoKAmlkGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEEgwKBHdhbGwYAyABKAMSDwoHY291bnRlchgEIAEoDRIMCgR0ZXh0GAUgASgJEhAKCHJlcGx5X3RvGAYgASgMEiUKCHJlYWN0aW9uGAcgASgLMhMuY29udmlhLnYxLlJlYWN0aW9uEh0KBGVkaXQYCCABKAsyDy5jb252aWEudjEuRWRpdBIQCghkZWxldGlvbhgJIAEoDBINCgV3aXBlZBgKIAEoCBIpCgphdHRhY2htZW50GAsgASgLMhUuY29udmlhLnYxLkF0dGFjaG1lbnQiTQoKQXR0YWNobWVudBIMCgRzaXplGAEgASgEEgwKBHR5cGUYAiABKAkSDgoGc2hhMjU2GAMgASgMEhMKC29yaWVudGF0aW9uGAQgASgNIjkKC0ZpbGVSZXF1ZXN0EgoKAmlkGAEgASgMEg4KBm9mZnNldBgCIAEoBBIOCgZsZW5ndGgYAyABKAQiNQoJRmlsZUNodW5rEgoKAmlkGAEgASgMEg4KBm9mZnNldBgCIAEoBBIMCgRkYXRhGAMgASgMIiQKBEVkaXQSDgoGdGFyZ2V0GAEgASgMEgwKBHRleHQYAiABKAkiNQoIUmVhY3Rpb24SDgoGdGFyZ2V0GAEgASgMEg0KBWVtb2ppGAIgASgJEgoKAm9uGAMgASgIIh4KD0Fja25vd2xlZGdlbWVudBILCgNpZHMYASADKAwiGwoHSG9sZGluZxIQCghzZXF1ZW5jZRgBIAEoBCIsCg5Db250YWN0UmVxdWVzdBIMCgRuYW1lGAEgASgJEgwKBHBhcnQYAiABKAwiLQoPQ29udGFjdEFjY2VwdGVkEgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCISChBDb250YWN0Q29uZmlybWVkIhoKCEludGVyZXN0Eg4KBndhbnRlZBgBIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z", [file_convia_v1_handshake]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIsoGCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIABIuCgxmaWxlX3JlcXVlc3QYCyABKAsyFi5jb252aWEudjEuRmlsZVJlcXVlc3RIABIqCgpzcGFjZV9zeW5jGAwgASgLMhQuY29udmlhLnYxLlNwYWNlU3luY0gAEjQKD3NwYWNlX29wZXJhdGlvbhgNIAEoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbkgAEjAKDXNwYWNlX2hvbGRpbmcYDiABKAsyFy5jb252aWEudjEuU3BhY2VIb2xkaW5nSAASMAoNZ3JvdXBfbWVzc2FnZRgPIAEoCzIXLmNvbnZpYS52MS5Hcm91cE1lc3NhZ2VIABIuCgxzcGFjZV9zZWNyZXQYECABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXRIABI2ChBzcGFjZV9pbnZpdGF0aW9uGBEgASgLMhouY29udmlhLnYxLlNwYWNlSW52aXRhdGlvbkgAQgkKB21lc3NhZ2Ui/gEKDURpcmVjdE1lc3NhZ2USCgoCaWQYASABKAwSEAoIc2VxdWVuY2UYAiABKAQSDAoEd2FsbBgDIAEoAxIPCgdjb3VudGVyGAQgASgNEgwKBHRleHQYBSABKAkSEAoIcmVwbHlfdG8YBiABKAwSJQoIcmVhY3Rpb24YByABKAsyEy5jb252aWEudjEuUmVhY3Rpb24SHQoEZWRpdBgIIAEoCzIPLmNvbnZpYS52MS5FZGl0EhAKCGRlbGV0aW9uGAkgASgMEg0KBXdpcGVkGAogASgIEikKCmF0dGFjaG1lbnQYCyABKAsyFS5jb252aWEudjEuQXR0YWNobWVudCJNCgpBdHRhY2htZW50EgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iOQoLRmlsZVJlcXVlc3QSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEg4KBmxlbmd0aBgDIAEoBCI1CglGaWxlQ2h1bmsSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEgwKBGRhdGEYAyABKAwiJAoERWRpdBIOCgZ0YXJnZXQYASABKAwSDAoEdGV4dBgCIAEoCSI1CghSZWFjdGlvbhIOCgZ0YXJnZXQYASABKAwSDQoFZW1vamkYAiABKAkSCgoCb24YAyABKAgiHgoPQWNrbm93bGVkZ2VtZW50EgsKA2lkcxgBIAMoDCIbCgdIb2xkaW5nEhAKCHNlcXVlbmNlGAEgASgEIiwKDkNvbnRhY3RSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCItCg9Db250YWN0QWNjZXB0ZWQSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIhIKEENvbnRhY3RDb25maXJtZWQiGgoISW50ZXJlc3QSDgoGd2FudGVkGAEgASgIQj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM", [file_convia_v1_handshake, file_convia_v1_space]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -89,6 +91,42 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
      */
     value: FileRequest;
     case: "fileRequest";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceSync space_sync = 12;
+     */
+    value: SpaceSync;
+    case: "spaceSync";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceOperation space_operation = 13;
+     */
+    value: SpaceOperation;
+    case: "spaceOperation";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceHolding space_holding = 14;
+     */
+    value: SpaceHolding;
+    case: "spaceHolding";
+  } | {
+    /**
+     * @generated from field: convia.v1.GroupMessage group_message = 15;
+     */
+    value: GroupMessage;
+    case: "groupMessage";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceSecret space_secret = 16;
+     */
+    value: SpaceSecret;
+    case: "spaceSecret";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceInvitation space_invitation = 17;
+     */
+    value: SpaceInvitation;
+    case: "spaceInvitation";
   } | { case: undefined; value?: undefined };
 };
 
