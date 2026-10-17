@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/space.proto.
  */
 export const file_convia_v1_space: GenFile = /*@__PURE__*/
-  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwizgEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
+  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwizgEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDCJhCgtTcGFjZVNlY3JldBIQCghzcGFjZV9pZBgBIAEoDBINCgVlcG9jaBgCIAEoDBIOCgZhdXRob3IYAyABKAwSDgoGc2VjcmV0GAQgASgMEhEKCXNpZ25hdHVyZRgFIAEoDEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
 
 /**
  * SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
@@ -215,4 +215,43 @@ export type GroupMessage = Message<"convia.v1.GroupMessage"> & {
  */
 export const GroupMessageSchema: GenMessage<GroupMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_space, 2);
+
+/**
+ * SpaceSecret is a space's discovery secret for an epoch, made and signed by its owner or an administrator (ADR 0014).
+ *
+ * @generated from message convia.v1.SpaceSecret
+ */
+export type SpaceSecret = Message<"convia.v1.SpaceSecret"> & {
+  /**
+   * @generated from field: bytes space_id = 1;
+   */
+  spaceId: Uint8Array;
+
+  /**
+   * @generated from field: bytes epoch = 2;
+   */
+  epoch: Uint8Array;
+
+  /**
+   * @generated from field: bytes author = 3;
+   */
+  author: Uint8Array;
+
+  /**
+   * @generated from field: bytes secret = 4;
+   */
+  secret: Uint8Array;
+
+  /**
+   * @generated from field: bytes signature = 5;
+   */
+  signature: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.SpaceSecret.
+ * Use `create(SpaceSecretSchema)` to create a new message.
+ */
+export const SpaceSecretSchema: GenMessage<SpaceSecret> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 3);
 

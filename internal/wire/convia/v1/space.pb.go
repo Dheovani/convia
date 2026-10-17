@@ -389,6 +389,83 @@ func (x *GroupMessage) GetSignature() []byte {
 	return nil
 }
 
+// SpaceSecret is a space's discovery secret for an epoch, made and signed by its owner or an administrator (ADR 0014).
+type SpaceSecret struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SpaceId       []byte                 `protobuf:"bytes,1,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	Epoch         []byte                 `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	Author        []byte                 `protobuf:"bytes,3,opt,name=author,proto3" json:"author,omitempty"`
+	Secret        []byte                 `protobuf:"bytes,4,opt,name=secret,proto3" json:"secret,omitempty"`
+	Signature     []byte                 `protobuf:"bytes,5,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpaceSecret) Reset() {
+	*x = SpaceSecret{}
+	mi := &file_convia_v1_space_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpaceSecret) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpaceSecret) ProtoMessage() {}
+
+func (x *SpaceSecret) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpaceSecret.ProtoReflect.Descriptor instead.
+func (*SpaceSecret) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SpaceSecret) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetEpoch() []byte {
+	if x != nil {
+		return x.Epoch
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetAuthor() []byte {
+	if x != nil {
+		return x.Author
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetSecret() []byte {
+	if x != nil {
+		return x.Secret
+	}
+	return nil
+}
+
+func (x *SpaceSecret) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 var File_convia_v1_space_proto protoreflect.FileDescriptor
 
 const file_convia_v1_space_proto_rawDesc = "" +
@@ -434,7 +511,13 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\acontent\x18\t \x01(\fR\acontent\x12\x16\n" +
 	"\x06digest\x18\n" +
 	" \x01(\fR\x06digest\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignatureB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"\tsignature\x18\v \x01(\fR\tsignature\"\x8c\x01\n" +
+	"\vSpaceSecret\x12\x19\n" +
+	"\bspace_id\x18\x01 \x01(\fR\aspaceId\x12\x14\n" +
+	"\x05epoch\x18\x02 \x01(\fR\x05epoch\x12\x16\n" +
+	"\x06author\x18\x03 \x01(\fR\x06author\x12\x16\n" +
+	"\x06secret\x18\x04 \x01(\fR\x06secret\x12\x1c\n" +
+	"\tsignature\x18\x05 \x01(\fR\tsignatureB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_space_proto_rawDescOnce sync.Once
@@ -448,11 +531,12 @@ func file_convia_v1_space_proto_rawDescGZIP() []byte {
 	return file_convia_v1_space_proto_rawDescData
 }
 
-var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_convia_v1_space_proto_goTypes = []any{
 	(*SpaceGenesis)(nil),   // 0: convia.v1.SpaceGenesis
 	(*SpaceOperation)(nil), // 1: convia.v1.SpaceOperation
 	(*GroupMessage)(nil),   // 2: convia.v1.GroupMessage
+	(*SpaceSecret)(nil),    // 3: convia.v1.SpaceSecret
 }
 var file_convia_v1_space_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -473,7 +557,7 @@ func file_convia_v1_space_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_space_proto_rawDesc), len(file_convia_v1_space_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

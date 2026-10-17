@@ -93,6 +93,16 @@ author's sequence | message identifier | wall | counter | SHA-256 of the content
 
 The sequence is a 64-bit big-endian integer, from 1 for each author in each channel. The signature covers the content's digest, not the content, so that a message whose content was wiped since ([ADR 0034](../adr/0034-a-message-is-edited-and-deleted-by-its-author.md)) still verifies.
 
+## A space's discovery secret
+
+The owner or an administrator gives each epoch of a space its discovery secret, and signs it ([the state of a space](spaces.md)):
+
+```text
+"convia/v1/space-secret" | version | space identifier | epoch | author's identity | secret
+```
+
+The epoch is the 32-byte hash that names it; the secret is 32 random bytes.
+
 ## Test vectors
 
 Inputs: Alice's identity is 32 bytes of `a1`, Bob's 32 bytes of `b0`; Alice's nonce is the bytes `00` to `1f`, Bob's `20` to `3f`; Alice's fingerprint is given as `SHA-256 ab:cd:ef`, Bob's as `sha-256 01:23:45`.
@@ -143,4 +153,10 @@ ba07ea0f2e073376b9ff449882e400c71002cabe4ca48082a95d80cb2496a71c
 
 ```text
 00000017636f6e7669612f76312f67726f75702d6d657373616765000000040000000100000010000102030405060708090a0b0c0d0e0f00000010202122232425262728292a2b2c2d2e2f00000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000008000000000000000300000010101112131415161718191a1b1c1d1e1f000000080000018bcfe56802000000040000000100000020fe01c0c9210f2f95e7edbe427a7e96a981b95e08cc27ad0b017b520a4e7afe17
+```
+
+**Space secret**, version 1, of the space `00` to `0f`, for the epoch of 32 bytes of `02`, made by Alice, the secret 32 bytes of `03`:
+
+```text
+00000016636f6e7669612f76312f73706163652d736563726574000000040000000100000010000102030405060708090a0b0c0d0e0f00000020020202020202020202020202020202020202020202020202020202020202020200000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000000200303030303030303030303030303030303030303030303030303030303030303
 ```

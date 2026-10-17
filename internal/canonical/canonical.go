@@ -17,6 +17,7 @@ const (
 	SpaceGenesisDomain   = "convia/v1/space-genesis"
 	SpaceOperationDomain = "convia/v1/space-operation"
 	GroupMessageDomain   = "convia/v1/group-message"
+	SpaceSecretDomain    = "convia/v1/space-secret"
 )
 
 // Role is a peer's part in a WebRTC negotiation.
@@ -137,4 +138,9 @@ func GroupMessage(
 ) []byte {
 	return Encode([]byte(GroupMessageDomain), Uint32(version), space, channel, author, Uint64(sequence), id,
 		Uint64(uint64(wall)), Uint32(counter), digest)
+}
+
+// SpaceSecret is what an owner or administrator signs to give a space's epoch its discovery secret (ADR 0014).
+func SpaceSecret(version uint32, space, epoch, author, secret []byte) []byte {
+	return Encode([]byte(SpaceSecretDomain), Uint32(version), space, epoch, author, secret)
 }

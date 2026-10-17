@@ -48,3 +48,12 @@ message GroupMessage {
   bytes digest = 10;
   bytes signature = 11;
 }
+
+// SpaceSecret is a space's discovery secret for an epoch, made and signed by its owner or an administrator (ADR 0014).
+message SpaceSecret {
+  bytes space_id = 1;
+  bytes epoch = 2;
+  bytes author = 3;
+  bytes secret = 4;
+  bytes signature = 5;
+}

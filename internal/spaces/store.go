@@ -30,7 +30,10 @@ func (s *Store) Create(me identity.Identity, name string) (Genesis, error) {
 	if err != nil {
 		return Genesis{}, err
 	}
-	_, err = s.db.DB.Exec(`INSERT INTO spaces (id, genesis) VALUES (?, ?)`, g.Space[:], s.db.Content.Seal(g.Space[:], g.Marshal()))
+	if _, err = s.db.DB.Exec(`INSERT INTO spaces (id, genesis) VALUES (?, ?)`, g.Space[:], s.db.Content.Seal(g.Space[:], g.Marshal())); err != nil {
+		return Genesis{}, err
+	}
+	_, err = s.Rotate(me, g.Space)
 	return g, err
 }
 
@@ -164,7 +167,17 @@ func (s *Store) Operate(me identity.Identity, id ID, change Change) (Operation, 
 		return Operation{}, refused
 	}
 
-	return op, s.keep(op)
+	if err := s.keep(op); err != nil {
+		return Operation{}, err
+	}
+
+	if revokes[change.Kind] {
+		if _, err := s.Rotate(me, id); err != nil {
+			return Operation{}, err
+		}
+	}
+
+	return op, nil
 }
 
 // Receive keeps an operation another member made, of a space this peer belongs to; whether it applies is the state's to say.
