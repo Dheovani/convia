@@ -43,3 +43,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0035](0035-replies-and-reactions.md) | Replies and reactions |
 | [0036](0036-files-wait-with-their-sender-up-to-100-mb.md) | Files wait with their sender, up to 100 MB |
 | [0037](0037-search-reads-the-history-without-indexing-it.md) | Search reads the history without indexing it |
+| [0038](0038-a-space-has-three-ranks-and-roles-that-open-channels.md) | A space has three ranks, and roles that open channels |

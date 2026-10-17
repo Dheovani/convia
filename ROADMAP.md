@@ -239,7 +239,7 @@ The space as replicated, signed state.
 
 **Depends on:** M11.
 
-- [ ] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles.
+- [x] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
 - [ ] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
 - [ ] **M14-003:** Represent every administrative change as a signed operation that names, by hash, the latest operations its author had seen.
 - [ ] **M14-004:** Order operations identically on every member: causes first, then timestamp, then identifier.
@@ -275,6 +275,7 @@ How members carry a space's content to one another.
 - [ ] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
 - [ ] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels.
 - [ ] **M16-005:** Build it.
+- [ ] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
 
 ## Phase 6 — Calls and screen sharing
 
