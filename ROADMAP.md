@@ -19,7 +19,7 @@ The repository, the stack and the rules every change is held to.
 - [x] **M01-007:** Enforce the dependency license policy ([ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md)).
 - [x] **M01-008:** Say how vulnerabilities are reported (SECURITY.md) and how changes are made (CONTRIBUTING.md).
 - [x] **M01-009:** Decide the proposed license exception for build-time tools in ADR 0003.
-- [ ] **M01-010:** Run mutation testing periodically and before releases, on the critical packages, once the first of them exists.
+- [x] **M01-010:** Run mutation testing periodically and before releases, on the critical packages, once the first of them exists.
 - [x] **M01-011:** Carry over the interface's design from before the reset: the theme, the mark and the icon, the shared controls, and the choice of language.
 
 ### M02 — The decisions before the first conversation
@@ -239,15 +239,15 @@ The space as replicated, signed state.
 
 **Depends on:** M11.
 
-- [ ] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles.
-- [ ] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
-- [ ] **M14-003:** Represent every administrative change as a signed operation that names, by hash, the latest operations its author had seen.
-- [ ] **M14-004:** Order operations identically on every member: causes first, then timestamp, then identifier.
-- [ ] **M14-005:** Apply an operation only if its author held the authority it needs in the state before it; keep and show one that did not.
-- [ ] **M14-006:** Transfer ownership.
-- [ ] **M14-007:** Enforce the limit of 50 members.
-- [ ] **M14-008:** Test convergence with property-based tests: any order of arrival, concurrent operations and revocations, one state.
-- [ ] **M14-009:** Bring the space's packages under mutation testing (M01-010).
+- [x] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
+- [x] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
+- [x] **M14-003:** Represent every administrative change as a signed operation that names, by hash, the latest operations its author had seen.
+- [x] **M14-004:** Order operations identically on every member: causes first, then timestamp, then identifier.
+- [x] **M14-005:** Apply an operation only if its author held the authority it needs in the state before it; keep and show one that did not.
+- [x] **M14-006:** Transfer ownership.
+- [x] **M14-007:** Enforce the limit of 50 members.
+- [x] **M14-008:** Test convergence with property-based tests: any order of arrival, concurrent operations and revocations, one state.
+- [x] **M14-009:** Bring the space's packages under mutation testing (M01-010).
 
 ### M15 — Replicating a space
 
@@ -255,15 +255,15 @@ How members carry a space's content to one another.
 
 **Depends on:** M14.
 
-- [ ] **M15-001:** Sign every group message with its author's key over every security-relevant field, encoded canonically.
-- [ ] **M15-002:** Verify a group message's signature whoever delivered it, and reject one that does not verify.
+- [x] **M15-001:** Sign every group message with its author's key over every security-relevant field, encoded canonically.
+- [x] **M15-002:** Verify a group message's signature whoever delivered it, and reject one that does not verify.
 - [ ] **M15-003:** Compare, author by author, how far each member holds a channel, and supply what another is missing.
 - [ ] **M15-004:** Send or synchronize content only to members allowed to read that channel at that moment.
 - [ ] **M15-005:** Give a new member the existing history of every channel they may read.
 - [ ] **M15-006:** On a removal, stop sending the removed member anything and reject their further actions.
 - [ ] **M15-007:** Keep the space's discovery secret per epoch, advance the epoch on every change that revokes access, and give the new secret only to current members.
-- [ ] **M15-008:** Decide how a person is invited into a space: the form of the invitation, who may issue one, and whether it is used once.
-- [ ] **M15-009:** Decide how members choose which other members to connect to, so that 50 members do not each hold 49 connections ([ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md)).
+- [x] **M15-008:** Decide how a person is invited into a space: the form of the invitation, who may issue one, and whether it is used once ([ADR 0039](docs/adr/0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md)).
+- [x] **M15-009:** Decide how members choose which other members to connect to, so that 50 members do not each hold 49 connections ([ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md), [ADR 0040](docs/adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)).
 - [ ] **M15-010:** Build it.
 
 ### M16 — Spaces in the interface
@@ -275,6 +275,7 @@ How members carry a space's content to one another.
 - [ ] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
 - [ ] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels.
 - [ ] **M16-005:** Build it.
+- [ ] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
 
 ## Phase 6 — Calls and screen sharing
 

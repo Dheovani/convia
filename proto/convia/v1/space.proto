@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package convia.v1;
+
+option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
+
+// SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
+message SpaceGenesis {
+  uint32 version = 1;
+  bytes space_id = 2;
+  bytes creator = 3;
+  string name = 4;
+  int64 hlc_wall = 5;
+  uint32 hlc_counter = 6;
+  bytes signature = 7;
+}
+
+// SpaceOperation is one signed change to a space, after the operations its author had seen (ADR 0013, ADR 0038).
+message SpaceOperation {
+  uint32 version = 1;
+  bytes space_id = 2;
+  bytes id = 3;
+  bytes author = 4;
+  int64 hlc_wall = 5;
+  uint32 hlc_counter = 6;
+  repeated bytes parents = 7;
+  string kind = 8;
+  bytes channel = 9;
+  bytes role = 10;
+  bytes member = 11;
+  string name = 12;
+  repeated bytes roles = 13;
+  bytes signature = 14;
+}
+
+// GroupMessage is an entry of a channel, signed by its author over the digest of its content (ADR 0013).
+message GroupMessage {
+  uint32 version = 1;
+  bytes space_id = 2;
+  bytes channel_id = 3;
+  bytes author = 4;
+  uint64 sequence = 5;
+  bytes id = 6;
+  int64 hlc_wall = 7;
+  uint32 hlc_counter = 8;
+  // Absent once wiped; the digest still says what it was.
+  bytes content = 9;
+  bytes digest = 10;
+  bytes signature = 11;
+}
