@@ -1,0 +1,49 @@
+name: Mutation testing
+
+# Aimed at the packages where a missed bug costs most, and run weekly and before
+# releases rather than on every pull request (ADR 0002). Each package must keep
+# the efficacy it has: a mutant its tests no longer kill fails the run.
+on:
+  schedule:
+    - cron: "43 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Mutation (${{ matrix.package }})
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: canonical
+            efficacy: 95
+          - package: identity
+            efficacy: 85
+          - package: invitation
+            efficacy: 70
+          - package: contacts
+            efficacy: 80
+          - package: peers
+            efficacy: 80
+          - package: messages
+            efficacy: 80
+          - package: spaces
+            efficacy: 95
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Gremlins
+        run: go run github.com/go-gremlins/gremlins/cmd/gremlins@v0.5.0 unleash --workers 2 --timeout-coefficient 3 --threshold-efficacy ${{ matrix.efficacy }} ./internal/${{ matrix.package }}

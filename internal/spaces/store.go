@@ -85,3 +85,104 @@ func (s *Store) open(id, sealed []byte) (Genesis, error) {
 	}
 	return UnmarshalGenesis(data)
 }
+
+// State is the space id as every operation known of it leaves it.
+func (s *Store) State(id ID) (*State, error) {
+	g, err := s.Space(id)
+	if err != nil {
+		return nil, err
+	}
+
+	ops, err := s.operations(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return Replay(g, ops), nil
+}
+
+func (s *Store) operations(id ID) ([]Operation, error) {
+	rows, err := s.db.DB.Query(`SELECT hash, operation FROM space_operations WHERE space_id = ?`, id[:])
+	if err != nil {
+		return nil, err
+	}
+
+	defer rows.Close()
+	var ops []Operation
+	for rows.Next() {
+		var hash, sealed []byte
+		if err := rows.Scan(&hash, &sealed); err != nil {
+			return nil, err
+		}
+
+		data, err := s.db.Content.Open(hash, sealed)
+		if err != nil {
+			return nil, err
+		}
+
+		op, err := UnmarshalOperation(data)
+		if err != nil {
+			return nil, err
+		}
+
+		ops = append(ops, op)
+	}
+
+	return ops, rows.Err()
+}
+
+/*
+Operate makes change in the space id as me, after every operation me knows of, and keeps it. A change me's rank
+does not allow, or the state refuses, is not made.
+*/
+func (s *Store) Operate(me identity.Identity, id ID, change Change) (Operation, error) {
+	g, err := s.Space(id)
+	if err != nil {
+		return Operation{}, err
+	}
+
+	ops, err := s.operations(id)
+	if err != nil {
+		return Operation{}, err
+	}
+
+	before := Replay(g, ops)
+	last := g.Created
+	for _, o := range before.History {
+		if last.Before(o.Operation.Time) {
+			last = o.Operation.Time
+		}
+	}
+
+	op, err := NewOperation(me, id, hlc.New(last, s.now).Now(), before.Heads(), change)
+	if err != nil {
+		return Operation{}, err
+	}
+
+	after := Replay(g, append(ops, op))
+	if refused := after.History[len(after.History)-1].Refused; refused != nil {
+		return Operation{}, refused
+	}
+
+	return op, s.keep(op)
+}
+
+// Receive keeps an operation another member made, of a space this peer belongs to; whether it applies is the state's to say.
+func (s *Store) Receive(op Operation) error {
+	if err := op.Verify(); err != nil {
+		return err
+	}
+
+	if _, err := s.Space(op.Space); err != nil {
+		return err
+	}
+
+	return s.keep(op)
+}
+
+func (s *Store) keep(op Operation) error {
+	h := op.Hash()
+	_, err := s.db.DB.Exec(`INSERT INTO space_operations (hash, space_id, operation) VALUES (?, ?, ?) ON CONFLICT DO NOTHING`,
+		h[:], op.Space[:], s.db.Content.Seal(h[:], op.Marshal()))
+	return err
+}

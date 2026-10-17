@@ -15,6 +15,8 @@ const (
 	PairSecretDomain     = "convia/v1/pair-secret"
 	ReachabilityDomain   = "convia/v1/reachability"
 	SpaceGenesisDomain   = "convia/v1/space-genesis"
+	SpaceOperationDomain = "convia/v1/space-operation"
+	GroupMessageDomain   = "convia/v1/group-message"
 )
 
 // Role is a peer's part in a WebRTC negotiation.
@@ -95,4 +97,44 @@ func Reachability(secret, announcer []byte, day uint32) []byte {
 // SpaceGenesis is what a space's creator signs to begin it (ADR 0013): its creation is a hybrid logical clock moment.
 func SpaceGenesis(version uint32, space, creator []byte, name string, wall int64, counter uint32) []byte {
 	return Encode([]byte(SpaceGenesisDomain), Uint32(version), space, creator, []byte(name), Uint64(uint64(wall)), Uint32(counter))
+}
+
+// SpaceOperation is what the author of a change to a space signs (ADR 0013): a list is its count, then its items.
+func SpaceOperation(
+	version uint32,
+	space,
+	id,
+	author []byte,
+	wall int64,
+	counter uint32,
+	parents [][]byte,
+	kind string,
+	channel,
+	role,
+	member []byte,
+	name string,
+	roles [][]byte,
+) []byte {
+	fields := [][]byte{[]byte(SpaceOperationDomain), Uint32(version), space, id, author, Uint64(uint64(wall)), Uint32(counter),
+		Uint32(uint32(len(parents)))}
+	fields = append(fields, parents...)
+	fields = append(fields, []byte(kind), channel, role, member, []byte(name), Uint32(uint32(len(roles))))
+	fields = append(fields, roles...)
+	return Encode(fields...)
+}
+
+// GroupMessage is what the author of an entry in a space's channel signs (ADR 0013): the digest is the content's SHA-256.
+func GroupMessage(
+	version uint32,
+	space,
+	channel,
+	author []byte,
+	sequence uint64,
+	id []byte,
+	wall int64,
+	counter uint32,
+	digest []byte,
+) []byte {
+	return Encode([]byte(GroupMessageDomain), Uint32(version), space, channel, author, Uint64(sequence), id,
+		Uint64(uint64(wall)), Uint32(counter), digest)
 }

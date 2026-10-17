@@ -114,6 +114,281 @@ func (x *SpaceGenesis) GetSignature() []byte {
 	return nil
 }
 
+// SpaceOperation is one signed change to a space, after the operations its author had seen (ADR 0013, ADR 0038).
+type SpaceOperation struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Version       uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	SpaceId       []byte                 `protobuf:"bytes,2,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	Id            []byte                 `protobuf:"bytes,3,opt,name=id,proto3" json:"id,omitempty"`
+	Author        []byte                 `protobuf:"bytes,4,opt,name=author,proto3" json:"author,omitempty"`
+	HlcWall       int64                  `protobuf:"varint,5,opt,name=hlc_wall,json=hlcWall,proto3" json:"hlc_wall,omitempty"`
+	HlcCounter    uint32                 `protobuf:"varint,6,opt,name=hlc_counter,json=hlcCounter,proto3" json:"hlc_counter,omitempty"`
+	Parents       [][]byte               `protobuf:"bytes,7,rep,name=parents,proto3" json:"parents,omitempty"`
+	Kind          string                 `protobuf:"bytes,8,opt,name=kind,proto3" json:"kind,omitempty"`
+	Channel       []byte                 `protobuf:"bytes,9,opt,name=channel,proto3" json:"channel,omitempty"`
+	Role          []byte                 `protobuf:"bytes,10,opt,name=role,proto3" json:"role,omitempty"`
+	Member        []byte                 `protobuf:"bytes,11,opt,name=member,proto3" json:"member,omitempty"`
+	Name          string                 `protobuf:"bytes,12,opt,name=name,proto3" json:"name,omitempty"`
+	Roles         [][]byte               `protobuf:"bytes,13,rep,name=roles,proto3" json:"roles,omitempty"`
+	Signature     []byte                 `protobuf:"bytes,14,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SpaceOperation) Reset() {
+	*x = SpaceOperation{}
+	mi := &file_convia_v1_space_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SpaceOperation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SpaceOperation) ProtoMessage() {}
+
+func (x *SpaceOperation) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SpaceOperation.ProtoReflect.Descriptor instead.
+func (*SpaceOperation) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *SpaceOperation) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *SpaceOperation) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetId() []byte {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetAuthor() []byte {
+	if x != nil {
+		return x.Author
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetHlcWall() int64 {
+	if x != nil {
+		return x.HlcWall
+	}
+	return 0
+}
+
+func (x *SpaceOperation) GetHlcCounter() uint32 {
+	if x != nil {
+		return x.HlcCounter
+	}
+	return 0
+}
+
+func (x *SpaceOperation) GetParents() [][]byte {
+	if x != nil {
+		return x.Parents
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *SpaceOperation) GetChannel() []byte {
+	if x != nil {
+		return x.Channel
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetRole() []byte {
+	if x != nil {
+		return x.Role
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetMember() []byte {
+	if x != nil {
+		return x.Member
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SpaceOperation) GetRoles() [][]byte {
+	if x != nil {
+		return x.Roles
+	}
+	return nil
+}
+
+func (x *SpaceOperation) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
+// GroupMessage is an entry of a channel, signed by its author over the digest of its content (ADR 0013).
+type GroupMessage struct {
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Version    uint32                 `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	SpaceId    []byte                 `protobuf:"bytes,2,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	ChannelId  []byte                 `protobuf:"bytes,3,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Author     []byte                 `protobuf:"bytes,4,opt,name=author,proto3" json:"author,omitempty"`
+	Sequence   uint64                 `protobuf:"varint,5,opt,name=sequence,proto3" json:"sequence,omitempty"`
+	Id         []byte                 `protobuf:"bytes,6,opt,name=id,proto3" json:"id,omitempty"`
+	HlcWall    int64                  `protobuf:"varint,7,opt,name=hlc_wall,json=hlcWall,proto3" json:"hlc_wall,omitempty"`
+	HlcCounter uint32                 `protobuf:"varint,8,opt,name=hlc_counter,json=hlcCounter,proto3" json:"hlc_counter,omitempty"`
+	// Absent once wiped; the digest still says what it was.
+	Content       []byte `protobuf:"bytes,9,opt,name=content,proto3" json:"content,omitempty"`
+	Digest        []byte `protobuf:"bytes,10,opt,name=digest,proto3" json:"digest,omitempty"`
+	Signature     []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupMessage) Reset() {
+	*x = GroupMessage{}
+	mi := &file_convia_v1_space_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupMessage) ProtoMessage() {}
+
+func (x *GroupMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupMessage.ProtoReflect.Descriptor instead.
+func (*GroupMessage) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GroupMessage) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
+func (x *GroupMessage) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetChannelId() []byte {
+	if x != nil {
+		return x.ChannelId
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetAuthor() []byte {
+	if x != nil {
+		return x.Author
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetSequence() uint64 {
+	if x != nil {
+		return x.Sequence
+	}
+	return 0
+}
+
+func (x *GroupMessage) GetId() []byte {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetHlcWall() int64 {
+	if x != nil {
+		return x.HlcWall
+	}
+	return 0
+}
+
+func (x *GroupMessage) GetHlcCounter() uint32 {
+	if x != nil {
+		return x.HlcCounter
+	}
+	return 0
+}
+
+func (x *GroupMessage) GetContent() []byte {
+	if x != nil {
+		return x.Content
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetDigest() []byte {
+	if x != nil {
+		return x.Digest
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 var File_convia_v1_space_proto protoreflect.FileDescriptor
 
 const file_convia_v1_space_proto_rawDesc = "" +
@@ -127,7 +402,39 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\bhlc_wall\x18\x05 \x01(\x03R\ahlcWall\x12\x1f\n" +
 	"\vhlc_counter\x18\x06 \x01(\rR\n" +
 	"hlcCounter\x12\x1c\n" +
-	"\tsignature\x18\a \x01(\fR\tsignatureB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"\tsignature\x18\a \x01(\fR\tsignature\"\xe5\x02\n" +
+	"\x0eSpaceOperation\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x12\x19\n" +
+	"\bspace_id\x18\x02 \x01(\fR\aspaceId\x12\x0e\n" +
+	"\x02id\x18\x03 \x01(\fR\x02id\x12\x16\n" +
+	"\x06author\x18\x04 \x01(\fR\x06author\x12\x19\n" +
+	"\bhlc_wall\x18\x05 \x01(\x03R\ahlcWall\x12\x1f\n" +
+	"\vhlc_counter\x18\x06 \x01(\rR\n" +
+	"hlcCounter\x12\x18\n" +
+	"\aparents\x18\a \x03(\fR\aparents\x12\x12\n" +
+	"\x04kind\x18\b \x01(\tR\x04kind\x12\x18\n" +
+	"\achannel\x18\t \x01(\fR\achannel\x12\x12\n" +
+	"\x04role\x18\n" +
+	" \x01(\fR\x04role\x12\x16\n" +
+	"\x06member\x18\v \x01(\fR\x06member\x12\x12\n" +
+	"\x04name\x18\f \x01(\tR\x04name\x12\x14\n" +
+	"\x05roles\x18\r \x03(\fR\x05roles\x12\x1c\n" +
+	"\tsignature\x18\x0e \x01(\fR\tsignature\"\xb2\x02\n" +
+	"\fGroupMessage\x12\x18\n" +
+	"\aversion\x18\x01 \x01(\rR\aversion\x12\x19\n" +
+	"\bspace_id\x18\x02 \x01(\fR\aspaceId\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x03 \x01(\fR\tchannelId\x12\x16\n" +
+	"\x06author\x18\x04 \x01(\fR\x06author\x12\x1a\n" +
+	"\bsequence\x18\x05 \x01(\x04R\bsequence\x12\x0e\n" +
+	"\x02id\x18\x06 \x01(\fR\x02id\x12\x19\n" +
+	"\bhlc_wall\x18\a \x01(\x03R\ahlcWall\x12\x1f\n" +
+	"\vhlc_counter\x18\b \x01(\rR\n" +
+	"hlcCounter\x12\x18\n" +
+	"\acontent\x18\t \x01(\fR\acontent\x12\x16\n" +
+	"\x06digest\x18\n" +
+	" \x01(\fR\x06digest\x12\x1c\n" +
+	"\tsignature\x18\v \x01(\fR\tsignatureB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_space_proto_rawDescOnce sync.Once
@@ -141,9 +448,11 @@ func file_convia_v1_space_proto_rawDescGZIP() []byte {
 	return file_convia_v1_space_proto_rawDescData
 }
 
-var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_convia_v1_space_proto_goTypes = []any{
-	(*SpaceGenesis)(nil), // 0: convia.v1.SpaceGenesis
+	(*SpaceGenesis)(nil),   // 0: convia.v1.SpaceGenesis
+	(*SpaceOperation)(nil), // 1: convia.v1.SpaceOperation
+	(*GroupMessage)(nil),   // 2: convia.v1.GroupMessage
 }
 var file_convia_v1_space_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -164,7 +473,7 @@ func file_convia_v1_space_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_space_proto_rawDesc), len(file_convia_v1_space_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -44,3 +44,5 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0036](0036-files-wait-with-their-sender-up-to-100-mb.md) | Files wait with their sender, up to 100 MB |
 | [0037](0037-search-reads-the-history-without-indexing-it.md) | Search reads the history without indexing it |
 | [0038](0038-a-space-has-three-ranks-and-roles-that-open-channels.md) | A space has three ranks, and roles that open channels |
+| [0039](0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md) | A person joins a space when an administrator adds a contact |
+| [0040](0040-members-of-a-space-connect-to-a-few-of-one-another.md) | Members of a space connect to a few of one another |

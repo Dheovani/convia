@@ -20,7 +20,7 @@ type plainSealer struct{}
 func (plainSealer) Seal(_ string, secret []byte) ([]byte, error) { return bytes.Clone(secret), nil }
 func (plainSealer) Open(_ string, sealed []byte) ([]byte, error) { return bytes.Clone(sealed), nil }
 
-func person(t *testing.T, name string) identity.Identity {
+func someone(t *testing.T, name string) identity.Identity {
 	t.Helper()
 	id, err := identity.Generate(name)
 	if err != nil {
@@ -40,7 +40,7 @@ func store(t *testing.T) (*Store, *storage.Store) {
 }
 
 func TestAGenesisIsSignedByItsCreator(t *testing.T) {
-	ana := person(t, "Ana")
+	ana := someone(t, "Ana")
 	g, err := NewGenesis(ana, "  Casa da Ana ", hlc.Time{Wall: 1700000000000, Counter: 2})
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +58,7 @@ func TestAGenesisIsSignedByItsCreator(t *testing.T) {
 }
 
 func TestASpaceHasAnIdentifierOfItsOwn(t *testing.T) {
-	ana := person(t, "Ana")
+	ana := someone(t, "Ana")
 	a, _ := NewGenesis(ana, "Casa", hlc.Time{})
 	b, _ := NewGenesis(ana, "Casa", hlc.Time{})
 	if a.Space == b.Space || a.Space == (ID{}) || bytes.HasPrefix(ana.Public, a.Space[:]) {
@@ -67,7 +67,7 @@ func TestASpaceHasAnIdentifierOfItsOwn(t *testing.T) {
 }
 
 func TestAGenesisChangedOrSignedByAnotherIsRefused(t *testing.T) {
-	ana, bruno := person(t, "Ana"), person(t, "Bruno")
+	ana, bruno := someone(t, "Ana"), someone(t, "Bruno")
 	g, _ := NewGenesis(ana, "Casa", hlc.Time{Wall: 5})
 	changes := map[string]func(*Genesis){
 		"name":      func(g *Genesis) { g.Name = "Outra" },
@@ -113,7 +113,7 @@ func TestAGenesisChangedOrSignedByAnotherIsRefused(t *testing.T) {
 }
 
 func TestASpaceNameHas1To100Characters(t *testing.T) {
-	ana := person(t, "Ana")
+	ana := someone(t, "Ana")
 	for _, name := range []string{"", "   ", string(bytes.Repeat([]byte("é"), 101)), "a\nb", "\xff"} {
 		if _, err := NewGenesis(ana, name, hlc.Time{}); !errors.Is(err, ErrName) {
 			t.Errorf("NewGenesis(%q) = %v, want ErrName", name, err)
@@ -126,7 +126,7 @@ func TestASpaceNameHas1To100Characters(t *testing.T) {
 
 func TestACreatedSpaceIsKept(t *testing.T) {
 	s, db := store(t)
-	ana := person(t, "Ana")
+	ana := someone(t, "Ana")
 	moments := []time.Time{time.UnixMilli(2000), time.UnixMilli(1000)}
 	s.now = func() time.Time { m := moments[0]; moments = moments[1:]; return m }
 	later, err := s.Create(ana, "Trabalho")
@@ -179,7 +179,7 @@ func TestACreatedSpaceIsKept(t *testing.T) {
 
 func TestAnInvalidNameCreatesNoSpace(t *testing.T) {
 	s, _ := store(t)
-	if _, err := s.Create(person(t, "Ana"), " "); !errors.Is(err, ErrName) {
+	if _, err := s.Create(someone(t, "Ana"), " "); !errors.Is(err, ErrName) {
 		t.Fatalf("Create() = %v", err)
 	}
 	if all, _ := s.Spaces(); len(all) != 0 {
