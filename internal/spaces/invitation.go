@@ -21,6 +21,7 @@ type Invitation struct {
 	Inviter    ed25519.PublicKey
 	Genesis    Genesis
 	Operations []Operation
+	Secret     *Secret
 }
 
 // State is the space as the invitation shows it.
@@ -34,6 +35,12 @@ func (i Invitation) wire() *conviav1.SpaceInvitation {
 		proto.Unmarshal(op.Marshal(), o)
 		w.Operations = append(w.Operations, o)
 	}
+
+	if i.Secret != nil {
+		w.Secret = &conviav1.SpaceSecret{}
+		proto.Unmarshal(i.Secret.Marshal(), w.Secret)
+	}
+
 	return w
 }
 
@@ -57,6 +64,13 @@ func invitationFrom(inviter, me ed25519.PublicKey, w *conviav1.SpaceInvitation) 
 
 	if state := i.State(); state.Rank(me) == None || state.Rank(inviter) < Administrator {
 		return Invitation{}, ErrInvitation
+	}
+
+	if w.Secret != nil {
+		data, _ := proto.Marshal(w.Secret)
+		if x, err := UnmarshalSecret(data); err == nil && x.Space == g.Space {
+			i.Secret = &x
+		}
 	}
 
 	return i, nil
@@ -134,6 +148,12 @@ func (s *Store) join(i Invitation) error {
 
 	for _, op := range i.Operations {
 		if _, err := s.Receive(op); err != nil {
+			return err
+		}
+	}
+
+	if i.Secret != nil {
+		if err := s.Learn(*i.Secret); err != nil {
 			return err
 		}
 	}

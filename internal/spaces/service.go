@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"log/slog"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -18,6 +19,8 @@ type Connections interface {
 	Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bool
 	Want(peer ed25519.PublicKey, reason string)
 	Release(peer ed25519.PublicKey, reason string)
+	Reachable(peer ed25519.PublicKey)
+	Reachability(announce, watch [][]byte)
 }
 
 // pendingReason is the connection a person waits on to be told they were added to a space, or that one was declined.
@@ -41,6 +44,12 @@ type Service struct {
 	// pending is what waits for a peer to connect: invitations, and the leaving of those declined.
 	pending map[string][]*conviav1.PeerMessage
 	states  map[ID]*State
+	// online are, for each space, the members announced since they last lost their connection.
+	online map[ID]map[string]bool
+	ringed map[ID]map[string]bool
+	ids    map[string]sighting
+	day    uint32
+	now    func() time.Time
 
 	mu      sync.Mutex
 	members map[string]bool
@@ -49,19 +58,27 @@ type Service struct {
 // NewService replicates store's spaces as me over conns; changed is called when a space or its invitation changes.
 func NewService(store *Store, me identity.Identity, conns Connections, changed func(ID), logger *slog.Logger) *Service {
 	s := &Service{store: store, me: me, conns: conns, changed: changed, logger: logger, work: newQueue(),
-		ready: map[string]bool{}, joined: map[string]map[ID]bool{}, pending: map[string][]*conviav1.PeerMessage{}, states: map[ID]*State{}}
+		ready: map[string]bool{}, joined: map[string]map[ID]bool{}, pending: map[string][]*conviav1.PeerMessage{}, states: map[ID]*State{},
+		online: map[ID]map[string]bool{}, ringed: map[ID]map[string]bool{}, ids: map[string]sighting{}, now: time.Now}
 	s.refresh()
 	return s
 }
 
 // Run does the service's work until ctx ends.
 func (s *Service) Run(ctx context.Context) {
+	s.do(s.reach)
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.work.ready:
 			s.work.drain()
+		case <-tick.C:
+			if uint32(s.now().Unix()/int64(day/time.Second)) != s.day {
+				s.reach()
+			}
 		}
 	}
 }
@@ -156,6 +173,8 @@ func (s *Service) Ready(peer ed25519.PublicKey) {
 		for _, state := range s.mine(peer) {
 			s.sync(peer, state.Genesis.Space)
 		}
+		s.conns.Release(peer, channelReason)
+		s.rings()
 	})
 }
 
@@ -163,6 +182,10 @@ func (s *Service) Ready(peer ed25519.PublicKey) {
 func (s *Service) Lost(peer ed25519.PublicKey) {
 	s.do(func() {
 		delete(s.ready, string(peer))
+		for _, online := range s.online {
+			delete(online, string(peer))
+		}
+		s.rings()
 	})
 }
 
@@ -273,10 +296,30 @@ func (s *Service) synced(peer ed25519.PublicKey, w *conviav1.SpaceSync) {
 	if err != nil {
 		s.logger.Error("read what a member lacks", "error", err)
 	}
+	if removal := s.removal(id, peer); removal != nil {
+		ops = append(ops, *removal)
+	}
 	for _, op := range ops {
 		s.send(peer, operationMessage(op))
 	}
 	s.share(peer, id)
+}
+
+// removal is the operation that removed peer from the space id, which a member removed while away is told of.
+func (s *Service) removal(id ID, peer ed25519.PublicKey) *Operation {
+	state := s.states[id]
+	if state == nil || state.Rank(peer) != None {
+		return nil
+	}
+
+	for i := len(state.History) - 1; i >= 0; i-- {
+		o := state.History[i]
+		if o.Refused == nil && o.Operation.Change.Kind == RemoveMember && o.Operation.Change.Member.Equal(peer) {
+			return &o.Operation
+		}
+	}
+
+	return nil
 }
 
 func operationMessage(op Operation) *conviav1.PeerMessage {
@@ -354,6 +397,8 @@ func (s *Service) applied(id ID, from ed25519.PublicKey, op Operation) {
 			}
 		}
 	}
+	s.reach()
+	s.rings()
 	s.changed(id)
 }
 
@@ -385,6 +430,7 @@ func (s *Service) secret(peer ed25519.PublicKey, x Secret) {
 		for _, p := range s.joinedPeers(x.Space, peer) {
 			s.share(p, x.Space)
 		}
+		s.reach()
 	}
 }
 
@@ -409,7 +455,8 @@ func (s *Service) invitation(id ID) *conviav1.PeerMessage {
 	for _, o := range state.History {
 		ops = append(ops, o.Operation)
 	}
-	w := Invitation{Genesis: state.Genesis, Operations: ops}.wire()
+	x, _ := s.store.current(state)
+	w := Invitation{Genesis: state.Genesis, Operations: ops, Secret: x}.wire()
 	return &conviav1.PeerMessage{Message: &conviav1.PeerMessage_SpaceInvitation{SpaceInvitation: w}}
 }
 
@@ -419,6 +466,7 @@ func (s *Service) Create(name string) (Genesis, error) {
 	err := s.call(func() (err error) {
 		if g, err = s.store.Create(s.me, name); err == nil {
 			s.refresh()
+			s.reach()
 		}
 		return err
 	})
@@ -447,6 +495,7 @@ func (s *Service) Write(id ID, channel ChannelID, content []byte) (Message, erro
 	err := s.call(func() (err error) {
 		if m, err = s.store.Write(s.me, id, channel, content); err == nil {
 			s.spread(m, nil)
+			s.reachReaders(id, channel)
 			s.changed(id)
 		}
 		return err
@@ -475,6 +524,8 @@ func (s *Service) AcceptInvitation(id ID) error {
 			return err
 		}
 		s.refresh()
+		s.reach()
+		s.rings()
 		for k := range s.ready {
 			if s.member(ed25519.PublicKey(k), id) {
 				s.sync(ed25519.PublicKey(k), id)

@@ -522,6 +522,19 @@ func TestAStrangerWhoDoesNotAskIsDisconnected(t *testing.T) {
 	}
 }
 
+func TestAFellowOfASpaceIsNoStranger(t *testing.T) {
+	w := newWorld()
+	ana, bruno := w.join(t, "Ana"), w.join(t, "Bruno")
+	ana.s.Fellow = func(peer ed25519.PublicKey) bool { return peer.Equal(bruno.id.Public) }
+	bruno.conns.Want(ana.id.Public, "space")
+	settle(ana, bruno)
+	w.clock.advance(Stranger)
+	ana.s.tick()
+	if !ana.conns.isReady(bruno) {
+		t.Fatal("a fellow of a space was disconnected as a stranger")
+	}
+}
+
 func TestOnlyAHundredRequestsWait(t *testing.T) {
 	w := newWorld()
 	ana := w.join(t, "Ana")

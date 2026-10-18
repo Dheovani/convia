@@ -679,9 +679,11 @@ func (x *AuthorHeld) GetSequence() uint64 {
 
 // SpaceInvitation is a space a person was added to, and how it stands, until they accept or decline (ADR 0039).
 type SpaceInvitation struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Genesis       *SpaceGenesis          `protobuf:"bytes,1,opt,name=genesis,proto3" json:"genesis,omitempty"`
-	Operations    []*SpaceOperation      `protobuf:"bytes,2,rep,name=operations,proto3" json:"operations,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Genesis    *SpaceGenesis          `protobuf:"bytes,1,opt,name=genesis,proto3" json:"genesis,omitempty"`
+	Operations []*SpaceOperation      `protobuf:"bytes,2,rep,name=operations,proto3" json:"operations,omitempty"`
+	// The current discovery secret, so that the person can find the members once they accept.
+	Secret        *SpaceSecret `protobuf:"bytes,3,opt,name=secret,proto3" json:"secret,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -726,6 +728,13 @@ func (x *SpaceInvitation) GetGenesis() *SpaceGenesis {
 func (x *SpaceInvitation) GetOperations() []*SpaceOperation {
 	if x != nil {
 		return x.Operations
+	}
+	return nil
+}
+
+func (x *SpaceInvitation) GetSecret() *SpaceSecret {
+	if x != nil {
+		return x.Secret
 	}
 	return nil
 }
@@ -795,12 +804,13 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\n" +
 	"AuthorHeld\x12\x16\n" +
 	"\x06author\x18\x01 \x01(\fR\x06author\x12\x1a\n" +
-	"\bsequence\x18\x02 \x01(\x04R\bsequence\"\x7f\n" +
+	"\bsequence\x18\x02 \x01(\x04R\bsequence\"\xaf\x01\n" +
 	"\x0fSpaceInvitation\x121\n" +
 	"\agenesis\x18\x01 \x01(\v2\x17.convia.v1.SpaceGenesisR\agenesis\x129\n" +
 	"\n" +
 	"operations\x18\x02 \x03(\v2\x19.convia.v1.SpaceOperationR\n" +
-	"operationsB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"operations\x12.\n" +
+	"\x06secret\x18\x03 \x01(\v2\x16.convia.v1.SpaceSecretR\x06secretB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_space_proto_rawDescOnce sync.Once
@@ -831,11 +841,12 @@ var file_convia_v1_space_proto_depIdxs = []int32{
 	7, // 1: convia.v1.ChannelHeld.authors:type_name -> convia.v1.AuthorHeld
 	0, // 2: convia.v1.SpaceInvitation.genesis:type_name -> convia.v1.SpaceGenesis
 	1, // 3: convia.v1.SpaceInvitation.operations:type_name -> convia.v1.SpaceOperation
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	3, // 4: convia.v1.SpaceInvitation.secret:type_name -> convia.v1.SpaceSecret
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_space_proto_init() }

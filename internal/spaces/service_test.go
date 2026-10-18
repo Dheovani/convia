@@ -18,11 +18,13 @@ import (
 
 // hub connects services as the peers' connections would, delivering each one's messages in order.
 type hub struct {
-	mu       sync.Mutex
-	sent     int
-	services map[string]*Service
-	linked   map[[2]string]bool
-	wanted   map[[2]string]bool
+	mu        sync.Mutex
+	sent      int
+	services  map[string]*Service
+	linked    map[[2]string]bool
+	wanted    map[[2]string]bool
+	announced map[string][][]byte
+	watching  map[string][][]byte
 }
 
 type port struct {
@@ -63,6 +65,14 @@ func (p port) Release(peer ed25519.PublicKey, reason string) {
 	delete(p.h.wanted, [2]string{p.me, string(peer) + "|" + reason})
 }
 
+func (p port) Reachable(ed25519.PublicKey) {}
+
+func (p port) Reachability(announce, watch [][]byte) {
+	p.h.mu.Lock()
+	defer p.h.mu.Unlock()
+	p.h.announced[p.me], p.h.watching[p.me] = announce, watch
+}
+
 func (h *hub) wants(a member, b member, reason string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -94,7 +104,8 @@ type node struct {
 
 func network(t *testing.T, names ...string) (*hub, []node) {
 	t.Helper()
-	h := &hub{services: map[string]*Service{}, linked: map[[2]string]bool{}, wanted: map[[2]string]bool{}}
+	h := &hub{services: map[string]*Service{}, linked: map[[2]string]bool{}, wanted: map[[2]string]bool{},
+		announced: map[string][][]byte{}, watching: map[string][][]byte{}}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	var out []node

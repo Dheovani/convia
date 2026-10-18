@@ -85,4 +85,6 @@ message AuthorHeld {
 message SpaceInvitation {
   SpaceGenesis genesis = 1;
   repeated SpaceOperation operations = 2;
+  // The current discovery secret, so that the person can find the members once they accept.
+  SpaceSecret secret = 3;
 }

@@ -78,8 +78,14 @@ A space travels in `PeerMessage`s between members ([peers](peers.md)):
 - **`space_sync`** opens each space shared on a connection: the hashes of every operation held. The other answers with each `space_operation` missing, and the current `space_secret`.
 - **`space_holding`** follows it: how far each channel is held, author by author. The other answers with each `group_message` after it.
 - **Afterwards**, a member passes on at once each operation, entry and secret new to it to every member that opened the space on its connection, but the one it came from — an entry only to those who may read its channel. What it already held it passes on to nobody, so nothing circles.
-- **A member removed** is sent the operation that removed them, and nothing more.
+- **A member removed** is sent the operation that removed them, and nothing more — at once if connected, or when they next open the space with a member.
 
 ## Invitations
 
 When an administrator adds a person ([ADR 0039](../adr/0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md)), the person is sent `space_invitation`: the genesis and every operation, which must add them and come from an administrator. They are sent nothing else until they accept. Accepting keeps the space and opens it with every member connected; declining sends the inviter a `leave` operation, as soon as the inviter can be reached.
+
+## Who connects to whom
+
+Each member announces, at the rendezvous service, its reachability identifier under the current epoch's secret, and watches every other member's, for the day before, the day and the day after ([ADR 0014](../adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)). A member announced is online until its connection is lost.
+
+Each member then connects to a few of the members online ([ADR 0040](../adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)): the online members and itself are ordered by `SHA-256(epoch | identity)`, and it connects to the one before it and the one after it, and to the 2 others whose `SHA-256(SHA-256(epoch | own identity) | identity)` is lowest. A member who writes in a restricted channel also connects to the readers of that channel who are online and not connected, until they have caught up.
