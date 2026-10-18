@@ -264,7 +264,7 @@ How members carry a space's content to one another.
 - [x] **M15-007:** Keep the space's discovery secret per epoch, advance the epoch on every change that revokes access, and give the new secret only to current members.
 - [x] **M15-008:** Decide how a person is invited into a space: the form of the invitation, who may issue one, and whether it is used once ([ADR 0039](docs/adr/0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md)).
 - [x] **M15-009:** Decide how members choose which other members to connect to, so that 50 members do not each hold 49 connections ([ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md), [ADR 0040](docs/adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)).
-- [ ] **M15-010:** Build it.
+- [x] **M15-010:** Build it.
 
 ### M16 — Spaces in the interface
 
