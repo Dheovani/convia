@@ -51,6 +51,9 @@ type Service struct {
 	wanted    map[key]map[string]bool
 	ids       map[string]key
 	day       int64
+
+	// Fellow says whether a peer that is not a contact belongs to a space with this person, and so is no stranger.
+	Fellow func(peer ed25519.PublicKey) bool
 }
 
 /*
@@ -127,7 +130,7 @@ func (s *Service) Ready(peer ed25519.PublicKey) {
 				ContactRequest: &conviav1.ContactRequest{Name: s.name(), Part: r.part}}})
 			return
 		}
-		if _, contact, _ := s.book.Contact(peer); !contact {
+		if _, contact, _ := s.book.Contact(peer); !contact && (s.Fellow == nil || !s.Fellow(peer)) {
 			s.mu.Lock()
 			s.strangers[key(peer)] = s.now()
 			s.mu.Unlock()

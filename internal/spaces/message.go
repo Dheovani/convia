@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
+	"math"
 
 	"google.golang.org/protobuf/proto"
 
@@ -59,7 +60,7 @@ func (m Message) Wiped() Message {
 
 // Verify checks that m is well formed and signed by its author, whoever delivered it.
 func (m Message) Verify() error {
-	if m.Version != Version || len(m.Author) != ed25519.PublicKeySize || m.Sequence == 0 || m.Time.Wall < 0 ||
+	if m.Version != Version || len(m.Author) != ed25519.PublicKeySize || m.Sequence == 0 || m.Sequence > math.MaxInt64 || m.Time.Wall < 0 ||
 		m.Channel == (ChannelID{}) || len(m.Content) > MaxContent || m.Content != nil && sha256.Sum256(m.Content) != m.Digest {
 		return ErrMessage
 	}

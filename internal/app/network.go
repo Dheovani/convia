@@ -16,6 +16,7 @@ import (
 	"github.com/Dheovani/convia/internal/messages"
 	"github.com/Dheovani/convia/internal/peers"
 	"github.com/Dheovani/convia/internal/rendezvous"
+	"github.com/Dheovani/convia/internal/spaces"
 	"github.com/Dheovani/convia/internal/storage"
 	conviav1 "github.com/Dheovani/convia/internal/wire/convia/v1"
 )
@@ -33,6 +34,7 @@ const (
 	ConversationEvent = "conversation"
 	ReceivedEvent     = "received"
 	OpenEvent         = "open-conversation"
+	SpacesEvent       = "spaces"
 )
 
 // Network runs this peer's connections and contacts while it has an identity.
@@ -46,6 +48,7 @@ type Network struct {
 	manager  *peers.Manager
 	contacts *contacts.Service
 	messages *messages.Service
+	spaces   *spaces.Service
 	viewing  ed25519.PublicKey
 	focused  bool
 	onUnread func(bool)
@@ -111,6 +114,15 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		}
 		emit(ReceivedEvent, ReceivedView{PublicKey: hex.EncodeToString(contact), Text: m.Text})
 	}
+	joined := &reach{}
+	fellows := spaces.NewService(
+		spaces.NewStore(store),
+		id,
+		via{reach: joined, part: "spaces"},
+		func(space spaces.ID) { emit(SpacesEvent, hex.EncodeToString(space[:])) },
+		n.logger,
+	)
+	service.Fellow = fellows.Accept
 	manager := peers.New(
 		id.Private,
 		webview{ctx: n.ctx},
@@ -119,13 +131,19 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 			Ready: func(peer ed25519.PublicKey) {
 				service.Ready(peer)
 				conversations.Ready(peer)
+				fellows.Ready(peer)
 			},
+			Lost: fellows.Lost,
 			Message: func(peer ed25519.PublicKey, message *conviav1.PeerMessage) {
 				service.Message(peer, message)
 				conversations.Message(peer, message)
+				fellows.Message(peer, message)
 			},
-			File:      conversations.File,
-			Reachable: service.Reachable,
+			File: conversations.File,
+			Reachable: func(id []byte) {
+				service.Reachable(id)
+				fellows.Reachable(id)
+			},
 			Outdated: func(peer ed25519.PublicKey, theirs bool) {
 				emit(OutdatedEvent, OutdatedView{PublicKey: hex.EncodeToString(peer), Theirs: theirs})
 			},
@@ -133,18 +151,20 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		peers.Default,
 		n.logger,
 	)
-	service.Attach(manager)
+	joined.manager, joined.to = manager, manager.Reachability
+	service.Attach(via{reach: joined, part: "contacts"})
 	link.manager = manager
 
 	go manager.Run(ctx)
 	go service.Run(ctx)
 	go conversations.Run(ctx)
+	go fellows.Run(ctx)
 	if n.address != "" {
 		go manager.Link(ctx, func(ctx context.Context) (peers.Session, error) {
 			return rendezvous.Dial(ctx, n.address, id.Private)
 		}, time.Second, time.Minute)
 	}
-	n.stop, n.manager, n.contacts, n.messages = stop, manager, service, conversations
+	n.stop, n.manager, n.contacts, n.messages, n.spaces = stop, manager, service, conversations, fellows
 	n.viewing, n.focused = nil, false
 	go n.unreadChanged()
 }
@@ -230,7 +250,7 @@ func (n *Network) Stop() {
 	if n.stop != nil {
 		n.stop()
 	}
-	n.stop, n.manager, n.contacts, n.messages = nil, nil, nil, nil
+	n.stop, n.manager, n.contacts, n.messages, n.spaces = nil, nil, nil, nil, nil
 }
 
 func (n *Network) current() *peers.Manager {

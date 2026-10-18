@@ -257,14 +257,14 @@ How members carry a space's content to one another.
 
 - [x] **M15-001:** Sign every group message with its author's key over every security-relevant field, encoded canonically.
 - [x] **M15-002:** Verify a group message's signature whoever delivered it, and reject one that does not verify.
-- [ ] **M15-003:** Compare, author by author, how far each member holds a channel, and supply what another is missing.
-- [ ] **M15-004:** Send or synchronize content only to members allowed to read that channel at that moment.
-- [ ] **M15-005:** Give a new member the existing history of every channel they may read.
-- [ ] **M15-006:** On a removal, stop sending the removed member anything and reject their further actions.
-- [ ] **M15-007:** Keep the space's discovery secret per epoch, advance the epoch on every change that revokes access, and give the new secret only to current members.
+- [x] **M15-003:** Compare, author by author, how far each member holds a channel, and supply what another is missing.
+- [x] **M15-004:** Send or synchronize content only to members allowed to read that channel at that moment.
+- [x] **M15-005:** Give a new member the existing history of every channel they may read.
+- [x] **M15-006:** On a removal, stop sending the removed member anything and reject their further actions.
+- [x] **M15-007:** Keep the space's discovery secret per epoch, advance the epoch on every change that revokes access, and give the new secret only to current members.
 - [x] **M15-008:** Decide how a person is invited into a space: the form of the invitation, who may issue one, and whether it is used once ([ADR 0039](docs/adr/0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md)).
 - [x] **M15-009:** Decide how members choose which other members to connect to, so that 50 members do not each hold 49 connections ([ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md), [ADR 0040](docs/adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)).
-- [ ] **M15-010:** Build it.
+- [x] **M15-010:** Build it.
 
 ### M16 — Spaces in the interface
 

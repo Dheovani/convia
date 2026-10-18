@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/space.proto.
  */
 export const file_convia_v1_space: GenFile = /*@__PURE__*/
-  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwizgEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
+  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwizgEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDCJhCgtTcGFjZVNlY3JldBIQCghzcGFjZV9pZBgBIAEoDBINCgVlcG9jaBgCIAEoDBIOCgZhdXRob3IYAyABKAwSDgoGc2VjcmV0GAQgASgMEhEKCXNpZ25hdHVyZRgFIAEoDCItCglTcGFjZVN5bmMSEAoIc3BhY2VfaWQYASABKAwSDgoGaGFzaGVzGAIgAygMIkoKDFNwYWNlSG9sZGluZxIQCghzcGFjZV9pZBgBIAEoDBIoCghjaGFubmVscxgCIAMoCzIWLmNvbnZpYS52MS5DaGFubmVsSGVsZCJJCgtDaGFubmVsSGVsZBISCgpjaGFubmVsX2lkGAEgASgMEiYKB2F1dGhvcnMYAiADKAsyFS5jb252aWEudjEuQXV0aG9ySGVsZCIuCgpBdXRob3JIZWxkEg4KBmF1dGhvchgBIAEoDBIQCghzZXF1ZW5jZRgCIAEoBCKSAQoPU3BhY2VJbnZpdGF0aW9uEigKB2dlbmVzaXMYASABKAsyFy5jb252aWEudjEuU3BhY2VHZW5lc2lzEi0KCm9wZXJhdGlvbnMYAiADKAsyGS5jb252aWEudjEuU3BhY2VPcGVyYXRpb24SJgoGc2VjcmV0GAMgASgLMhYuY29udmlhLnYxLlNwYWNlU2VjcmV0Qj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM");
 
 /**
  * SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
@@ -215,4 +215,168 @@ export type GroupMessage = Message<"convia.v1.GroupMessage"> & {
  */
 export const GroupMessageSchema: GenMessage<GroupMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_space, 2);
+
+/**
+ * SpaceSecret is a space's discovery secret for an epoch, made and signed by its owner or an administrator (ADR 0014).
+ *
+ * @generated from message convia.v1.SpaceSecret
+ */
+export type SpaceSecret = Message<"convia.v1.SpaceSecret"> & {
+  /**
+   * @generated from field: bytes space_id = 1;
+   */
+  spaceId: Uint8Array;
+
+  /**
+   * @generated from field: bytes epoch = 2;
+   */
+  epoch: Uint8Array;
+
+  /**
+   * @generated from field: bytes author = 3;
+   */
+  author: Uint8Array;
+
+  /**
+   * @generated from field: bytes secret = 4;
+   */
+  secret: Uint8Array;
+
+  /**
+   * @generated from field: bytes signature = 5;
+   */
+  signature: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.SpaceSecret.
+ * Use `create(SpaceSecretSchema)` to create a new message.
+ */
+export const SpaceSecretSchema: GenMessage<SpaceSecret> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 3);
+
+/**
+ * SpaceSync is what a member who joined a space holds of its operations; the other sends every one missing (ADR 0013).
+ *
+ * @generated from message convia.v1.SpaceSync
+ */
+export type SpaceSync = Message<"convia.v1.SpaceSync"> & {
+  /**
+   * @generated from field: bytes space_id = 1;
+   */
+  spaceId: Uint8Array;
+
+  /**
+   * @generated from field: repeated bytes hashes = 2;
+   */
+  hashes: Uint8Array[];
+};
+
+/**
+ * Describes the message convia.v1.SpaceSync.
+ * Use `create(SpaceSyncSchema)` to create a new message.
+ */
+export const SpaceSyncSchema: GenMessage<SpaceSync> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 4);
+
+/**
+ * SpaceHolding is how far a member holds each channel; the other sends what comes after.
+ *
+ * @generated from message convia.v1.SpaceHolding
+ */
+export type SpaceHolding = Message<"convia.v1.SpaceHolding"> & {
+  /**
+   * @generated from field: bytes space_id = 1;
+   */
+  spaceId: Uint8Array;
+
+  /**
+   * @generated from field: repeated convia.v1.ChannelHeld channels = 2;
+   */
+  channels: ChannelHeld[];
+};
+
+/**
+ * Describes the message convia.v1.SpaceHolding.
+ * Use `create(SpaceHoldingSchema)` to create a new message.
+ */
+export const SpaceHoldingSchema: GenMessage<SpaceHolding> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 5);
+
+/**
+ * @generated from message convia.v1.ChannelHeld
+ */
+export type ChannelHeld = Message<"convia.v1.ChannelHeld"> & {
+  /**
+   * @generated from field: bytes channel_id = 1;
+   */
+  channelId: Uint8Array;
+
+  /**
+   * @generated from field: repeated convia.v1.AuthorHeld authors = 2;
+   */
+  authors: AuthorHeld[];
+};
+
+/**
+ * Describes the message convia.v1.ChannelHeld.
+ * Use `create(ChannelHeldSchema)` to create a new message.
+ */
+export const ChannelHeldSchema: GenMessage<ChannelHeld> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 6);
+
+/**
+ * AuthorHeld is the highest sequence number of an author held with every one before it.
+ *
+ * @generated from message convia.v1.AuthorHeld
+ */
+export type AuthorHeld = Message<"convia.v1.AuthorHeld"> & {
+  /**
+   * @generated from field: bytes author = 1;
+   */
+  author: Uint8Array;
+
+  /**
+   * @generated from field: uint64 sequence = 2;
+   */
+  sequence: bigint;
+};
+
+/**
+ * Describes the message convia.v1.AuthorHeld.
+ * Use `create(AuthorHeldSchema)` to create a new message.
+ */
+export const AuthorHeldSchema: GenMessage<AuthorHeld> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 7);
+
+/**
+ * SpaceInvitation is a space a person was added to, and how it stands, until they accept or decline (ADR 0039).
+ *
+ * @generated from message convia.v1.SpaceInvitation
+ */
+export type SpaceInvitation = Message<"convia.v1.SpaceInvitation"> & {
+  /**
+   * @generated from field: convia.v1.SpaceGenesis genesis = 1;
+   */
+  genesis?: SpaceGenesis | undefined;
+
+  /**
+   * @generated from field: repeated convia.v1.SpaceOperation operations = 2;
+   */
+  operations: SpaceOperation[];
+
+  /**
+   * The current discovery secret, so that the person can find the members once they accept.
+   *
+   * @generated from field: convia.v1.SpaceSecret secret = 3;
+   */
+  secret?: SpaceSecret | undefined;
+};
+
+/**
+ * Describes the message convia.v1.SpaceInvitation.
+ * Use `create(SpaceInvitationSchema)` to create a new message.
+ */
+export const SpaceInvitationSchema: GenMessage<SpaceInvitation> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 8);
 
