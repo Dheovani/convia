@@ -12,6 +12,7 @@ import (
 type MessageView struct {
 	ID        string         `json:"id"`
 	Mine      bool           `json:"mine"`
+	Author    string         `json:"author,omitempty"`
 	Text      string         `json:"text"`
 	Status    string         `json:"status"`
 	At        int64          `json:"at"`
@@ -33,6 +34,7 @@ type ReactionView struct {
 type QuoteView struct {
 	ID      string `json:"id"`
 	Mine    bool   `json:"mine"`
+	Author  string `json:"author,omitempty"`
 	Text    string `json:"text"`
 	Missing bool   `json:"missing"`
 	Deleted bool   `json:"deleted"`

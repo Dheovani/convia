@@ -1,5 +1,21 @@
 export namespace app {
 	
+	export class ChannelView {
+	    id: string;
+	    name: string;
+	    restricted: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.restricted = source["restricted"];
+	    }
+	}
 	export class ContactView {
 	    publicKey: string;
 	    name: string;
@@ -45,6 +61,7 @@ export namespace app {
 	export class QuoteView {
 	    id: string;
 	    mine: boolean;
+	    author?: string;
 	    text: string;
 	    missing: boolean;
 	    deleted: boolean;
@@ -57,6 +74,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.mine = source["mine"];
+	        this.author = source["author"];
 	        this.text = source["text"];
 	        this.missing = source["missing"];
 	        this.deleted = source["deleted"];
@@ -81,6 +99,7 @@ export namespace app {
 	export class MessageView {
 	    id: string;
 	    mine: boolean;
+	    author?: string;
 	    text: string;
 	    status: string;
 	    at: number;
@@ -98,6 +117,7 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.mine = source["mine"];
+	        this.author = source["author"];
 	        this.text = source["text"];
 	        this.status = source["status"];
 	        this.at = source["at"];
@@ -201,6 +221,22 @@ export namespace app {
 		    return a;
 		}
 	}
+	export class InvitationView {
+	    id: string;
+	    name: string;
+	    inviter: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new InvitationView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.inviter = source["inviter"];
+	    }
+	}
 	export class MeView {
 	    name: string;
 	    publicKey: string;
@@ -250,6 +286,42 @@ export namespace app {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.received = this.convertValues(source["received"], RequestView);
 	        this.sent = this.convertValues(source["sent"], RequestView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SpaceView {
+	    id: string;
+	    name: string;
+	    rank: string;
+	    channels: ChannelView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SpaceView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.rank = source["rank"];
+	        this.channels = this.convertValues(source["channels"], ChannelView);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

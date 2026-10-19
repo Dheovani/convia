@@ -38,6 +38,8 @@ const (
 	UnmakeAdmin       Kind = "unmake-admin"
 	TransferOwnership Kind = "transfer-ownership"
 	DeleteSpace       Kind = "delete-space"
+	// Introduce is the name a member goes by in the space, which they give themselves.
+	Introduce Kind = "introduce"
 )
 
 // The fields each kind of change holds; every other field is empty.
@@ -68,6 +70,7 @@ var shapes = map[Kind]int{
 	UnmakeAdmin:       usesMember,
 	TransferOwnership: usesMember,
 	DeleteSpace:       0,
+	Introduce:         usesName,
 }
 
 // MaxRestriction is the most roles a channel is restricted to.

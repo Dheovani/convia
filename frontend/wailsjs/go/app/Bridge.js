@@ -6,6 +6,10 @@ export function AcceptRequest(arg1) {
   return window['go']['app']['Bridge']['AcceptRequest'](arg1);
 }
 
+export function AcceptSpace(arg1) {
+  return window['go']['app']['Bridge']['AcceptSpace'](arg1);
+}
+
 export function AddContact(arg1) {
   return window['go']['app']['Bridge']['AddContact'](arg1);
 }
@@ -16,6 +20,10 @@ export function BlockContact(arg1, arg2) {
 
 export function Blocked() {
   return window['go']['app']['Bridge']['Blocked']();
+}
+
+export function ChannelMessages(arg1, arg2) {
+  return window['go']['app']['Bridge']['ChannelMessages'](arg1, arg2);
 }
 
 export function ChooseFile() {
@@ -38,16 +46,32 @@ export function Conversations() {
   return window['go']['app']['Bridge']['Conversations']();
 }
 
+export function CreateChannel(arg1, arg2) {
+  return window['go']['app']['Bridge']['CreateChannel'](arg1, arg2);
+}
+
 export function CreateIdentity(arg1) {
   return window['go']['app']['Bridge']['CreateIdentity'](arg1);
+}
+
+export function CreateSpace(arg1, arg2) {
+  return window['go']['app']['Bridge']['CreateSpace'](arg1, arg2);
 }
 
 export function DeclineRequest(arg1) {
   return window['go']['app']['Bridge']['DeclineRequest'](arg1);
 }
 
+export function DeclineSpace(arg1) {
+  return window['go']['app']['Bridge']['DeclineSpace'](arg1);
+}
+
 export function DeleteIdentity() {
   return window['go']['app']['Bridge']['DeleteIdentity']();
+}
+
+export function DeleteInChannel(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['DeleteInChannel'](arg1, arg2, arg3);
 }
 
 export function DeleteMessage(arg1, arg2) {
@@ -56,6 +80,10 @@ export function DeleteMessage(arg1, arg2) {
 
 export function DismissRequest(arg1) {
   return window['go']['app']['Bridge']['DismissRequest'](arg1);
+}
+
+export function EditInChannel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['Bridge']['EditInChannel'](arg1, arg2, arg3, arg4);
 }
 
 export function EditMessage(arg1, arg2, arg3) {
@@ -72,6 +100,10 @@ export function ForgetMessage(arg1, arg2) {
 
 export function ImportIdentity(arg1, arg2, arg3) {
   return window['go']['app']['Bridge']['ImportIdentity'](arg1, arg2, arg3);
+}
+
+export function InviteToSpace(arg1, arg2) {
+  return window['go']['app']['Bridge']['InviteToSpace'](arg1, arg2);
 }
 
 export function MaxMessageCharacters() {
@@ -102,6 +134,10 @@ export function React(arg1, arg2, arg3, arg4) {
   return window['go']['app']['Bridge']['React'](arg1, arg2, arg3, arg4);
 }
 
+export function ReactInChannel(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['app']['Bridge']['ReactInChannel'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function RemoveContact(arg1, arg2) {
   return window['go']['app']['Bridge']['RemoveContact'](arg1, arg2);
 }
@@ -116,6 +152,10 @@ export function Requests() {
 
 export function SaveFile(arg1, arg2) {
   return window['go']['app']['Bridge']['SaveFile'](arg1, arg2);
+}
+
+export function SayInChannel(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['Bridge']['SayInChannel'](arg1, arg2, arg3, arg4);
 }
 
 export function SearchMessages(arg1) {
@@ -136,6 +176,14 @@ export function SetStartsWithWindows(arg1) {
 
 export function SetVerified(arg1, arg2) {
   return window['go']['app']['Bridge']['SetVerified'](arg1, arg2);
+}
+
+export function SpaceInvitations() {
+  return window['go']['app']['Bridge']['SpaceInvitations']();
+}
+
+export function Spaces() {
+  return window['go']['app']['Bridge']['Spaces']();
 }
 
 export function StartOver() {

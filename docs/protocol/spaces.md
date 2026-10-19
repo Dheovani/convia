@@ -27,6 +27,7 @@ Every change after the genesis is a `SpaceOperation`: version 1, the space's ide
 | `give-role`, `take-role`                           | role, member                                    | administrator |
 | `make-admin`, `unmake-admin`, `transfer-ownership` | member                                          | owner         |
 | `delete-space`                                     | —                                               | owner         |
+| `introduce`                                        | name — the name its author goes by in the space | member        |
 
 Channels and roles are named by 16 bytes their creator chooses at random; names are as a space's are.
 
@@ -52,9 +53,13 @@ The owner and the administrators see every channel. A member sees an open channe
 
 ## Group messages
 
-An entry of a channel is a `GroupMessage`: version 1, the space's and the channel's identifiers, its author, the author's sequence number in that channel, from 1, a random 16-byte identifier, a hybrid logical clock moment, its content — at most 64 KiB — and the content's SHA-256, signed by its author. A member verifies the signature of every group message it receives, whoever delivered it, and rejects one that does not verify, or whose content does not match its digest. A message whose content was wiped since is sent without it, and still verifies.
+An entry of a channel is a `GroupMessage`: version 1, the space's and the channel's identifiers, its author, the author's sequence number in that channel, from 1, a random 16-byte identifier, a hybrid logical clock moment, its entry, and the entry's SHA-256, signed by its author; and, beside them, the entry's text.
 
-A message is accepted only if its author is a member who sees its channel at the moment it arrives: a removed member's further messages are refused, and so, since nothing tells them from earlier ones, are the earlier ones a member did not yet hold. Two messages in the same place of an author's sequence, or with the same identifier, are refused as a conflict.
+- **The entry** is a `ChannelEntry` of at most 1 KiB, as its author encoded it: a message, answering the message `reply_to` names if it is set; a `reaction`; an `edit`; or a `deletion` ([ADR 0042](../adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md)). A message or an edit names its text by its SHA-256; a reaction holds its emoji, and a deletion nothing more.
+- **The text** travels beside the entry, and must hash to what the entry says. Once an edit or a deletion supersedes it, every member wipes it ([ADR 0034](../adr/0034-a-message-is-edited-and-deleted-by-its-author.md)), and the entry travels without it, still verifying, still holding its place.
+- **The rules** are a conversation's: a message of 1 to 4,000 characters, a reaction of one emoji, and edits and deletions that count only from the message's author.
+
+A member verifies the signature of every group message it receives, whoever delivered it, and rejects one that does not verify, whose entry the protocol does not allow, or whose text does not match it.
 
 ## Synchronizing
 

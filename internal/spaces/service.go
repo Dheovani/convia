@@ -1,9 +1,11 @@
 package spaces
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -32,8 +34,10 @@ once it said, on its current connection, what it holds of that space: a person i
 sent nothing but the invitation (ADR 0039). Its observer methods may be called from any goroutine.
 */
 type Service struct {
-	store   *Store
-	me      identity.Identity
+	store *Store
+	me    identity.Identity
+	// Name is the name this person goes by, given to each space they create or join.
+	Name    func() string
 	conns   Connections
 	changed func(ID)
 	logger  *slog.Logger
@@ -460,11 +464,26 @@ func (s *Service) invitation(id ID) *conviav1.PeerMessage {
 	return &conviav1.PeerMessage{Message: &conviav1.PeerMessage_SpaceInvitation{SpaceInvitation: w}}
 }
 
+// introduce gives the space id the name this person goes by, and passes it on.
+func (s *Service) introduce(id ID) {
+	name := s.me.Name
+	if s.Name != nil {
+		name = s.Name()
+	}
+	op, err := s.store.Operate(s.me, id, Change{Kind: Introduce, Name: name})
+	if err != nil {
+		s.logger.Error("introduce this person to a space", "error", err)
+		return
+	}
+	s.applied(id, nil, op)
+}
+
 // Create begins a space named name, owned by this person.
 func (s *Service) Create(name string) (Genesis, error) {
 	var g Genesis
 	err := s.call(func() (err error) {
 		if g, err = s.store.Create(s.me, name); err == nil {
+			s.introduce(g.Space)
 			s.refresh()
 			s.reach()
 		}
@@ -489,11 +508,11 @@ func (s *Service) Operate(id ID, change Change) (Operation, error) {
 	return op, err
 }
 
-// Write writes content in a channel of the space id, and passes it on to the members connected who may read it.
-func (s *Service) Write(id ID, channel ChannelID, content []byte) (Message, error) {
+// Write makes e in a channel of the space id, and passes it on to the members connected who may read it.
+func (s *Service) Write(id ID, channel ChannelID, e Entry) (Message, error) {
 	var m Message
 	err := s.call(func() (err error) {
-		if m, err = s.store.Write(s.me, id, channel, content); err == nil {
+		if m, err = s.store.Write(s.me, id, channel, e); err == nil {
 			s.spread(m, nil)
 			s.reachReaders(id, channel)
 			s.changed(id)
@@ -501,6 +520,51 @@ func (s *Service) Write(id ID, channel ChannelID, content []byte) (Message, erro
 		return err
 	})
 	return m, err
+}
+
+// Spaces are the spaces this person belongs to, oldest first.
+func (s *Service) Spaces() []*State {
+	var out []*State
+	s.call(func() error {
+		for _, state := range s.states {
+			if state.Rank(s.me.Public) != None {
+				out = append(out, state)
+			}
+		}
+		return nil
+	})
+	slices.SortFunc(out, func(a, b *State) int {
+		if a.Genesis.Created != b.Genesis.Created {
+			if a.Genesis.Created.Before(b.Genesis.Created) {
+				return -1
+			}
+			return 1
+		}
+		return bytes.Compare(a.Genesis.Space[:], b.Genesis.Space[:])
+	})
+	return out
+}
+
+// State is the space id as it stands.
+func (s *Service) State(id ID) (*State, error) {
+	var state *State
+	err := s.call(func() error {
+		if state = s.states[id]; state == nil {
+			return ErrNoSpace
+		}
+		return nil
+	})
+	return state, err
+}
+
+// Channel is a channel's posts, as this person sees them.
+func (s *Service) Channel(id ID, channel ChannelID) ([]Post, error) {
+	var out []Post
+	err := s.call(func() (err error) {
+		out, err = s.store.Channel(id, channel, s.me.Public)
+		return err
+	})
+	return out, err
 }
 
 // Invitations are the spaces this person was added to and has not answered.
@@ -524,6 +588,7 @@ func (s *Service) AcceptInvitation(id ID) error {
 			return err
 		}
 		s.refresh()
+		s.introduce(id)
 		s.reach()
 		s.rings()
 		for k := range s.ready {

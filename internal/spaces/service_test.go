@@ -133,7 +133,7 @@ func holds(t *testing.T, n node, space ID, channel ChannelID, text string) bool 
 	t.Helper()
 	held, _ := n.store.Messages(space, channel)
 	for _, m := range held {
-		if string(m.Content) == text {
+		if m.Entry.Text == text {
 			return true
 		}
 	}
@@ -149,7 +149,7 @@ func (n node) must(t *testing.T, space ID, c Change) {
 
 func (n node) write(t *testing.T, space ID, channel ChannelID, text string) {
 	t.Helper()
-	if _, err := n.service.Write(space, channel, []byte(text)); err != nil {
+	if _, err := n.service.Write(space, channel, said(text)); err != nil {
 		t.Fatalf("Write(%q) = %v", text, err)
 	}
 }
@@ -259,10 +259,10 @@ func TestWhatOneMemberSaysTravelsThroughAnother(t *testing.T) {
 	eventually(t, "Bruno hears Ana", func() bool { return holds(t, bruno, g.Space, general, "depois") })
 	eventually(t, "Bruno learns the new name", func() bool { s, _ := bruno.store.State(g.Space); return s.Name == "Lar" })
 	eventually(t, "Carla learns she was removed", func() bool { s, _ := carla.store.State(g.Space); return s.Rank(carla.me.Public) == None })
-	if _, err := carla.service.Write(g.Space, general, []byte("ainda aqui")); !errors.Is(err, ErrNotReader) {
+	if _, err := carla.service.Write(g.Space, general, said("ainda aqui")); !errors.Is(err, ErrNotReader) {
 		t.Fatalf("a removed member writing = %v", err)
 	}
-	forged, _ := NewMessage(carla.me, g.Space, general, 9, hlc.Time{Wall: 1 << 50}, []byte("ainda aqui"))
+	forged, _ := NewMessage(carla.me, g.Space, general, 9, hlc.Time{Wall: 1 << 50}, said("ainda aqui"))
 	carla.service.send(bruno.me.Public, groupMessage(forged))
 	time.Sleep(50 * time.Millisecond)
 	if s, _ := carla.store.State(g.Space); s.Name == "Lar" {

@@ -240,3 +240,46 @@ test("a conversation with files", async () => {
   await screen.findByText("report.pdf");
   expect(await violations(container)).toEqual([]);
 });
+
+test("a space, its channels and one of them open", async () => {
+  answers.Spaces = () =>
+    Promise.resolve([
+      {
+        id: "c1",
+        name: "Casa",
+        rank: "owner",
+        channels: [
+          { id: "g1", name: "geral", restricted: false },
+          { id: "t1", name: "equipe", restricted: true },
+        ],
+      },
+    ]);
+  answers.SpaceInvitations = () => Promise.resolve([]);
+  answers.ChannelMessages = () =>
+    Promise.resolve([
+      {
+        id: "01",
+        mine: false,
+        author: "Bruno",
+        text: "bom dia",
+        status: "delivered",
+        at: 1,
+        reactions: [{ emoji: "👍", count: 2, mine: true }],
+      },
+    ]);
+  const { container } = workspace();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa" }));
+  await screen.findByText("bom dia");
+  fireEvent.click(screen.getByRole("button", { name: "Invite a contact" }));
+  expect(await violations(container)).toEqual([]);
+});
+
+test("creating a space and answering invitations", async () => {
+  answers.Spaces = () => Promise.resolve([]);
+  answers.SpaceInvitations = () =>
+    Promise.resolve([{ id: "d1", name: "Trabalho", inviter: "Bruno" }]);
+  const { container } = workspace();
+  fireEvent.click(await screen.findByRole("button", { name: "Add a space" }));
+  await screen.findByText("Bruno invited you to Trabalho");
+  expect(await violations(container)).toEqual([]);
+});

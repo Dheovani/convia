@@ -49,6 +49,7 @@ type Network struct {
 	contacts *contacts.Service
 	messages *messages.Service
 	spaces   *spaces.Service
+	identity ed25519.PublicKey
 	viewing  ed25519.PublicKey
 	focused  bool
 	onUnread func(bool)
@@ -123,6 +124,7 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		n.logger,
 	)
 	service.Fellow = fellows.Accept
+	fellows.Name = func() string { return displayName(store, id.Name) }
 	manager := peers.New(
 		id.Private,
 		webview{ctx: n.ctx},
@@ -165,6 +167,7 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		}, time.Second, time.Minute)
 	}
 	n.stop, n.manager, n.contacts, n.messages, n.spaces = stop, manager, service, conversations, fellows
+	n.identity = id.Public
 	n.viewing, n.focused = nil, false
 	go n.unreadChanged()
 }
@@ -263,6 +266,19 @@ func (n *Network) conversations() *messages.Service {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.messages
+}
+
+func (n *Network) fellowship() *spaces.Service {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.spaces
+}
+
+// me is the identity the network runs as.
+func (n *Network) me() ed25519.PublicKey {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.identity
 }
 
 func (n *Network) people() *contacts.Service {

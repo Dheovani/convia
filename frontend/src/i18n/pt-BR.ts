@@ -8,6 +8,11 @@ export const ptBR: Words = {
     reload: "Recarregar",
   },
   refusals: {
+    "space-name": "O nome de um espaço ou canal tem de 1 a 100 caracteres.",
+    "no-such-space": "Esse espaço não está aqui.",
+    "not-allowed": "Seu papel neste espaço não permite isso.",
+    "space-full": "Um espaço tem no máximo 50 membros.",
+    "space-exists": "Isso já existe.",
     name: "Um nome tem de 1 a 32 caracteres.",
     "weak-password": "A senha precisa de pelo menos 12 caracteres.",
     password: "Essa senha não abre este arquivo.",
@@ -96,6 +101,37 @@ export const ptBR: Words = {
     searchNone: "Nada encontrado.",
     searchFound: (count: number) =>
       count === 1 ? "1 mensagem encontrada" : `${count} mensagens encontradas`,
+  },
+  spaces: {
+    title: "Espaços",
+    add: "Adicionar um espaço",
+    create: "Criar um espaço",
+    name: "Nome",
+    createButton: "Criar",
+    firstChannel: "geral",
+    invitations: "Convites",
+    noInvitations: "Ninguém convidou você para um espaço.",
+    invitationsWaiting: (count: number) =>
+      count === 1 ? "1 convite esperando" : `${count} convites esperando`,
+    invitedBy: (space: string, inviter: string) =>
+      inviter
+        ? `${inviter} convidou você para ${space}`
+        : `Convite para ${space}`,
+    accept: "Aceitar",
+    decline: "Recusar",
+    channels: "Canais",
+    noChannels: "Nenhum canal ainda.",
+    newChannel: "Novo canal",
+    addChannel: "Adicionar",
+    channelName: "Nome do canal",
+    invitePerson: "Convidar um contato",
+    whom: "Quem convidar",
+    choose: "Escolha um contato",
+    invite: "Convidar",
+    cancel: "Cancelar",
+    field: (channel: string) => `Conversar em #${channel}`,
+    deleting:
+      "Apagar a remove para todos os membros do espaço; quem já a leu fica com o que leu.",
   },
   settings: {
     title: "Configurações",

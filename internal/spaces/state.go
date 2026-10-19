@@ -50,6 +50,7 @@ type Role struct {
 // Person is a member of a space.
 type Person struct {
 	Key   ed25519.PublicKey
+	Name  string
 	Rank  Rank
 	Roles []RoleID
 }
@@ -62,6 +63,7 @@ type Outcome struct {
 
 type person struct {
 	rank  Rank
+	name  string
 	roles map[RoleID]bool
 }
 
@@ -198,7 +200,7 @@ func (s *State) Owner() ed25519.PublicKey {
 func (s *State) Members() []Person {
 	var out []Person
 	for k, p := range s.members {
-		out = append(out, Person{Key: ed25519.PublicKey(k), Rank: p.rank, Roles: sortedIDs(p.roles)})
+		out = append(out, Person{Key: ed25519.PublicKey(k), Name: p.name, Rank: p.rank, Roles: sortedIDs(p.roles)})
 	}
 	slices.SortFunc(out, func(a, b Person) int { return bytes.Compare(a.Key, b.Key) })
 	return out
@@ -257,6 +259,7 @@ var needs = map[Kind]Rank{
 	CreateRole: Administrator, RenameRole: Administrator, DeleteRole: Administrator,
 	GiveRole: Administrator, TakeRole: Administrator,
 	MakeAdmin: Owner, UnmakeAdmin: Owner, TransferOwnership: Owner, DeleteSpace: Owner,
+	Introduce: Member,
 }
 
 // apply makes op's change if its author held the authority it needs in the state before it.
@@ -375,6 +378,8 @@ func (s *State) apply(op Operation) error {
 		}
 	case DeleteSpace:
 		s.Deleted = true
+	case Introduce:
+		author.name = c.Name
 	}
 	return nil
 }

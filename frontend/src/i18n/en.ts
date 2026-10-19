@@ -9,6 +9,11 @@ export const en = {
     reload: "Reload",
   },
   refusals: {
+    "space-name": "A space or channel name has 1 to 100 characters.",
+    "no-such-space": "That space is not here.",
+    "not-allowed": "Your place in this space does not allow that.",
+    "space-full": "A space has at most 50 members.",
+    "space-exists": "That is already there.",
     name: "A name has 1 to 32 characters.",
     "weak-password": "The password needs at least 12 characters.",
     password: "That password does not open this file.",
@@ -95,6 +100,35 @@ export const en = {
     searchNone: "Nothing found.",
     searchFound: (count: number) =>
       count === 1 ? "1 message found" : `${count} messages found`,
+  },
+  spaces: {
+    title: "Spaces",
+    add: "Add a space",
+    create: "Create a space",
+    name: "Name",
+    createButton: "Create",
+    firstChannel: "general",
+    invitations: "Invitations",
+    noInvitations: "Nobody invited you to a space.",
+    invitationsWaiting: (count: number) =>
+      count === 1 ? "1 invitation waiting" : `${count} invitations waiting`,
+    invitedBy: (space: string, inviter: string) =>
+      inviter ? `${inviter} invited you to ${space}` : `Invited to ${space}`,
+    accept: "Accept",
+    decline: "Decline",
+    channels: "Channels",
+    noChannels: "No channel yet.",
+    newChannel: "New channel",
+    addChannel: "Add",
+    channelName: "Channel name",
+    invitePerson: "Invite a contact",
+    whom: "Whom to invite",
+    choose: "Choose a contact",
+    invite: "Invite",
+    cancel: "Cancel",
+    field: (channel: string) => `Message #${channel}`,
+    deleting:
+      "Deleting it removes it for every member of the space; those who already read it keep what they read.",
   },
   settings: {
     title: "Settings",
