@@ -4,29 +4,24 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/Dheovani/convia/internal/hlc"
 	"github.com/Dheovani/convia/internal/images"
+	"github.com/Dheovani/convia/internal/storage"
 )
 
 const (
 	// MaxFileSize is the most a file holds (ADR 0036).
 	MaxFileSize = 100 << 20
 	// Piece is how much of a file is sealed, kept and sent at a time.
-	Piece = 64 << 10
+	Piece = storage.Piece
 	// Span is how much of a file a recipient asks for at once, so that little is ever in flight.
 	Span = 1 << 20
-	// sealing is what sealing adds to each piece: its nonce and its tag.
-	sealing = 24 + 16
 	// Anything that is not a picture shown in a conversation is offered to be saved, never shown.
 	Opaque = "application/octet-stream"
 )
@@ -57,7 +52,8 @@ func (f File) Picture() bool {
 	return false
 }
 
-func checkFileName(name string) error {
+// CheckFileName reports whether name may be a file's: a name of up to 255 bytes, without folders or control characters.
+func CheckFileName(name string) error {
 	if name == "" || len(name) > 255 || !utf8.ValidString(name) || strings.ContainsAny(name, `/\:`) || name == "." || name == ".." {
 		return ErrFileName
 	}
@@ -69,6 +65,9 @@ func checkFileName(name string) error {
 	return nil
 }
 
+// CheckFile reports whether f describes a file the protocol allows.
+func CheckFile(f *File) error { return f.check() }
+
 func (f *File) check() error {
 	if f == nil || f.Size == 0 || f.Size > MaxFileSize || len(f.SHA256) != sha256.Size ||
 		f.Orientation < 1 || f.Orientation > 8 || !f.Picture() && f.Type != Opaque {
@@ -77,20 +76,12 @@ func (f *File) check() error {
 	return nil
 }
 
-func (s *Store) filePath(id [IDSize]byte) string {
-	return filepath.Join(s.db.Dir, "files", hex.EncodeToString(id[:])+".cvf")
-}
-
-func pieceOwner(id [IDSize]byte, index uint64) []byte {
-	return binary.BigEndian.AppendUint64(bytes.Clone(id[:]), index)
-}
-
 /*
 Attach stores a file to contact, at moment at: a picture without what it records beyond the picture,
 sealed in pieces beside the database, and an entry describing it in the outbox (ADR 0036).
 */
 func (s *Store) Attach(contact ed25519.PublicKey, name string, data []byte, at hlc.Time) (Message, error) {
-	if err := checkFileName(name); err != nil {
+	if err := CheckFileName(name); err != nil {
 		return Message{}, err
 	}
 	if len(data) == 0 || len(data) > MaxFileSize {
@@ -106,32 +97,14 @@ func (s *Store) Attach(contact ed25519.PublicKey, name string, data []byte, at h
 	file.Size, file.SHA256, file.Held, file.Complete = uint64(len(data)), sum[:], uint64(len(data)), true
 
 	id := s.newID()
-	if err := s.writeAll(id, data); err != nil {
+	if err := s.db.Pieces().Write(id[:], data); err != nil {
 		return Message{}, err
 	}
 	m, err := s.add(contact, Message{ID: id, Kind: Attaching, Text: name, File: &file, Time: at})
 	if err != nil {
-		os.Remove(s.filePath(id))
+		s.db.Pieces().Remove(id[:])
 	}
 	return m, err
-}
-
-func (s *Store) writeAll(id [IDSize]byte, data []byte) error {
-	if err := os.MkdirAll(filepath.Join(s.db.Dir, "files"), 0o700); err != nil {
-		return err
-	}
-	out, err := os.OpenFile(s.filePath(id), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	for index := uint64(0); index*Piece < uint64(len(data)); index++ {
-		piece := data[index*Piece : min((index+1)*Piece, uint64(len(data)))]
-		if _, err := out.Write(s.db.Content.Seal(pieceOwner(id, index), piece)); err != nil {
-			out.Close()
-			return err
-		}
-	}
-	return out.Close()
 }
 
 // Read is length bytes of a file this peer holds whole, from offset, which a piece starts at.
@@ -140,29 +113,14 @@ func (s *Store) Read(id [IDSize]byte, offset, length uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !f.Complete || offset%Piece != 0 || offset >= f.Size {
+	if !f.Complete {
 		return nil, ErrNotHeld
 	}
-	in, err := os.Open(s.filePath(id))
-	if err != nil {
+	data, err := s.db.Pieces().Read(id[:], f.Size, offset, length)
+	if errors.Is(err, storage.ErrNoPiece) {
 		return nil, ErrNotHeld
 	}
-	defer in.Close()
-	end := min(offset+length, f.Size)
-	var out []byte
-	for index := offset / Piece; index*Piece < end; index++ {
-		size := min(Piece, f.Size-index*Piece)
-		sealed := make([]byte, size+sealing)
-		if _, err := in.ReadAt(sealed, int64(index*(Piece+sealing))); err != nil {
-			return nil, ErrNotHeld
-		}
-		piece, err := s.db.Content.Open(pieceOwner(id, index), sealed)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, piece...)
-	}
-	return out[:end-offset], nil
+	return data, err
 }
 
 // Open is a reader of a whole file this peer holds, decrypting it a piece at a time.
@@ -171,31 +129,7 @@ func (s *Store) Open(id [IDSize]byte) (io.Reader, File, error) {
 	if err != nil || !f.Complete {
 		return nil, f, ErrNotHeld
 	}
-	return &reader{s: s, id: id, size: f.Size}, f, nil
-}
-
-type reader struct {
-	s      *Store
-	id     [IDSize]byte
-	size   uint64
-	offset uint64
-	held   []byte
-}
-
-func (r *reader) Read(p []byte) (int, error) {
-	if len(r.held) == 0 {
-		if r.offset >= r.size {
-			return 0, io.EOF
-		}
-		piece, err := r.s.Read(r.id, r.offset, Piece)
-		if err != nil {
-			return 0, err
-		}
-		r.held, r.offset = piece, r.offset+uint64(len(piece))
-	}
-	n := copy(p, r.held)
-	r.held = r.held[n:]
-	return n, nil
+	return s.db.Pieces().Reader(id[:], f.Size), f, nil
 }
 
 func (s *Store) file(id [IDSize]byte) (File, error) {
@@ -246,18 +180,7 @@ func (s *Store) Arrived(contact ed25519.PublicKey, id [IDSize]byte, offset uint6
 		uint64(len(data)) != min(Piece, f.Size-offset) {
 		return false, ErrNotHeld
 	}
-	if err := os.MkdirAll(filepath.Join(s.db.Dir, "files"), 0o700); err != nil {
-		return false, err
-	}
-	out, err := os.OpenFile(s.filePath(id), os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return false, err
-	}
-	_, err = out.WriteAt(s.db.Content.Seal(pieceOwner(id, offset/Piece), data), int64(offset/Piece*(Piece+sealing)))
-	if closing := out.Close(); err == nil {
-		err = closing
-	}
-	if err != nil {
+	if err := s.db.Pieces().Put(id[:], offset, data); err != nil {
 		return false, err
 	}
 	held := offset + uint64(len(data))
@@ -277,7 +200,7 @@ func (s *Store) Arrived(contact ed25519.PublicKey, id [IDSize]byte, offset uint6
 		}
 	}
 	_, err = s.db.DB.Exec(`UPDATE files SET held = 0, complete = 0 WHERE id = ?`, id[:])
-	os.Remove(s.filePath(id))
+	s.db.Pieces().Remove(id[:])
 	return false, errors.Join(ErrFile, err)
 }
 
@@ -297,7 +220,7 @@ func (s *Store) Sends(contact ed25519.PublicKey, id [IDSize]byte) bool {
 
 // unfile removes what is kept of a file: once deleted, nobody shows it.
 func (s *Store) unfile(id [IDSize]byte) error {
-	if err := os.Remove(s.filePath(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.db.Pieces().Remove(id[:]); err != nil {
 		return err
 	}
 	_, err := s.db.DB.Exec(`UPDATE files SET held = 0, complete = 0 WHERE id = ?`, id[:])

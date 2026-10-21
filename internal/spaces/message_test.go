@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -16,7 +17,7 @@ import (
 
 func TestAGroupMessageVerifiesWhoeverDeliversIt(t *testing.T) {
 	ana := someone(t, "Ana")
-	m, err := NewMessage(ana, ID{1}, general, 1, hlc.Time{Wall: 7}, []byte("Bom dia"))
+	m, err := NewMessage(ana, ID{1}, general, 1, hlc.Time{Wall: 7}, said("Bom dia"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,17 +27,17 @@ func TestAGroupMessageVerifiesWhoeverDeliversIt(t *testing.T) {
 		t.Fatalf("UnmarshalMessage() = %+v, %v", passed, err)
 	}
 	wiped, err := UnmarshalMessage(m.Wiped().Marshal())
-	if err != nil || wiped.Content != nil || wiped.Digest != m.Digest {
+	if err != nil || wiped.Text != nil || !wiped.Entry.Wiped || wiped.Entry.Text != "" || wiped.Digest != m.Digest {
 		t.Fatalf("a wiped message: %+v, %v", wiped, err)
 	}
-	if m.Content == nil {
+	if m.Text == nil {
 		t.Fatal("Wiped() changed the message it was called on")
 	}
 }
 
 func TestAGroupMessageChangedOnTheWayIsRejected(t *testing.T) {
 	ana, bruno := someone(t, "Ana"), someone(t, "Bruno")
-	m, _ := NewMessage(ana, ID{1}, general, 2, hlc.Time{Wall: 7}, []byte("Bom dia"))
+	m, _ := NewMessage(ana, ID{1}, general, 2, hlc.Time{Wall: 7}, said("Bom dia"))
 	changes := map[string]func(*Message){
 		"space":     func(m *Message) { m.Space = ID{2} },
 		"channel":   func(m *Message) { m.Channel = ChannelID{9} },
@@ -67,6 +68,8 @@ func TestAGroupMessageChangedOnTheWayIsRejected(t *testing.T) {
 		"no key":      func(m *Message) { m.Author = m.Author[:8] },
 		"too long":    func(m *Message) { m.Content = make([]byte, MaxContent+1); m.Digest = sha256.Sum256(m.Content) },
 		"mismatch":    func(m *Message) { m.Content = []byte("outra") },
+		"other text":  func(m *Message) { m.Text = []byte("Boa noite") },
+		"other entry": func(m *Message) { m.Entry.Text = "Boa noite" },
 	}
 	for name, change := range malformed {
 		changed := m
@@ -75,17 +78,17 @@ func TestAGroupMessageChangedOnTheWayIsRejected(t *testing.T) {
 			t.Errorf("%s: Verify() = %v", name, err)
 		}
 	}
-	if _, err := NewMessage(ana, ID{1}, general, 1, hlc.Time{}, make([]byte, MaxContent)); err != nil {
-		t.Errorf("a message of %d bytes: %v", MaxContent, err)
+	long := strings.Repeat("é", 4000)
+	if m, err := NewMessage(ana, ID{1}, general, 1, hlc.Time{}, said(long)); err != nil || m.Entry.Text != long {
+		t.Errorf("a message of 4,000 characters: %v", err)
 	}
-	empty, _ := NewMessage(ana, ID{1}, general, 1, hlc.Time{}, []byte{})
-	if err := empty.Wiped().Verify(); err != nil {
-		t.Errorf("an empty message wiped: %v", err)
+	if _, err := NewMessage(ana, ID{1}, general, 1, hlc.Time{}, said(long+"é")); !errors.Is(err, ErrEntry) {
+		t.Errorf("a message of 4,001 characters = %v", err)
 	}
 }
 
 func TestAGroupMessageOfMalformedLengthsIsRejected(t *testing.T) {
-	m, _ := NewMessage(someone(t, "Ana"), ID{1}, general, 1, hlc.Time{}, []byte("oi"))
+	m, _ := NewMessage(someone(t, "Ana"), ID{1}, general, 1, hlc.Time{}, said("oi"))
 	changes := map[string]func(*conviav1.GroupMessage){
 		"space":   func(w *conviav1.GroupMessage) { w.SpaceId = w.SpaceId[:4] },
 		"channel": func(w *conviav1.GroupMessage) { w.ChannelId = w.ChannelId[:4] },

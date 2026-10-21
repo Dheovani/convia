@@ -12,9 +12,12 @@ export function DeleteDialog({
   onBoth,
   onHere,
   onClose,
+  explanation: told,
 }: {
   mine: boolean;
   delivered: boolean;
+  // explanation says what deleting does, where it is not what it is in a conversation.
+  explanation?: string;
   onBoth: () => void;
   onHere: () => void;
   onClose: () => void;
@@ -32,11 +35,13 @@ export function DeleteDialog({
     else d.setAttribute("open", "");
   }, []);
 
-  const explanation = !mine
-    ? words.deleting.theirs
-    : delivered
-      ? words.deleting.mine
-      : words.deleting.waiting;
+  const explanation = told
+    ? told
+    : !mine
+      ? words.deleting.theirs
+      : delivered
+        ? words.deleting.mine
+        : words.deleting.waiting;
 
   return (
     <dialog

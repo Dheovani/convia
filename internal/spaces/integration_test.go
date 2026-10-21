@@ -140,7 +140,7 @@ func befriend(t *testing.T, a, b *person, address string) {
 func holds(p *person, space spaces.ID, channel spaces.ChannelID, store *storage.Store, text string) bool {
 	held, _ := spaces.NewStore(store).Messages(space, channel)
 	for _, m := range held {
-		if string(m.Content) == text {
+		if m.Entry.Text == text {
 			return true
 		}
 	}
@@ -180,7 +180,7 @@ func TestThreePeopleFormASpaceAndFindOneAnotherThroughIt(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := ana.spaces.Write(g.Space, general, []byte("bem-vindos")); err != nil {
+	if _, err := ana.spaces.Write(g.Space, general, spaces.Say("bem-vindos", nil)); err != nil {
 		t.Fatal(err)
 	}
 	until(t, "Carla holds Ana's welcome", func() bool { return holds(carla, g.Space, general, carlaStore, "bem-vindos") })
@@ -191,7 +191,7 @@ func TestThreePeopleFormASpaceAndFindOneAnotherThroughIt(t *testing.T) {
 	carla.stop()
 	views.Drop()
 	carla = start(t, carlaID, carlaStore, views, address)
-	if _, err := bruno.spaces.Write(g.Space, general, []byte("só nós dois")); err != nil {
+	if _, err := bruno.spaces.Write(g.Space, general, spaces.Say("só nós dois", nil)); err != nil {
 		t.Fatal(err)
 	}
 	until(t, "Carla hears Bruno without Ana", func() bool { return holds(carla, g.Space, general, carlaStore, "só nós dois") })

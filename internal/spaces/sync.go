@@ -78,15 +78,18 @@ func (s *Store) Lacking(id ID, peer ed25519.PublicKey, held []Hash) ([]Operation
 	return out, nil
 }
 
-// Write is content written by me in a channel, after every entry me wrote there.
-func (s *Store) Write(me identity.Identity, id ID, channel ChannelID, content []byte) (Message, error) {
+// Write is e, made by me in a channel, after every entry me made there.
+func (s *Store) Write(me identity.Identity, id ID, channel ChannelID, e Entry) (Message, error) {
 	state, err := s.State(id)
 	if err != nil {
 		return Message{}, err
 	}
 
-	if !state.Sees(me.Public, channel) {
+	if !state.makes(me.Public, channel, e.Kind) {
 		return Message{}, ErrNotReader
+	}
+	if err := s.allows(me.Public, id, channel, e); err != nil {
+		return Message{}, err
 	}
 
 	var sequence uint64
@@ -97,13 +100,19 @@ func (s *Store) Write(me identity.Identity, id ID, channel ChannelID, content []
 		return Message{}, err
 	}
 
-	m, err := NewMessage(me, id, channel, sequence+1, hlc.New(last, s.now).Now(), content)
+	m, err := NewMessage(me, id, channel, sequence+1, hlc.New(last, s.now).Now(), e)
 	if err != nil {
 		return Message{}, err
 	}
-
-	_, err = s.keepMessage(m)
-	return m, err
+	if _, err = s.keepMessage(m); err != nil {
+		return Message{}, err
+	}
+	if e.Kind == Attached {
+		if err := s.record(m); err != nil {
+			return Message{}, err
+		}
+	}
+	return m, s.compact(id, channel)
 }
 
 /*
@@ -118,10 +127,17 @@ func (s *Store) Accept(m Message) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !state.Sees(m.Author, m.Channel) {
+	if !state.makes(m.Author, m.Channel, m.Entry.Kind) {
 		return false, ErrNotReader
 	}
-	return s.keepMessage(m)
+	fresh, err := s.keepMessage(m)
+	if err == nil && fresh && m.Entry.Kind == Attached && !m.Entry.Wiped {
+		err = s.record(m)
+	}
+	if err != nil || !fresh || m.Entry.Kind != Edited && m.Entry.Kind != Deleted {
+		return fresh, err
+	}
+	return true, s.compact(m.Space, m.Channel)
 }
 
 func (s *Store) keepMessage(m Message) (bool, error) {

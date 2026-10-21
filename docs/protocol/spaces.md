@@ -27,6 +27,10 @@ Every change after the genesis is a `SpaceOperation`: version 1, the space's ide
 | `give-role`, `take-role`                           | role, member                                    | administrator |
 | `make-admin`, `unmake-admin`, `transfer-ownership` | member                                          | owner         |
 | `delete-space`                                     | —                                               | owner         |
+| `introduce`                                        | name — the name its author goes by in the space | member        |
+| `restrict-writing`                                 | channel, roles — at most 100, sorted, once each | administrator |
+| `open-writing`                                     | channel                                         | administrator |
+| `mute-member`, `unmute-member`                     | member                                          | administrator |
 
 Channels and roles are named by 16 bytes their creator chooses at random; names are as a space's are.
 
@@ -50,11 +54,26 @@ One that does not is kept, with why, and changes nothing. A deleted role is take
 
 The owner and the administrators see every channel. A member sees an open channel, and a restricted one when they hold one of its roles. Nobody sees a channel of a deleted space.
 
+## Who writes in a channel
+
+Whoever sees a channel reacts in it, unless muted. They write in it — messages, edits, deletions — unless muted, and, in a channel `restrict-writing` limited to roles, only if they hold one of them or are the owner or an administrator ([ADR 0038](../adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)). `open-writing` lets every reader write again. A deleted role is taken from a channel's writers too.
+
+## Moderation
+
+A moderator is the owner, who moderates everyone else, or an administrator, who moderates members; both moderate those no longer in the space ([ADR 0041](../adr/0041-moderators-mute-members-and-delete-their-messages.md)).
+
+- **`mute-member`** is made by a moderator about one they moderate; every member refuses every entry of a member muted, reactions included, until `unmute-member`. A muted member still reads.
+- **A deletion** of another's message counts when its author moderates the message's author, as the space stands when it is read: the message shows as deleted by a moderator, and every member wipes its text. A deletion by anybody else is held, and changes nothing.
+
 ## Group messages
 
-An entry of a channel is a `GroupMessage`: version 1, the space's and the channel's identifiers, its author, the author's sequence number in that channel, from 1, a random 16-byte identifier, a hybrid logical clock moment, its content — at most 64 KiB — and the content's SHA-256, signed by its author. A member verifies the signature of every group message it receives, whoever delivered it, and rejects one that does not verify, or whose content does not match its digest. A message whose content was wiped since is sent without it, and still verifies.
+An entry of a channel is a `GroupMessage`: version 1, the space's and the channel's identifiers, its author, the author's sequence number in that channel, from 1, a random 16-byte identifier, a hybrid logical clock moment, its entry, and the entry's SHA-256, signed by its author; and, beside them, the entry's text.
 
-A message is accepted only if its author is a member who sees its channel at the moment it arrives: a removed member's further messages are refused, and so, since nothing tells them from earlier ones, are the earlier ones a member did not yet hold. Two messages in the same place of an author's sequence, or with the same identifier, are refused as a conflict.
+- **The entry** is a `ChannelEntry` of at most 1 KiB, as its author encoded it: a message, answering the message `reply_to` names if it is set; a `reaction`; an `edit`; or a `deletion` ([ADR 0042](../adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md)). A message or an edit names its text by its SHA-256; a reaction holds its emoji, and a deletion nothing more.
+- **The text** travels beside the entry, and must hash to what the entry says. Once an edit or a deletion supersedes it, every member wipes it ([ADR 0034](../adr/0034-a-message-is-edited-and-deleted-by-its-author.md)), and the entry travels without it, still verifying, still holding its place.
+- **The rules** are a conversation's: a message of 1 to 4,000 characters, a reaction of one emoji, and edits and deletions that count only from the message's author.
+
+A member verifies the signature of every group message it receives, whoever delivered it, and rejects one that does not verify, whose entry the protocol does not allow, or whose text does not match it.
 
 ## Synchronizing
 
@@ -89,3 +108,12 @@ When an administrator adds a person ([ADR 0039](../adr/0039-a-person-joins-a-spa
 Each member announces, at the rendezvous service, its reachability identifier under the current epoch's secret, and watches every other member's, for the day before, the day and the day after ([ADR 0014](../adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)). A member announced is online until its connection is lost.
 
 Each member then connects to a few of the members online ([ADR 0040](../adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)): the online members and itself are ordered by `SHA-256(epoch | identity)`, and it connects to the one before it and the one after it, and to the 2 others whose `SHA-256(SHA-256(epoch | own identity) | identity)` is lowest. A member who writes in a restricted channel also connects to the readers of that channel who are online and not connected, until they have caught up.
+
+## Files
+
+A file in a channel is an entry: a `ChannelEntry` holding `file` — its size, of 1 byte to 100 MB, its type, its SHA-256 and its orientation, as in a conversation ([peers](peers.md)) — whose text is the file's name ([ADR 0043](../adr/0043-a-spaces-files-are-served-by-whoever-holds-them.md)). It answers nothing, and an edit does not rename it; a deletion deletes it, and every member then removes what it holds of it.
+
+- **Pulled:** a picture of at most 10 MB as soon as its entry arrives; any other file only once the member asks for it.
+- **Asked for** a span of at most 1 MiB at a time, with `file_request`, of one member connected who may read the channel and has not said it does not hold it; when none is left, its author is connected to on demand. A member connected again is asked again.
+- **Served** as a conversation's file is, in `file_chunk`s on the channel for files, by any member holding it whole to any member who may read its channel. A member that does not hold it whole, or will not serve it to whoever asked, answers `file_missing`.
+- **Checked** once whole against the SHA-256 its author signed, whoever served it; a file that does not match is dropped, and asked of another.

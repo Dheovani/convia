@@ -74,3 +74,23 @@ each peer                                 the other
 - **Catching up:** once proven, each peer sends `holding`, the highest sequence number of the other's messages it holds with every one before it. The other takes everything up to it out of its outbox, and sends, in order, every message after it.
 - **Delivery:** a message is stored, and in the outbox, before it is shown as sent. It is sent when a connection opens, and again after 30 seconds without an acknowledgement. The recipient answers `acknowledgement` only once the message is stored — again for one it already holds, storing nothing — and the sender then takes it out of the outbox: it is delivered.
 - **Refused:** a message longer than 4,000 characters, empty, not UTF-8, or whose identifier or sequence number another entry already has; a reaction with text, a reply, no message to be on, or anything but one emoji; a file over 100 MB, empty, of another type, or whose name is empty, longer than 255 bytes, or holds a path separator or a control character; an entry of more than one kind, or wiped yet holding text; is neither stored nor acknowledged.
+
+## Renegotiating a proven connection
+
+Once a connection is proven, it is renegotiated over itself rather than through the rendezvous service ([ADR 0015](../adr/0015-calls-and-screen-sharing-ride-the-peer-connection.md)), as when a call adds or removes a track: `renegotiation` carries an `offer`, an `answer` or a `candidate`, as `Signal` carries them before. Each description must hold the fingerprint the connection was proven with, or the connection ends.
+
+Either peer offers when its tracks change, by WebRTC's perfect negotiation: when both offer at once, the peer that answered the connection gives way — it rolls its own offer back and answers the other's — and the peer that offered it ignores the other's offer, and its candidates. An answer to no offer of one's own is ignored, not a reason to end the connection.
+
+## A call
+
+A call between two people is `call` messages over their connection ([ADR 0044](../adr/0044-a-call-rings-for-30-seconds.md)), each naming the call by the 16 random bytes its caller chose:
+
+```text
+caller                                    callee
+ │ ── call: ring (video?) ─────────────────► │   rings for at most 30 seconds
+ │ ◄──────────────── call: accept | decline ─ │   or busy, if in another call
+ │ ◄═══════ tracks, by renegotiation ═══════► │
+ │ ── call: end ───────────────────────────► │   either side, at any time
+```
+
+The caller ends a call nobody answered after 30 seconds with `end`. A step about a call that is not the one in progress is ignored.
