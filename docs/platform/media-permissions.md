@@ -17,11 +17,12 @@ What Wails and WebView2 do when the interface asks for the microphone, the camer
 
 ## Seen on a real machine
 
-Checked in the built application on Windows 11 with the call's interface (M17-006):
+Checked in the built application on Windows 11 with the call's interface (M17-006) and screen sharing (M18):
 
 1. `getUserMedia({ audio: true })` and `({ video: true })` succeed with no prompt, and each side hears and sees the other.
 2. With _Let desktop apps access your microphone_ off, `getUserMedia({ audio: true })` fails with `NotAllowedError`, and the interface says where to allow it.
 3. A call nobody answers stops ringing after 30 seconds: the caller is told nobody answered, and the callee keeps a missed call ([ADR 0044](../adr/0044-a-call-rings-for-30-seconds.md)).
 4. With the window hidden in the tray, a call that rings is told of by a system notification.
-
-Still to see, with screen sharing (M18): `getDisplayMedia()` opens the system's picker; cancelling it fails with `NotAllowedError`; the system's own "stop sharing" control ends the track.
+5. `getDisplayMedia()` opens the system's picker; cancelling it fails with `NotAllowedError`, and nothing is shared.
+6. With the computer's sound chosen, the picker offers sound for a whole screen, and the other side hears it ([ADR 0046](../adr/0046-a-shared-screen-may-carry-the-computers-sound.md)).
+7. The system's own "stop sharing" control ends the track, and the other side stops seeing the screen.

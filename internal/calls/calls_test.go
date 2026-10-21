@@ -370,3 +370,48 @@ func TestEveryCallThatEndsIsLoggedWithItsMoments(t *testing.T) {
 		t.Fatalf("Ana logged %+v", ana.logged)
 	}
 }
+
+func TestAScreenSharedIsToldOfOnlyDuringItsOwnCall(t *testing.T) {
+	l, ana, bruno := pair(t)
+	l.connect(ana, bruno)
+	if err := ana.s.Share("s1"); !errors.Is(err, ErrNoCall) {
+		t.Fatalf("Share() with no call = %v", err)
+	}
+	ana.s.Call(bruno.key, false)
+	l.settle()
+	if err := ana.s.Share("s1"); !errors.Is(err, ErrNoCall) {
+		t.Fatalf("Share() while ringing = %v", err)
+	}
+	bruno.s.Message(ana.key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Screen{Screen: &conviav1.Screen{Call: ana.s.Current().ID[:], Stream: "s0"}}})
+	if bruno.last().Screen != "" {
+		t.Fatal("a screen was shown on a call still ringing")
+	}
+	bruno.s.Accept()
+	l.settle()
+	if err := ana.s.Share("s1"); err != nil {
+		t.Fatal(err)
+	}
+	l.settle()
+	if got := bruno.s.Current(); got == nil || got.Screen != "s1" || bruno.last().Screen != "s1" {
+		t.Fatalf("Bruno sees %+v", got)
+	}
+	if ana.s.Current().Screen != "" {
+		t.Fatal("Ana is told of her own screen")
+	}
+
+	// A screen named for another call, or by somebody else, is ignored.
+	id := ana.s.Current().ID
+	id[0]++
+	bruno.s.Message(ana.key, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Screen{Screen: &conviav1.Screen{Call: id[:], Stream: "s2"}}})
+	other, _, _ := ed25519.GenerateKey(nil)
+	bruno.s.Message(other, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Screen{Screen: &conviav1.Screen{Call: ana.s.Current().ID[:], Stream: "s3"}}})
+	if got := bruno.s.Current().Screen; got != "s1" {
+		t.Fatalf("Screen = %q", got)
+	}
+
+	ana.s.Share("")
+	l.settle()
+	if got := bruno.s.Current().Screen; got != "" {
+		t.Fatalf("Screen after sharing stopped = %q", got)
+	}
+}

@@ -8,6 +8,7 @@ export namespace app {
 	    state: string;
 	    outcome?: string;
 	    since: number;
+	    screen?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CallView(source);
@@ -22,6 +23,7 @@ export namespace app {
 	        this.state = source["state"];
 	        this.outcome = source["outcome"];
 	        this.since = source["since"];
+	        this.screen = source["screen"];
 	    }
 	}
 	export class CalledView {

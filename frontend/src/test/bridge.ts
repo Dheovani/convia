@@ -64,6 +64,7 @@ export const bridge = Object.fromEntries(
     "DeclineCall",
     "HangUp",
     "CallConnection",
+    "ShareScreen",
     "SpaceMembers",
     "SpaceRoles",
     "RenameSpace",

@@ -16,14 +16,21 @@ vi.mock(
 class FakeTrack {
   enabled = true;
   stopped = false;
+  ended?: () => void;
   constructor(readonly kind: string) {}
   stop() {
     this.stopped = true;
   }
+  addEventListener(_: "ended", listener: () => void) {
+    this.ended = listener;
+  }
 }
+
+let streams = 0;
 
 class FakeStream {
   tracks: FakeTrack[];
+  id = `stream${++streams}`;
   constructor(tracks: FakeTrack[] = []) {
     this.tracks = [...tracks];
   }
@@ -46,7 +53,8 @@ class FakeStream {
 
 const sent: string[] = [];
 const fake = {
-  track: undefined as unknown,
+  track: undefined as
+    ((id: string, track: FakeTrack, streams: FakeStream[]) => void) | undefined,
   addTrack: (id: string, t: FakeTrack) => sent.push(`add ${id} ${t.kind}`),
   removeTrack: (id: string, t: FakeTrack) =>
     sent.push(`remove ${id} ${t.kind}`),
@@ -55,6 +63,7 @@ vi.mock("../transport/wails", () => ({ transport: () => fake }));
 
 let opened: FakeTrack[];
 let refuse: string | null;
+let picked: DisplayMediaStreamOptions[];
 
 beforeEach(() => {
   reset();
@@ -62,6 +71,7 @@ beforeEach(() => {
   sent.length = 0;
   opened = [];
   refuse = null;
+  picked = [];
   vi.stubGlobal("MediaStream", FakeStream);
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
@@ -71,6 +81,14 @@ beforeEach(() => {
         const track = new FakeTrack(c.audio ? "audio" : "video");
         opened.push(track);
         return Promise.resolve(new FakeStream([track]));
+      },
+      getDisplayMedia: (o: DisplayMediaStreamOptions) => {
+        picked.push(o);
+        if (refuse) return Promise.reject(new DOMException("no", refuse));
+        const tracks = [new FakeTrack("video")];
+        if (o.audio) tracks.push(new FakeTrack("audio"));
+        opened.push(...tracks);
+        return Promise.resolve(new FakeStream(tracks));
       },
     },
   });
@@ -160,4 +178,74 @@ test("a microphone Windows does not let Convia use is said so, with where to all
       "Windows does not let Convia use the microphone: allow desktop apps in Settings › Privacy & security.",
     ),
   ).toBeTruthy();
+});
+
+test("a screen is shared with the computer's sound if chosen, and stops from the interface or the system", async () => {
+  open();
+  emit("call", call({ state: "active" }));
+  await waitFor(() => expect(sent).toEqual(["add c1 audio"]));
+
+  fireEvent.click(screen.getByLabelText("With the computer's sound"));
+  fireEvent.click(screen.getByRole("button", { name: "Share screen" }));
+  await waitFor(() => expect(calls.ShareScreen).toHaveLength(1));
+  expect(picked[0].audio).toBe(true);
+  expect(sent.slice(1)).toEqual(["add c1 video", "add c1 audio"]);
+  const stream = calls.ShareScreen[0][0];
+  expect(stream).toMatch(/^stream/);
+  expect(
+    screen.getByText("Microphone on · screen and sound shared"),
+  ).toBeTruthy();
+  expect(screen.getByLabelText("With the computer's sound")).toHaveProperty(
+    "disabled",
+    true,
+  );
+
+  // The system's own control stops it.
+  opened[1].ended?.();
+  await waitFor(() => expect(calls.ShareScreen.at(-1)).toEqual([""]));
+  expect(sent.slice(3)).toEqual(["remove c1 video", "remove c1 audio"]);
+  expect(opened[1].stopped && opened[2].stopped).toBe(true);
+
+  // Without sound, and stopped from the interface.
+  fireEvent.click(screen.getByLabelText("With the computer's sound"));
+  fireEvent.click(screen.getByRole("button", { name: "Share screen" }));
+  await waitFor(() => expect(calls.ShareScreen).toHaveLength(3));
+  expect(picked[1].audio).toBe(false);
+  expect(screen.getByText("Microphone on · screen shared")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Stop sharing" }));
+  await waitFor(() => expect(calls.ShareScreen.at(-1)).toEqual([""]));
+  expect(sent.at(-1)).toBe("remove c1 video");
+});
+
+test("closing the system's picker shares nothing and says nothing", async () => {
+  open();
+  emit("call", call({ state: "active" }));
+  await waitFor(() => expect(sent).toEqual(["add c1 audio"]));
+  refuse = "NotAllowedError";
+  fireEvent.click(screen.getByRole("button", { name: "Share screen" }));
+  await waitFor(() => expect(picked).toHaveLength(1));
+  expect(calls.ShareScreen ?? []).toHaveLength(0);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("the other side's screen is shown apart from their camera", async () => {
+  open();
+  emit("call", call({ state: "active" }));
+  await waitFor(() => expect(sent).toEqual(["add c1 audio"]));
+  const voice = new FakeStream();
+  const shown = new FakeStream();
+  fake.track?.("c1", new FakeTrack("audio"), [voice]);
+  fake.track?.("c1", new FakeTrack("video"), [shown]);
+  const theirScreen = screen.getByLabelText("Ana's screen");
+  expect(theirScreen.className).toContain("hidden");
+
+  emit("call", call({ state: "active", screen: shown.id }));
+  await waitFor(() => expect(theirScreen.className).not.toContain("hidden"));
+  expect((theirScreen as HTMLVideoElement).srcObject).toBe(shown);
+  expect(
+    (screen.getByLabelText("Ana's camera") as HTMLVideoElement).srcObject,
+  ).toBe(voice);
+
+  emit("call", call({ state: "active" }));
+  await waitFor(() => expect(theirScreen.className).toContain("hidden"));
 });
