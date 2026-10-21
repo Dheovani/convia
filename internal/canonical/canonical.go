@@ -1,7 +1,9 @@
-// Package canonical encodes what Convia signs, byte for byte, as docs/protocol/canonical-encodings.md specifies.
+// Package canonical encodes what Convia signs and derives, byte for byte, as docs/protocol/canonical-encodings.md specifies.
 package canonical
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/binary"
 	"strings"
 )
@@ -10,6 +12,12 @@ const (
 	PeerAuthDomain       = "convia/v1/peer-auth"
 	RendezvousAuthDomain = "convia/v1/rendezvous-auth"
 	InvitationDomain     = "convia/v1/invitation"
+	PairSecretDomain     = "convia/v1/pair-secret"
+	ReachabilityDomain   = "convia/v1/reachability"
+	SpaceGenesisDomain   = "convia/v1/space-genesis"
+	SpaceOperationDomain = "convia/v1/space-operation"
+	GroupMessageDomain   = "convia/v1/group-message"
+	SpaceSecretDomain    = "convia/v1/space-secret"
 )
 
 // Role is a peer's part in a WebRTC negotiation.
@@ -36,6 +44,9 @@ func Encode(fields ...[]byte) []byte {
 
 // Uint32 is v as four big-endian bytes.
 func Uint32(v uint32) []byte { return binary.BigEndian.AppendUint32(nil, v) }
+
+// Uint64 is v as eight big-endian bytes.
+func Uint64(v uint64) []byte { return binary.BigEndian.AppendUint64(nil, v) }
 
 // Fingerprint normalizes a DTLS fingerprint from a session description: "sha-256 AB:CD:...".
 func Fingerprint(sdpValue string) string {
@@ -69,4 +80,67 @@ func RendezvousAuth(serviceAddress string, challenge []byte) []byte {
 // Invitation is what an inviter signs: the invitation's version, identity, suggested name and rendezvous hint.
 func Invitation(version uint32, identity []byte, name, rendezvousHint string) []byte {
 	return Encode([]byte(InvitationDomain), Uint32(version), identity, []byte(name), []byte(rendezvousHint))
+}
+
+// PairSecret is the secret two contacts share, from the random part each contributed when they became contacts (ADR 0012).
+func PairSecret(requester, inviter, requesterPart, inviterPart []byte) []byte {
+	sum := sha256.Sum256(Encode([]byte(PairSecretDomain), requester, inviter, requesterPart, inviterPart))
+	return sum[:]
+}
+
+// Reachability is the identifier under which announcer is reachable on day, counted in whole UTC days since 1970.
+func Reachability(secret, announcer []byte, day uint32) []byte {
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(Encode([]byte(ReachabilityDomain), announcer, Uint32(day)))
+	return mac.Sum(nil)
+}
+
+// SpaceGenesis is what a space's creator signs to begin it (ADR 0013): its creation is a hybrid logical clock moment.
+func SpaceGenesis(version uint32, space, creator []byte, name string, wall int64, counter uint32) []byte {
+	return Encode([]byte(SpaceGenesisDomain), Uint32(version), space, creator, []byte(name), Uint64(uint64(wall)), Uint32(counter))
+}
+
+// SpaceOperation is what the author of a change to a space signs (ADR 0013): a list is its count, then its items.
+func SpaceOperation(
+	version uint32,
+	space,
+	id,
+	author []byte,
+	wall int64,
+	counter uint32,
+	parents [][]byte,
+	kind string,
+	channel,
+	role,
+	member []byte,
+	name string,
+	roles [][]byte,
+) []byte {
+	fields := [][]byte{[]byte(SpaceOperationDomain), Uint32(version), space, id, author, Uint64(uint64(wall)), Uint32(counter),
+		Uint32(uint32(len(parents)))}
+	fields = append(fields, parents...)
+	fields = append(fields, []byte(kind), channel, role, member, []byte(name), Uint32(uint32(len(roles))))
+	fields = append(fields, roles...)
+	return Encode(fields...)
+}
+
+// GroupMessage is what the author of an entry in a space's channel signs (ADR 0013): the digest is the content's SHA-256.
+func GroupMessage(
+	version uint32,
+	space,
+	channel,
+	author []byte,
+	sequence uint64,
+	id []byte,
+	wall int64,
+	counter uint32,
+	digest []byte,
+) []byte {
+	return Encode([]byte(GroupMessageDomain), Uint32(version), space, channel, author, Uint64(sequence), id,
+		Uint64(uint64(wall)), Uint32(counter), digest)
+}
+
+// SpaceSecret is what an owner or administrator signs to give a space's epoch its discovery secret (ADR 0014).
+func SpaceSecret(version uint32, space, epoch, author, secret []byte) []byte {
+	return Encode([]byte(SpaceSecretDomain), Uint32(version), space, epoch, author, secret)
 }

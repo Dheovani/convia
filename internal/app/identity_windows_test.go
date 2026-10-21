@@ -1,12 +1,18 @@
 package app
 
 import (
+	"crypto/rand"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"golang.org/x/sys/windows/registry"
+
+	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
+	"github.com/Dheovani/convia/internal/invitation"
+	"github.com/Dheovani/convia/internal/messages"
 	"github.com/Dheovani/convia/internal/protect"
 )
 
@@ -119,5 +125,75 @@ func TestRefusalsCrossTheBridgeAsCodes(t *testing.T) {
 	other := errors.New("disk full")
 	if got := refusal(other); got != other {
 		t.Errorf("an unknown error became %v", got)
+	}
+}
+
+func TestContactRefusalsCrossTheBridgeAsCodes(t *testing.T) {
+	for err, code := range map[error]Refusal{
+		invitation.ErrChecksum:  "invitation-checksum",
+		invitation.ErrMalformed: "invitation-malformed",
+		invitation.ErrVersion:   "invitation-newer",
+		invitation.ErrSignature: "invitation-signature",
+		contacts.ErrYourself:    "invitation-yours",
+		contacts.ErrContact:     "already-contact",
+		contacts.ErrBlocked:     "blocked",
+		contacts.ErrNoSuch:      "no-such-contact",
+		identity.ErrName:        "name",
+	} {
+		if got := contactRefusal(err); got != code {
+			t.Errorf("contactRefusal(%v) = %v, want %q", err, got, code)
+		}
+	}
+}
+
+func TestContactsNeedAnIdentity(t *testing.T) {
+	b := &Bridge{network: NewNetwork("", nil)}
+	if _, err := b.Contacts(); err != Refusal("no-identity") {
+		t.Fatalf("Contacts without an identity: %v", err)
+	}
+	if err := b.AcceptRequest("00"); err != Refusal("no-identity") {
+		t.Fatalf("AcceptRequest without an identity: %v", err)
+	}
+}
+
+func TestMessageRefusalsCrossTheBridgeAsCodes(t *testing.T) {
+	for err, code := range map[error]Refusal{
+		messages.ErrTooLong:    "message-too-long",
+		messages.ErrEmpty:      "message-empty",
+		messages.ErrNotContact: "no-such-contact",
+		contacts.ErrNoSuch:     "no-such-contact",
+	} {
+		if got := messageRefusal(err); got != code {
+			t.Errorf("messageRefusal(%v) = %v, want %q", err, got, code)
+		}
+	}
+	b := &Bridge{network: NewNetwork("", nil)}
+	if _, err := b.SendMessage("00", "hi", ""); err != Refusal("no-identity") {
+		t.Fatalf("SendMessage without an identity: %v", err)
+	}
+}
+
+func TestOnlyAWebAddressIsOpened(t *testing.T) {
+	b := &Bridge{network: NewNetwork("", nil)}
+	for _, address := range []string{"javascript:alert(1)", "file:///C:/Windows/system32", "data:text/html,x", "convia://x", "https://", "notaurl", "ms-settings:privacy"} {
+		if err := b.OpenLink(address); !errors.Is(err, errNotALink) {
+			t.Errorf("OpenLink(%q) = %v", address, err)
+		}
+	}
+}
+
+func TestNotificationsAreNamedConvia(t *testing.T) {
+	path := `Software\ConviaTest\` + rand.Text()
+	t.Cleanup(func() { registry.DeleteKey(registry.CURRENT_USER, path) })
+	if err := nameApplication(path, "Convia"); err != nil {
+		t.Fatal(err)
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER, path, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	if name, _, err := key.GetStringValue("DisplayName"); err != nil || name != "Convia" {
+		t.Fatalf("DisplayName = %q, %v", name, err)
 	}
 }

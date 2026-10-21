@@ -19,7 +19,7 @@ The repository, the stack and the rules every change is held to.
 - [x] **M01-007:** Enforce the dependency license policy ([ADR 0003](docs/adr/0003-dependencies-carry-permissive-licenses.md)).
 - [x] **M01-008:** Say how vulnerabilities are reported (SECURITY.md) and how changes are made (CONTRIBUTING.md).
 - [x] **M01-009:** Decide the proposed license exception for build-time tools in ADR 0003.
-- [ ] **M01-010:** Run mutation testing periodically and before releases, on the critical packages, once the first of them exists.
+- [x] **M01-010:** Run mutation testing periodically and before releases, on the critical packages, once the first of them exists.
 - [x] **M01-011:** Carry over the interface's design from before the reset: the theme, the mark and the icon, the shared controls, and the choice of language.
 
 ### M02 — The decisions before the first conversation
@@ -158,7 +158,7 @@ One `RTCPeerConnection` per pair of peers, in the WebView, orchestrated by the c
 - [x] **M09-008:** Reconnect accordingly, including after the page reloads.
 - [x] **M09-009:** Decide how the transport is tested: the WebView's connection cannot be exercised by `go test`.
 - [x] **M09-010:** Test the handshake in Go with the transport replaced, including every way it can be forged or replayed.
-- [ ] **M09-011:** Test a real connection between two instances, on one machine and across two networks.
+- [x] **M09-011:** Test a real connection between two instances, on one machine and across two networks.
 
 ### M10 — Invitations and contacts
 
@@ -166,17 +166,17 @@ How two people first find each other ([ADR 0005](docs/adr/0005-peers-connect-ove
 
 **Depends on:** M09.
 
-- [ ] **M10-001:** Encode and decode invitations — version, identity, suggested name, rendezvous hint, signature — as Bech32m with the prefix `convia`.
-- [ ] **M10-002:** Refuse an invitation whose checksum or signature does not verify, and say why.
-- [ ] **M10-003:** Decide whether accepting an invitation needs the inviter's consent before the two become contacts, and what the inviter sees.
-- [ ] **M10-004:** Add a contact from a pasted invitation, connect, and agree on the pair's secret when they first connect.
-- [ ] **M10-005:** Derive the pair's rotating reachability identifiers, announce them, and subscribe to them.
-- [ ] **M10-006:** Show the safety code of a contact, and let the person mark the contact as verified.
-- [ ] **M10-007:** Decide what happens when a contact's identity changes — an identity imported anew, a key that no longer matches.
-- [ ] **M10-008:** Decide how a person removes or blocks a contact, and what the other side learns.
-- [ ] **M10-009:** Build it.
-- [ ] **M10-010:** Fuzz the invitation decoder.
-- [ ] **M10-011:** Tell the person when a contact has to update Convia to talk to them, or they do ([ADR 0008](docs/adr/0008-the-protocol-between-peers.md)).
+- [x] **M10-001:** Encode and decode invitations — version, identity, suggested name, rendezvous hint, signature — as Bech32m with the prefix `convia`.
+- [x] **M10-002:** Refuse an invitation whose checksum or signature does not verify, and say why.
+- [x] **M10-003:** Decide whether accepting an invitation needs the inviter's consent before the two become contacts, and what the inviter sees.
+- [x] **M10-004:** Add a contact from a pasted invitation, connect, and agree on the pair's secret when they first connect.
+- [x] **M10-005:** Derive the pair's rotating reachability identifiers, announce them, and subscribe to them.
+- [x] **M10-006:** Show the safety code of a contact, and let the person mark the contact as verified.
+- [x] **M10-007:** Decide what happens when a contact's identity changes — an identity imported anew, a key that no longer matches.
+- [x] **M10-008:** Decide how a person removes or blocks a contact, and what the other side learns.
+- [x] **M10-009:** Build it.
+- [x] **M10-010:** Fuzz the invitation decoder.
+- [x] **M10-011:** Tell the person when a contact has to update Convia to talk to them, or they do ([ADR 0008](docs/adr/0008-the-protocol-between-peers.md)).
 
 ## Phase 4 — Conversations between two people
 
@@ -188,15 +188,15 @@ The conversation itself ([ADR 0010](docs/adr/0010-a-conversation-is-kept-on-each
 
 **Depends on:** M10.
 
-- [ ] **M11-001:** Give every message a 16-byte random identifier, its sender's sequence number and a hybrid logical clock timestamp.
-- [ ] **M11-002:** Order a conversation by timestamp, then identifier, identically on both peers.
-- [ ] **M11-003:** Store a message before showing it as sent, and keep the outbox in storage, so that waiting messages survive restarts of the application and the machine.
-- [ ] **M11-004:** Send waiting messages when the contact becomes reachable, and retransmit until acknowledged.
-- [ ] **M11-005:** Acknowledge a message only after storing it, and acknowledge again, storing nothing, a message already held.
-- [ ] **M11-006:** Catch up on reconnection by each sender's highest sequence number.
-- [ ] **M11-007:** Decide the largest message, and what happens to a larger one.
-- [ ] **M11-008:** Show each message as waiting, sent or delivered.
-- [ ] **M11-009:** Test ordering, idempotency and catching up with property-based tests: many orders of arrival, duplicates and interruptions, one result.
+- [x] **M11-001:** Give every message a 16-byte random identifier, its sender's sequence number and a hybrid logical clock timestamp.
+- [x] **M11-002:** Order a conversation by timestamp, then identifier, identically on both peers.
+- [x] **M11-003:** Store a message before showing it as sent, and keep the outbox in storage, so that waiting messages survive restarts of the application and the machine.
+- [x] **M11-004:** Send waiting messages when the contact becomes reachable, and retransmit until acknowledged.
+- [x] **M11-005:** Acknowledge a message only after storing it, and acknowledge again, storing nothing, a message already held.
+- [x] **M11-006:** Catch up on reconnection by each sender's highest sequence number.
+- [x] **M11-007:** Decide the largest message, and what happens to a larger one.
+- [x] **M11-008:** Show each message as waiting, sent or delivered.
+- [x] **M11-009:** Test ordering, idempotency and catching up with property-based tests: many orders of arrival, duplicates and interruptions, one result.
 
 ### M12 — The workspace and the conversation view
 
@@ -204,17 +204,17 @@ The Discord-like window where conversations happen ([`README.md`](README.md)).
 
 **Depends on:** M11.
 
-- [ ] **M12-001:** Lay out the workspace: the rail, the sidebar and the conversation, from the design carried over in M01-011.
-- [ ] **M12-002:** List conversations, open one, and show its history.
-- [ ] **M12-003:** Write and send messages.
-- [ ] **M12-004:** Decide how messages are formatted — plain text, Markdown, and which of it — and how links are shown.
-- [ ] **M12-005:** Decide whether link previews exist, given that fetching one reveals the reader to the linked site.
-- [ ] **M12-006:** Decide whether unread counts, read receipts and typing indicators exist, and which travel between peers.
-- [ ] **M12-007:** Decide whether the interface shows that a contact is online, given that reachability does not have to be shown ([ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
-- [ ] **M12-008:** Decide how a hidden Convia tells the person something arrived — Windows notifications, the icon, both — and what a notification may reveal.
-- [ ] **M12-009:** Build what those decisions keep.
-- [ ] **M12-010:** Meet WCAG 2.2 AA throughout, including keyboard navigation, as the theme's contrast test already requires of colour.
-- [ ] **M12-011:** Speak English and Brazilian Portuguese everywhere, with every phrase translated.
+- [x] **M12-001:** Lay out the workspace: the rail, the sidebar and the conversation, from the design carried over in M01-011.
+- [x] **M12-002:** List conversations, open one, and show its history.
+- [x] **M12-003:** Write and send messages.
+- [x] **M12-004:** Decide how messages are formatted — plain text, Markdown, and which of it — and how links are shown.
+- [x] **M12-005:** Decide whether link previews exist, given that fetching one reveals the reader to the linked site.
+- [x] **M12-006:** Decide whether unread counts, read receipts and typing indicators exist, and which travel between peers.
+- [x] **M12-007:** Decide whether the interface shows that a contact is online, given that reachability does not have to be shown ([ADR 0014](docs/adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)).
+- [x] **M12-008:** Decide how a hidden Convia tells the person something arrived — Windows notifications, the icon, both — and what a notification may reveal.
+- [x] **M12-009:** Build what those decisions keep.
+- [x] **M12-010:** Meet WCAG 2.2 AA throughout, including keyboard navigation, as the theme's contrast test already requires of colour.
+- [x] **M12-011:** Speak English and Brazilian Portuguese everywhere, with every phrase translated.
 
 ### M13 — More of a conversation
 
@@ -222,12 +222,12 @@ What people expect of a conversation beyond writing to each other.
 
 **Depends on:** M12.
 
-- [ ] **M13-001:** Decide editing a message: whether, until when, and what the other side keeps of the earlier text ([ADR 0010](docs/adr/0010-a-conversation-is-kept-on-each-peer.md)).
-- [ ] **M13-002:** Decide deleting a message: for oneself, and asking the other side to delete it too.
-- [ ] **M13-003:** Decide replies and reactions.
-- [ ] **M13-004:** Decide sending files and images: which channel carries them, the largest, whether they wait for an offline peer, and how they are stored.
-- [ ] **M13-005:** Decide searching history, given that content is encrypted on disk.
-- [ ] **M13-006:** Build what those decisions keep.
+- [x] **M13-001:** Decide editing a message: whether, until when, and what the other side keeps of the earlier text ([ADR 0010](docs/adr/0010-a-conversation-is-kept-on-each-peer.md)).
+- [x] **M13-002:** Decide deleting a message: for oneself, and asking the other side to delete it too.
+- [x] **M13-003:** Decide replies and reactions.
+- [x] **M13-004:** Decide sending files and images: which channel carries them, the largest, whether they wait for an offline peer, and how they are stored.
+- [x] **M13-005:** Decide searching history, given that content is encrypted on disk.
+- [x] **M13-006:** Build what those decisions keep.
 
 ## Phase 5 — Spaces
 
@@ -239,15 +239,15 @@ The space as replicated, signed state.
 
 **Depends on:** M11.
 
-- [ ] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles.
-- [ ] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
-- [ ] **M14-003:** Represent every administrative change as a signed operation that names, by hash, the latest operations its author had seen.
-- [ ] **M14-004:** Order operations identically on every member: causes first, then timestamp, then identifier.
-- [ ] **M14-005:** Apply an operation only if its author held the authority it needs in the state before it; keep and show one that did not.
-- [ ] **M14-006:** Transfer ownership.
-- [ ] **M14-007:** Enforce the limit of 50 members.
-- [ ] **M14-008:** Test convergence with property-based tests: any order of arrival, concurrent operations and revocations, one state.
-- [ ] **M14-009:** Bring the space's packages under mutation testing (M01-010).
+- [x] **M14-001:** Decide the roles and permissions a space has — what an owner, an administrator, a member and any other role may do — and how a channel's visibility is restricted to roles ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
+- [x] **M14-002:** Create a space with a genesis signed by its creator, and an identifier of its own.
+- [x] **M14-003:** Represent every administrative change as a signed operation that names, by hash, the latest operations its author had seen.
+- [x] **M14-004:** Order operations identically on every member: causes first, then timestamp, then identifier.
+- [x] **M14-005:** Apply an operation only if its author held the authority it needs in the state before it; keep and show one that did not.
+- [x] **M14-006:** Transfer ownership.
+- [x] **M14-007:** Enforce the limit of 50 members.
+- [x] **M14-008:** Test convergence with property-based tests: any order of arrival, concurrent operations and revocations, one state.
+- [x] **M14-009:** Bring the space's packages under mutation testing (M01-010).
 
 ### M15 — Replicating a space
 
@@ -255,26 +255,29 @@ How members carry a space's content to one another.
 
 **Depends on:** M14.
 
-- [ ] **M15-001:** Sign every group message with its author's key over every security-relevant field, encoded canonically.
-- [ ] **M15-002:** Verify a group message's signature whoever delivered it, and reject one that does not verify.
-- [ ] **M15-003:** Compare, author by author, how far each member holds a channel, and supply what another is missing.
-- [ ] **M15-004:** Send or synchronize content only to members allowed to read that channel at that moment.
-- [ ] **M15-005:** Give a new member the existing history of every channel they may read.
-- [ ] **M15-006:** On a removal, stop sending the removed member anything and reject their further actions.
-- [ ] **M15-007:** Keep the space's discovery secret per epoch, advance the epoch on every change that revokes access, and give the new secret only to current members.
-- [ ] **M15-008:** Decide how a person is invited into a space: the form of the invitation, who may issue one, and whether it is used once.
-- [ ] **M15-009:** Decide how members choose which other members to connect to, so that 50 members do not each hold 49 connections ([ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md)).
-- [ ] **M15-010:** Build it.
+- [x] **M15-001:** Sign every group message with its author's key over every security-relevant field, encoded canonically.
+- [x] **M15-002:** Verify a group message's signature whoever delivered it, and reject one that does not verify.
+- [x] **M15-003:** Compare, author by author, how far each member holds a channel, and supply what another is missing.
+- [x] **M15-004:** Send or synchronize content only to members allowed to read that channel at that moment.
+- [x] **M15-005:** Give a new member the existing history of every channel they may read.
+- [x] **M15-006:** On a removal, stop sending the removed member anything and reject their further actions.
+- [x] **M15-007:** Keep the space's discovery secret per epoch, advance the epoch on every change that revokes access, and give the new secret only to current members.
+- [x] **M15-008:** Decide how a person is invited into a space: the form of the invitation, who may issue one, and whether it is used once ([ADR 0039](docs/adr/0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md)).
+- [x] **M15-009:** Decide how members choose which other members to connect to, so that 50 members do not each hold 49 connections ([ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md), [ADR 0040](docs/adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)).
+- [x] **M15-010:** Build it.
 
 ### M16 — Spaces in the interface
 
 **Depends on:** M12, M15.
 
-- [ ] **M16-001:** Show spaces in the rail, their channels in the sidebar, and a channel's conversation.
-- [ ] **M16-002:** Show a space's members and their roles.
-- [ ] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
-- [ ] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels.
-- [ ] **M16-005:** Build it.
+- [x] **M16-001:** Show spaces in the rail, their channels in the sidebar, and a channel's conversation ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md)).
+- [x] **M16-002:** Show a space's members and their roles.
+- [x] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
+- [x] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels ([ADR 0041](docs/adr/0041-moderators-mute-members-and-delete-their-messages.md)).
+- [x] **M16-005:** Build it.
+- [x] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
+- [x] **M16-007:** Decide how files travel in a space: who serves them, and to whom ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md), [ADR 0043](docs/adr/0043-a-spaces-files-are-served-by-whoever-holds-them.md)).
+- [x] **M16-008:** Build it.
 
 ## Phase 6 — Calls and screen sharing
 
@@ -284,12 +287,12 @@ Voice, video and screen sharing over the peer connection ([ADR 0015](docs/adr/00
 
 **Depends on:** M12.
 
-- [ ] **M17-001:** Verify how Wails and WebView2 handle the permission requests for the microphone, the camera and the screen, and record what was found.
-- [ ] **M17-002:** Define the messages of a call's lifecycle — calling, accepting, declining, ending — in the protocol.
-- [ ] **M17-003:** Add and remove audio and camera tracks on the existing connection with perfect negotiation, over the authenticated data channel.
-- [ ] **M17-004:** Decide how long a call rings, and what the callee sees when hidden.
-- [ ] **M17-005:** Let a person choose their microphone, camera and speakers, and mute or turn the camera off.
-- [ ] **M17-006:** Build the call's interface.
+- [x] **M17-001:** Verify how Wails and WebView2 handle the permission requests for the microphone, the camera and the screen, and record what was found ([media permissions](docs/platform/media-permissions.md)).
+- [x] **M17-002:** Define the messages of a call's lifecycle — calling, accepting, declining, ending — in the protocol.
+- [x] **M17-003:** Add and remove audio and camera tracks on the existing connection with perfect negotiation, over the authenticated data channel.
+- [x] **M17-004:** Decide how long a call rings, and what the callee sees when hidden ([ADR 0044](docs/adr/0044-a-call-rings-for-30-seconds.md)).
+- [x] **M17-005:** Let a person choose their microphone, camera and speakers, and mute or turn the camera off.
+- [x] **M17-006:** Build the call's interface.
 
 ### M18 — Screen sharing
 
@@ -364,4 +367,5 @@ Not planned yet, each recorded where it was left open:
 - **Several devices per person**, which [ADR 0004](docs/adr/0004-a-person-is-a-key-their-application-made.md) leaves room for.
 - **macOS and Linux**, which [ADR 0001](docs/adr/0001-a-go-core-in-a-wails-window-for-windows.md) defers.
 - **Encryption above DTLS**, which [ADR 0009](docs/adr/0009-the-cryptography.md) reconsiders if a message could pass through anything but a session between members.
+- **Link previews**, fetched only by their sender, which [ADR 0031](docs/adr/0031-link-previews-may-come-later.md) allows and leaves for later.
 - **Spaces larger than 50, and calls larger than a mesh carries**, which [ADR 0013](docs/adr/0013-a-space-is-replicated-by-its-members.md) and [ADR 0015](docs/adr/0015-calls-and-screen-sharing-ride-the-peer-connection.md) limit for now.

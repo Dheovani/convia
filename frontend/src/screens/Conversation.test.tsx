@@ -1,0 +1,399 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, expect, test, vi } from "vitest";
+import { answers, calls, reset } from "../test/bridge";
+import { emit, resetEvents } from "../test/runtime";
+import { Conversation, MaxCharacters } from "./Conversation";
+
+vi.mock(
+  "../../wailsjs/go/app/Bridge",
+  async () => (await import("../test/bridge")).bridge,
+);
+vi.mock(
+  "../../wailsjs/runtime/runtime",
+  async () => (await import("../test/runtime")).runtime,
+);
+
+const bruno = {
+  publicKey: "bb".repeat(32),
+  name: "Bruno",
+  verified: false,
+  safetyCode: "1",
+};
+
+const said = [
+  { id: "01", mine: true, text: "waits", status: "waiting", at: 1 },
+  { id: "02", mine: true, text: "went", status: "sent", at: 2 },
+  { id: "03", mine: true, text: "arrived", status: "delivered", at: 3 },
+  { id: "04", mine: false, text: "an answer", status: "received", at: 4 },
+];
+
+beforeEach(() => {
+  reset();
+  resetEvents();
+  answers.Conversation = () => Promise.resolve(said);
+  answers.SendMessage = () => Promise.resolve(said[0]);
+});
+
+function open() {
+  render(<Conversation contact={bruno} meName="Ana" />);
+}
+
+test("each message of ours says whether it waits, went or arrived", async () => {
+  open();
+  expect(await screen.findByText("an answer")).toBeTruthy();
+  expect(screen.getByText("Waiting")).toBeTruthy();
+  expect(screen.getByText("Sent")).toBeTruthy();
+  expect(screen.getByText("Delivered")).toBeTruthy();
+});
+
+test("Enter sends, and Shift+Enter does not", async () => {
+  open();
+  const field = await screen.findByLabelText("Message to Bruno");
+  fireEvent.change(field, { target: { value: "hello" } });
+  fireEvent.keyDown(field, { key: "Enter", shiftKey: true });
+  expect(calls.SendMessage).toBeUndefined();
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() =>
+    expect(calls.SendMessage).toEqual([[bruno.publicKey, "hello", ""]]),
+  );
+});
+
+test("a message above the limit cannot be sent, and says by how much", async () => {
+  open();
+  const field = await screen.findByLabelText("Message to Bruno");
+  fireEvent.change(field, { target: { value: "🙂".repeat(MaxCharacters) } });
+  expect(screen.getByText("0 characters left")).toBeTruthy();
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
+
+  fireEvent.change(field, { target: { value: "a".repeat(MaxCharacters + 3) } });
+  expect(screen.getByText("3 characters too many")).toBeTruthy();
+  expect(
+    (screen.getByRole("button", { name: "Send" }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(calls.SendMessage).toBeUndefined();
+});
+
+test("the counter appears only as the limit nears", async () => {
+  open();
+  const field = await screen.findByLabelText("Message to Bruno");
+  fireEvent.change(field, { target: { value: "a".repeat(100) } });
+  expect(screen.queryByText(/characters left/)).toBeNull();
+  fireEvent.change(field, { target: { value: "a".repeat(3700) } });
+  expect(screen.getByText("300 characters left")).toBeTruthy();
+});
+
+test("the conversation follows the core, for this contact only", async () => {
+  open();
+  await screen.findByText("an answer");
+  answers.Conversation = () =>
+    Promise.resolve([
+      ...said,
+      { id: "05", mine: false, text: "news", status: "received", at: 5 },
+    ]);
+  emit("conversation", "cc".repeat(32));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(screen.queryByText("news")).toBeNull();
+  emit("conversation", bruno.publicKey);
+  expect(await screen.findByText("news")).toBeTruthy();
+});
+
+test("a refusal is said in the interface's words", async () => {
+  answers.SendMessage = () => Promise.reject(new Error("message-too-long"));
+  open();
+  const field = await screen.findByLabelText("Message to Bruno");
+  fireEvent.change(field, { target: { value: "hello" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  expect(
+    await screen.findByText("A message holds at most 4,000 characters."),
+  ).toBeTruthy();
+});
+
+test("a reply names the message it answers, and shows what it quotes", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      ...said,
+      {
+        id: "05",
+        mine: false,
+        text: "about that",
+        status: "received",
+        at: 5,
+        reactions: [],
+        replyTo: { id: "03", mine: true, text: "**arrived**", missing: false },
+      },
+      {
+        id: "06",
+        mine: false,
+        text: "and this",
+        status: "received",
+        at: 6,
+        reactions: [],
+        replyTo: { id: "99", mine: false, text: "", missing: true },
+      },
+    ]);
+  open();
+  expect(await screen.findByText("arrived", { selector: "span" })).toBeTruthy();
+  expect(screen.getByText("The message replied to is not here.")).toBeTruthy();
+
+  fireEvent.click(screen.getAllByRole("button", { name: "Reply" })[3]);
+  expect(screen.getByText("Replying to Bruno:")).toBeTruthy();
+  const field = screen.getByLabelText("Message to Bruno");
+  fireEvent.change(field, { target: { value: "yes" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() =>
+    expect(calls.SendMessage).toEqual([[bruno.publicKey, "yes", "04"]]),
+  );
+  await waitFor(() =>
+    expect(screen.queryByText("Replying to Bruno:")).toBeNull(),
+  );
+});
+
+test("Escape gives up replying", async () => {
+  open();
+  fireEvent.click((await screen.findAllByRole("button", { name: "Reply" }))[0]);
+  fireEvent.keyDown(screen.getByLabelText("Message to Bruno"), {
+    key: "Escape",
+  });
+  expect(screen.queryByText(/Replying to/)).toBeNull();
+});
+
+test("a reaction is put on, and a reaction of one's own taken off", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      {
+        ...said[3],
+        reactions: [
+          { emoji: "👍", count: 2, mine: true },
+          { emoji: "🎉", count: 1, mine: false },
+        ],
+      },
+    ]);
+  open();
+  const mine = await screen.findByRole("button", {
+    name: "👍 2, including you",
+  });
+  expect(mine.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(mine);
+  await waitFor(() =>
+    expect(calls.React).toEqual([[bruno.publicKey, "04", "👍", false]]),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "🎉 1" }));
+  await waitFor(() =>
+    expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "🎉", true]),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "React with 😂" }));
+  await waitFor(() =>
+    expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "😂", true]),
+  );
+
+  expect(screen.queryByRole("button", { name: "React with 🙏" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "More reactions" }));
+  fireEvent.click(screen.getByRole("button", { name: "React with 🙏" }));
+  await waitFor(() =>
+    expect(calls.React?.at(-1)).toEqual([bruno.publicKey, "04", "🙏", true]),
+  );
+  expect(screen.queryByRole("group", { name: "Choose a reaction" })).toBeNull();
+});
+
+test("one's own message is edited in place, and shown as edited", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([{ ...said[2], text: "arived", edited: true }, said[3]]);
+  open();
+  expect(await screen.findByText("(edited)")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const field = screen.getByLabelText("The message's new text");
+  fireEvent.change(field, { target: { value: "arrived" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  await waitFor(() =>
+    expect(calls.EditMessage).toEqual([[bruno.publicKey, "03", "arrived"]]),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  fireEvent.keyDown(screen.getByLabelText("The message's new text"), {
+    key: "Escape",
+  });
+  expect(screen.queryByLabelText("The message's new text")).toBeNull();
+  expect(calls.EditMessage).toHaveLength(1);
+});
+
+test("deleting asks how, as the message's author and state allow", async () => {
+  open();
+  await screen.findByText("an answer");
+  const deletes = () => screen.getAllByRole("button", { name: "Delete" });
+
+  // Delivered and one's own: for both, or only here.
+  fireEvent.click(deletes()[2]);
+  fireEvent.click(screen.getByRole("button", { name: "Delete for both" }));
+  await waitFor(() =>
+    expect(calls.DeleteMessage).toEqual([[bruno.publicKey, "03"]]),
+  );
+
+  // Still waiting: only for both.
+  fireEvent.click(deletes()[0]);
+  expect(
+    screen.getByText(
+      "It has not been delivered yet, so it is deleted for both.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Delete for me" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+  // Somebody else's: only here.
+  fireEvent.click(deletes()[3]);
+  expect(screen.queryByRole("button", { name: "Delete for both" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Delete for me" }));
+  await waitFor(() =>
+    expect(calls.ForgetMessage).toEqual([[bruno.publicKey, "04"]]),
+  );
+});
+
+test("a deleted message keeps its place, and a reply to it says so", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      { ...said[3], text: "", deleted: true, reactions: [] },
+      {
+        id: "05",
+        mine: true,
+        text: "what was that?",
+        status: "delivered",
+        at: 5,
+        reactions: [],
+        replyTo: {
+          id: "04",
+          mine: false,
+          text: "",
+          missing: false,
+          deleted: true,
+        },
+      },
+    ]);
+  open();
+  expect(await screen.findByText("Message deleted.")).toBeTruthy();
+  expect(screen.getByText("The message replied to was deleted.")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Reply" })).toHaveLength(1);
+});
+
+const picture = {
+  id: "07",
+  mine: false,
+  text: "beach.jpg",
+  status: "received",
+  at: 7,
+  reactions: [],
+  file: {
+    size: 300_000,
+    type: "image/jpeg",
+    held: 300_000,
+    complete: true,
+    picture: true,
+    orientation: 6,
+    url: "/files/07",
+  },
+};
+const document = {
+  id: "08",
+  mine: false,
+  text: "report.pdf",
+  status: "received",
+  at: 8,
+  reactions: [],
+  file: {
+    size: 4 << 20,
+    type: "application/octet-stream",
+    held: 1 << 20,
+    complete: false,
+    picture: false,
+    orientation: 1,
+  },
+};
+
+test("a picture is shown as it was taken, and anything else offered to be saved", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      picture,
+      document,
+      {
+        ...document,
+        id: "09",
+        text: "done.zip",
+        file: { ...document.file, held: 4 << 20, complete: true },
+      },
+    ]);
+  open();
+  const img = (await screen.findByAltText("beach.jpg")) as HTMLImageElement;
+  expect(img.getAttribute("src")).toBe("/files/07");
+  expect(img.style.transform).toBe("rotate(90deg)");
+
+  expect(screen.getByText(/Receiving… 25%/)).toBeTruthy();
+  expect(screen.getByLabelText("Receiving report.pdf")).toBeTruthy();
+  const saves = screen.getAllByRole("button", { name: "Save" });
+  expect(saves).toHaveLength(2);
+  fireEvent.click(saves[1]);
+  await waitFor(() => expect(calls.SaveFile).toEqual([["09", "done.zip"]]));
+  expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+});
+
+test("a file not yet started waits for its sender", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([{ ...document, file: { ...document.file, held: 0 } }]);
+  open();
+  expect(
+    await screen.findByText(/Waiting for Bruno to be online/),
+  ).toBeTruthy();
+});
+
+test("a file is attached from the one the person chooses", async () => {
+  answers.ChooseFile = () => Promise.resolve("C:\\photos\\cat.png");
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await waitFor(() =>
+    expect(calls.SendFile).toEqual([[bruno.publicKey, "C:\\photos\\cat.png"]]),
+  );
+
+  answers.ChooseFile = () => Promise.resolve("");
+  fireEvent.click(screen.getByRole("button", { name: "Attach a file" }));
+  await waitFor(() => expect(calls.ChooseFile).toHaveLength(2));
+  expect(calls.SendFile).toHaveLength(1);
+});
+
+test("a file too large is refused in the interface's words", async () => {
+  answers.ChooseFile = () => Promise.resolve("C:\\huge.iso");
+  answers.SendFile = () => Promise.reject(new Error("file-too-large"));
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Attach a file" }));
+  expect(await screen.findByText("A file holds at most 100 MB.")).toBeTruthy();
+});
+
+test("a contact is called, with or without the camera, and a call missed shows among the messages", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      ...said.slice(0, 1),
+      {
+        id: "missed-1",
+        mine: false,
+        text: "",
+        status: "received",
+        at: 5,
+        reactions: [],
+        missed: true,
+      },
+    ]);
+  open();
+  expect(await screen.findByText("Missed call")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Call Bruno" }));
+  fireEvent.click(screen.getByRole("button", { name: "Video call Bruno" }));
+  await waitFor(() =>
+    expect(calls.StartCall).toEqual([
+      [bruno.publicKey, false],
+      [bruno.publicKey, true],
+    ]),
+  );
+});

@@ -88,3 +88,56 @@ test.describe("through coturn's relay", () => {
     ]);
   });
 });
+
+test("a large file crosses its own channel while messages keep flowing", async ({
+  page,
+}) => {
+  await connect(page, [], false);
+  const size = 20 << 20;
+  await page.evaluate((s) => window.harness.sendFile(0, s, 64 << 10), size);
+  await exchange(page, [42]);
+  await expect
+    .poll(() => page.evaluate(() => window.harness.fileReceived(1).bytes), {
+      timeout: 60_000,
+    })
+    .toBe(size);
+  expect(await page.evaluate(() => window.harness.closed())).toEqual([
+    false,
+    false,
+  ]);
+});
+
+test("both sides add a track at once, and each receives the other's over the same connection", async ({
+  page,
+}) => {
+  await connect(page, [], false);
+  // Both offer at the same moment: the peer that answered the connection gives way.
+  await page.evaluate(() => {
+    window.harness.addTone(0);
+    window.harness.addTone(1);
+  });
+  for (const side of [0, 1]) {
+    await expect
+      .poll(() => page.evaluate((i) => window.harness.tracks(i), side))
+      .toEqual(["audio"]);
+  }
+  await expect
+    .poll(() => page.evaluate(() => window.harness.directions(0)))
+    .toEqual(["sendrecv"]);
+  // The peer that answered the connection offered too, and gave way.
+  expect(await page.evaluate(() => window.harness.offers(1))).toBeGreaterThan(
+    0,
+  );
+  await exchange(page, [10, 11]);
+
+  // One stops sending: the connection renegotiates again, and carries on.
+  await page.evaluate(() => window.harness.removeTone(0));
+  await expect
+    .poll(() => page.evaluate(() => window.harness.directions(0)))
+    .toEqual(["recvonly"]);
+  await exchange(page, [12]);
+  expect(await page.evaluate(() => window.harness.closed())).toEqual([
+    false,
+    false,
+  ]);
+});
