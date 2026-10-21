@@ -38,6 +38,9 @@ type recorder struct {
 	files   map[string][][]byte
 	signals []*conviav1.Signal
 	service []string
+	// described are the kinds of the descriptions handed to the WebView, and candidates its candidates.
+	described  []string
+	candidates []Candidate
 }
 
 func newRecorder() *recorder {
@@ -50,9 +53,17 @@ func (r *recorder) Open(id string, offerer bool, _ []ICEServer) {
 	r.opened = append(r.opened, id)
 	r.offerer[id] = offerer
 }
-func (r *recorder) Describe(string, string, string) {}
-func (r *recorder) Candidate(string, Candidate)     {}
-func (r *recorder) Configure([]ICEServer)           {}
+func (r *recorder) Describe(_, kind, _ string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.described = append(r.described, kind)
+}
+func (r *recorder) Candidate(_ string, c Candidate) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.candidates = append(r.candidates, c)
+}
+func (r *recorder) Configure([]ICEServer) {}
 func (r *recorder) Signal(s *conviav1.Signal) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

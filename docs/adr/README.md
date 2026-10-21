@@ -49,3 +49,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0041](0041-moderators-mute-members-and-delete-their-messages.md) | Moderators mute members and delete their messages |
 | [0042](0042-a-channel-holds-what-a-conversation-holds-but-files.md) | A channel holds what a conversation holds, but files |
 | [0043](0043-a-spaces-files-are-served-by-whoever-holds-them.md) | A space's files are served by whoever holds them |
+| [0044](0044-a-call-rings-for-30-seconds.md) | A call rings for 30 seconds |
