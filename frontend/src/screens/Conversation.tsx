@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import {
+  StartCall,
   React as react,
   ChooseFile,
   Conversation as readConversation,
@@ -10,6 +11,7 @@ import {
   SendMessage,
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { PhoneIcon, VideoIcon } from "../components/Icons";
 import { useWords } from "../i18n/language";
 import { Thread, type Message, type Source } from "./Thread";
 
@@ -51,6 +53,29 @@ export function Conversation({
               {words.workspace.verified}
             </span>
           )}
+          <span className="flex-1" />
+          <button
+            type="button"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-ink"
+            aria-label={words.calls.call(name)}
+            title={words.calls.call(name)}
+            onClick={() =>
+              void StartCall(publicKey, false).catch(() => undefined)
+            }
+          >
+            <PhoneIcon />
+          </button>
+          <button
+            type="button"
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-ink"
+            aria-label={words.calls.videoCall(name)}
+            title={words.calls.videoCall(name)}
+            onClick={() =>
+              void StartCall(publicKey, true).catch(() => undefined)
+            }
+          >
+            <VideoIcon />
+          </button>
         </>
       ),
       other: name,

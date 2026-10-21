@@ -1,5 +1,53 @@
 export namespace app {
 	
+	export class CallView {
+	    id: string;
+	    publicKey: string;
+	    incoming: boolean;
+	    video: boolean;
+	    state: string;
+	    outcome?: string;
+	    since: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CallView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.publicKey = source["publicKey"];
+	        this.incoming = source["incoming"];
+	        this.video = source["video"];
+	        this.state = source["state"];
+	        this.outcome = source["outcome"];
+	        this.since = source["since"];
+	    }
+	}
+	export class CalledView {
+	    publicKey: string;
+	    name: string;
+	    incoming: boolean;
+	    video: boolean;
+	    outcome: string;
+	    rang: number;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalledView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.publicKey = source["publicKey"];
+	        this.name = source["name"];
+	        this.incoming = source["incoming"];
+	        this.video = source["video"];
+	        this.outcome = source["outcome"];
+	        this.rang = source["rang"];
+	        this.seconds = source["seconds"];
+	    }
+	}
 	export class ChannelView {
 	    id: string;
 	    name: string;
@@ -120,6 +168,7 @@ export namespace app {
 	    file?: FileView;
 	    deletable?: boolean;
 	    moderated?: boolean;
+	    missed?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageView(source);
@@ -140,6 +189,7 @@ export namespace app {
 	        this.file = this.convertValues(source["file"], FileView);
 	        this.deletable = source["deletable"];
 	        this.moderated = source["moderated"];
+	        this.missed = source["missed"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

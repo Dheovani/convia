@@ -9,6 +9,8 @@ export const en = {
     reload: "Reload",
   },
   refusals: {
+    "call-busy": "A call is already ringing or in progress.",
+    "no-such-call": "That call is not here any more.",
     "space-name": "A space or channel name has 1 to 100 characters.",
     "no-such-space": "That space is not here.",
     "not-allowed": "Your place in this space does not allow that.",
@@ -186,6 +188,69 @@ export const en = {
     field: (channel: string) => `Message #${channel}`,
     deleting:
       "Deleting it removes it for every member of the space; those who already read it keep what they read.",
+  },
+  calls: {
+    log: "Calls",
+    noCalls: "No call made or received yet.",
+    received: "Received",
+    made: "Made",
+    voice: "Voice",
+    video: "Video",
+    logged: {
+      ended: "Ended",
+      unanswered: "No answer",
+      declined: "Declined",
+      busy: "Busy",
+      missed: "Missed",
+      lost: "Cut off",
+    },
+    call: (name: string) => `Call ${name}`,
+    videoCall: (name: string) => `Video call ${name}`,
+    title: (name: string) => `Call with ${name}`,
+    incoming: (name: string) => `${name} is calling`,
+    outgoing: (name: string) => `Calling ${name}…`,
+    notification: (name: string) => `${name} is calling`,
+    accept: "Answer",
+    decline: "Decline",
+    cancel: "Cancel",
+    hangUp: "Hang up",
+    mute: "Mute",
+    unmute: "Unmute",
+    cameraOn: "Turn camera on",
+    cameraOff: "Turn camera off",
+    inUse: (microphone: boolean, camera: boolean) =>
+      [
+        microphone ? "Microphone on" : "Microphone muted",
+        camera ? "camera on" : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    theirVideo: (name: string) => `${name}'s camera`,
+    myVideo: "Your camera",
+    missed: "Missed call",
+    devices: { microphone: "microphone", camera: "camera" },
+    trouble: {
+      blocked: (device: string) =>
+        `Windows does not let Convia use the ${device}: allow desktop apps in Settings › Privacy & security.`,
+      missing: (device: string) => `No ${device} was found.`,
+      busy: (device: string) =>
+        `The ${device} is in use by another application.`,
+      unknown: (device: string) => `The ${device} could not be opened.`,
+    },
+    outcomes: {
+      ended: "The call ended.",
+      unanswered: "Nobody answered.",
+      declined: "The call was declined.",
+      busy: "They are in another call.",
+      missed: "You missed a call.",
+      lost: "The call was cut off.",
+    },
+    settings: "Voice and video",
+    microphone: "Microphone",
+    camera: "Camera",
+    speaker: "Speaker",
+    systemDevice: "As the system",
+    devicesHint: "The names of the devices show once a call has used them.",
   },
   settings: {
     title: "Settings",

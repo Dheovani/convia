@@ -78,3 +78,22 @@ export function rememberedNotificationText(): boolean {
 export function rememberNotificationText(on: boolean): void {
   write(notificationTextKey, on ? "on" : "off");
 }
+
+// Device is a kind of device a call uses.
+export type Device = "microphone" | "camera" | "speaker";
+
+/*
+rememberedDevice is the device of kind this person chose for calls, or "" for the system's own. Which devices a
+machine has is the machine's: the choice is kept here, and never travels.
+*/
+export function rememberedDevice(kind: Device): string {
+  try {
+    return window.localStorage.getItem(`convia.device.${kind}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberDevice(kind: Device, id: string): void {
+  write(`convia.device.${kind}`, id);
+}
