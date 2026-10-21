@@ -24,12 +24,14 @@ export function SpaceSidebar({
   contacts,
   onOpen,
   onChanged,
+  onSettings,
 }: {
   space: SpaceInfo;
   open: string;
   contacts: Someone[];
   onOpen: (channel: string) => void;
   onChanged: () => void;
+  onSettings: () => void;
 }) {
   const words = useWords();
   const nameId = useId();
@@ -55,8 +57,17 @@ export function SpaceSidebar({
 
   return (
     <>
-      <header className="flex h-12 items-center border-b border-line px-4 font-display font-semibold shadow-raised">
+      <header className="flex h-12 items-center justify-between gap-2 border-b border-line px-4 font-display font-semibold shadow-raised">
         <span className="truncate">{space.name}</span>
+        <button
+          type="button"
+          className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-ink"
+          aria-label={words.spaces.settings(space.name)}
+          title={words.spaces.settings(space.name)}
+          onClick={onSettings}
+        >
+          <span aria-hidden="true">⚙</span>
+        </button>
       </header>
       <div className="flex flex-col gap-1 overflow-y-auto p-2">
         <h3 className="mt-1 px-2 text-[0.72rem] font-semibold tracking-wide text-ink-faint uppercase">

@@ -14,6 +14,8 @@ export interface ChannelInfo {
   id: string;
   name: string;
   restricted: boolean;
+  // roles are the roles a restricted channel is open to.
+  roles: string[];
 }
 
 // Channel is everything said in a channel of a space, and where to say more (ADR 0042).

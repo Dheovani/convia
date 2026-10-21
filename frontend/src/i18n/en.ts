@@ -116,6 +116,53 @@ export const en = {
       inviter ? `${inviter} invited you to ${space}` : `Invited to ${space}`,
     accept: "Accept",
     decline: "Decline",
+    members: "Members",
+    rank: {
+      owner: "Owner",
+      administrator: "Administrators",
+      member: "Members",
+    },
+    settings: (space: string) => `${space} settings`,
+    overview: "Overview",
+    save: "Save",
+    roles: "Roles",
+    rolesExplained:
+      "A role opens the channels restricted to it, and nothing else.",
+    roleName: "Role name",
+    newRole: "New role",
+    sees: "Who sees it:",
+    everyone: "Every member",
+    whoSees: (channel: string) => `Who sees #${channel}`,
+    rolesOf: (name: string) => `${name}'s roles`,
+    delete: "Delete",
+    deleteChannel: (channel: string) => `Delete #${channel}?`,
+    deleteChannelExplained:
+      "Every member loses the channel and what was said in it.",
+    deleteRole: (role: string) => `Delete ${role}?`,
+    deleteRoleExplained:
+      "It is taken from everyone; a channel restricted to it alone stays seen by the administrators only.",
+    one: { owner: "Owner", administrator: "Administrator", member: "Member" },
+    makeAdmin: "Make administrator",
+    unmakeAdmin: "Make member",
+    transfer: (name: string) => `Make ${name} the owner?`,
+    transferExplained:
+      "They become the owner, and you an administrator. Only they can give it back.",
+    transferButton: "Transfer ownership",
+    remove: (name: string) => `Remove ${name}?`,
+    removeExplained:
+      "They are sent nothing more of the space; what they already read stays with them.",
+    removeButton: "Remove",
+    leaving: "Leaving",
+    ownerStays:
+      "The owner does not leave: transfer the ownership first, or delete the space.",
+    deleteSpace: (space: string) => `Delete ${space}?`,
+    deleteSpaceExplained:
+      "The space ends for every member. This cannot be undone.",
+    deleteSpaceButton: "Delete the space",
+    leave: (space: string) => `Leave ${space}?`,
+    leaveExplained:
+      "You are sent nothing more of it, unless an administrator adds you again.",
+    leaveButton: "Leave the space",
     channels: "Channels",
     noChannels: "No channel yet.",
     newChannel: "New channel",

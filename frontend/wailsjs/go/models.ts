@@ -4,6 +4,7 @@ export namespace app {
 	    id: string;
 	    name: string;
 	    restricted: boolean;
+	    roles: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelView(source);
@@ -14,6 +15,7 @@ export namespace app {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.restricted = source["restricted"];
+	        this.roles = source["roles"];
 	    }
 	}
 	export class ContactView {
@@ -251,6 +253,26 @@ export namespace app {
 	        this.publicKey = source["publicKey"];
 	    }
 	}
+	export class MemberView {
+	    publicKey: string;
+	    name: string;
+	    rank: string;
+	    roles: string[];
+	    me: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemberView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.publicKey = source["publicKey"];
+	        this.name = source["name"];
+	        this.rank = source["rank"];
+	        this.roles = source["roles"];
+	        this.me = source["me"];
+	    }
+	}
 	
 	
 	
@@ -305,6 +327,20 @@ export namespace app {
 		    }
 		    return a;
 		}
+	}
+	export class RoleView {
+	    id: string;
+	    name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RoleView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
 	}
 	export class SpaceView {
 	    id: string;

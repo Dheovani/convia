@@ -14,11 +14,13 @@ import { rememberedNotificationText } from "../state/preferences";
 import { plain } from "../text/markdown";
 import { Channel } from "./Channel";
 import { Contacts } from "./Contacts";
+import { MemberList } from "./MemberList";
 import { Conversation, type Message } from "./Conversation";
 import type { Identity } from "./Me";
 import { NewSpace } from "./NewSpace";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
+import { SpaceSettings } from "./SpaceSettings";
 import { SpaceSidebar, type SpaceInfo } from "./SpaceSidebar";
 
 export interface ConversationSummary {
@@ -34,7 +36,7 @@ type Pane =
   | { kind: "conversation"; publicKey: string; focus?: string }
   | { kind: "contacts" }
   | { kind: "settings" }
-  | { kind: "space"; space: string; channel?: string }
+  | { kind: "space"; space: string; channel?: string; settings?: boolean }
   | { kind: "new-space" }
   | { kind: "none" };
 
@@ -288,6 +290,9 @@ export function Workspace({
               setPane({ kind: "space", space: space.id, channel: id })
             }
             onChanged={() => void loadSpaces()}
+            onSettings={() =>
+              setPane({ kind: "space", space: space.id, settings: true })
+            }
           />
         ) : (
           <>
@@ -384,7 +389,18 @@ export function Workspace({
             {outdated}
           </p>
         )}
-        {space && channel ? (
+        {space && pane.kind === "space" && pane.settings ? (
+          <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
+            <SpaceSettings
+              key={space.id}
+              space={space}
+              onLeft={() => {
+                setPane({ kind: "none" });
+                void loadSpaces();
+              }}
+            />
+          </div>
+        ) : space && channel ? (
           <Channel
             key={`${space.id}-${channel.id}`}
             space={space.id}
@@ -427,6 +443,7 @@ export function Workspace({
           </p>
         )}
       </main>
+      {space && <MemberList key={space.id} space={space.id} />}
     </div>
   );
 }

@@ -1,10 +1,13 @@
 package app
 
 import (
+	"cmp"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"slices"
+	"strings"
 
 	"github.com/Dheovani/convia/internal/messages"
 	"github.com/Dheovani/convia/internal/spaces"
@@ -47,9 +50,10 @@ type SpaceView struct {
 
 // ChannelView is a channel of a space.
 type ChannelView struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Restricted bool   `json:"restricted"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Restricted bool     `json:"restricted"`
+	Roles      []string `json:"roles"`
 }
 
 // InvitationView is a space this person was added to and has not answered.
@@ -66,7 +70,11 @@ func spaceView(state *spaces.State, me ed25519.PublicKey) SpaceView {
 	view := SpaceView{ID: hex.EncodeToString(g.Space[:]), Name: state.Name, Rank: ranks[state.Rank(me)], Channels: []ChannelView{}}
 	for _, c := range state.Channels() {
 		if state.Sees(me, c.ID) {
-			view.Channels = append(view.Channels, ChannelView{ID: hex.EncodeToString(c.ID[:]), Name: c.Name, Restricted: c.Restricted})
+			channel := ChannelView{ID: hex.EncodeToString(c.ID[:]), Name: c.Name, Restricted: c.Restricted, Roles: []string{}}
+			for _, r := range c.Roles {
+				channel.Roles = append(channel.Roles, hex.EncodeToString(r[:]))
+			}
+			view.Channels = append(view.Channels, channel)
 		}
 	}
 	return view
@@ -176,7 +184,7 @@ func (b *Bridge) CreateChannel(spaceID, name string) (*ChannelView, error) {
 	if _, err := s.Operate(id, spaces.Change{Kind: spaces.CreateChannel, Channel: channel, Name: name}); err != nil {
 		return nil, spaceRefusal(err)
 	}
-	return &ChannelView{ID: hex.EncodeToString(channel[:]), Name: name}, nil
+	return &ChannelView{ID: hex.EncodeToString(channel[:]), Name: name, Roles: []string{}}, nil
 }
 
 // InviteToSpace adds the contact publicKey names to the space spaceID; they are told, and accept or decline (ADR 0039).
@@ -326,4 +334,265 @@ func target(messageID string) (*[spaces.IDSize]byte, error) {
 		err = messages.ErrNoTarget
 	}
 	return t, err
+}
+
+// MemberView is a member of a space, as its member list shows them.
+type MemberView struct {
+	PublicKey string   `json:"publicKey"`
+	Name      string   `json:"name"`
+	Rank      string   `json:"rank"`
+	Roles     []string `json:"roles"`
+	Me        bool     `json:"me"`
+}
+
+// SpaceMembers is every member of the space spaceID, the owner first, then the administrators, then by name.
+func (b *Bridge) SpaceMembers(spaceID string) ([]MemberView, error) {
+	s, err := b.fellowship()
+	if err != nil {
+		return nil, spaceRefusal(err)
+	}
+
+	id, err := parseSpace(spaceID)
+	if err != nil {
+		return nil, spaceRefusal(err)
+	}
+
+	state, err := s.State(id)
+	if err != nil {
+		return nil, spaceRefusal(err)
+	}
+
+	roles := map[spaces.RoleID]string{}
+	for _, r := range state.Roles() {
+		roles[r.ID] = r.Name
+	}
+
+	me := b.network.me()
+	out := []MemberView{}
+	for _, p := range state.Members() {
+		view := MemberView{PublicKey: hex.EncodeToString(p.Key), Name: b.memberName(p), Rank: ranks[p.Rank], Roles: []string{}, Me: p.Key.Equal(me)}
+		for _, r := range p.Roles {
+			view.Roles = append(view.Roles, roles[r])
+		}
+		slices.Sort(view.Roles)
+		out = append(out, view)
+	}
+
+	slices.SortStableFunc(out, func(a, b MemberView) int {
+		return cmp.Or(cmp.Compare(rankOrder[a.Rank], rankOrder[b.Rank]), strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)))
+	})
+
+	return out, nil
+}
+
+var rankOrder = map[string]int{"owner": 0, "administrator": 1, "member": 2}
+
+// memberName is the name a member goes by in the space; a contact's own name stands in until they give one.
+func (b *Bridge) memberName(p spaces.Person) string {
+	if p.Name != "" {
+		return p.Name
+	}
+
+	if people := b.network.people(); people != nil {
+		if c, ok, _ := people.Book().Contact(p.Key); ok {
+			return c.Name
+		}
+	}
+
+	return hex.EncodeToString(p.Key[:4])
+}
+
+// RoleView is a role of a space, which opens the channels restricted to it.
+type RoleView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// SpaceRoles are the roles of the space spaceID, by name.
+func (b *Bridge) SpaceRoles(spaceID string) ([]RoleView, error) {
+	s, err := b.fellowship()
+	if err != nil {
+		return nil, spaceRefusal(err)
+	}
+
+	id, err := parseSpace(spaceID)
+	if err != nil {
+		return nil, spaceRefusal(err)
+	}
+
+	state, err := s.State(id)
+	if err != nil {
+		return nil, spaceRefusal(err)
+	}
+
+	out := []RoleView{}
+	for _, r := range state.Roles() {
+		out = append(out, RoleView{ID: hex.EncodeToString(r.ID[:]), Name: r.Name})
+	}
+
+	return out, nil
+}
+
+// change makes, in the space spaceID, the change made reads from what the interface gave.
+func (b *Bridge) change(spaceID string, made func() (spaces.Change, error)) error {
+	s, err := b.fellowship()
+	if err != nil {
+		return spaceRefusal(err)
+	}
+
+	id, err := parseSpace(spaceID)
+	if err != nil {
+		return spaceRefusal(err)
+	}
+
+	c, err := made()
+	if err != nil {
+		return spaceRefusal(err)
+	}
+
+	_, err = s.Operate(id, c)
+	return spaceRefusal(err)
+}
+
+func parseRole(id string) (spaces.RoleID, error) {
+	b, err := hex.DecodeString(id)
+	if err != nil || len(b) != spaces.IDSize {
+		return spaces.RoleID{}, spaces.ErrUnknown
+	}
+	return spaces.RoleID(b), nil
+}
+
+func named(name string, c spaces.Change) (spaces.Change, error) {
+	clean, err := spaces.CleanName(name)
+	c.Name = clean
+	return c, err
+}
+
+// RenameSpace gives the space spaceID a new name.
+func (b *Bridge) RenameSpace(spaceID, name string) error {
+	return b.change(spaceID, func() (spaces.Change, error) { return named(name, spaces.Change{Kind: spaces.RenameSpace}) })
+}
+
+// RenameChannel gives a channel of the space spaceID a new name.
+func (b *Bridge) RenameChannel(spaceID, channelID, name string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		channel, err := parseChannel(channelID)
+		if err != nil {
+			return spaces.Change{}, err
+		}
+		return named(name, spaces.Change{Kind: spaces.RenameChannel, Channel: channel})
+	})
+}
+
+// DeleteChannel deletes a channel of the space spaceID.
+func (b *Bridge) DeleteChannel(spaceID, channelID string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		channel, err := parseChannel(channelID)
+		return spaces.Change{Kind: spaces.DeleteChannel, Channel: channel}, err
+	})
+}
+
+// SetChannelRoles opens a channel to every member when roleIDs is empty, and restricts it to them otherwise.
+func (b *Bridge) SetChannelRoles(spaceID, channelID string, roleIDs []string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		channel, err := parseChannel(channelID)
+		if err != nil {
+			return spaces.Change{}, err
+		}
+
+		if len(roleIDs) == 0 {
+			return spaces.Change{Kind: spaces.OpenChannel, Channel: channel}, nil
+		}
+
+		c := spaces.Change{Kind: spaces.RestrictChannel, Channel: channel}
+		for _, r := range roleIDs {
+			role, err := parseRole(r)
+			if err != nil {
+				return spaces.Change{}, err
+			}
+			c.Roles = append(c.Roles, role)
+		}
+
+		return c, nil
+	})
+}
+
+// CreateRole adds a role named name to the space spaceID.
+func (b *Bridge) CreateRole(spaceID, name string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		var role spaces.RoleID
+		rand.Read(role[:])
+		return named(name, spaces.Change{Kind: spaces.CreateRole, Role: role})
+	})
+}
+
+// RenameRole gives a role of the space spaceID a new name.
+func (b *Bridge) RenameRole(spaceID, roleID, name string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		role, err := parseRole(roleID)
+		if err != nil {
+			return spaces.Change{}, err
+		}
+		return named(name, spaces.Change{Kind: spaces.RenameRole, Role: role})
+	})
+}
+
+// DeleteRole deletes a role of the space spaceID, taking it from everyone and every channel.
+func (b *Bridge) DeleteRole(spaceID, roleID string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		role, err := parseRole(roleID)
+		return spaces.Change{Kind: spaces.DeleteRole, Role: role}, err
+	})
+}
+
+// SetMemberRole gives the member publicKey names a role of the space spaceID, or takes it.
+func (b *Bridge) SetMemberRole(spaceID, publicKey, roleID string, on bool) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		k, err := parseKey(publicKey)
+		if err != nil {
+			return spaces.Change{}, err
+		}
+		role, err := parseRole(roleID)
+		kind := spaces.TakeRole
+		if on {
+			kind = spaces.GiveRole
+		}
+		return spaces.Change{Kind: kind, Role: role, Member: k}, err
+	})
+}
+
+// about is a change of kind about the member publicKey names.
+func (b *Bridge) about(spaceID, publicKey string, kind spaces.Kind) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		k, err := parseKey(publicKey)
+		return spaces.Change{Kind: kind, Member: k}, err
+	})
+}
+
+// SetAdministrator makes the member publicKey names an administrator of the space spaceID, or a member again.
+func (b *Bridge) SetAdministrator(spaceID, publicKey string, on bool) error {
+	if on {
+		return b.about(spaceID, publicKey, spaces.MakeAdmin)
+	}
+	return b.about(spaceID, publicKey, spaces.UnmakeAdmin)
+}
+
+// RemoveMember removes the member publicKey names from the space spaceID.
+func (b *Bridge) RemoveMember(spaceID, publicKey string) error {
+	return b.about(spaceID, publicKey, spaces.RemoveMember)
+}
+
+// TransferOwnership makes the member publicKey names the owner of the space spaceID; this person becomes an administrator.
+func (b *Bridge) TransferOwnership(spaceID, publicKey string) error {
+	return b.about(spaceID, publicKey, spaces.TransferOwnership)
+}
+
+// LeaveSpace leaves the space spaceID.
+func (b *Bridge) LeaveSpace(spaceID string) error {
+	return b.change(spaceID, func() (spaces.Change, error) { return spaces.Change{Kind: spaces.Leave}, nil })
+}
+
+// DeleteSpace deletes the space spaceID, for every member.
+func (b *Bridge) DeleteSpace(spaceID string) error {
+	return b.change(spaceID, func() (spaces.Change, error) { return spaces.Change{Kind: spaces.DeleteSpace}, nil })
 }

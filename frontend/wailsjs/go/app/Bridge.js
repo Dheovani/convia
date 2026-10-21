@@ -54,6 +54,10 @@ export function CreateIdentity(arg1) {
   return window['go']['app']['Bridge']['CreateIdentity'](arg1);
 }
 
+export function CreateRole(arg1, arg2) {
+  return window['go']['app']['Bridge']['CreateRole'](arg1, arg2);
+}
+
 export function CreateSpace(arg1, arg2) {
   return window['go']['app']['Bridge']['CreateSpace'](arg1, arg2);
 }
@@ -66,6 +70,10 @@ export function DeclineSpace(arg1) {
   return window['go']['app']['Bridge']['DeclineSpace'](arg1);
 }
 
+export function DeleteChannel(arg1, arg2) {
+  return window['go']['app']['Bridge']['DeleteChannel'](arg1, arg2);
+}
+
 export function DeleteIdentity() {
   return window['go']['app']['Bridge']['DeleteIdentity']();
 }
@@ -76,6 +84,14 @@ export function DeleteInChannel(arg1, arg2, arg3) {
 
 export function DeleteMessage(arg1, arg2) {
   return window['go']['app']['Bridge']['DeleteMessage'](arg1, arg2);
+}
+
+export function DeleteRole(arg1, arg2) {
+  return window['go']['app']['Bridge']['DeleteRole'](arg1, arg2);
+}
+
+export function DeleteSpace(arg1) {
+  return window['go']['app']['Bridge']['DeleteSpace'](arg1);
 }
 
 export function DismissRequest(arg1) {
@@ -104,6 +120,10 @@ export function ImportIdentity(arg1, arg2, arg3) {
 
 export function InviteToSpace(arg1, arg2) {
   return window['go']['app']['Bridge']['InviteToSpace'](arg1, arg2);
+}
+
+export function LeaveSpace(arg1) {
+  return window['go']['app']['Bridge']['LeaveSpace'](arg1);
 }
 
 export function MaxMessageCharacters() {
@@ -142,8 +162,24 @@ export function RemoveContact(arg1, arg2) {
   return window['go']['app']['Bridge']['RemoveContact'](arg1, arg2);
 }
 
+export function RemoveMember(arg1, arg2) {
+  return window['go']['app']['Bridge']['RemoveMember'](arg1, arg2);
+}
+
+export function RenameChannel(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['RenameChannel'](arg1, arg2, arg3);
+}
+
 export function RenameIdentity(arg1) {
   return window['go']['app']['Bridge']['RenameIdentity'](arg1);
+}
+
+export function RenameRole(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['RenameRole'](arg1, arg2, arg3);
+}
+
+export function RenameSpace(arg1, arg2) {
+  return window['go']['app']['Bridge']['RenameSpace'](arg1, arg2);
 }
 
 export function Requests() {
@@ -170,6 +206,18 @@ export function SendMessage(arg1, arg2, arg3) {
   return window['go']['app']['Bridge']['SendMessage'](arg1, arg2, arg3);
 }
 
+export function SetAdministrator(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['SetAdministrator'](arg1, arg2, arg3);
+}
+
+export function SetChannelRoles(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['SetChannelRoles'](arg1, arg2, arg3);
+}
+
+export function SetMemberRole(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['Bridge']['SetMemberRole'](arg1, arg2, arg3, arg4);
+}
+
 export function SetStartsWithWindows(arg1) {
   return window['go']['app']['Bridge']['SetStartsWithWindows'](arg1);
 }
@@ -180,6 +228,14 @@ export function SetVerified(arg1, arg2) {
 
 export function SpaceInvitations() {
   return window['go']['app']['Bridge']['SpaceInvitations']();
+}
+
+export function SpaceMembers(arg1) {
+  return window['go']['app']['Bridge']['SpaceMembers'](arg1);
+}
+
+export function SpaceRoles(arg1) {
+  return window['go']['app']['Bridge']['SpaceRoles'](arg1);
 }
 
 export function Spaces() {
@@ -196,6 +252,10 @@ export function StartsWithWindows() {
 
 export function StorageProblem() {
   return window['go']['app']['Bridge']['StorageProblem']();
+}
+
+export function TransferOwnership(arg1, arg2) {
+  return window['go']['app']['Bridge']['TransferOwnership'](arg1, arg2);
 }
 
 export function TransportCandidate(arg1, arg2) {

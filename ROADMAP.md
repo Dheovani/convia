@@ -271,8 +271,8 @@ How members carry a space's content to one another.
 **Depends on:** M12, M15.
 
 - [x] **M16-001:** Show spaces in the rail, their channels in the sidebar, and a channel's conversation ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md)).
-- [ ] **M16-002:** Show a space's members and their roles.
-- [ ] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
+- [x] **M16-002:** Show a space's members and their roles.
+- [x] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
 - [x] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels ([ADR 0041](docs/adr/0041-moderators-mute-members-and-delete-their-messages.md)).
 - [ ] **M16-005:** Build it.
 - [ ] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).

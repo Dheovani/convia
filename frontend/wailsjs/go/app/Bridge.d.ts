@@ -29,17 +29,25 @@ export function CreateChannel(arg1:string,arg2:string):Promise<app.ChannelView>;
 
 export function CreateIdentity(arg1:string):Promise<app.MeView>;
 
+export function CreateRole(arg1:string,arg2:string):Promise<void>;
+
 export function CreateSpace(arg1:string,arg2:string):Promise<app.SpaceView>;
 
 export function DeclineRequest(arg1:string):Promise<void>;
 
 export function DeclineSpace(arg1:string):Promise<void>;
 
+export function DeleteChannel(arg1:string,arg2:string):Promise<void>;
+
 export function DeleteIdentity():Promise<void>;
 
 export function DeleteInChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function DeleteMessage(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteRole(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteSpace(arg1:string):Promise<void>;
 
 export function DismissRequest(arg1:string):Promise<void>;
 
@@ -54,6 +62,8 @@ export function ForgetMessage(arg1:string,arg2:string):Promise<void>;
 export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app.MeView>;
 
 export function InviteToSpace(arg1:string,arg2:string):Promise<void>;
+
+export function LeaveSpace(arg1:string):Promise<void>;
 
 export function MaxMessageCharacters():Promise<number>;
 
@@ -73,7 +83,15 @@ export function ReactInChannel(arg1:string,arg2:string,arg3:string,arg4:string,a
 
 export function RemoveContact(arg1:string,arg2:boolean):Promise<void>;
 
+export function RemoveMember(arg1:string,arg2:string):Promise<void>;
+
+export function RenameChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function RenameIdentity(arg1:string):Promise<void>;
+
+export function RenameRole(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RenameSpace(arg1:string,arg2:string):Promise<void>;
 
 export function Requests():Promise<app.RequestsView>;
 
@@ -87,11 +105,21 @@ export function SendFile(arg1:string,arg2:string):Promise<app.MessageView>;
 
 export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<app.MessageView>;
 
+export function SetAdministrator(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
+export function SetChannelRoles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
+
+export function SetMemberRole(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;
 
 export function SetVerified(arg1:string,arg2:boolean):Promise<void>;
 
 export function SpaceInvitations():Promise<Array<app.InvitationView>>;
+
+export function SpaceMembers(arg1:string):Promise<Array<app.MemberView>>;
+
+export function SpaceRoles(arg1:string):Promise<Array<app.RoleView>>;
 
 export function Spaces():Promise<Array<app.SpaceView>>;
 
@@ -100,6 +128,8 @@ export function StartOver():Promise<void>;
 export function StartsWithWindows():Promise<boolean>;
 
 export function StorageProblem():Promise<string>;
+
+export function TransferOwnership(arg1:string,arg2:string):Promise<void>;
 
 export function TransportCandidate(arg1:string,arg2:peers.Candidate):Promise<void>;
 

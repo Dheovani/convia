@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { answers, calls, reset } from "../test/bridge";
 import { emit, resetEvents } from "../test/runtime";
@@ -183,4 +189,45 @@ test("a space refused is said so in the interface's words", async () => {
   expect(
     await screen.findByText("A space or channel name has 1 to 100 characters."),
   ).toBeTruthy();
+});
+
+test("a space's members are listed by rank, with their roles", async () => {
+  answers.SpaceMembers = () =>
+    Promise.resolve([
+      { publicKey: "00", name: "Eu", rank: "owner", roles: [], me: true },
+      {
+        publicKey: "aa",
+        name: "Ana",
+        rank: "administrator",
+        roles: ["Equipe"],
+        me: false,
+      },
+      {
+        publicKey: "bb",
+        name: "Bruno Silva",
+        rank: "member",
+        roles: [],
+        me: false,
+      },
+      {
+        publicKey: "cc",
+        name: "Carla",
+        rank: "member",
+        roles: ["Equipe", "Som"],
+        me: false,
+      },
+    ]);
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa da Ana" }));
+  const list = await screen.findByRole("complementary", { name: "Members" });
+  expect(await within(list).findByText("Owner — 1")).toBeTruthy();
+  expect(within(list).getByText("Administrators — 1")).toBeTruthy();
+  expect(within(list).getByText("Members — 2")).toBeTruthy();
+  expect(within(list).getByText("(You)")).toBeTruthy();
+  expect(within(list).getAllByText("Equipe")).toHaveLength(2);
+  expect(calls.SpaceMembers).toContainEqual(["c1"]);
+
+  const loads = calls.SpaceMembers.length;
+  emit("spaces", "c1");
+  await waitFor(() => expect(calls.SpaceMembers.length).toBeGreaterThan(loads));
 });

@@ -7,8 +7,10 @@ import axe from "axe-core";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
 import { DeleteDialog } from "./components/DeleteDialog";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { LinkDialog } from "./components/LinkDialog";
 import { DataProblem } from "./screens/DataProblem";
+import { SpaceSettings } from "./screens/SpaceSettings";
 import { Workspace } from "./screens/Workspace";
 import { answers, reset } from "./test/bridge";
 import { resetEvents } from "./test/runtime";
@@ -282,4 +284,47 @@ test("creating a space and answering invitations", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Add a space" }));
   await screen.findByText("Bruno invited you to Trabalho");
   expect(await violations(container)).toEqual([]);
+});
+
+test("a space's settings, as its owner sees them", async () => {
+  answers.SpaceRoles = () => Promise.resolve([{ id: "r1", name: "Equipe" }]);
+  answers.SpaceMembers = () =>
+    Promise.resolve([
+      { publicKey: "00", name: "Eu", rank: "owner", roles: [], me: true },
+      {
+        publicKey: "bb",
+        name: "Bruno",
+        rank: "member",
+        roles: ["Equipe"],
+        me: false,
+      },
+    ]);
+  const { container } = render(
+    <SpaceSettings
+      space={{
+        id: "s1",
+        name: "Casa",
+        rank: "owner",
+        channels: [
+          { id: "g1", name: "geral", restricted: true, roles: ["r1"] },
+        ],
+      }}
+      onLeft={() => {}}
+    />,
+  );
+  await screen.findByRole("group", { name: "Bruno's roles" });
+  expect(await violations(container, false)).toEqual([]);
+});
+
+test("a confirmation", async () => {
+  const { container } = render(
+    <ConfirmDialog
+      title="Remove Bruno?"
+      explanation="He is sent nothing more."
+      confirm="Remove"
+      onConfirm={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(await violations(container, false)).toEqual([]);
 });
