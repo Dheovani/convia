@@ -219,17 +219,30 @@ export const ptBR: Words = {
     unmute: "Ligar microfone",
     cameraOn: "Ligar câmera",
     cameraOff: "Desligar câmera",
-    inUse: (microphone: boolean, camera: boolean) =>
+    shareScreen: "Compartilhar tela",
+    stopSharing: "Parar de compartilhar",
+    withSound: "Com o som do computador",
+    inUse: (
+      microphone: boolean,
+      camera: boolean,
+      screen: "" | "screen" | "sound",
+    ) =>
       [
         microphone ? "Microfone ligado" : "Microfone silenciado",
         camera ? "câmera ligada" : "",
+        screen === "sound"
+          ? "tela e som compartilhados"
+          : screen
+            ? "tela compartilhada"
+            : "",
       ]
         .filter(Boolean)
         .join(" · "),
     theirVideo: (name: string) => `Câmera de ${name}`,
     myVideo: "Sua câmera",
+    theirScreen: (name: string) => `Tela de ${name}`,
     missed: "Chamada perdida",
-    devices: { microphone: "microfone", camera: "câmera" },
+    devices: { microphone: "microfone", camera: "câmera", screen: "tela" },
     trouble: {
       blocked: (device: string) =>
         `O Windows não deixa o Convia usar o ${device}: permita aplicativos da área de trabalho em Configurações › Privacidade e segurança.`,

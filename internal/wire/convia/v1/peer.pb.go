@@ -107,6 +107,7 @@ type PeerMessage struct {
 	//	*PeerMessage_FileMissing
 	//	*PeerMessage_Renegotiation
 	//	*PeerMessage_Call
+	//	*PeerMessage_Screen
 	Message       isPeerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -329,6 +330,15 @@ func (x *PeerMessage) GetCall() *Call {
 	return nil
 }
 
+func (x *PeerMessage) GetScreen() *Screen {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_Screen); ok {
+			return x.Screen
+		}
+	}
+	return nil
+}
+
 type isPeerMessage_Message interface {
 	isPeerMessage_Message()
 }
@@ -413,6 +423,10 @@ type PeerMessage_Call struct {
 	Call *Call `protobuf:"bytes,20,opt,name=call,proto3,oneof"`
 }
 
+type PeerMessage_Screen struct {
+	Screen *Screen `protobuf:"bytes,21,opt,name=screen,proto3,oneof"`
+}
+
 func (*PeerMessage_Hello) isPeerMessage_Message() {}
 
 func (*PeerMessage_Challenge) isPeerMessage_Message() {}
@@ -452,6 +466,8 @@ func (*PeerMessage_FileMissing) isPeerMessage_Message() {}
 func (*PeerMessage_Renegotiation) isPeerMessage_Message() {}
 
 func (*PeerMessage_Call) isPeerMessage_Message() {}
+
+func (*PeerMessage_Screen) isPeerMessage_Message() {}
 
 // DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
 // 4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
@@ -1335,11 +1351,66 @@ func (x *Call) GetVideo() bool {
 	return false
 }
 
+// Screen says which stream of a call in progress carries the sender's screen (ADR 0046).
+type Screen struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The call, as its steps name it.
+	Call []byte `protobuf:"bytes,1,opt,name=call,proto3" json:"call,omitempty"`
+	// The id of the stream the screen arrives in, or nothing once the sender stopped sharing it.
+	Stream        string `protobuf:"bytes,2,opt,name=stream,proto3" json:"stream,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Screen) Reset() {
+	*x = Screen{}
+	mi := &file_convia_v1_peer_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Screen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Screen) ProtoMessage() {}
+
+func (x *Screen) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_peer_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Screen.ProtoReflect.Descriptor instead.
+func (*Screen) Descriptor() ([]byte, []int) {
+	return file_convia_v1_peer_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *Screen) GetCall() []byte {
+	if x != nil {
+		return x.Call
+	}
+	return nil
+}
+
+func (x *Screen) GetStream() string {
+	if x != nil {
+		return x.Stream
+	}
+	return ""
+}
+
 var File_convia_v1_peer_proto protoreflect.FileDescriptor
 
 const file_convia_v1_peer_proto_rawDesc = "" +
 	"\n" +
-	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\x1a\x1aconvia/v1/rendezvous.proto\x1a\x15convia/v1/space.proto\"\xd1\t\n" +
+	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\x1a\x1aconvia/v1/rendezvous.proto\x1a\x15convia/v1/space.proto\"\xfe\t\n" +
 	"\vPeerMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.convia.v1.HelloH\x00R\x05hello\x124\n" +
 	"\tchallenge\x18\x02 \x01(\v2\x14.convia.v1.ChallengeH\x00R\tchallenge\x12(\n" +
@@ -1362,7 +1433,8 @@ const file_convia_v1_peer_proto_rawDesc = "" +
 	"\x10space_invitation\x18\x11 \x01(\v2\x1a.convia.v1.SpaceInvitationH\x00R\x0fspaceInvitation\x12;\n" +
 	"\ffile_missing\x18\x12 \x01(\v2\x16.convia.v1.FileMissingH\x00R\vfileMissing\x12@\n" +
 	"\rrenegotiation\x18\x13 \x01(\v2\x18.convia.v1.RenegotiationH\x00R\rrenegotiation\x12%\n" +
-	"\x04call\x18\x14 \x01(\v2\x0f.convia.v1.CallH\x00R\x04callB\t\n" +
+	"\x04call\x18\x14 \x01(\v2\x0f.convia.v1.CallH\x00R\x04call\x12+\n" +
+	"\x06screen\x18\x15 \x01(\v2\x11.convia.v1.ScreenH\x00R\x06screenB\t\n" +
 	"\amessage\"\xd7\x02\n" +
 	"\rDirectMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\x1a\n" +
@@ -1428,7 +1500,10 @@ const file_convia_v1_peer_proto_rawDesc = "" +
 	"\vSTEP_ACCEPT\x10\x02\x12\x10\n" +
 	"\fSTEP_DECLINE\x10\x03\x12\f\n" +
 	"\bSTEP_END\x10\x04\x12\r\n" +
-	"\tSTEP_BUSY\x10\x05B=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"\tSTEP_BUSY\x10\x05\"4\n" +
+	"\x06Screen\x12\x12\n" +
+	"\x04call\x18\x01 \x01(\fR\x04call\x12\x16\n" +
+	"\x06stream\x18\x02 \x01(\tR\x06streamB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_peer_proto_rawDescOnce sync.Once
@@ -1443,7 +1518,7 @@ func file_convia_v1_peer_proto_rawDescGZIP() []byte {
 }
 
 var file_convia_v1_peer_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_convia_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_convia_v1_peer_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_convia_v1_peer_proto_goTypes = []any{
 	(Call_Step)(0),           // 0: convia.v1.Call.Step
 	(*PeerMessage)(nil),      // 1: convia.v1.PeerMessage
@@ -1461,22 +1536,23 @@ var file_convia_v1_peer_proto_goTypes = []any{
 	(*Interest)(nil),         // 13: convia.v1.Interest
 	(*Renegotiation)(nil),    // 14: convia.v1.Renegotiation
 	(*Call)(nil),             // 15: convia.v1.Call
-	(*Hello)(nil),            // 16: convia.v1.Hello
-	(*Challenge)(nil),        // 17: convia.v1.Challenge
-	(*Proof)(nil),            // 18: convia.v1.Proof
-	(*SpaceSync)(nil),        // 19: convia.v1.SpaceSync
-	(*SpaceOperation)(nil),   // 20: convia.v1.SpaceOperation
-	(*SpaceHolding)(nil),     // 21: convia.v1.SpaceHolding
-	(*GroupMessage)(nil),     // 22: convia.v1.GroupMessage
-	(*SpaceSecret)(nil),      // 23: convia.v1.SpaceSecret
-	(*SpaceInvitation)(nil),  // 24: convia.v1.SpaceInvitation
-	(*FileMissing)(nil),      // 25: convia.v1.FileMissing
-	(*Candidate)(nil),        // 26: convia.v1.Candidate
+	(*Screen)(nil),           // 16: convia.v1.Screen
+	(*Hello)(nil),            // 17: convia.v1.Hello
+	(*Challenge)(nil),        // 18: convia.v1.Challenge
+	(*Proof)(nil),            // 19: convia.v1.Proof
+	(*SpaceSync)(nil),        // 20: convia.v1.SpaceSync
+	(*SpaceOperation)(nil),   // 21: convia.v1.SpaceOperation
+	(*SpaceHolding)(nil),     // 22: convia.v1.SpaceHolding
+	(*GroupMessage)(nil),     // 23: convia.v1.GroupMessage
+	(*SpaceSecret)(nil),      // 24: convia.v1.SpaceSecret
+	(*SpaceInvitation)(nil),  // 25: convia.v1.SpaceInvitation
+	(*FileMissing)(nil),      // 26: convia.v1.FileMissing
+	(*Candidate)(nil),        // 27: convia.v1.Candidate
 }
 var file_convia_v1_peer_proto_depIdxs = []int32{
-	16, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
-	17, // 1: convia.v1.PeerMessage.challenge:type_name -> convia.v1.Challenge
-	18, // 2: convia.v1.PeerMessage.proof:type_name -> convia.v1.Proof
+	17, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
+	18, // 1: convia.v1.PeerMessage.challenge:type_name -> convia.v1.Challenge
+	19, // 2: convia.v1.PeerMessage.proof:type_name -> convia.v1.Proof
 	13, // 3: convia.v1.PeerMessage.interest:type_name -> convia.v1.Interest
 	10, // 4: convia.v1.PeerMessage.contact_request:type_name -> convia.v1.ContactRequest
 	11, // 5: convia.v1.PeerMessage.contact_accepted:type_name -> convia.v1.ContactAccepted
@@ -1485,25 +1561,26 @@ var file_convia_v1_peer_proto_depIdxs = []int32{
 	8,  // 8: convia.v1.PeerMessage.acknowledgement:type_name -> convia.v1.Acknowledgement
 	9,  // 9: convia.v1.PeerMessage.holding:type_name -> convia.v1.Holding
 	4,  // 10: convia.v1.PeerMessage.file_request:type_name -> convia.v1.FileRequest
-	19, // 11: convia.v1.PeerMessage.space_sync:type_name -> convia.v1.SpaceSync
-	20, // 12: convia.v1.PeerMessage.space_operation:type_name -> convia.v1.SpaceOperation
-	21, // 13: convia.v1.PeerMessage.space_holding:type_name -> convia.v1.SpaceHolding
-	22, // 14: convia.v1.PeerMessage.group_message:type_name -> convia.v1.GroupMessage
-	23, // 15: convia.v1.PeerMessage.space_secret:type_name -> convia.v1.SpaceSecret
-	24, // 16: convia.v1.PeerMessage.space_invitation:type_name -> convia.v1.SpaceInvitation
-	25, // 17: convia.v1.PeerMessage.file_missing:type_name -> convia.v1.FileMissing
+	20, // 11: convia.v1.PeerMessage.space_sync:type_name -> convia.v1.SpaceSync
+	21, // 12: convia.v1.PeerMessage.space_operation:type_name -> convia.v1.SpaceOperation
+	22, // 13: convia.v1.PeerMessage.space_holding:type_name -> convia.v1.SpaceHolding
+	23, // 14: convia.v1.PeerMessage.group_message:type_name -> convia.v1.GroupMessage
+	24, // 15: convia.v1.PeerMessage.space_secret:type_name -> convia.v1.SpaceSecret
+	25, // 16: convia.v1.PeerMessage.space_invitation:type_name -> convia.v1.SpaceInvitation
+	26, // 17: convia.v1.PeerMessage.file_missing:type_name -> convia.v1.FileMissing
 	14, // 18: convia.v1.PeerMessage.renegotiation:type_name -> convia.v1.Renegotiation
 	15, // 19: convia.v1.PeerMessage.call:type_name -> convia.v1.Call
-	7,  // 20: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
-	6,  // 21: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
-	3,  // 22: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
-	26, // 23: convia.v1.Renegotiation.candidate:type_name -> convia.v1.Candidate
-	0,  // 24: convia.v1.Call.step:type_name -> convia.v1.Call.Step
-	25, // [25:25] is the sub-list for method output_type
-	25, // [25:25] is the sub-list for method input_type
-	25, // [25:25] is the sub-list for extension type_name
-	25, // [25:25] is the sub-list for extension extendee
-	0,  // [0:25] is the sub-list for field type_name
+	16, // 20: convia.v1.PeerMessage.screen:type_name -> convia.v1.Screen
+	7,  // 21: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
+	6,  // 22: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
+	3,  // 23: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
+	27, // 24: convia.v1.Renegotiation.candidate:type_name -> convia.v1.Candidate
+	0,  // 25: convia.v1.Call.step:type_name -> convia.v1.Call.Step
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_peer_proto_init() }
@@ -1535,6 +1612,7 @@ func file_convia_v1_peer_proto_init() {
 		(*PeerMessage_FileMissing)(nil),
 		(*PeerMessage_Renegotiation)(nil),
 		(*PeerMessage_Call)(nil),
+		(*PeerMessage_Screen)(nil),
 	}
 	file_convia_v1_peer_proto_msgTypes[13].OneofWrappers = []any{
 		(*Renegotiation_Offer)(nil),
@@ -1547,7 +1625,7 @@ func file_convia_v1_peer_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_peer_proto_rawDesc), len(file_convia_v1_peer_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

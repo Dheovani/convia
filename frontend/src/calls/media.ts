@@ -37,6 +37,18 @@ export function camera(): Promise<MediaStream> {
   });
 }
 
+/*
+screen asks the person, through the system's own picker, for a screen or a window to share, and with sound, the
+computer's sound where the picker offers it (ADR 0046).
+*/
+export function screen(sound: boolean): Promise<MediaStream> {
+  return navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: sound,
+    ...(sound ? { systemAudio: "include" } : {}),
+  } as DisplayMediaStreamOptions);
+}
+
 // devices are the microphones, cameras and speakers this machine has, named once a call let them be.
 export async function devices(): Promise<MediaDeviceInfo[]> {
   if (!navigator.mediaDevices?.enumerateDevices) return [];

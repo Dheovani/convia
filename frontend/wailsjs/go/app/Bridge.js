@@ -266,6 +266,10 @@ export function SetVerified(arg1, arg2) {
   return window['go']['app']['Bridge']['SetVerified'](arg1, arg2);
 }
 
+export function ShareScreen(arg1) {
+  return window['go']['app']['Bridge']['ShareScreen'](arg1);
+}
+
 export function SpaceInvitations() {
   return window['go']['app']['Bridge']['SpaceInvitations']();
 }
