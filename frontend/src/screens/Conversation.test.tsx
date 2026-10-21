@@ -371,3 +371,29 @@ test("a file too large is refused in the interface's words", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "Attach a file" }));
   expect(await screen.findByText("A file holds at most 100 MB.")).toBeTruthy();
 });
+
+test("a contact is called, with or without the camera, and a call missed shows among the messages", async () => {
+  answers.Conversation = () =>
+    Promise.resolve([
+      ...said.slice(0, 1),
+      {
+        id: "missed-1",
+        mine: false,
+        text: "",
+        status: "received",
+        at: 5,
+        reactions: [],
+        missed: true,
+      },
+    ]);
+  open();
+  expect(await screen.findByText("Missed call")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Call Bruno" }));
+  fireEvent.click(screen.getByRole("button", { name: "Video call Bruno" }));
+  await waitFor(() =>
+    expect(calls.StartCall).toEqual([
+      [bruno.publicKey, false],
+      [bruno.publicKey, true],
+    ]),
+  );
+});

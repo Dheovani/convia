@@ -12,6 +12,7 @@ import {
   type LanguageChoice,
   type Theme,
 } from "../state/preferences";
+import { Devices } from "../calls/Devices";
 import { Me, type Identity } from "./Me";
 
 // Settings is how this person's Convia looks, speaks and tells them things, and who they are.
@@ -109,6 +110,7 @@ export function Settings({
           {words.settings.notificationTextHint}
         </p>
       </div>
+      <Devices />
       <Me key={me.publicKey + me.name} me={me} onChanged={onChanged} />
     </section>
   );

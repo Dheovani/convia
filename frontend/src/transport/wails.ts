@@ -92,9 +92,17 @@ const core: Core = {
   state: (id, state) => void TransportState(id, state),
 };
 
+let running: Connections | undefined;
+
+// transport is the page's connections, to which a call adds its tracks; none before startTransport.
+export function transport(): Connections | undefined {
+  return running;
+}
+
 // startTransport carries out the core's orders for as long as the page lives.
 export function startTransport() {
   const connections = new Connections(core);
+  running = connections;
   EventsOn("transport", (order: Order) => carry(connections, order));
 
   // A page that loads again has lost every connection the core thinks it holds.

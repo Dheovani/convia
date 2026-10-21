@@ -369,6 +369,24 @@ func (m *Manager) Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bo
 	}
 }
 
+// Connection is the identifier the WebView knows the connection to peer by while it is proven, or nothing.
+func (m *Manager) Connection(peer ed25519.PublicKey) string {
+	id := make(chan string, 1)
+	m.do(func() {
+		if p := m.peers[key(peer)]; p != nil && p.conn != nil && p.conn.ready {
+			id <- p.conn.id
+			return
+		}
+		id <- ""
+	})
+	select {
+	case got := <-id:
+		return got
+	case <-m.stopped:
+		return ""
+	}
+}
+
 // Disconnect ends the connection to peer, if there is one, and forgets every reason for it.
 func (m *Manager) Disconnect(peer ed25519.PublicKey) {
 	m.do(func() {
@@ -408,6 +426,20 @@ func (m *Manager) LocalDescription(id, kind, sdp string) {
 			return
 		}
 		c.local = fingerprint
+		// A connection proven renegotiates over itself (ADR 0015).
+		if c.ready {
+			r := &conviav1.Renegotiation{}
+			switch kind {
+			case "offer":
+				r.Kind = &conviav1.Renegotiation_Offer{Offer: sdp}
+			case "answer":
+				r.Kind = &conviav1.Renegotiation_Answer{Answer: sdp}
+			default:
+				return
+			}
+			m.send(c, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Renegotiation{Renegotiation: r}})
+			return
+		}
 		s := &conviav1.Signal{Peer: c.peer.key[:], Session: c.session}
 		switch kind {
 		case "offer":
@@ -424,10 +456,17 @@ func (m *Manager) LocalDescription(id, kind, sdp string) {
 // LocalCandidate is an ICE candidate the WebView gathered for connection id.
 func (m *Manager) LocalCandidate(id string, cand Candidate) {
 	m.do(func() {
-		if c := m.conns[id]; c != nil {
-			m.relay(&conviav1.Signal{Peer: c.peer.key[:], Session: c.session, Kind: &conviav1.Signal_Candidate{Candidate: &conviav1.Candidate{
-				Candidate: cand.Candidate, SdpMid: cand.SDPMid, SdpMLineIndex: cand.SDPMLineIndex, UsernameFragment: cand.UsernameFragment}}})
+		c := m.conns[id]
+		if c == nil {
+			return
 		}
+		k := &conviav1.Candidate{Candidate: cand.Candidate, SdpMid: cand.SDPMid, SdpMLineIndex: cand.SDPMLineIndex, UsernameFragment: cand.UsernameFragment}
+		if c.ready {
+			m.send(c, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Renegotiation{Renegotiation: &conviav1.Renegotiation{
+				Kind: &conviav1.Renegotiation_Candidate{Candidate: k}}}})
+			return
+		}
+		m.relay(&conviav1.Signal{Peer: c.peer.key[:], Session: c.session, Kind: &conviav1.Signal_Candidate{Candidate: k}})
 	})
 }
 
@@ -601,6 +640,10 @@ func (m *Manager) receive(c *conn, data []byte) {
 			c.theyWant = interest.Interest.Wanted
 			return
 		}
+		if r, ok := message.Message.(*conviav1.PeerMessage_Renegotiation); ok {
+			m.renegotiate(c, r.Renegotiation)
+			return
+		}
 		if !isHandshake(message) {
 			if message.Message != nil && m.observer.Message != nil {
 				m.observer.Message(ed25519.PublicKey(c.peer.key[:]), message)
@@ -612,6 +655,21 @@ func (m *Manager) receive(c *conn, data []byte) {
 	}
 	if err := m.handshake(c, message); err != nil {
 		m.fail(c, err.Error())
+	}
+}
+
+// renegotiate hands the WebView what the other peer sent of a renegotiation, over their proven connection.
+func (m *Manager) renegotiate(c *conn, r *conviav1.Renegotiation) {
+	switch kind := r.Kind.(type) {
+	case *conviav1.Renegotiation_Offer:
+		m.describe(c, "offer", kind.Offer)
+	case *conviav1.Renegotiation_Answer:
+		m.describe(c, "answer", kind.Answer)
+	case *conviav1.Renegotiation_Candidate:
+		k := kind.Candidate
+		m.transport.Candidate(c.id, Candidate{Candidate: k.GetCandidate(), SDPMid: k.GetSdpMid(), SDPMLineIndex: k.GetSdpMLineIndex(), UsernameFragment: k.GetUsernameFragment()})
+	default:
+		m.fail(c, "a renegotiation of no kind")
 	}
 }
 

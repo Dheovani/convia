@@ -270,12 +270,14 @@ How members carry a space's content to one another.
 
 **Depends on:** M12, M15.
 
-- [ ] **M16-001:** Show spaces in the rail, their channels in the sidebar, and a channel's conversation.
-- [ ] **M16-002:** Show a space's members and their roles.
-- [ ] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
-- [ ] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels.
-- [ ] **M16-005:** Build it.
-- [ ] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
+- [x] **M16-001:** Show spaces in the rail, their channels in the sidebar, and a channel's conversation ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md)).
+- [x] **M16-002:** Show a space's members and their roles.
+- [x] **M16-003:** Create and administer a space: channels, members, roles, transferring ownership.
+- [x] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels ([ADR 0041](docs/adr/0041-moderators-mute-members-and-delete-their-messages.md)).
+- [x] **M16-005:** Build it.
+- [x] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
+- [x] **M16-007:** Decide how files travel in a space: who serves them, and to whom ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md), [ADR 0043](docs/adr/0043-a-spaces-files-are-served-by-whoever-holds-them.md)).
+- [x] **M16-008:** Build it.
 
 ## Phase 6 — Calls and screen sharing
 
@@ -285,12 +287,12 @@ Voice, video and screen sharing over the peer connection ([ADR 0015](docs/adr/00
 
 **Depends on:** M12.
 
-- [ ] **M17-001:** Verify how Wails and WebView2 handle the permission requests for the microphone, the camera and the screen, and record what was found.
-- [ ] **M17-002:** Define the messages of a call's lifecycle — calling, accepting, declining, ending — in the protocol.
-- [ ] **M17-003:** Add and remove audio and camera tracks on the existing connection with perfect negotiation, over the authenticated data channel.
-- [ ] **M17-004:** Decide how long a call rings, and what the callee sees when hidden.
-- [ ] **M17-005:** Let a person choose their microphone, camera and speakers, and mute or turn the camera off.
-- [ ] **M17-006:** Build the call's interface.
+- [x] **M17-001:** Verify how Wails and WebView2 handle the permission requests for the microphone, the camera and the screen, and record what was found ([media permissions](docs/platform/media-permissions.md)).
+- [x] **M17-002:** Define the messages of a call's lifecycle — calling, accepting, declining, ending — in the protocol.
+- [x] **M17-003:** Add and remove audio and camera tracks on the existing connection with perfect negotiation, over the authenticated data channel.
+- [x] **M17-004:** Decide how long a call rings, and what the callee sees when hidden ([ADR 0044](docs/adr/0044-a-call-rings-for-30-seconds.md)).
+- [x] **M17-005:** Let a person choose their microphone, camera and speakers, and mute or turn the camera off.
+- [x] **M17-006:** Build the call's interface.
 
 ### M18 — Screen sharing
 

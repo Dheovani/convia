@@ -18,8 +18,13 @@ import (
 
 // hub connects services as the peers' connections would, delivering each one's messages in order.
 type hub struct {
-	mu        sync.Mutex
-	sent      int
+	mu   sync.Mutex
+	sent int
+	// pieces are what was sent on the channel for files, and requests the files asked for.
+	pieces   int
+	requests int
+	// askedOf is how many files each was asked for.
+	askedOf   map[string]int
 	services  map[string]*Service
 	linked    map[[2]string]bool
 	wanted    map[[2]string]bool
@@ -48,6 +53,13 @@ func (p port) Send(peer ed25519.PublicKey, m *conviav1.PeerMessage) bool {
 	}
 	p.h.mu.Lock()
 	p.h.sent++
+	if _, asks := m.Message.(*conviav1.PeerMessage_FileRequest); asks {
+		p.h.requests++
+		if p.h.askedOf == nil {
+			p.h.askedOf = map[string]int{}
+		}
+		p.h.askedOf[string(peer)]++
+	}
 	p.h.mu.Unlock()
 	target.Message(ed25519.PublicKey(p.me), proto.Clone(m).(*conviav1.PeerMessage))
 	return true
@@ -66,6 +78,19 @@ func (p port) Release(peer ed25519.PublicKey, reason string) {
 }
 
 func (p port) Reachable(ed25519.PublicKey) {}
+
+func (p port) SendFile(peer ed25519.PublicKey, data []byte) bool {
+	p.h.mu.Lock()
+	target, linked := p.h.services[string(peer)], p.h.linked[pair(p.me, string(peer))]
+	p.h.mu.Unlock()
+	if linked {
+		p.h.mu.Lock()
+		p.h.pieces++
+		p.h.mu.Unlock()
+		target.File(ed25519.PublicKey(p.me), data)
+	}
+	return linked
+}
 
 func (p port) Reachability(announce, watch [][]byte) {
 	p.h.mu.Lock()
@@ -133,7 +158,7 @@ func holds(t *testing.T, n node, space ID, channel ChannelID, text string) bool 
 	t.Helper()
 	held, _ := n.store.Messages(space, channel)
 	for _, m := range held {
-		if string(m.Content) == text {
+		if m.Entry.Text == text {
 			return true
 		}
 	}
@@ -149,7 +174,7 @@ func (n node) must(t *testing.T, space ID, c Change) {
 
 func (n node) write(t *testing.T, space ID, channel ChannelID, text string) {
 	t.Helper()
-	if _, err := n.service.Write(space, channel, []byte(text)); err != nil {
+	if _, err := n.service.Write(space, channel, said(text)); err != nil {
 		t.Fatalf("Write(%q) = %v", text, err)
 	}
 }
@@ -259,10 +284,10 @@ func TestWhatOneMemberSaysTravelsThroughAnother(t *testing.T) {
 	eventually(t, "Bruno hears Ana", func() bool { return holds(t, bruno, g.Space, general, "depois") })
 	eventually(t, "Bruno learns the new name", func() bool { s, _ := bruno.store.State(g.Space); return s.Name == "Lar" })
 	eventually(t, "Carla learns she was removed", func() bool { s, _ := carla.store.State(g.Space); return s.Rank(carla.me.Public) == None })
-	if _, err := carla.service.Write(g.Space, general, []byte("ainda aqui")); !errors.Is(err, ErrNotReader) {
+	if _, err := carla.service.Write(g.Space, general, said("ainda aqui")); !errors.Is(err, ErrNotReader) {
 		t.Fatalf("a removed member writing = %v", err)
 	}
-	forged, _ := NewMessage(carla.me, g.Space, general, 9, hlc.Time{Wall: 1 << 50}, []byte("ainda aqui"))
+	forged, _ := NewMessage(carla.me, g.Space, general, 9, hlc.Time{Wall: 1 << 50}, said("ainda aqui"))
 	carla.service.send(bruno.me.Public, groupMessage(forged))
 	time.Sleep(50 * time.Millisecond)
 	if s, _ := carla.store.State(g.Space); s.Name == "Lar" {

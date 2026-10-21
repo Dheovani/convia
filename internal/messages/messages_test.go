@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/crc32"
@@ -13,6 +14,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1217,7 +1219,7 @@ func TestADeletedFileLeavesNothingBehind(t *testing.T) {
 	w.remove(0, m.ID)
 	w.settle()
 	for i, p := range w.peers {
-		if _, err := os.Stat(p.s.store.filePath(m.ID)); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(piecesPath(p.s.store, m.ID)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("peer %d still keeps the file", i)
 		}
 		if got := w.conversation(i); len(got) != 1 || !got[0].Deleted || got[0].File != nil {
@@ -1230,7 +1232,7 @@ func TestADeletedFileLeavesNothingBehind(t *testing.T) {
 	if err := w.peers[1].s.Forget(w.peers[0].key, kept.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(w.peers[1].s.store.filePath(kept.ID)); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(piecesPath(w.peers[1].s.store, kept.ID)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("forgotten, the file is still kept")
 	}
 	if _, f := w.received(0, kept.ID); !f.Complete {
@@ -1317,4 +1319,9 @@ func TestAFileIsAskedForOnceAtATime(t *testing.T) {
 	if asked != 1 {
 		t.Fatalf("the first file was asked for %d times", asked)
 	}
+}
+
+// piecesPath is where a file's pieces are kept beside the database.
+func piecesPath(s *Store, id [IDSize]byte) string {
+	return filepath.Join(s.db.Dir, "files", hex.EncodeToString(id[:])+".cvf")
 }
