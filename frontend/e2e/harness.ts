@@ -8,6 +8,11 @@ interface Side {
   closed: boolean;
   offers: number;
   received: number[][];
+  fileBytes: number;
+  filePieces: number;
+  // tracks are the kinds of the other side's tracks, and tone the track this side sends.
+  tracks: string[];
+  tone?: MediaStreamTrack;
 }
 
 const sides: Side[] = [];
@@ -26,9 +31,14 @@ function start(ice: RTCIceServer[], relayOnly: boolean) {
     received: (_, data) => {
       sides[i].received.push([...data]);
     },
+    fileReceived: (_, data) => {
+      sides[i].fileBytes += data.length;
+      sides[i].filePieces += 1;
+    },
     closed: () => {
       sides[i].closed = true;
     },
+    state: () => undefined,
   });
   for (const i of [0, 1]) {
     const pcs: RTCPeerConnection[] = [];
@@ -48,7 +58,11 @@ function start(ice: RTCIceServer[], relayOnly: boolean) {
       closed: false,
       offers: 0,
       received: [],
+      fileBytes: 0,
+      filePieces: 0,
+      tracks: [],
     };
+    sides[i].connections.track = (_, track) => sides[i].tracks.push(track.kind);
   }
   sides[1].connections.open("x", false, ice);
   sides[0].connections.open("x", true, ice);
@@ -77,8 +91,38 @@ const harness = {
   received: (i: number) => sides[i].received,
   send: (i: number, data: number[]) =>
     sides[i].connections.send("x", new Uint8Array(data)),
+  // sendFile sends size bytes in pieces of piece bytes on the channel for files, all at once.
+  sendFile: (i: number, size: number, piece: number) => {
+    for (let sent = 0; sent < size; sent += piece) {
+      sides[i].connections.sendFile(
+        "x",
+        new Uint8Array(Math.min(piece, size - sent)),
+      );
+    }
+  },
+  fileReceived: (i: number) => ({
+    bytes: sides[i].fileBytes,
+    pieces: sides[i].filePieces,
+  }),
   configure: (i: number, ice: RTCIceServer[]) =>
     sides[i].connections.configure(ice),
+  // addTone sends a tone from side i, as a call sends its microphone.
+  addTone: (i: number) => {
+    const context = new AudioContext();
+    const destination = context.createMediaStreamDestination();
+    context.createOscillator().connect(destination);
+    const [track] = destination.stream.getAudioTracks();
+    sides[i].tone = track;
+    sides[i].connections.addTrack("x", track, destination.stream);
+  },
+  removeTone: (i: number) => {
+    const tone = sides[i].tone;
+    if (tone) sides[i].connections.removeTrack("x", tone);
+  },
+  tracks: (i: number) => sides[i].tracks,
+  // directions are how each of side i's transceivers sends and receives, as both last agreed.
+  directions: (i: number) =>
+    sides[i].pcs[0].getTransceivers().map((t) => t.currentDirection),
 };
 
 export type Harness = typeof harness;

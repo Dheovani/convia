@@ -39,7 +39,69 @@ The service address is the `wss://` address the peer connected to, so an answer 
 "convia/v1/invitation" | version | inviter's identity | suggested name | rendezvous hint
 ```
 
-The inviter signs these bytes; the invitation's text form, `convia1…`, is defined with invitations themselves.
+The inviter signs these bytes; the invitation's text form, `convia1…`, is in [invitations](invitations.md).
+
+## The pair secret
+
+Two contacts share a secret ([ADR 0012](../adr/0012-only-contacts-can-tell-when-a-person-is-online.md)), made when the inviter accepts the request ([ADR 0026](../adr/0026-a-contact-needs-the-inviters-consent.md)) from a random 32-byte part each sends over their proven connection:
+
+```text
+secret = SHA-256("convia/v1/pair-secret" | requester's identity | inviter's identity | requester's part | inviter's part)
+```
+
+## Reachability identifiers
+
+A contact is reachable, on a given day, under an identifier only the pair can compute; each announces their own, and watches the other's:
+
+```text
+identifier = HMAC-SHA-256(K, "convia/v1/reachability" | announcer's identity | day)
+```
+
+where `K` is the pair secret.
+
+The day is the number of whole UTC days since 1970, as a 32-bit integer, so the identifier changes every day. A peer watching a contact watches the day before and after too, for clocks that disagree on the date.
+
+## The genesis of a space
+
+A space begins with a genesis its creator signs ([ADR 0013](../adr/0013-a-space-is-replicated-by-its-members.md)):
+
+```text
+"convia/v1/space-genesis" | version | space identifier | creator's identity | name | wall | counter
+```
+
+The space identifier is 16 random bytes. The name is 1 to 100 characters with no control character, trimmed. Wall and counter are the hybrid logical clock moment of its creation: milliseconds since 1970 as a 64-bit big-endian integer, and a 32-bit counter.
+
+## An operation on a space
+
+Every change to a space is an operation its author signs ([the state of a space](spaces.md)):
+
+```text
+"convia/v1/space-operation" | version | space identifier | operation identifier | author's identity | wall | counter |
+number of parents | parent … | kind | channel | role | member | name | number of roles | role …
+```
+
+A number of items is a 32-bit big-endian integer, and each item follows as a field of its own. The kind is its text, such as `create-channel`; a channel, role, member or name the kind does not use is an empty field.
+
+## A group message
+
+Every entry of a space's channel is signed by its author, so that it verifies whoever passed it on ([the state of a space](spaces.md)):
+
+```text
+"convia/v1/group-message" | version | space identifier | channel identifier | author's identity |
+author's sequence | message identifier | wall | counter | SHA-256 of the content
+```
+
+The sequence is a 64-bit big-endian integer, from 1 for each author in each channel. The signature covers the content's digest, not the content, so that a message whose content was wiped since ([ADR 0034](../adr/0034-a-message-is-edited-and-deleted-by-its-author.md)) still verifies.
+
+## A space's discovery secret
+
+The owner or an administrator gives each epoch of a space its discovery secret, and signs it ([the state of a space](spaces.md)):
+
+```text
+"convia/v1/space-secret" | version | space identifier | epoch | author's identity | secret
+```
+
+The epoch is the 32-byte hash that names it; the secret is 32 random bytes.
 
 ## Test vectors
 
@@ -61,4 +123,40 @@ Inputs: Alice's identity is 32 bytes of `a1`, Bob's 32 bytes of `b0`; Alice's no
 
 ```text
 00000014636f6e7669612f76312f696e7669746174696f6e000000040000000100000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000a416e61204cc3ba636961000000187773733a2f2f72656e64657a766f75732e6578616d706c65
+```
+
+**Pair secret**, Alice requesting and Bob inviting, Alice's part 32 bytes of `01`, Bob's 32 bytes of `02`:
+
+```text
+ba07ea0f2e073376b9ff449882e400c71002cabe4ca48082a95d80cb2496a71c
+```
+
+**Reachability identifier** of Bob, under that secret, on day 20376:
+
+```text
+88a285f583b268bc1aa183606d17ec1e5cb254aabced25c48b4fc55b3b731021
+```
+
+**Space genesis**, version 1, space identifier the bytes `00` to `0f`, created by Alice, named `Casa da Ana`, at wall 1700000000000 and counter 2:
+
+```text
+00000017636f6e7669612f76312f73706163652d67656e65736973000000040000000100000010000102030405060708090a0b0c0d0e0f00000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a10000000b4361736120646120416e61000000080000018bcfe568000000000400000002
+```
+
+**Space operation**, version 1, in the space `00` to `0f`, identifier `10` to `1f`, by Alice, at wall 1700000000001 and counter 0, after one parent of 32 bytes of `01`, creating the channel `20` to `2f` named `geral`:
+
+```text
+00000019636f6e7669612f76312f73706163652d6f7065726174696f6e000000040000000100000010000102030405060708090a0b0c0d0e0f00000010101112131415161718191a1b1c1d1e1f00000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000000080000018bcfe56801000000040000000000000004000000010000002001010101010101010101010101010101010101010101010101010101010101010000000e6372656174652d6368616e6e656c00000010202122232425262728292a2b2c2d2e2f000000000000000000000005676572616c0000000400000000
+```
+
+**Group message**, version 1, in the space `00` to `0f` and the channel `20` to `2f`, by Alice, her third, identifier `10` to `1f`, at wall 1700000000002 and counter 1, holding `Bom dia`:
+
+```text
+00000017636f6e7669612f76312f67726f75702d6d657373616765000000040000000100000010000102030405060708090a0b0c0d0e0f00000010202122232425262728292a2b2c2d2e2f00000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000008000000000000000300000010101112131415161718191a1b1c1d1e1f000000080000018bcfe56802000000040000000100000020fe01c0c9210f2f95e7edbe427a7e96a981b95e08cc27ad0b017b520a4e7afe17
+```
+
+**Space secret**, version 1, of the space `00` to `0f`, for the epoch of 32 bytes of `02`, made by Alice, the secret 32 bytes of `03`:
+
+```text
+00000016636f6e7669612f76312f73706163652d736563726574000000040000000100000010000102030405060708090a0b0c0d0e0f00000020020202020202020202020202020202020202020202020202020202020202020200000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000000200303030303030303030303030303030303030303030303030303030303030303
 ```

@@ -3,23 +3,147 @@
 import {app} from '../models';
 import {peers} from '../models';
 
+export function AcceptCall():Promise<app.CallView>;
+
+export function AcceptRequest(arg1:string):Promise<void>;
+
+export function AcceptSpace(arg1:string):Promise<void>;
+
+export function AddContact(arg1:string):Promise<app.RequestView>;
+
+export function AttachInChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function BlockContact(arg1:string,arg2:boolean):Promise<void>;
+
+export function Blocked():Promise<Array<string>>;
+
+export function CallConnection():Promise<string>;
+
+export function CallLog():Promise<Array<app.CalledView>>;
+
+export function ChannelMessages(arg1:string,arg2:string):Promise<Array<app.MessageView>>;
+
+export function ChooseFile():Promise<string>;
+
 export function ChooseIdentityFile():Promise<string>;
+
+export function Contacts():Promise<Array<app.ContactView>>;
+
+export function Conversation(arg1:string):Promise<Array<app.MessageView>>;
+
+export function Conversations():Promise<Array<app.ConversationView>>;
+
+export function CreateChannel(arg1:string,arg2:string):Promise<app.ChannelView>;
 
 export function CreateIdentity(arg1:string):Promise<app.MeView>;
 
+export function CreateRole(arg1:string,arg2:string):Promise<void>;
+
+export function CreateSpace(arg1:string,arg2:string):Promise<app.SpaceView>;
+
+export function CurrentCall():Promise<app.CallView>;
+
+export function DeclineCall():Promise<app.CallView>;
+
+export function DeclineRequest(arg1:string):Promise<void>;
+
+export function DeclineSpace(arg1:string):Promise<void>;
+
+export function DeleteChannel(arg1:string,arg2:string):Promise<void>;
+
 export function DeleteIdentity():Promise<void>;
+
+export function DeleteInChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function DeleteMessage(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteRole(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteSpace(arg1:string):Promise<void>;
+
+export function DismissRequest(arg1:string):Promise<void>;
+
+export function EditInChannel(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function EditMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExportIdentity(arg1:string):Promise<boolean>;
 
+export function FetchInChannel(arg1:string):Promise<void>;
+
+export function ForgetMessage(arg1:string,arg2:string):Promise<void>;
+
+export function HangUp():Promise<app.CallView>;
+
 export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app.MeView>;
+
+export function InviteToSpace(arg1:string,arg2:string):Promise<void>;
+
+export function LeaveSpace(arg1:string):Promise<void>;
+
+export function MaxMessageCharacters():Promise<number>;
 
 export function Me():Promise<app.MeView>;
 
+export function MuteMember(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
+export function MyInvitation():Promise<string>;
+
 export function NetworkChanged():Promise<void>;
+
+export function Notify(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function OpenLink(arg1:string):Promise<void>;
+
+export function React(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
+export function ReactInChannel(arg1:string,arg2:string,arg3:string,arg4:string,arg5:boolean):Promise<void>;
+
+export function RemoveContact(arg1:string,arg2:boolean):Promise<void>;
+
+export function RemoveMember(arg1:string,arg2:string):Promise<void>;
+
+export function RenameChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function RenameIdentity(arg1:string):Promise<void>;
 
+export function RenameRole(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function RenameSpace(arg1:string,arg2:string):Promise<void>;
+
+export function Requests():Promise<app.RequestsView>;
+
+export function SaveFile(arg1:string,arg2:string):Promise<boolean>;
+
+export function SayInChannel(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function SearchMessages(arg1:string):Promise<Array<app.FoundView>>;
+
+export function SendFile(arg1:string,arg2:string):Promise<app.MessageView>;
+
+export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<app.MessageView>;
+
+export function SetAdministrator(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
+export function SetChannelRoles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
+
+export function SetChannelWriters(arg1:string,arg2:string,arg3:boolean,arg4:Array<string>):Promise<void>;
+
+export function SetMemberRole(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
+
 export function SetStartsWithWindows(arg1:boolean):Promise<void>;
+
+export function SetVerified(arg1:string,arg2:boolean):Promise<void>;
+
+export function SpaceInvitations():Promise<Array<app.InvitationView>>;
+
+export function SpaceMembers(arg1:string):Promise<Array<app.MemberView>>;
+
+export function SpaceRoles(arg1:string):Promise<Array<app.RoleView>>;
+
+export function Spaces():Promise<Array<app.SpaceView>>;
+
+export function StartCall(arg1:string,arg2:boolean):Promise<app.CallView>;
 
 export function StartOver():Promise<void>;
 
@@ -27,9 +151,13 @@ export function StartsWithWindows():Promise<boolean>;
 
 export function StorageProblem():Promise<string>;
 
+export function TransferOwnership(arg1:string,arg2:string):Promise<void>;
+
 export function TransportCandidate(arg1:string,arg2:peers.Candidate):Promise<void>;
 
 export function TransportClosed(arg1:string):Promise<void>;
+
+export function TransportFileReceived(arg1:string,arg2:string):Promise<void>;
 
 export function TransportLocal(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -38,3 +166,11 @@ export function TransportOpened(arg1:string):Promise<void>;
 export function TransportReceived(arg1:string,arg2:string):Promise<void>;
 
 export function TransportReset():Promise<void>;
+
+export function TransportState(arg1:string,arg2:string):Promise<void>;
+
+export function TrayWords(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function Unblock(arg1:string):Promise<void>;
+
+export function Viewing(arg1:string,arg2:boolean):Promise<void>;

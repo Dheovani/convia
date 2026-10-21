@@ -41,6 +41,8 @@ type Sealer interface {
 type Store struct {
 	DB      *sql.DB
 	Content *Content
+	// Dir is where the database lives, beside which what does not belong in it is kept.
+	Dir string
 }
 
 // Open opens the database in dir, migrating it forward after copying it.
@@ -100,7 +102,7 @@ func open(dir string, sealer Sealer, migrations []string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{DB: db, Content: content}, nil
+	return &Store{DB: db, Content: content, Dir: dir}, nil
 }
 
 func (s *Store) Close() error { return s.DB.Close() }

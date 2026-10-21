@@ -2,17 +2,21 @@
 // @generated from file convia/v1/peer.proto (package convia.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Challenge, Hello, Proof } from "./handshake_pb";
 import { file_convia_v1_handshake } from "./handshake_pb";
+import type { Candidate } from "./rendezvous_pb";
+import { file_convia_v1_rendezvous } from "./rendezvous_pb";
+import type { FileMissing, GroupMessage, SpaceHolding, SpaceInvitation, SpaceOperation, SpaceSecret, SpaceSync } from "./space_pb";
+import { file_convia_v1_space } from "./space_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIrIBCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SABCCQoHbWVzc2FnZSIaCghJbnRlcmVzdBIOCgZ3YW50ZWQYASABKAhCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIs4HCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIABIuCgxmaWxlX3JlcXVlc3QYCyABKAsyFi5jb252aWEudjEuRmlsZVJlcXVlc3RIABIqCgpzcGFjZV9zeW5jGAwgASgLMhQuY29udmlhLnYxLlNwYWNlU3luY0gAEjQKD3NwYWNlX29wZXJhdGlvbhgNIAEoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbkgAEjAKDXNwYWNlX2hvbGRpbmcYDiABKAsyFy5jb252aWEudjEuU3BhY2VIb2xkaW5nSAASMAoNZ3JvdXBfbWVzc2FnZRgPIAEoCzIXLmNvbnZpYS52MS5Hcm91cE1lc3NhZ2VIABIuCgxzcGFjZV9zZWNyZXQYECABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXRIABI2ChBzcGFjZV9pbnZpdGF0aW9uGBEgASgLMhouY29udmlhLnYxLlNwYWNlSW52aXRhdGlvbkgAEi4KDGZpbGVfbWlzc2luZxgSIAEoCzIWLmNvbnZpYS52MS5GaWxlTWlzc2luZ0gAEjEKDXJlbmVnb3RpYXRpb24YEyABKAsyGC5jb252aWEudjEuUmVuZWdvdGlhdGlvbkgAEh8KBGNhbGwYFCABKAsyDy5jb252aWEudjEuQ2FsbEgAQgkKB21lc3NhZ2Ui/gEKDURpcmVjdE1lc3NhZ2USCgoCaWQYASABKAwSEAoIc2VxdWVuY2UYAiABKAQSDAoEd2FsbBgDIAEoAxIPCgdjb3VudGVyGAQgASgNEgwKBHRleHQYBSABKAkSEAoIcmVwbHlfdG8YBiABKAwSJQoIcmVhY3Rpb24YByABKAsyEy5jb252aWEudjEuUmVhY3Rpb24SHQoEZWRpdBgIIAEoCzIPLmNvbnZpYS52MS5FZGl0EhAKCGRlbGV0aW9uGAkgASgMEg0KBXdpcGVkGAogASgIEikKCmF0dGFjaG1lbnQYCyABKAsyFS5jb252aWEudjEuQXR0YWNobWVudCJNCgpBdHRhY2htZW50EgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iOQoLRmlsZVJlcXVlc3QSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEg4KBmxlbmd0aBgDIAEoBCI1CglGaWxlQ2h1bmsSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEgwKBGRhdGEYAyABKAwiJAoERWRpdBIOCgZ0YXJnZXQYASABKAwSDAoEdGV4dBgCIAEoCSI1CghSZWFjdGlvbhIOCgZ0YXJnZXQYASABKAwSDQoFZW1vamkYAiABKAkSCgoCb24YAyABKAgiHgoPQWNrbm93bGVkZ2VtZW50EgsKA2lkcxgBIAMoDCIbCgdIb2xkaW5nEhAKCHNlcXVlbmNlGAEgASgEIiwKDkNvbnRhY3RSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCItCg9Db250YWN0QWNjZXB0ZWQSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIhIKEENvbnRhY3RDb25maXJtZWQiGgoISW50ZXJlc3QSDgoGd2FudGVkGAEgASgIImUKDVJlbmVnb3RpYXRpb24SDwoFb2ZmZXIYASABKAlIABIQCgZhbnN3ZXIYAiABKAlIABIpCgljYW5kaWRhdGUYAyABKAsyFC5jb252aWEudjEuQ2FuZGlkYXRlSABCBgoEa2luZCKyAQoEQ2FsbBIKCgJpZBgBIAEoDBIiCgRzdGVwGAIgASgOMhQuY29udmlhLnYxLkNhbGwuU3RlcBINCgV2aWRlbxgDIAEoCCJrCgRTdGVwEhQKEFNURVBfVU5TUEVDSUZJRUQQABINCglTVEVQX1JJTkcQARIPCgtTVEVQX0FDQ0VQVBACEhAKDFNURVBfREVDTElORRADEgwKCFNURVBfRU5EEAQSDQoJU1RFUF9CVVNZEAVCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake, file_convia_v1_rendezvous, file_convia_v1_space]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -47,6 +51,102 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
      */
     value: Interest;
     case: "interest";
+  } | {
+    /**
+     * @generated from field: convia.v1.ContactRequest contact_request = 5;
+     */
+    value: ContactRequest;
+    case: "contactRequest";
+  } | {
+    /**
+     * @generated from field: convia.v1.ContactAccepted contact_accepted = 6;
+     */
+    value: ContactAccepted;
+    case: "contactAccepted";
+  } | {
+    /**
+     * @generated from field: convia.v1.ContactConfirmed contact_confirmed = 7;
+     */
+    value: ContactConfirmed;
+    case: "contactConfirmed";
+  } | {
+    /**
+     * @generated from field: convia.v1.DirectMessage direct_message = 8;
+     */
+    value: DirectMessage;
+    case: "directMessage";
+  } | {
+    /**
+     * @generated from field: convia.v1.Acknowledgement acknowledgement = 9;
+     */
+    value: Acknowledgement;
+    case: "acknowledgement";
+  } | {
+    /**
+     * @generated from field: convia.v1.Holding holding = 10;
+     */
+    value: Holding;
+    case: "holding";
+  } | {
+    /**
+     * @generated from field: convia.v1.FileRequest file_request = 11;
+     */
+    value: FileRequest;
+    case: "fileRequest";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceSync space_sync = 12;
+     */
+    value: SpaceSync;
+    case: "spaceSync";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceOperation space_operation = 13;
+     */
+    value: SpaceOperation;
+    case: "spaceOperation";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceHolding space_holding = 14;
+     */
+    value: SpaceHolding;
+    case: "spaceHolding";
+  } | {
+    /**
+     * @generated from field: convia.v1.GroupMessage group_message = 15;
+     */
+    value: GroupMessage;
+    case: "groupMessage";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceSecret space_secret = 16;
+     */
+    value: SpaceSecret;
+    case: "spaceSecret";
+  } | {
+    /**
+     * @generated from field: convia.v1.SpaceInvitation space_invitation = 17;
+     */
+    value: SpaceInvitation;
+    case: "spaceInvitation";
+  } | {
+    /**
+     * @generated from field: convia.v1.FileMissing file_missing = 18;
+     */
+    value: FileMissing;
+    case: "fileMissing";
+  } | {
+    /**
+     * @generated from field: convia.v1.Renegotiation renegotiation = 19;
+     */
+    value: Renegotiation;
+    case: "renegotiation";
+  } | {
+    /**
+     * @generated from field: convia.v1.Call call = 20;
+     */
+    value: Call;
+    case: "call";
   } | { case: undefined; value?: undefined };
 };
 
@@ -56,6 +156,340 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
  */
 export const PeerMessageSchema: GenMessage<PeerMessage> = /*@__PURE__*/
   messageDesc(file_convia_v1_peer, 0);
+
+/**
+ *
+ * DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
+ * 4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
+ * or its deletion (ADR 0034).
+ *
+ * @generated from message convia.v1.DirectMessage
+ */
+export type DirectMessage = Message<"convia.v1.DirectMessage"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: uint64 sequence = 2;
+   */
+  sequence: bigint;
+
+  /**
+   * The hybrid logical clock: milliseconds since 1970, and a counter for messages within one.
+   *
+   * @generated from field: int64 wall = 3;
+   */
+  wall: bigint;
+
+  /**
+   * @generated from field: uint32 counter = 4;
+   */
+  counter: number;
+
+  /**
+   * A message's text; an entry that is not a message has none.
+   *
+   * @generated from field: string text = 5;
+   */
+  text: string;
+
+  /**
+   * The message this one answers.
+   *
+   * @generated from field: bytes reply_to = 6;
+   */
+  replyTo: Uint8Array;
+
+  /**
+   * @generated from field: convia.v1.Reaction reaction = 7;
+   */
+  reaction?: Reaction | undefined;
+
+  /**
+   * @generated from field: convia.v1.Edit edit = 8;
+   */
+  edit?: Edit | undefined;
+
+  /**
+   * The message its author deletes for both.
+   *
+   * @generated from field: bytes deletion = 9;
+   */
+  deletion: Uint8Array;
+
+  /**
+   * An entry whose text was edited or deleted since: it is sent without it, and holds its place in the sequence.
+   *
+   * @generated from field: bool wiped = 10;
+   */
+  wiped: boolean;
+
+  /**
+   * A file, whose name is the text; its content travels on the channel for files (ADR 0036).
+   *
+   * @generated from field: convia.v1.Attachment attachment = 11;
+   */
+  attachment?: Attachment | undefined;
+};
+
+/**
+ * Describes the message convia.v1.DirectMessage.
+ * Use `create(DirectMessageSchema)` to create a new message.
+ */
+export const DirectMessageSchema: GenMessage<DirectMessage> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 1);
+
+/**
+ * Attachment describes a file of at most 100 MB, by its size, type and SHA-256 (ADR 0036).
+ *
+ * @generated from message convia.v1.Attachment
+ */
+export type Attachment = Message<"convia.v1.Attachment"> & {
+  /**
+   * @generated from field: uint64 size = 1;
+   */
+  size: bigint;
+
+  /**
+   * image/png, image/jpeg, image/gif or image/webp, or application/octet-stream for anything else.
+   *
+   * @generated from field: string type = 2;
+   */
+  type: string;
+
+  /**
+   * @generated from field: bytes sha256 = 3;
+   */
+  sha256: Uint8Array;
+
+  /**
+   * The EXIF orientation of a picture, 1 to 8, kept when its metadata was removed.
+   *
+   * @generated from field: uint32 orientation = 4;
+   */
+  orientation: number;
+};
+
+/**
+ * Describes the message convia.v1.Attachment.
+ * Use `create(AttachmentSchema)` to create a new message.
+ */
+export const AttachmentSchema: GenMessage<Attachment> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 2);
+
+/**
+ * FileRequest asks the sender of a file for length bytes of it from offset.
+ *
+ * @generated from message convia.v1.FileRequest
+ */
+export type FileRequest = Message<"convia.v1.FileRequest"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: uint64 offset = 2;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: uint64 length = 3;
+   */
+  length: bigint;
+};
+
+/**
+ * Describes the message convia.v1.FileRequest.
+ * Use `create(FileRequestSchema)` to create a new message.
+ */
+export const FileRequestSchema: GenMessage<FileRequest> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 3);
+
+/**
+ * FileChunk is a piece of a file, sent on the channel for files: never on the channel for messages.
+ *
+ * @generated from message convia.v1.FileChunk
+ */
+export type FileChunk = Message<"convia.v1.FileChunk"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: uint64 offset = 2;
+   */
+  offset: bigint;
+
+  /**
+   * @generated from field: bytes data = 3;
+   */
+  data: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.FileChunk.
+ * Use `create(FileChunkSchema)` to create a new message.
+ */
+export const FileChunkSchema: GenMessage<FileChunk> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 4);
+
+/**
+ * Edit gives a message of its author's new text (ADR 0034).
+ *
+ * @generated from message convia.v1.Edit
+ */
+export type Edit = Message<"convia.v1.Edit"> & {
+  /**
+   * @generated from field: bytes target = 1;
+   */
+  target: Uint8Array;
+
+  /**
+   * @generated from field: string text = 2;
+   */
+  text: string;
+};
+
+/**
+ * Describes the message convia.v1.Edit.
+ * Use `create(EditSchema)` to create a new message.
+ */
+export const EditSchema: GenMessage<Edit> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 5);
+
+/**
+ * Reaction puts an emoji on a message, or takes it off (ADR 0035).
+ *
+ * @generated from message convia.v1.Reaction
+ */
+export type Reaction = Message<"convia.v1.Reaction"> & {
+  /**
+   * @generated from field: bytes target = 1;
+   */
+  target: Uint8Array;
+
+  /**
+   * @generated from field: string emoji = 2;
+   */
+  emoji: string;
+
+  /**
+   * @generated from field: bool on = 3;
+   */
+  on: boolean;
+};
+
+/**
+ * Describes the message convia.v1.Reaction.
+ * Use `create(ReactionSchema)` to create a new message.
+ */
+export const ReactionSchema: GenMessage<Reaction> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 6);
+
+/**
+ * Acknowledgement says the sender stored these messages (ADR 0011).
+ *
+ * @generated from message convia.v1.Acknowledgement
+ */
+export type Acknowledgement = Message<"convia.v1.Acknowledgement"> & {
+  /**
+   * @generated from field: repeated bytes ids = 1;
+   */
+  ids: Uint8Array[];
+};
+
+/**
+ * Describes the message convia.v1.Acknowledgement.
+ * Use `create(AcknowledgementSchema)` to create a new message.
+ */
+export const AcknowledgementSchema: GenMessage<Acknowledgement> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 7);
+
+/**
+ * Holding is the highest sequence number of the receiver's messages the sender holds, with every one before it.
+ *
+ * @generated from message convia.v1.Holding
+ */
+export type Holding = Message<"convia.v1.Holding"> & {
+  /**
+   * @generated from field: uint64 sequence = 1;
+   */
+  sequence: bigint;
+};
+
+/**
+ * Describes the message convia.v1.Holding.
+ * Use `create(HoldingSchema)` to create a new message.
+ */
+export const HoldingSchema: GenMessage<Holding> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 8);
+
+/**
+ * ContactRequest asks the inviter to become contacts, with the requester's part of their pair secret (ADR 0026).
+ *
+ * @generated from message convia.v1.ContactRequest
+ */
+export type ContactRequest = Message<"convia.v1.ContactRequest"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bytes part = 2;
+   */
+  part: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.ContactRequest.
+ * Use `create(ContactRequestSchema)` to create a new message.
+ */
+export const ContactRequestSchema: GenMessage<ContactRequest> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 9);
+
+/**
+ * ContactAccepted is the inviter's yes, with the inviter's part of the pair secret.
+ *
+ * @generated from message convia.v1.ContactAccepted
+ */
+export type ContactAccepted = Message<"convia.v1.ContactAccepted"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: bytes part = 2;
+   */
+  part: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.ContactAccepted.
+ * Use `create(ContactAcceptedSchema)` to create a new message.
+ */
+export const ContactAcceptedSchema: GenMessage<ContactAccepted> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 10);
+
+/**
+ * ContactConfirmed says the requester holds the pair secret too.
+ *
+ * @generated from message convia.v1.ContactConfirmed
+ */
+export type ContactConfirmed = Message<"convia.v1.ContactConfirmed"> & {
+};
+
+/**
+ * Describes the message convia.v1.ContactConfirmed.
+ * Use `create(ContactConfirmedSchema)` to create a new message.
+ */
+export const ContactConfirmedSchema: GenMessage<ContactConfirmed> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 11);
 
 /**
  * Interest says whether the sender still wants the connection (ADR 0024).
@@ -74,5 +508,125 @@ export type Interest = Message<"convia.v1.Interest"> & {
  * Use `create(InterestSchema)` to create a new message.
  */
 export const InterestSchema: GenMessage<Interest> = /*@__PURE__*/
-  messageDesc(file_convia_v1_peer, 1);
+  messageDesc(file_convia_v1_peer, 12);
+
+/**
+ *
+ * Renegotiation is a description or a candidate for a connection already proven, carried over it rather than through
+ * the rendezvous service, as when a call adds or removes a track (ADR 0015). Its fingerprint must stay the one the
+ * connection was proven with.
+ *
+ * @generated from message convia.v1.Renegotiation
+ */
+export type Renegotiation = Message<"convia.v1.Renegotiation"> & {
+  /**
+   * @generated from oneof convia.v1.Renegotiation.kind
+   */
+  kind: {
+    /**
+     * @generated from field: string offer = 1;
+     */
+    value: string;
+    case: "offer";
+  } | {
+    /**
+     * @generated from field: string answer = 2;
+     */
+    value: string;
+    case: "answer";
+  } | {
+    /**
+     * @generated from field: convia.v1.Candidate candidate = 3;
+     */
+    value: Candidate;
+    case: "candidate";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message convia.v1.Renegotiation.
+ * Use `create(RenegotiationSchema)` to create a new message.
+ */
+export const RenegotiationSchema: GenMessage<Renegotiation> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 13);
+
+/**
+ * Call is a step of a call between two people (ADR 0015, ADR 0044).
+ *
+ * @generated from message convia.v1.Call
+ */
+export type Call = Message<"convia.v1.Call"> & {
+  /**
+   * The call, chosen by the person calling: every step names it.
+   *
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: convia.v1.Call.Step step = 2;
+   */
+  step: Call_Step;
+
+  /**
+   * Whether the person calling turns their camera on.
+   *
+   * @generated from field: bool video = 3;
+   */
+  video: boolean;
+};
+
+/**
+ * Describes the message convia.v1.Call.
+ * Use `create(CallSchema)` to create a new message.
+ */
+export const CallSchema: GenMessage<Call> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 14);
+
+/**
+ * @generated from enum convia.v1.Call.Step
+ */
+export enum Call_Step {
+  /**
+   * @generated from enum value: STEP_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The person calling rings the other, for at most 30 seconds.
+   *
+   * @generated from enum value: STEP_RING = 1;
+   */
+  RING = 1,
+
+  /**
+   * @generated from enum value: STEP_ACCEPT = 2;
+   */
+  ACCEPT = 2,
+
+  /**
+   * @generated from enum value: STEP_DECLINE = 3;
+   */
+  DECLINE = 3,
+
+  /**
+   * Either ends the call, or the person calling stops ringing.
+   *
+   * @generated from enum value: STEP_END = 4;
+   */
+  END = 4,
+
+  /**
+   * The person called is in another call.
+   *
+   * @generated from enum value: STEP_BUSY = 5;
+   */
+  BUSY = 5,
+}
+
+/**
+ * Describes the enum convia.v1.Call.Step.
+ */
+export const Call_StepSchema: GenEnum<Call_Step> = /*@__PURE__*/
+  enumDesc(file_convia_v1_peer, 14, 0);
 

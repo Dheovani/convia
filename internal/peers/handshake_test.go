@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,11 +35,16 @@ type recorder struct {
 	offerer map[string]bool
 	sent    map[string][][]byte
 	closed  map[string]bool
+	files   map[string][][]byte
 	signals []*conviav1.Signal
+	service []string
+	// described are the kinds of the descriptions handed to the WebView, and candidates its candidates.
+	described  []string
+	candidates []Candidate
 }
 
 func newRecorder() *recorder {
-	return &recorder{offerer: map[string]bool{}, sent: map[string][][]byte{}, closed: map[string]bool{}}
+	return &recorder{offerer: map[string]bool{}, sent: map[string][][]byte{}, closed: map[string]bool{}, files: map[string][][]byte{}}
 }
 
 func (r *recorder) Open(id string, offerer bool, _ []ICEServer) {
@@ -47,15 +53,48 @@ func (r *recorder) Open(id string, offerer bool, _ []ICEServer) {
 	r.opened = append(r.opened, id)
 	r.offerer[id] = offerer
 }
-func (r *recorder) Describe(string, string, string) {}
-func (r *recorder) Candidate(string, Candidate)     {}
-func (r *recorder) Configure([]ICEServer)           {}
+func (r *recorder) Describe(_, kind, _ string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.described = append(r.described, kind)
+}
+func (r *recorder) Candidate(_ string, c Candidate) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.candidates = append(r.candidates, c)
+}
+func (r *recorder) Configure([]ICEServer) {}
 func (r *recorder) Signal(s *conviav1.Signal) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.signals = append(r.signals, s)
 	return nil
 }
+func (r *recorder) note(what string, ids [][]byte) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, id := range ids {
+		r.service = append(r.service, what+" "+string(id))
+	}
+	return nil
+}
+func (r *recorder) Announce(ids ...[]byte) error    { return r.note("announce", ids) }
+func (r *recorder) Withdraw(ids ...[]byte) error    { return r.note("withdraw", ids) }
+func (r *recorder) Subscribe(ids ...[]byte) error   { return r.note("subscribe", ids) }
+func (r *recorder) Unsubscribe(ids ...[]byte) error { return r.note("unsubscribe", ids) }
+
+func (r *recorder) told() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.service)
+}
+
+func (r *recorder) SendFile(id string, data []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.files[id] = append(r.files[id], data)
+}
+
 func (r *recorder) Send(id string, data []byte) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -151,6 +190,7 @@ type scripted struct {
 	nonce    []byte
 	ready    chan ed25519.PublicKey
 	outdated chan bool
+	messages chan *conviav1.PeerMessage
 }
 
 /*
@@ -184,9 +224,10 @@ func (s *scripted) answer(from ed25519.PublicKey, sdp string) {
 func prepare(t *testing.T, managerOffers bool, me, remote ed25519.PrivateKey, timing Timing) *scripted {
 	t.Helper()
 	s := &scripted{t: t, r: newRecorder(), me: me, remote: remote, offerer: managerOffers,
-		ready: make(chan ed25519.PublicKey, 1), outdated: make(chan bool, 1)}
+		ready: make(chan ed25519.PublicKey, 1), outdated: make(chan bool, 1), messages: make(chan *conviav1.PeerMessage, 4)}
 	s.m = New(s.me, s.r, func(ed25519.PublicKey) bool { return true },
-		Observer{Ready: func(p ed25519.PublicKey) { s.ready <- p }, Outdated: func(_ ed25519.PublicKey, theirs bool) { s.outdated <- theirs }},
+		Observer{Ready: func(p ed25519.PublicKey) { s.ready <- p }, Outdated: func(_ ed25519.PublicKey, theirs bool) { s.outdated <- theirs },
+			Message: func(_ ed25519.PublicKey, m *conviav1.PeerMessage) { s.messages <- m }},
 		timing, slog.New(slog.DiscardHandler))
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -549,4 +590,93 @@ func TestAReloadedPageMakesItsConnectionsAgain(t *testing.T) {
 	s.expectReady()
 	s.m.Reset()
 	eventually(t, func() bool { return s.opens() == 2 })
+}
+
+func TestReachabilityIsKeptWithTheService(t *testing.T) {
+	r := newRecorder()
+	m := New(identity(t), r, func(ed25519.PublicKey) bool { return true }, Observer{}, Default, slog.New(slog.DiscardHandler))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go m.Run(ctx)
+
+	m.Reachability([][]byte{[]byte("a1"), []byte("a2")}, [][]byte{[]byte("w1")})
+	m.Online(r)
+	eventually(t, func() bool { return len(r.told()) == 3 })
+	m.Reachability([][]byte{[]byte("a2"), []byte("a3")}, nil)
+	eventually(t, func() bool { return len(r.told()) == 6 })
+
+	got := r.told()
+	slices.Sort(got[:2])
+	slices.Sort(got[3:])
+	want := []string{"announce a1", "announce a2", "subscribe w1", "announce a3", "unsubscribe w1", "withdraw a1"}
+	slices.Sort(want[3:])
+	if !slices.Equal(got, want) {
+		t.Fatalf("told the service %q, want %q", got, want)
+	}
+
+	again := newRecorder()
+	m.Online(again)
+	eventually(t, func() bool { return len(again.told()) == 2 })
+	if got := again.told(); slices.Contains(got, "announce a1") || !slices.Contains(got, "announce a3") {
+		t.Fatalf("reaching the service again told it %q", got)
+	}
+}
+
+func TestMessagesAfterTheHandshakeReachTheObserverAndCanBeSent(t *testing.T) {
+	s := connect(t, false)
+	if s.m.Send(public(s.remote), &conviav1.PeerMessage{}) {
+		t.Fatal("sent before the handshake")
+	}
+	s.receive(hello(1), challenge(theirNonce), proof(public(s.remote), ed25519.Sign(s.remote, s.honest().bytes(public(s.me)))))
+	s.expectReady()
+
+	s.receive(send(&conviav1.PeerMessage{Message: &conviav1.PeerMessage_ContactConfirmed{ContactConfirmed: &conviav1.ContactConfirmed{}}}))
+	select {
+	case m := <-s.messages:
+		if m.GetContactConfirmed() == nil {
+			t.Fatalf("observed %v", m)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the message was not observed")
+	}
+	if !s.m.Send(public(s.remote), &conviav1.PeerMessage{Message: &conviav1.PeerMessage_ContactConfirmed{ContactConfirmed: &conviav1.ContactConfirmed{}}}) {
+		t.Fatal("not sent on a proven connection")
+	}
+	if s.r.message(t, s.id, 4).GetContactConfirmed() == nil {
+		t.Fatal("the message sent is not on the connection")
+	}
+}
+
+func TestDisconnectingForgetsThePeer(t *testing.T) {
+	s := connect(t, true)
+	s.m.Disconnect(public(s.remote))
+	eventually(t, func() bool { return s.r.wasClosed(s.id) })
+	time.Sleep(50 * time.Millisecond)
+	if n := s.opens(); n != 1 {
+		t.Fatalf("connected %d times after disconnecting", n)
+	}
+}
+
+func TestAFileBeforeTheHandshakeEndsTheConnection(t *testing.T) {
+	s := connect(t, false)
+	s.m.FileReceived(s.id, []byte("too soon"))
+	s.expectRefused()
+}
+
+func TestFilesTravelOnTheirOwnChannelOnceProven(t *testing.T) {
+	s := connect(t, false)
+	if s.m.SendFile(public(s.remote), []byte("x")) {
+		t.Fatal("a file went out before the handshake")
+	}
+	s.receive(hello(1), challenge(theirNonce), proof(public(s.remote), ed25519.Sign(s.remote, s.honest().bytes(public(s.me)))))
+	s.expectReady()
+	if !s.m.SendFile(public(s.remote), []byte("piece")) {
+		t.Fatal("a file did not go out on a proven connection")
+	}
+	s.r.mu.Lock()
+	got := s.r.files[s.id]
+	s.r.mu.Unlock()
+	if len(got) != 1 || string(got[0]) != "piece" {
+		t.Fatalf("the channel for files carried %q", got)
+	}
 }

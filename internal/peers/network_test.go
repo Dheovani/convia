@@ -1,158 +1,58 @@
-package peers
+package peers_test
 
 import (
 	"context"
 	"crypto/ed25519"
-	"fmt"
 	"log/slog"
-	"net/http"
-	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/Dheovani/convia/internal/peers"
+	"github.com/Dheovani/convia/internal/peers/peerstest"
 	"github.com/Dheovani/convia/internal/rendezvous"
-	"github.com/Dheovani/convia/internal/rendezvous/service"
-	"github.com/Dheovani/convia/internal/turn"
 )
 
-// network stands in for the WebViews of several peers: each pair of ends of a connection id is wired together.
-type network struct {
-	mu   sync.Mutex
-	ends map[string][]*end
-}
-
-type end struct {
-	node          *node
-	local, remote bool
-	open          bool
-}
-
-// node is one peer: its Manager, its WebView in the network, and what it was told.
+// node is one peer: its Manager, its WebView, and what it was told.
 type node struct {
 	t      *testing.T
 	name   string
 	key    ed25519.PrivateKey
-	m      *Manager
-	net    *network
-	inbox  chan func()
-	opens  atomic.Int32
+	m      *peers.Manager
+	view   *peerstest.WebView
 	ready  chan ed25519.PublicKey
 	lost   chan ed25519.PublicKey
 	accept atomic.Bool
-	stop   context.CancelFunc
 }
 
-func (n *node) Open(id string, offerer bool, _ []ICEServer) {
-	n.opens.Add(1)
-	n.net.mu.Lock()
-	n.net.ends[id] = append(n.net.ends[id], &end{node: n, local: offerer})
-	n.net.mu.Unlock()
-	if offerer {
-		n.inbox <- func() { n.m.LocalDescription(id, "offer", description(n.fingerprint())) }
-	}
-}
-
-func (n *node) fingerprint() string { return "sha-256 " + strings.ToUpper(fmt.Sprintf("%x", n.name)) }
-
-func (n *node) Describe(id, kind, _ string) {
-	n.net.mu.Lock()
-	defer n.net.mu.Unlock()
-	mine := n.net.find(id, n)
-	if mine == nil {
-		return
-	}
-	mine.remote = true
-	if kind == "offer" {
-		mine.local = true
-		n.inbox <- func() { n.m.LocalDescription(id, "answer", description(n.fingerprint())) }
-	}
-	ends := n.net.ends[id]
-	if len(ends) == 2 && ends[0].local && ends[0].remote && ends[1].local && ends[1].remote && !ends[0].open {
-		for _, e := range ends {
-			e.open = true
-			e.node.inbox <- func() { e.node.m.Opened(id) }
-		}
-	}
-}
-
-func (n *node) Candidate(string, Candidate) {}
-func (n *node) Configure([]ICEServer)       {}
-
-func (n *node) Send(id string, data []byte) {
-	n.net.mu.Lock()
-	defer n.net.mu.Unlock()
-	if other := n.net.other(id, n); other != nil && other.open {
-		other.node.inbox <- func() { other.node.m.Received(id, data) }
-	}
-}
-
-func (n *node) Close(id string) {
-	n.net.mu.Lock()
-	defer n.net.mu.Unlock()
-	other := n.net.other(id, n)
-	delete(n.net.ends, id)
-	if other != nil {
-		other.node.inbox <- func() { other.node.m.Closed(id) }
-	}
-}
-
-func (net *network) find(id string, n *node) *end {
-	for _, e := range net.ends[id] {
-		if e.node == n {
-			return e
-		}
-	}
-	return nil
-}
-
-func (net *network) other(id string, n *node) *end {
-	for _, e := range net.ends[id] {
-		if e.node != n {
-			return e
-		}
-	}
-	return nil
-}
-
-// drop ends every connection as a failing network would, telling both peers.
-func (net *network) drop() {
-	net.mu.Lock()
-	defer net.mu.Unlock()
-	for id, ends := range net.ends {
-		for _, e := range ends {
-			e.node.inbox <- func() { e.node.m.Closed(id) }
-		}
-		delete(net.ends, id)
-	}
-}
-
-func (net *network) connections() int {
-	net.mu.Lock()
-	defer net.mu.Unlock()
-	return len(net.ends)
-}
+func (n *node) opens() int32 { return n.view.Opens.Load() }
 
 type world struct {
 	t       *testing.T
-	net     *network
+	views   *peerstest.WebViews
 	address string
-	timing  Timing
+	timing  peers.Timing
 }
 
-var fast = Timing{FirstRetry: 20 * time.Millisecond, LongestRetry: 200 * time.Millisecond, Attempt: 300 * time.Millisecond, Idle: 200 * time.Millisecond, Tick: 10 * time.Millisecond}
+var fast = peers.Timing{FirstRetry: 20 * time.Millisecond, LongestRetry: 200 * time.Millisecond, Attempt: 300 * time.Millisecond, Idle: 200 * time.Millisecond, Tick: 10 * time.Millisecond}
 
-func newWorld(t *testing.T, timing Timing) *world {
+func newWorld(t *testing.T, timing peers.Timing) *world {
 	t.Helper()
-	var svc *service.Service
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { svc.ServeHTTP(w, r) }))
-	t.Cleanup(server.Close)
-	address := "ws" + strings.TrimPrefix(server.URL, "http")
-	svc = service.New(address, service.Default, turn.Servers{}, slog.New(slog.DiscardHandler))
-	t.Cleanup(svc.Close)
-	return &world{t: t, net: &network{ends: map[string][]*end{}}, address: address, timing: timing}
+	return &world{t: t, views: peerstest.New(), address: peerstest.Rendezvous(t), timing: timing}
+}
+
+func identity(t *testing.T) ed25519.PrivateKey { return peerstest.Identity(t) }
+
+func public(k ed25519.PrivateKey) ed25519.PublicKey { return k.Public().(ed25519.PublicKey) }
+
+func eventually(t *testing.T, done func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); !done(); time.Sleep(2 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out")
+		}
+	}
 }
 
 // join starts a peer called name, connected to the rendezvous service.
@@ -162,31 +62,21 @@ func (w *world) joinAs(name string, key ed25519.PrivateKey) *node {
 	return w.joinWith(name, key, w.timing)
 }
 
-func (w *world) joinWith(name string, key ed25519.PrivateKey, timing Timing) *node {
+func (w *world) joinWith(name string, key ed25519.PrivateKey, timing peers.Timing) *node {
 	w.t.Helper()
-	n := &node{t: w.t, name: name, key: key, net: w.net, inbox: make(chan func(), 1024),
+	n := &node{t: w.t, name: name, key: key, view: w.views.WebView(name),
 		ready: make(chan ed25519.PublicKey, 16), lost: make(chan ed25519.PublicKey, 16)}
 	n.accept.Store(true)
-	n.m = New(n.key, n, func(ed25519.PublicKey) bool { return n.accept.Load() },
-		Observer{Ready: func(p ed25519.PublicKey) { n.ready <- p }, Lost: func(p ed25519.PublicKey) { n.lost <- p }},
+	n.m = peers.New(n.key, n.view, func(ed25519.PublicKey) bool { return n.accept.Load() },
+		peers.Observer{Ready: func(p ed25519.PublicKey) { n.ready <- p }, Lost: func(p ed25519.PublicKey) { n.lost <- p }},
 		timing, slog.New(slog.DiscardHandler))
 	ctx, cancel := context.WithCancel(context.Background())
-	n.stop = cancel
 	w.t.Cleanup(cancel)
 	go n.m.Run(ctx)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case f := <-n.inbox:
-				f()
-			}
-		}
-	}()
+	go n.view.Run(ctx, n.m)
 	online := make(chan struct{})
 	var once sync.Once
-	go n.m.Link(ctx, func(ctx context.Context) (Session, error) {
+	go n.m.Link(ctx, func(ctx context.Context) (peers.Session, error) {
 		c, err := rendezvous.Dial(ctx, w.address, n.key)
 		if err == nil {
 			once.Do(func() { close(online) })
@@ -238,7 +128,7 @@ func TestPeersConnectingAtOnceMakeOneConnection(t *testing.T) {
 	alice.expect(alice.ready, bob, "ready")
 	bob.expect(bob.ready, alice, "ready")
 	alice.quiet(alice.lost, "lost", 100*time.Millisecond)
-	if n := w.net.connections(); n != 1 {
+	if n := w.views.Connections(); n != 1 {
 		t.Fatalf("%d connections, want 1", n)
 	}
 }
@@ -248,11 +138,11 @@ func TestAnAbsentPeerIsWaitedForAndReachedWhenItReturns(t *testing.T) {
 	alice := w.join("alice")
 	carol := identity(t)
 	alice.m.Want(public(carol), "message")
-	eventually(t, func() bool { return alice.opens.Load() == 1 })
+	eventually(t, func() bool { return alice.opens() == 1 })
 	time.Sleep(10 * fast.LongestRetry)
 	alice.m.Want(public(carol), "conversation")
 	time.Sleep(10 * fast.Tick)
-	if n := alice.opens.Load(); n != 1 {
+	if n := alice.opens(); n != 1 {
 		t.Fatalf("an absent peer was tried %d times", n)
 	}
 
@@ -260,7 +150,7 @@ func TestAnAbsentPeerIsWaitedForAndReachedWhenItReturns(t *testing.T) {
 	alice.m.Reachable(public(carol))
 	alice.expect(alice.ready, back, "ready")
 
-	w.net.drop()
+	w.views.Drop()
 	alice.expect(alice.lost, back, "lost")
 	alice.expect(alice.ready, back, "ready again")
 }
@@ -272,7 +162,7 @@ func TestALostConnectionIsMadeAgain(t *testing.T) {
 	alice.expect(alice.ready, bob, "ready")
 	bob.expect(bob.ready, alice, "ready")
 
-	w.net.drop()
+	w.views.Drop()
 	alice.expect(alice.lost, bob, "lost")
 	alice.expect(alice.ready, bob, "ready again")
 	bob.expect(bob.ready, alice, "ready again")
@@ -309,7 +199,7 @@ func TestAPeerThatDoesNotAnswerIsRetried(t *testing.T) {
 	alice, bob := w.join("alice"), w.join("bob")
 	bob.accept.Store(false)
 	alice.m.Want(public(bob.key), "message")
-	eventually(t, func() bool { return alice.opens.Load() >= 3 })
+	eventually(t, func() bool { return alice.opens() >= 3 })
 	alice.quiet(alice.ready, "ready", 0)
 }
 
@@ -320,7 +210,7 @@ func TestANetworkChangeRetriesAtOnce(t *testing.T) {
 	alice, bob := w.join("alice"), w.join("bob")
 	bob.accept.Store(false)
 	alice.m.Want(public(bob.key), "message")
-	eventually(t, func() bool { return alice.opens.Load() == 1 && w.net.connections() == 0 })
+	eventually(t, func() bool { return alice.opens() == 1 && w.views.Connections() == 0 })
 	time.Sleep(2 * slow.Attempt)
 
 	bob.accept.Store(true)

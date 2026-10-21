@@ -108,6 +108,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The tray's icon while something is unread (ADR 0033): the mark, with a dot at its corner.
+	badged := make([]*image.NRGBA, 0, len(sizes))
+	for _, size := range sizes {
+		badged = append(badged, badge(draw(size)))
+	}
+
+	unread, err := pack(badged)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "pack the unread icon:", err)
+		os.Exit(1)
+	}
+
+	if err := os.WriteFile(filepath.Join(working, "build", "windows", "tray-unread.ico"), unread, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "write the unread icon:", err)
+		os.Exit(1)
+	}
+
 	// Wails keeps a large PNG of the icon beside the build's sources too.
 	var large bytes.Buffer
 	if err := png.Encode(&large, draw(1024)); err != nil {
@@ -179,6 +196,57 @@ func draw(size int) *image.NRGBA {
 	}
 
 	return picture
+}
+
+/*
+The unread dot, in the danger colour of the theme, sits in the icon's top right corner. A ring of the
+tile around it keeps it apart from the mark beneath.
+*/
+var dot = color.NRGBA{R: 0xff, G: 0x5c, B: 0x7c, A: 0xff}
+
+const (
+	// The badge's radius, ring included, as a share of the icon's size.
+	badgeRadius = 0.22
+
+	// How much of that radius is the dot; the rest is the ring.
+	dotShare = 0.78
+)
+
+// badge draws the unread dot over a picture's top right corner.
+func badge(picture *image.NRGBA) *image.NRGBA {
+	size := float64(picture.Bounds().Dx())
+	outer := size * badgeRadius
+	inner := outer * dotShare
+	centreX, centreY := size-outer, outer
+
+	fromCentre := func(x, y float64) float64 { return math.Hypot(x-centreX, y-centreY) }
+	inDot := func(x, y float64) bool { return fromCentre(x, y) <= inner }
+	inRing := func(x, y float64) bool { d := fromCentre(x, y); return d > inner && d <= outer }
+
+	for y := range picture.Bounds().Dy() {
+		for x := range picture.Bounds().Dx() {
+			pixel := picture.NRGBAAt(x, y)
+			pixel = blend(pixel, tile, coverage(x, y, inRing))
+			pixel = blend(pixel, dot, coverage(x, y, inDot))
+			picture.SetNRGBA(x, y, pixel)
+		}
+	}
+
+	return picture
+}
+
+// coverage is how much of pixel x, y a shape covers, sampled at the centre of each sub-pixel.
+func coverage(x, y int, inside func(x, y float64) bool) float64 {
+	hits := 0
+	for subY := range samples {
+		for subX := range samples {
+			if inside(float64(x)+(float64(subX)+0.5)/samples, float64(y)+(float64(subY)+0.5)/samples) {
+				hits++
+			}
+		}
+	}
+
+	return float64(hits) / (samples * samples)
 }
 
 // insideTile is the rounded square the mark sits on.

@@ -6,7 +6,6 @@ import {
 } from "../../wailsjs/go/app/Bridge";
 import { Button, Field } from "../components/controls";
 import { ImportIdentity } from "../components/ImportIdentity";
-import { Wordmark } from "../components/Mark";
 import { useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
 
@@ -59,8 +58,7 @@ export function Me({ me, onChanged }: { me: Identity; onChanged: () => void }) {
   }
 
   return (
-    <main className="flex h-full flex-col items-center gap-8 overflow-y-auto bg-surface px-8 py-10 text-ink">
-      <Wordmark />
+    <div className="flex w-full flex-col items-center gap-8">
       <section className="flex w-full max-w-lg flex-col gap-3">
         <div className="flex items-end gap-3">
           <div className="flex-1">
@@ -133,6 +131,6 @@ export function Me({ me, onChanged }: { me: Identity; onChanged: () => void }) {
           {notice}
         </p>
       )}
-    </main>
+    </div>
   );
 }

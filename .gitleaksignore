@@ -23,3 +23,9 @@ c19bb2ede2a0e6fae1506a48fd6bf9549f73ec32:internal/server/redaction_test.go:gener
 14556b8fc5d53b3c830a64e9224149ce6793b651:internal/server/tenant_budget_test.go:generic-api-key:29
 14556b8fc5d53b3c830a64e9224149ce6793b651:internal/server/tenant_budget_test.go:generic-api-key:30
 8c66a535f826c685b99531c13bb844395ad94937:internal/server/origin_test.go:generic-api-key:320
+
+# The pair secret's test vector, derived from fixed public inputs, and the formula that names the secret.
+643b386034a7aea4b40d2126929f15dda45bb580:internal/canonical/canonical_test.go:generic-api-key:60
+643b386034a7aea4b40d2126929f15dda45bb580:docs/protocol/canonical-encodings.md:generic-api-key:57
+07eddf64e07ec5cdc896f487bac31398217e0dc8:internal/canonical/canonical_test.go:generic-api-key:60
+07eddf64e07ec5cdc896f487bac31398217e0dc8:docs/protocol/canonical-encodings.md:generic-api-key:57
