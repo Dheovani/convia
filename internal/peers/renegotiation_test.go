@@ -101,3 +101,18 @@ func renegotiated(t *testing.T, s *scripted, n int) *conviav1.Renegotiation {
 	})
 	return found
 }
+
+func TestTheConnectionToAPeerIsNamedOnlyOnceProven(t *testing.T) {
+	s := connect(t, false)
+	if got := s.m.Connection(public(s.remote)); got != "" {
+		t.Fatalf("Connection() = %q before the handshake", got)
+	}
+	s.receive(hello(1), challenge(theirNonce), proof(public(s.remote), ed25519.Sign(s.remote, s.honest().bytes(public(s.me)))))
+	s.expectReady()
+	if got := s.m.Connection(public(s.remote)); got != s.id {
+		t.Fatalf("Connection() = %q, want %q", got, s.id)
+	}
+	if got := s.m.Connection(public(identity(t))); got != "" {
+		t.Fatalf("Connection() to a stranger = %q", got)
+	}
+}

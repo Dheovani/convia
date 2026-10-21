@@ -369,6 +369,24 @@ func (m *Manager) Send(peer ed25519.PublicKey, message *conviav1.PeerMessage) bo
 	}
 }
 
+// Connection is the identifier the WebView knows the connection to peer by while it is proven, or nothing.
+func (m *Manager) Connection(peer ed25519.PublicKey) string {
+	id := make(chan string, 1)
+	m.do(func() {
+		if p := m.peers[key(peer)]; p != nil && p.conn != nil && p.conn.ready {
+			id <- p.conn.id
+			return
+		}
+		id <- ""
+	})
+	select {
+	case got := <-id:
+		return got
+	case <-m.stopped:
+		return ""
+	}
+}
+
 // Disconnect ends the connection to peer, if there is one, and forgets every reason for it.
 func (m *Manager) Disconnect(peer ed25519.PublicKey) {
 	m.do(func() {

@@ -3,6 +3,8 @@
 import {app} from '../models';
 import {peers} from '../models';
 
+export function AcceptCall():Promise<app.CallView>;
+
 export function AcceptRequest(arg1:string):Promise<void>;
 
 export function AcceptSpace(arg1:string):Promise<void>;
@@ -14,6 +16,8 @@ export function AttachInChannel(arg1:string,arg2:string,arg3:string):Promise<voi
 export function BlockContact(arg1:string,arg2:boolean):Promise<void>;
 
 export function Blocked():Promise<Array<string>>;
+
+export function CallConnection():Promise<string>;
 
 export function ChannelMessages(arg1:string,arg2:string):Promise<Array<app.MessageView>>;
 
@@ -34,6 +38,10 @@ export function CreateIdentity(arg1:string):Promise<app.MeView>;
 export function CreateRole(arg1:string,arg2:string):Promise<void>;
 
 export function CreateSpace(arg1:string,arg2:string):Promise<app.SpaceView>;
+
+export function CurrentCall():Promise<app.CallView>;
+
+export function DeclineCall():Promise<app.CallView>;
 
 export function DeclineRequest(arg1:string):Promise<void>;
 
@@ -62,6 +70,8 @@ export function ExportIdentity(arg1:string):Promise<boolean>;
 export function FetchInChannel(arg1:string):Promise<void>;
 
 export function ForgetMessage(arg1:string,arg2:string):Promise<void>;
+
+export function HangUp():Promise<app.CallView>;
 
 export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app.MeView>;
 
@@ -130,6 +140,8 @@ export function SpaceMembers(arg1:string):Promise<Array<app.MemberView>>;
 export function SpaceRoles(arg1:string):Promise<Array<app.RoleView>>;
 
 export function Spaces():Promise<Array<app.SpaceView>>;
+
+export function StartCall(arg1:string,arg2:boolean):Promise<app.CallView>;
 
 export function StartOver():Promise<void>;
 

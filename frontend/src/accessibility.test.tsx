@@ -6,6 +6,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
+import { Devices } from "./calls/Devices";
 import { DeleteDialog } from "./components/DeleteDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { LinkDialog } from "./components/LinkDialog";
@@ -353,3 +354,21 @@ test("a confirmation", async () => {
   );
   expect(await violations(container, false)).toEqual([]);
 });
+
+test("a call ringing, and the devices calls use", async () => {
+  answers.CurrentCall = () =>
+    Promise.resolve({
+      id: "01",
+      publicKey: "aa".repeat(32),
+      incoming: true,
+      video: false,
+      state: "ringing",
+      since: 0,
+    });
+  const { container } = workspace();
+  await screen.findByText("Ana is calling");
+  expect(await violations(container)).toEqual([]);
+  const devices = render(<Devices />);
+  expect(await violations(devices.container, false)).toEqual([]);
+});
+

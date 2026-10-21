@@ -5,6 +5,7 @@ import {
   AddReactionIcon,
   DeleteIcon,
   EditIcon,
+  PhoneIcon,
   ReplyIcon,
 } from "../components/Icons";
 import { Button, input } from "../components/controls";
@@ -48,6 +49,8 @@ export interface Message {
   // deletable is a channel's message this person may delete, being its author or a moderator of its author.
   deletable?: boolean;
   moderated?: boolean;
+  // missed is a call this person missed, shown here on this machine alone (ADR 0044).
+  missed?: boolean;
 }
 
 // The reactions offered at a click; any single emoji is one (ADR 0035).
@@ -227,6 +230,23 @@ export function Thread({
             </li>
           )}
           {messages.map((m, i) => {
+            if (m.missed) {
+              return (
+                <li
+                  key={m.id}
+                  className="mt-3 flex items-baseline gap-2 px-2 text-sm text-danger"
+                >
+                  <PhoneIcon />
+                  <span>{words.calls.missed}</span>
+                  <time
+                    className="text-[0.72rem] text-ink-faint"
+                    dateTime={new Date(m.at).toISOString()}
+                  >
+                    {time.format(m.at)}
+                  </time>
+                </li>
+              );
+            }
             const previous = messages[i - 1];
             const starts =
               !previous ||

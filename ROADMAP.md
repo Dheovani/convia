@@ -291,7 +291,7 @@ Voice, video and screen sharing over the peer connection ([ADR 0015](docs/adr/00
 - [x] **M17-002:** Define the messages of a call's lifecycle — calling, accepting, declining, ending — in the protocol.
 - [x] **M17-003:** Add and remove audio and camera tracks on the existing connection with perfect negotiation, over the authenticated data channel.
 - [x] **M17-004:** Decide how long a call rings, and what the callee sees when hidden ([ADR 0044](docs/adr/0044-a-call-rings-for-30-seconds.md)).
-- [ ] **M17-005:** Let a person choose their microphone, camera and speakers, and mute or turn the camera off.
+- [x] **M17-005:** Let a person choose their microphone, camera and speakers, and mute or turn the camera off.
 - [ ] **M17-006:** Build the call's interface.
 
 ### M18 — Screen sharing

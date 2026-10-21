@@ -8,6 +8,7 @@ import {
   Viewing,
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { CallBar } from "../calls/CallBar";
 import { Mark } from "../components/Mark";
 import { useWords } from "../i18n/language";
 import { rememberedNotificationText } from "../state/preferences";
@@ -384,6 +385,7 @@ export function Workspace({
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col bg-surface">
+        <CallBar people={conversations} />
         {outdated && (
           <p role="alert" className="bg-surface-raised p-3 text-sm">
             {outdated}
