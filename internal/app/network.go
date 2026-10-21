@@ -11,6 +11,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/Dheovani/convia/internal/calls"
 	"github.com/Dheovani/convia/internal/contacts"
 	"github.com/Dheovani/convia/internal/identity"
 	"github.com/Dheovani/convia/internal/messages"
@@ -49,6 +50,8 @@ type Network struct {
 	contacts *contacts.Service
 	messages *messages.Service
 	spaces   *spaces.Service
+	calls    *calls.Service
+	identity ed25519.PublicKey
 	viewing  ed25519.PublicKey
 	focused  bool
 	onUnread func(bool)
@@ -123,6 +126,15 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		n.logger,
 	)
 	service.Fellow = fellows.Accept
+	ring := &ringing{contacts: service}
+	callers := calls.NewService(ring, func(c calls.Call) { emit(CallEvent, callView(c)) },
+		func(c calls.Call) {
+			if err := conversations.Log(logged(c)); err != nil {
+				n.logger.Error("keep a call in the log", "error", err)
+			}
+			emit(CallLogEvent)
+		}, n.logger)
+	fellows.Name = func() string { return displayName(store, id.Name) }
 	manager := peers.New(
 		id.Private,
 		webview{ctx: n.ctx},
@@ -132,14 +144,22 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 				service.Ready(peer)
 				conversations.Ready(peer)
 				fellows.Ready(peer)
+				callers.Ready(peer)
 			},
-			Lost: fellows.Lost,
+			Lost: func(peer ed25519.PublicKey) {
+				fellows.Lost(peer)
+				callers.Lost(peer)
+			},
 			Message: func(peer ed25519.PublicKey, message *conviav1.PeerMessage) {
 				service.Message(peer, message)
 				conversations.Message(peer, message)
 				fellows.Message(peer, message)
+				callers.Message(peer, message)
 			},
-			File: conversations.File,
+			File: func(peer ed25519.PublicKey, data []byte) {
+				conversations.File(peer, data)
+				fellows.File(peer, data)
+			},
 			Reachable: func(id []byte) {
 				service.Reachable(id)
 				fellows.Reachable(id)
@@ -152,6 +172,7 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		n.logger,
 	)
 	joined.manager, joined.to = manager, manager.Reachability
+	ring.manager = manager
 	service.Attach(via{reach: joined, part: "contacts"})
 	link.manager = manager
 
@@ -159,12 +180,14 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 	go service.Run(ctx)
 	go conversations.Run(ctx)
 	go fellows.Run(ctx)
+	go callers.Run(ctx)
 	if n.address != "" {
 		go manager.Link(ctx, func(ctx context.Context) (peers.Session, error) {
 			return rendezvous.Dial(ctx, n.address, id.Private)
 		}, time.Second, time.Minute)
 	}
-	n.stop, n.manager, n.contacts, n.messages, n.spaces = stop, manager, service, conversations, fellows
+	n.stop, n.manager, n.contacts, n.messages, n.spaces, n.calls = stop, manager, service, conversations, fellows, callers
+	n.identity = id.Public
 	n.viewing, n.focused = nil, false
 	go n.unreadChanged()
 }
@@ -250,7 +273,7 @@ func (n *Network) Stop() {
 	if n.stop != nil {
 		n.stop()
 	}
-	n.stop, n.manager, n.contacts, n.messages, n.spaces = nil, nil, nil, nil, nil
+	n.stop, n.manager, n.contacts, n.messages, n.spaces, n.calls = nil, nil, nil, nil, nil, nil
 }
 
 func (n *Network) current() *peers.Manager {
@@ -263,6 +286,25 @@ func (n *Network) conversations() *messages.Service {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	return n.messages
+}
+
+func (n *Network) calling() *calls.Service {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.calls
+}
+
+func (n *Network) fellowship() *spaces.Service {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.spaces
+}
+
+// me is the identity the network runs as.
+func (n *Network) me() ed25519.PublicKey {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.identity
 }
 
 func (n *Network) people() *contacts.Service {

@@ -16,6 +16,13 @@ export interface Core {
 
 export type Create = (configuration: RTCConfiguration) => RTCPeerConnection;
 
+// Track is told of each track the other peer adds to connection id, as a call's media (ADR 0015).
+export type Track = (
+  id: string,
+  track: MediaStreamTrack,
+  streams: readonly MediaStream[],
+) => void;
+
 interface Entry {
   pc: RTCPeerConnection;
   channel: RTCDataChannel;
@@ -24,6 +31,10 @@ interface Entry {
   pending: Uint8Array<ArrayBuffer>[];
   offerer: boolean;
   queue: Promise<void>;
+  // The perfect negotiation of a connection's tracks: the peer that answered it gives way when both offer at once.
+  making: boolean;
+  ignoring: boolean;
+  opened: boolean;
 }
 
 /*
@@ -37,6 +48,8 @@ export class Connections {
   readonly #core: Core;
   readonly #create: Create;
   readonly #entries = new Map<string, Entry>();
+  // track is told of each track the other side adds.
+  track?: Track;
 
   constructor(
     core: Core,
@@ -76,6 +89,9 @@ export class Connections {
       pending: [],
       offerer,
       queue: Promise.resolve(),
+      making: false,
+      ignoring: false,
+      opened: false,
     };
     this.#entries.set(id, entry);
 
@@ -87,7 +103,10 @@ export class Connections {
     files.onbufferedamountlow = () => this.#flush(entry);
     files.onopen = () => this.#flush(entry);
 
-    channel.onopen = () => this.#core.opened(id);
+    channel.onopen = () => {
+      entry.opened = true;
+      this.#core.opened(id);
+    };
     channel.onclose = () => this.#end(id, entry);
     channel.onmessage = (event: MessageEvent) => {
       if (event.data instanceof ArrayBuffer) {
@@ -99,6 +118,8 @@ export class Connections {
     };
     pc.oniceconnectionstatechange = () =>
       this.#core.state(id, `ice ${pc.iceConnectionState}`);
+    pc.ontrack = (event: RTCTrackEvent) =>
+      this.track?.(id, event.track, event.streams);
     pc.onconnectionstatechange = () => {
       this.#core.state(id, pc.connectionState);
       if (pc.connectionState === "failed" || pc.connectionState === "closed") {
@@ -106,13 +127,23 @@ export class Connections {
       }
     };
 
-    if (offerer) {
-      pc.onnegotiationneeded = () =>
-        this.#then(id, entry, async () => {
+    /*
+    The peer that offered the connection makes its first offer; once it is open, either offers whenever its tracks
+    change, the answering peer giving way to the other's offer when both offer at once.
+    */
+    pc.onnegotiationneeded = () => {
+      if (!offerer && !entry.opened) return;
+      this.#then(id, entry, async () => {
+        if (pc.signalingState !== "stable") return;
+        entry.making = true;
+        try {
           await pc.setLocalDescription();
-          this.#core.local(id, "offer", pc.localDescription?.sdp ?? "");
-        });
-    }
+        } finally {
+          entry.making = false;
+        }
+        this.#core.local(id, "offer", pc.localDescription?.sdp ?? "");
+      });
+    };
   }
 
   describe(id: string, kind: Kind, sdp: string) {
@@ -120,10 +151,17 @@ export class Connections {
     if (!entry) return;
 
     this.#then(id, entry, async () => {
-      await entry.pc.setRemoteDescription({ type: kind, sdp });
+      const { pc } = entry;
+      const collision =
+        kind === "offer" && (entry.making || pc.signalingState !== "stable");
+      // The peer that answered the connection is the polite one: it rolls its own offer back.
+      entry.ignoring = entry.offerer && collision;
+      if (entry.ignoring) return;
+      if (kind === "answer" && pc.signalingState !== "have-local-offer") return;
+      await pc.setRemoteDescription({ type: kind, sdp });
       if (kind === "offer") {
-        await entry.pc.setLocalDescription();
-        this.#core.local(id, "answer", entry.pc.localDescription?.sdp ?? "");
+        await pc.setLocalDescription();
+        this.#core.local(id, "answer", pc.localDescription?.sdp ?? "");
       }
     });
   }
@@ -136,6 +174,20 @@ export class Connections {
     this.#then(id, entry, () =>
       entry.pc.addIceCandidate(candidate).catch(() => undefined),
     );
+  }
+
+  // addTrack sends track to the other side of connection id, renegotiating it (ADR 0015).
+  addTrack(id: string, track: MediaStreamTrack, stream: MediaStream) {
+    const entry = this.#entries.get(id);
+    if (!entry) return;
+    entry.pc.addTrack(track, stream);
+  }
+
+  // removeTrack stops sending track on connection id.
+  removeTrack(id: string, track: MediaStreamTrack) {
+    const entry = this.#entries.get(id);
+    const sender = entry?.pc.getSenders().find((s) => s.track === track);
+    if (sender) entry?.pc.removeTrack(sender);
   }
 
   send(id: string, data: Uint8Array) {

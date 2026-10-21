@@ -291,6 +291,10 @@ func (s *Service) File(peer ed25519.PublicKey, data []byte) {
 		}
 
 		id := [IDSize]byte(chunk.Id)
+		// A piece of a file that is not a conversation's, as a space's, is another's to keep.
+		if _, err := s.store.file(id); err != nil {
+			return
+		}
 		whole, err := s.store.Arrived(peer, id, chunk.Offset, chunk.Data)
 		if err != nil {
 			s.logger.Info("refuse a piece of a file", "reason", err.Error())

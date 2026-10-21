@@ -37,6 +37,9 @@ func (f Files) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	reader, file, err := conversations.Open(*target)
+	if fellows := f.network.fellowship(); err != nil && fellows != nil {
+		reader, file, err = fellows.OpenFile(*target)
+	}
 	if err != nil || !file.Picture() {
 		http.NotFound(w, r)
 		return
@@ -57,6 +60,8 @@ type FileView struct {
 	Picture     bool   `json:"picture"`
 	Orientation int    `json:"orientation"`
 	URL         string `json:"url,omitempty"`
+	// Wanted is a channel's file asked for, not yet whole (ADR 0043).
+	Wanted bool `json:"wanted,omitempty"`
 }
 
 func fileView(id string, f *messages.File) *FileView {
@@ -121,6 +126,9 @@ func (b *Bridge) SaveFile(messageID, name string) (bool, error) {
 	}
 
 	reader, _, err := s.Open(*target)
+	if fellows := b.network.fellowship(); err != nil && fellows != nil {
+		reader, _, err = fellows.OpenFile(*target)
+	}
 	if err != nil {
 		return false, messageRefusal(err)
 	}
