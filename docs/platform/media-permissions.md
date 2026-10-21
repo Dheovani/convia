@@ -15,10 +15,13 @@ What Wails and WebView2 do when the interface asks for the microphone, the camer
 - Since no prompt guards them, **the interface itself shows when the microphone, the camera or the screen is in use**, for as long as it is.
 - The interface handles `NotAllowedError` from Windows, and `NotFoundError` when there is no such device, in the person's words.
 
-## Still to see on a real machine
+## Seen on a real machine
 
-Read from the code, not yet seen running. When the call's interface exists (M17-006), these are checked in the built application on Windows 11 and recorded here:
+Checked in the built application on Windows 11 with the call's interface (M17-006):
 
-1. `getUserMedia({ audio: true })` and `({ video: true })` succeed with no prompt.
-2. With _Let desktop apps access your microphone_ off, `getUserMedia({ audio: true })` fails with `NotAllowedError`.
-3. `getDisplayMedia()` opens the system's picker; cancelling it fails with `NotAllowedError`; the system's own "stop sharing" control ends the track.
+1. `getUserMedia({ audio: true })` and `({ video: true })` succeed with no prompt, and each side hears and sees the other.
+2. With _Let desktop apps access your microphone_ off, `getUserMedia({ audio: true })` fails with `NotAllowedError`, and the interface says where to allow it.
+3. A call nobody answers stops ringing after 30 seconds: the caller is told nobody answered, and the callee keeps a missed call ([ADR 0044](../adr/0044-a-call-rings-for-30-seconds.md)).
+4. With the window hidden in the tray, a call that rings is told of by a system notification.
+
+Still to see, with screen sharing (M18): `getDisplayMedia()` opens the system's picker; cancelling it fails with `NotAllowedError`; the system's own "stop sharing" control ends the track.
