@@ -3,6 +3,7 @@ syntax = "proto3";
 package convia.v1;
 
 import "convia/v1/handshake.proto";
+import "convia/v1/rendezvous.proto";
 import "convia/v1/space.proto";
 
 option go_package = "github.com/Dheovani/convia/internal/wire/convia/v1;conviav1";
@@ -28,6 +29,8 @@ message PeerMessage {
     SpaceSecret space_secret = 16;
     SpaceInvitation space_invitation = 17;
     FileMissing file_missing = 18;
+    Renegotiation renegotiation = 19;
+    Call call = 20;
   }
 }
 
@@ -121,4 +124,38 @@ message ContactConfirmed {}
 // Interest says whether the sender still wants the connection (ADR 0024).
 message Interest {
   bool wanted = 1;
+}
+
+/*
+Renegotiation is a description or a candidate for a connection already proven, carried over it rather than through
+the rendezvous service, as when a call adds or removes a track (ADR 0015). Its fingerprint must stay the one the
+connection was proven with.
+*/
+message Renegotiation {
+  oneof kind {
+    string offer = 1;
+    string answer = 2;
+    Candidate candidate = 3;
+  }
+}
+
+// Call is a step of a call between two people (ADR 0015, ADR 0044).
+message Call {
+  // The call, chosen by the person calling: every step names it.
+  bytes id = 1;
+  Step step = 2;
+  // Whether the person calling turns their camera on.
+  bool video = 3;
+
+  enum Step {
+    STEP_UNSPECIFIED = 0;
+    // The person calling rings the other, for at most 30 seconds.
+    STEP_RING = 1;
+    STEP_ACCEPT = 2;
+    STEP_DECLINE = 3;
+    // Either ends the call, or the person calling stops ringing.
+    STEP_END = 4;
+    // The person called is in another call.
+    STEP_BUSY = 5;
+  }
 }

@@ -8,6 +8,8 @@ export const ptBR: Words = {
     reload: "Recarregar",
   },
   refusals: {
+    "call-busy": "Já há uma chamada tocando ou em andamento.",
+    "no-such-call": "Essa chamada não está mais aqui.",
     "space-name": "O nome de um espaço ou canal tem de 1 a 100 caracteres.",
     "no-such-space": "Esse espaço não está aqui.",
     "not-allowed": "Seu papel neste espaço não permite isso.",
@@ -187,6 +189,69 @@ export const ptBR: Words = {
     field: (channel: string) => `Conversar em #${channel}`,
     deleting:
       "Apagar a remove para todos os membros do espaço; quem já a leu fica com o que leu.",
+  },
+  calls: {
+    log: "Chamadas",
+    noCalls: "Nenhuma chamada feita ou recebida ainda.",
+    received: "Recebida",
+    made: "Feita",
+    voice: "Voz",
+    video: "Vídeo",
+    logged: {
+      ended: "Encerrada",
+      unanswered: "Sem resposta",
+      declined: "Recusada",
+      busy: "Ocupado",
+      missed: "Perdida",
+      lost: "Caiu",
+    },
+    call: (name: string) => `Ligar para ${name}`,
+    videoCall: (name: string) => `Chamada de vídeo com ${name}`,
+    title: (name: string) => `Chamada com ${name}`,
+    incoming: (name: string) => `${name} está chamando`,
+    outgoing: (name: string) => `Chamando ${name}…`,
+    notification: (name: string) => `${name} está chamando`,
+    accept: "Atender",
+    decline: "Recusar",
+    cancel: "Cancelar",
+    hangUp: "Desligar",
+    mute: "Silenciar microfone",
+    unmute: "Ligar microfone",
+    cameraOn: "Ligar câmera",
+    cameraOff: "Desligar câmera",
+    inUse: (microphone: boolean, camera: boolean) =>
+      [
+        microphone ? "Microfone ligado" : "Microfone silenciado",
+        camera ? "câmera ligada" : "",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    theirVideo: (name: string) => `Câmera de ${name}`,
+    myVideo: "Sua câmera",
+    missed: "Chamada perdida",
+    devices: { microphone: "microfone", camera: "câmera" },
+    trouble: {
+      blocked: (device: string) =>
+        `O Windows não deixa o Convia usar o ${device}: permita aplicativos da área de trabalho em Configurações › Privacidade e segurança.`,
+      missing: (device: string) => `Nenhum ${device} foi encontrado.`,
+      busy: (device: string) => `O ${device} está em uso por outro aplicativo.`,
+      unknown: (device: string) => `Não foi possível abrir o ${device}.`,
+    },
+    outcomes: {
+      ended: "A chamada terminou.",
+      unanswered: "Ninguém atendeu.",
+      declined: "A chamada foi recusada.",
+      busy: "A pessoa está em outra chamada.",
+      missed: "Você perdeu uma chamada.",
+      lost: "A chamada caiu.",
+    },
+    settings: "Voz e vídeo",
+    microphone: "Microfone",
+    camera: "Câmera",
+    speaker: "Alto-falante",
+    systemDevice: "Como o sistema",
+    devicesHint:
+      "Os nomes dos dispositivos aparecem depois que uma chamada os usou.",
   },
   settings: {
     title: "Configurações",

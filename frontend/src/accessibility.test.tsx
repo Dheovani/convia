@@ -6,6 +6,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import axe from "axe-core";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
+import { CallLog } from "./calls/CallLog";
+import { Devices } from "./calls/Devices";
 import { DeleteDialog } from "./components/DeleteDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { LinkDialog } from "./components/LinkDialog";
@@ -351,5 +353,49 @@ test("a confirmation", async () => {
       onClose={() => {}}
     />,
   );
+  expect(await violations(container, false)).toEqual([]);
+});
+
+test("a call ringing, and the devices calls use", async () => {
+  answers.CurrentCall = () =>
+    Promise.resolve({
+      id: "01",
+      publicKey: "aa".repeat(32),
+      incoming: true,
+      video: false,
+      state: "ringing",
+      since: 0,
+    });
+  const { container } = workspace();
+  await screen.findByText("Ana is calling");
+  expect(await violations(container)).toEqual([]);
+  const devices = render(<Devices />);
+  expect(await violations(devices.container, false)).toEqual([]);
+});
+
+test("the call log", async () => {
+  answers.CallLog = () =>
+    Promise.resolve([
+      {
+        publicKey: "aa",
+        name: "Ana",
+        incoming: true,
+        video: false,
+        outcome: "missed",
+        rang: 1000,
+        seconds: 0,
+      },
+      {
+        publicKey: "aa",
+        name: "Ana",
+        incoming: false,
+        video: true,
+        outcome: "ended",
+        rang: 2000,
+        seconds: 61,
+      },
+    ]);
+  const { container } = render(<CallLog onOpen={() => {}} />);
+  await screen.findByText(/Missed/);
   expect(await violations(container, false)).toEqual([]);
 });

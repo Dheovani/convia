@@ -25,6 +25,8 @@ type MessageView struct {
 	Deletable bool `json:"deletable,omitempty"`
 	// Moderated is a channel's message a moderator deleted (ADR 0041).
 	Moderated bool `json:"moderated,omitempty"`
+	// Missed is a call this person missed, shown among the messages on this machine alone (ADR 0044).
+	Missed bool `json:"missed,omitempty"`
 }
 
 // ReactionView is an emoji on a message, how many put it there, and whether this person did.
@@ -122,7 +124,11 @@ func (b *Bridge) Conversation(publicKey string) ([]MessageView, error) {
 		out = append(out, messageView(m))
 	}
 
-	return out, nil
+	missed, err := s.MissedCalls(k)
+	if err != nil {
+		return nil, err
+	}
+	return withMissed(out, missed), nil
 }
 
 // SendMessage writes text to the contact publicKey names; it waits with this peer until it is delivered (ADR 0011).

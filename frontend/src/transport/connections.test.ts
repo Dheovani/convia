@@ -37,11 +37,14 @@ class FakePeerConnection {
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   connectionState: RTCPeerConnectionState = "new";
+  signalingState: RTCSignalingState = "stable";
   failRemote = false;
   stats = new Map<string, Record<string, unknown>>();
   onicecandidate?: (event: { candidate: unknown }) => void;
   onconnectionstatechange?: () => void;
   onnegotiationneeded?: () => void;
+  ontrack?: (event: RTCTrackEvent) => void;
+  senders: { track: unknown }[] = [];
 
   constructor(configuration: RTCConfiguration) {
     this.configuration = configuration;
@@ -58,12 +61,15 @@ class FakePeerConnection {
   setLocalDescription() {
     const type = this.remoteDescription?.type === "offer" ? "answer" : "offer";
     this.localDescription = { type, sdp: `local ${type}` };
+    this.signalingState = type === "offer" ? "have-local-offer" : "stable";
     this.calls.push(`local ${type}`);
     return Promise.resolve();
   }
   setRemoteDescription(description: RTCSessionDescriptionInit) {
     if (this.failRemote) return Promise.reject(new Error("refused"));
     this.remoteDescription = description;
+    this.signalingState =
+      description.type === "offer" ? "have-remote-offer" : "stable";
     this.calls.push(`remote ${description.type ?? ""}`);
     return Promise.resolve();
   }
@@ -73,6 +79,17 @@ class FakePeerConnection {
   }
   close() {
     this.calls.push("close");
+  }
+  addTrack(track: unknown) {
+    this.senders.push({ track });
+    this.calls.push("add track");
+  }
+  removeTrack(sender: { track: unknown }) {
+    this.senders = this.senders.filter((s) => s !== sender);
+    this.calls.push("remove track");
+  }
+  getSenders() {
+    return this.senders;
   }
   setConfiguration(configuration: RTCConfiguration) {
     this.configuration = configuration;
@@ -157,7 +174,67 @@ describe("a connection", () => {
       "candidate c1",
     ]);
     expect(reported).toEqual(["a local answer local answer"]);
-    expect(created[0].onnegotiationneeded).toBeUndefined();
+  });
+
+  it("offers again, once open, whichever side's tracks change", async () => {
+    connections.open("a", false, []);
+    const pc = created[0];
+    // Before it is open, the peer that answered makes no offer of its own.
+    pc.onnegotiationneeded?.();
+    await settle();
+    expect(reported).toEqual([]);
+    pc.channel.open();
+    pc.onnegotiationneeded?.();
+    await settle();
+    expect(reported).toEqual(["a opened", "a local offer local offer"]);
+  });
+
+  it("gives way, as the peer that answered, when both offer at once", async () => {
+    connections.open("a", false, []);
+    const polite = created[0];
+    polite.channel.open();
+    polite.onnegotiationneeded?.();
+    await settle();
+    expect(polite.signalingState).toBe("have-local-offer");
+    connections.describe("a", "offer", "their offer");
+    await settle();
+    expect(polite.calls.slice(-2)).toEqual(["remote offer", "local answer"]);
+  });
+
+  it("ignores the other's offer, as the peer that offered, when both offer at once", async () => {
+    connections.open("b", true, []);
+    const impolite = created[0];
+    impolite.onnegotiationneeded?.();
+    await settle();
+    connections.describe("b", "offer", "their offer");
+    connections.candidate("b", { candidate: "theirs" });
+    await settle();
+    expect(impolite.calls).not.toContain("remote offer");
+    expect(impolite.calls).not.toContain("close");
+    // An answer to no offer of its own is no reason to end the connection either.
+    connections.describe("b", "answer", "their answer");
+    connections.describe("b", "answer", "again");
+    await settle();
+    expect(impolite.calls.filter((c) => c === "remote answer")).toHaveLength(1);
+    expect(impolite.calls).not.toContain("close");
+  });
+
+  it("adds and removes the tracks of a call, and tells of the other's", () => {
+    const told: string[] = [];
+    connections.track = (id, track) => told.push(`${id} ${track.kind}`);
+    connections.open("a", true, []);
+    const pc = created[0];
+    const track = { kind: "audio" } as MediaStreamTrack;
+    connections.addTrack("a", track, {} as MediaStream);
+    connections.removeTrack("a", { kind: "video" } as MediaStreamTrack);
+    connections.removeTrack("a", track);
+    connections.addTrack("missing", track, {} as MediaStream);
+    expect(pc.calls.slice(-2)).toEqual(["add track", "remove track"]);
+    pc.ontrack?.({
+      track: { kind: "video" },
+      streams: [],
+    } as unknown as RTCTrackEvent);
+    expect(told).toEqual(["a video"]);
   });
 
   it("reports its candidates, its opening and its binary messages", () => {
