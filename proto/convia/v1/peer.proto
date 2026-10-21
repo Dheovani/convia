@@ -31,6 +31,7 @@ message PeerMessage {
     FileMissing file_missing = 18;
     Renegotiation renegotiation = 19;
     Call call = 20;
+    Screen screen = 21;
   }
 }
 
@@ -158,4 +159,12 @@ message Call {
     // The person called is in another call.
     STEP_BUSY = 5;
   }
+}
+
+// Screen says which stream of a call in progress carries the sender's screen (ADR 0046).
+message Screen {
+  // The call, as its steps name it.
+  bytes call = 1;
+  // The id of the stream the screen arrives in, or nothing once the sender stopped sharing it.
+  string stream = 2;
 }

@@ -24,4 +24,10 @@ Checked in the built application on Windows 11 with the call's interface (M17-00
 3. A call nobody answers stops ringing after 30 seconds: the caller is told nobody answered, and the callee keeps a missed call ([ADR 0044](../adr/0044-a-call-rings-for-30-seconds.md)).
 4. With the window hidden in the tray, a call that rings is told of by a system notification.
 
-Still to see, with screen sharing (M18): `getDisplayMedia()` opens the system's picker; cancelling it fails with `NotAllowedError`; the system's own "stop sharing" control ends the track.
+## Still to see on a real machine
+
+With screen sharing (M18), checked in the built application on Windows 11 and recorded here:
+
+1. `getDisplayMedia()` opens the system's picker; cancelling it fails with `NotAllowedError`, and nothing is shared.
+2. With the computer's sound chosen, the picker offers sound for a whole screen, and the other side hears it ([ADR 0046](../adr/0046-a-shared-screen-may-carry-the-computers-sound.md)).
+3. The system's own "stop sharing" control ends the track, and the other side stops seeing the screen.

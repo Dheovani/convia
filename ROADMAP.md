@@ -299,7 +299,7 @@ Voice, video and screen sharing over the peer connection ([ADR 0015](docs/adr/00
 **Depends on:** M17.
 
 - [ ] **M18-001:** Capture a screen or a window with `getDisplayMedia()`, and add it to the connection.
-- [ ] **M18-002:** Decide whether a shared screen carries the computer's sound.
+- [x] **M18-002:** Decide whether a shared screen carries the computer's sound ([ADR 0046](docs/adr/0046-a-shared-screen-may-carry-the-computers-sound.md)).
 - [ ] **M18-003:** Show a shared screen to the other side, and stop sharing from either the interface or the system's own control.
 
 ### M19 — Calls with more people

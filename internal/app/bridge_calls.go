@@ -49,11 +49,13 @@ type CallView struct {
 	State     string `json:"state"`
 	Outcome   string `json:"outcome,omitempty"`
 	Since     int64  `json:"since"`
+	// Screen is the stream the other side's screen arrives in, while they share it.
+	Screen string `json:"screen,omitempty"`
 }
 
 func callView(c calls.Call) CallView {
 	return CallView{ID: hex.EncodeToString(c.ID[:]), PublicKey: hex.EncodeToString(c.Peer), Incoming: c.Incoming,
-		Video: c.Video, State: string(c.State), Outcome: string(c.Outcome), Since: c.Since.UnixMilli()}
+		Video: c.Video, State: string(c.State), Outcome: string(c.Outcome), Since: c.Since.UnixMilli(), Screen: c.Screen}
 }
 
 // ringing is what a call needs of the connections and the contacts.
@@ -123,6 +125,15 @@ func (b *Bridge) DeclineCall() (*CallView, error) { return b.onCall((*calls.Serv
 
 // HangUp ends the call ringing or in progress.
 func (b *Bridge) HangUp() (*CallView, error) { return b.onCall((*calls.Service).Hang) }
+
+// ShareScreen tells the other side which stream carries this person's screen, or, with nothing, that it stopped.
+func (b *Bridge) ShareScreen(stream string) error {
+	s, err := b.calling()
+	if err != nil {
+		return callRefusal(err)
+	}
+	return callRefusal(s.Share(stream))
+}
 
 // CallConnection is the connection the call in progress rides, which its tracks are added to (ADR 0015).
 func (b *Bridge) CallConnection() string {
