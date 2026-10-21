@@ -67,16 +67,20 @@ type Call struct {
 	Outcome  Outcome
 	// Since is when it began to ring, or, once answered, when it was.
 	Since time.Time
+	// Rang is when it began to ring, Answered when it was, if it was, and Ended when it ended.
+	Rang     time.Time
+	Answered time.Time
+	Ended    time.Time
 }
 
 /*
-Service holds this person's one call at a time. It is told when the call changes, and of every call missed, which
-it keeps on this machine alone (ADR 0044). Its methods may be called from any goroutine.
+Service holds this person's one call at a time. It is told when the call changes, and of every call that ended,
+which this machine alone keeps (ADR 0045). Its methods may be called from any goroutine.
 */
 type Service struct {
 	conns   Connections
 	changed func(Call)
-	missed  func(peer ed25519.PublicKey, at time.Time)
+	logged  func(Call)
 	logger  *slog.Logger
 	now     func() time.Time
 	ring    time.Duration
@@ -86,8 +90,8 @@ type Service struct {
 	ready   map[string]bool
 }
 
-func NewService(conns Connections, changed func(Call), missed func(ed25519.PublicKey, time.Time), logger *slog.Logger) *Service {
-	return &Service{conns: conns, changed: changed, missed: missed, logger: logger, now: time.Now, ring: Ring, ready: map[string]bool{}}
+func NewService(conns Connections, changed func(Call), logged func(Call), logger *slog.Logger) *Service {
+	return &Service{conns: conns, changed: changed, logged: logged, logger: logger, now: time.Now, ring: Ring, ready: map[string]bool{}}
 }
 
 // Run ends calls that rang too long, until ctx ends.
@@ -125,7 +129,7 @@ func (s *Service) step(c *Call, step conviav1.Call_Step) bool {
 // end ends the call in progress with outcome, and tells whoever must be told.
 func (s *Service) end(outcome Outcome) Call {
 	c := s.current
-	c.State, c.Outcome = Ended, outcome
+	c.State, c.Outcome, c.Ended = Ended, outcome, s.now()
 	s.conns.Release(c.Peer, reason)
 	ended := *c
 	s.current = nil
@@ -133,8 +137,8 @@ func (s *Service) end(outcome Outcome) Call {
 }
 
 func (s *Service) tell(c Call) {
-	if c.Outcome == Missed && s.missed != nil {
-		s.missed(c.Peer, c.Since)
+	if c.State == Ended && s.logged != nil {
+		s.logged(c)
 	}
 	s.changed(c)
 }
@@ -149,7 +153,7 @@ func (s *Service) Call(peer ed25519.PublicKey, video bool) (Call, error) {
 		s.mu.Unlock()
 		return Call{}, ErrBusy
 	}
-	c := &Call{Peer: peer, Video: video, State: Ringing, Since: s.now()}
+	c := &Call{Peer: peer, Video: video, State: Ringing, Since: s.now(), Rang: s.now()}
 	rand.Read(c.ID[:])
 	s.current = c
 	s.conns.Want(peer, reason)
@@ -173,14 +177,14 @@ func (s *Service) answer(accept bool) (Call, error) {
 	var made Call
 	if accept {
 		s.step(c, conviav1.Call_STEP_ACCEPT)
-		c.State, c.Since = Active, s.now()
+		c.State, c.Since, c.Answered = Active, s.now(), s.now()
 		made = *c
 	} else {
 		s.step(c, conviav1.Call_STEP_DECLINE)
 		made = s.end(Declined)
 	}
 	s.mu.Unlock()
-	s.changed(made)
+	s.tell(made)
 	return made, nil
 }
 
@@ -204,7 +208,7 @@ func (s *Service) Hang() (Call, error) {
 	s.step(s.current, conviav1.Call_STEP_END)
 	ended := s.end(Hung)
 	s.mu.Unlock()
-	s.changed(ended)
+	s.tell(ended)
 	return ended, nil
 }
 
@@ -252,13 +256,13 @@ func (s *Service) Message(peer ed25519.PublicKey, message *conviav1.PeerMessage)
 			s.conns.Send(peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Call{Call: &conviav1.Call{Id: m.Id, Step: conviav1.Call_STEP_BUSY}}})
 			break
 		}
-		s.current = &Call{ID: id, Peer: peer, Incoming: true, Video: m.Video, State: Ringing, Since: s.now()}
+		s.current = &Call{ID: id, Peer: peer, Incoming: true, Video: m.Video, State: Ringing, Since: s.now(), Rang: s.now()}
 		s.conns.Want(peer, reason)
 		made := *s.current
 		told = &made
 	case conviav1.Call_STEP_ACCEPT:
 		if ours && !c.Incoming && c.State == Ringing {
-			c.State, c.Since = Active, s.now()
+			c.State, c.Since, c.Answered = Active, s.now(), s.now()
 			made := *c
 			told = &made
 		}

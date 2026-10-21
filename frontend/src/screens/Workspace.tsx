@@ -9,6 +9,8 @@ import {
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { CallBar } from "../calls/CallBar";
+import { CallLog } from "../calls/CallLog";
+import { PhoneIcon } from "../components/Icons";
 import { Mark } from "../components/Mark";
 import { useWords } from "../i18n/language";
 import { rememberedNotificationText } from "../state/preferences";
@@ -39,6 +41,7 @@ type Pane =
   | { kind: "settings" }
   | { kind: "space"; space: string; channel?: string; settings?: boolean }
   | { kind: "new-space" }
+  | { kind: "calls" }
   | { kind: "none" };
 
 // initials are what a space's button in the rail shows of its name.
@@ -199,7 +202,8 @@ export function Workspace({
   const home =
     pane.kind !== "settings" &&
     pane.kind !== "space" &&
-    pane.kind !== "new-space";
+    pane.kind !== "new-space" &&
+    pane.kind !== "calls";
 
   const railButton = (selected: boolean) =>
     `flex h-12 w-12 cursor-pointer items-center justify-center rounded-lg transition-colors ${
@@ -263,6 +267,16 @@ export function Workspace({
               {invited}
             </span>
           )}
+        </button>
+        <button
+          type="button"
+          className={railButton(pane.kind === "calls")}
+          aria-label={words.calls.log}
+          title={words.calls.log}
+          aria-current={pane.kind === "calls" ? "page" : undefined}
+          onClick={() => setPane({ kind: "calls" })}
+        >
+          <PhoneIcon />
         </button>
         <div className="flex-1" />
         <button
@@ -414,6 +428,14 @@ export function Workspace({
           <p className="m-auto text-sm text-ink-dim">
             {words.spaces.noChannels}
           </p>
+        ) : pane.kind === "calls" ? (
+          <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
+            <CallLog
+              onOpen={(publicKey) =>
+                setPane({ kind: "conversation", publicKey })
+              }
+            />
+          </div>
         ) : pane.kind === "new-space" ? (
           <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
             <NewSpace

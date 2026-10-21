@@ -50,3 +50,4 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0042](0042-a-channel-holds-what-a-conversation-holds-but-files.md) | A channel holds what a conversation holds, but files |
 | [0043](0043-a-spaces-files-are-served-by-whoever-holds-them.md) | A space's files are served by whoever holds them |
 | [0044](0044-a-call-rings-for-30-seconds.md) | A call rings for 30 seconds |
+| [0045](0045-a-call-log-is-kept-on-each-machine.md) | A call log is kept on each machine |

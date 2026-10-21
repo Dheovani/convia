@@ -34,6 +34,10 @@ export function CallConnection() {
   return window['go']['app']['Bridge']['CallConnection']();
 }
 
+export function CallLog() {
+  return window['go']['app']['Bridge']['CallLog']();
+}
+
 export function ChannelMessages(arg1, arg2) {
   return window['go']['app']['Bridge']['ChannelMessages'](arg1, arg2);
 }

@@ -9,12 +9,16 @@ import (
 
 	"github.com/Dheovani/convia/internal/calls"
 	"github.com/Dheovani/convia/internal/contacts"
+	"github.com/Dheovani/convia/internal/messages"
 	"github.com/Dheovani/convia/internal/peers"
 	conviav1 "github.com/Dheovani/convia/internal/wire/convia/v1"
 )
 
-// CallEvent is the event the interface is told of a call by.
-const CallEvent = "call"
+// CallEvent is the event the interface is told of a call by, and CallLogEvent of a call kept in the log.
+const (
+	CallEvent    = "call"
+	CallLogEvent = "call-log"
+)
 
 var errNoCalls = errors.New("app: calls are not open")
 
@@ -149,4 +153,46 @@ func withMissed(out []MessageView, missed []time.Time) []MessageView {
 		return 0
 	})
 	return out
+}
+
+func logged(c calls.Call) messages.Called {
+	return messages.Called{Contact: c.Peer, Incoming: c.Incoming, Video: c.Video, Outcome: string(c.Outcome),
+		Rang: c.Rang, Answered: c.Answered, Ended: c.Ended}
+}
+
+// CalledView is a call of the log, as the interface shows it.
+type CalledView struct {
+	PublicKey string `json:"publicKey"`
+	Name      string `json:"name"`
+	Incoming  bool   `json:"incoming"`
+	Video     bool   `json:"video"`
+	Outcome   string `json:"outcome"`
+	Rang      int64  `json:"rang"`
+	// Seconds is how long the call lasted once answered; nothing for a call nobody answered.
+	Seconds int64 `json:"seconds"`
+}
+
+// CallLog is every call this person made or was called by, the latest first (ADR 0045).
+func (b *Bridge) CallLog() ([]CalledView, error) {
+	s := b.network.conversations()
+	people := b.network.people()
+	if s == nil || people == nil {
+		return nil, contactRefusal(errNoContacts)
+	}
+	all, err := s.Calls(nil)
+	if err != nil {
+		return nil, err
+	}
+	out := []CalledView{}
+	for _, c := range all {
+		view := CalledView{PublicKey: hex.EncodeToString(c.Contact), Incoming: c.Incoming, Video: c.Video, Outcome: c.Outcome, Rang: c.Rang.UnixMilli()}
+		if contact, ok, _ := people.Book().Contact(c.Contact); ok {
+			view.Name = contact.Name
+		}
+		if !c.Answered.IsZero() {
+			view.Seconds = int64(c.Ended.Sub(c.Answered) / time.Second)
+		}
+		out = append(out, view)
+	}
+	return out, nil
 }

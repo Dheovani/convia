@@ -24,6 +24,30 @@ export namespace app {
 	        this.since = source["since"];
 	    }
 	}
+	export class CalledView {
+	    publicKey: string;
+	    name: string;
+	    incoming: boolean;
+	    video: boolean;
+	    outcome: string;
+	    rang: number;
+	    seconds: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new CalledView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.publicKey = source["publicKey"];
+	        this.name = source["name"];
+	        this.incoming = source["incoming"];
+	        this.video = source["video"];
+	        this.outcome = source["outcome"];
+	        this.rang = source["rang"];
+	        this.seconds = source["seconds"];
+	    }
+	}
 	export class ChannelView {
 	    id: string;
 	    name: string;

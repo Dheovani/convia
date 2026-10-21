@@ -75,6 +75,7 @@ type person struct {
 	mu     sync.Mutex
 	seen   []Call
 	missed []time.Time
+	logged []Call
 	clock  time.Time
 }
 
@@ -95,7 +96,12 @@ func (l *line) join(t *testing.T) *person {
 		p.mu.Lock()
 		p.seen = append(p.seen, c)
 		p.mu.Unlock()
-	}, func(_ ed25519.PublicKey, at time.Time) { p.missed = append(p.missed, at) }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}, func(c Call) {
+		p.logged = append(p.logged, c)
+		if c.Outcome == Missed {
+			p.missed = append(p.missed, c.Rang)
+		}
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	p.s.now = func() time.Time { return p.clock }
 	l.ends[string(key)] = p.s
 	return p
@@ -328,5 +334,39 @@ func TestACallInProgressStaysUntilItsOwnEnd(t *testing.T) {
 	l.settle()
 	if got := bruno.last(); got.Outcome != Hung || len(bruno.missed) != 0 {
 		t.Fatalf("Bruno, whose call was ended in progress, is told %+v and missed %d", got, len(bruno.missed))
+	}
+}
+
+func TestEveryCallThatEndsIsLoggedWithItsMoments(t *testing.T) {
+	l, ana, bruno := pair(t)
+	l.connect(ana, bruno)
+	ana.s.Call(bruno.key, true)
+	l.settle()
+	ana.clock, bruno.clock = ana.clock.Add(5*time.Second), bruno.clock.Add(5*time.Second)
+	bruno.s.Accept()
+	l.settle()
+	ana.clock, bruno.clock = ana.clock.Add(time.Minute), bruno.clock.Add(time.Minute)
+	ana.s.Hang()
+	l.settle()
+	for _, p := range []*person{ana, bruno} {
+		if len(p.logged) != 1 {
+			t.Fatalf("%d calls logged", len(p.logged))
+		}
+		c := p.logged[0]
+		if !c.Rang.Equal(time.Unix(1000, 0)) || !c.Answered.Equal(time.Unix(1005, 0)) || !c.Ended.Equal(time.Unix(1065, 0)) || c.Outcome != Hung {
+			t.Fatalf("logged %+v", c)
+		}
+	}
+	if ana.logged[0].Incoming || !bruno.logged[0].Incoming || !bruno.logged[0].Video {
+		t.Fatal("the log says the wrong side called")
+	}
+
+	// A call declined is logged too, unanswered.
+	ana.s.Call(bruno.key, false)
+	l.settle()
+	bruno.s.Decline()
+	l.settle()
+	if len(ana.logged) != 2 || ana.logged[1].Outcome != Declined || !ana.logged[1].Answered.IsZero() || len(bruno.logged) != 2 {
+		t.Fatalf("Ana logged %+v", ana.logged)
 	}
 }

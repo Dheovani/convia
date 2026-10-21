@@ -19,6 +19,8 @@ export function Blocked():Promise<Array<string>>;
 
 export function CallConnection():Promise<string>;
 
+export function CallLog():Promise<Array<app.CalledView>>;
+
 export function ChannelMessages(arg1:string,arg2:string):Promise<Array<app.MessageView>>;
 
 export function ChooseFile():Promise<string>;

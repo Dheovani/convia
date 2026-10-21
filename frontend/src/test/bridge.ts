@@ -58,6 +58,7 @@ export const bridge = Object.fromEntries(
     "ChooseFile",
     "Spaces",
     "CurrentCall",
+    "CallLog",
     "StartCall",
     "AcceptCall",
     "DeclineCall",

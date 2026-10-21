@@ -128,10 +128,11 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 	service.Fellow = fellows.Accept
 	ring := &ringing{contacts: service}
 	callers := calls.NewService(ring, func(c calls.Call) { emit(CallEvent, callView(c)) },
-		func(contact ed25519.PublicKey, at time.Time) {
-			if err := conversations.Missed(contact, at); err != nil {
-				n.logger.Error("keep a missed call", "error", err)
+		func(c calls.Call) {
+			if err := conversations.Log(logged(c)); err != nil {
+				n.logger.Error("keep a call in the log", "error", err)
 			}
+			emit(CallLogEvent)
 		}, n.logger)
 	fellows.Name = func() string { return displayName(store, id.Name) }
 	manager := peers.New(
