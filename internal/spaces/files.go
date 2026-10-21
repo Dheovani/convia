@@ -74,8 +74,11 @@ func (s *Store) heldFile(id [IDSize]byte) (held, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return held{}, messages.ErrNotHeld
 	}
+	if err != nil {
+		return held{}, err
+	}
 	h.ID, h.Space, h.Channel = id, ID(space), ChannelID(channel)
-	return h, err
+	return h, nil
 }
 
 // Fetch asks for a file of a channel, which arrives as soon as a member holding it can be reached.
