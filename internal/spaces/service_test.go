@@ -18,8 +18,13 @@ import (
 
 // hub connects services as the peers' connections would, delivering each one's messages in order.
 type hub struct {
-	mu        sync.Mutex
-	sent      int
+	mu   sync.Mutex
+	sent int
+	// pieces are what was sent on the channel for files, and requests the files asked for.
+	pieces   int
+	requests int
+	// askedOf is how many files each was asked for.
+	askedOf   map[string]int
 	services  map[string]*Service
 	linked    map[[2]string]bool
 	wanted    map[[2]string]bool
@@ -48,6 +53,13 @@ func (p port) Send(peer ed25519.PublicKey, m *conviav1.PeerMessage) bool {
 	}
 	p.h.mu.Lock()
 	p.h.sent++
+	if _, asks := m.Message.(*conviav1.PeerMessage_FileRequest); asks {
+		p.h.requests++
+		if p.h.askedOf == nil {
+			p.h.askedOf = map[string]int{}
+		}
+		p.h.askedOf[string(peer)]++
+	}
 	p.h.mu.Unlock()
 	target.Message(ed25519.PublicKey(p.me), proto.Clone(m).(*conviav1.PeerMessage))
 	return true
@@ -66,6 +78,19 @@ func (p port) Release(peer ed25519.PublicKey, reason string) {
 }
 
 func (p port) Reachable(ed25519.PublicKey) {}
+
+func (p port) SendFile(peer ed25519.PublicKey, data []byte) bool {
+	p.h.mu.Lock()
+	target, linked := p.h.services[string(peer)], p.h.linked[pair(p.me, string(peer))]
+	p.h.mu.Unlock()
+	if linked {
+		p.h.mu.Lock()
+		p.h.pieces++
+		p.h.mu.Unlock()
+		target.File(ed25519.PublicKey(p.me), data)
+	}
+	return linked
+}
 
 func (p port) Reachability(announce, watch [][]byte) {
 	p.h.mu.Lock()

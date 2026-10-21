@@ -14,6 +14,10 @@ export function AddContact(arg1) {
   return window['go']['app']['Bridge']['AddContact'](arg1);
 }
 
+export function AttachInChannel(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['AttachInChannel'](arg1, arg2, arg3);
+}
+
 export function BlockContact(arg1, arg2) {
   return window['go']['app']['Bridge']['BlockContact'](arg1, arg2);
 }
@@ -108,6 +112,10 @@ export function EditMessage(arg1, arg2, arg3) {
 
 export function ExportIdentity(arg1) {
   return window['go']['app']['Bridge']['ExportIdentity'](arg1);
+}
+
+export function FetchInChannel(arg1) {
+  return window['go']['app']['Bridge']['FetchInChannel'](arg1);
 }
 
 export function ForgetMessage(arg1, arg2) {

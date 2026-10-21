@@ -76,6 +76,8 @@ export interface Source {
   remove: (id: string) => Promise<unknown>;
   forget?: (id: string) => Promise<unknown>;
   attach?: () => Promise<unknown>;
+  // fetch asks for a file pulled only when asked for.
+  fetch?: (id: string) => Promise<unknown>;
   statuses: boolean;
   deleting?: string;
   // closed says why nothing can be written here, where nothing can.
@@ -422,6 +424,15 @@ export function Thread({
                         mine={m.mine}
                         from={source.other}
                         onError={(error) => setNotice(refused(words, error))}
+                        onFetch={
+                          source.fetch
+                            ? () =>
+                                void attempt(
+                                  () =>
+                                    source.fetch?.(m.id) ?? Promise.resolve(),
+                                )
+                            : undefined
+                        }
                       />
                     ) : (
                       <>

@@ -9,6 +9,8 @@ export function AcceptSpace(arg1:string):Promise<void>;
 
 export function AddContact(arg1:string):Promise<app.RequestView>;
 
+export function AttachInChannel(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function BlockContact(arg1:string,arg2:boolean):Promise<void>;
 
 export function Blocked():Promise<Array<string>>;
@@ -56,6 +58,8 @@ export function EditInChannel(arg1:string,arg2:string,arg3:string,arg4:string):P
 export function EditMessage(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExportIdentity(arg1:string):Promise<boolean>;
+
+export function FetchInChannel(arg1:string):Promise<void>;
 
 export function ForgetMessage(arg1:string,arg2:string):Promise<void>;
 

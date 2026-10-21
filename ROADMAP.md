@@ -276,7 +276,8 @@ How members carry a space's content to one another.
 - [x] **M16-004:** Decide moderation beyond removal — muting, deleting another's message — and how it travels ([ADR 0041](docs/adr/0041-moderators-mute-members-and-delete-their-messages.md)).
 - [x] **M16-005:** Build it.
 - [x] **M16-006:** Channels read by every member who sees them but written only by some roles — announcements, rules ([ADR 0038](docs/adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)).
-- [ ] **M16-007:** Decide how files travel in a space: who serves them, and to whom ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md)).
+- [x] **M16-007:** Decide how files travel in a space: who serves them, and to whom ([ADR 0042](docs/adr/0042-a-channel-holds-what-a-conversation-holds-but-files.md), [ADR 0043](docs/adr/0043-a-spaces-files-are-served-by-whoever-holds-them.md)).
+- [x] **M16-008:** Build it.
 
 ## Phase 6 — Calls and screen sharing
 

@@ -1,8 +1,11 @@
 import { useMemo } from "react";
 import {
+  AttachInChannel,
   ChannelMessages,
+  ChooseFile,
   DeleteInChannel,
   EditInChannel,
+  FetchInChannel,
   ReactInChannel,
   SayInChannel,
 } from "../../wailsjs/go/app/Bridge";
@@ -60,6 +63,11 @@ export function Channel({
         ReactInChannel(space, id, target, emoji, on),
       edit: (target, text) => EditInChannel(space, id, target, text),
       remove: (target) => DeleteInChannel(space, id, target),
+      attach: async () => {
+        const path = await ChooseFile();
+        if (path) await AttachInChannel(space, id, path);
+      },
+      fetch: (target) => FetchInChannel(target),
       statuses: false,
       deleting: words.spaces.deleting,
       closed: muted

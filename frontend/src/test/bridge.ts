@@ -82,6 +82,8 @@ export const bridge = Object.fromEntries(
     "DeclineSpace",
     "ChannelMessages",
     "SayInChannel",
+    "AttachInChannel",
+    "FetchInChannel",
     "ReactInChannel",
     "EditInChannel",
     "DeleteInChannel",

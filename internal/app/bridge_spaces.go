@@ -6,6 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -261,6 +263,10 @@ func (b *Bridge) ChannelMessages(spaceID, channelID string) ([]MessageView, erro
 		view := MessageView{ID: hex.EncodeToString(p.ID[:]), Mine: p.Author.Equal(me), Author: called[string(p.Author)],
 			Text: p.Text, Status: "delivered", At: p.Time.Wall, Reactions: []ReactionView{}, Edited: p.Edited, Deleted: p.Deleted,
 			Moderated: p.ByModerator, Deletable: !p.Deleted && (p.Author.Equal(me) || state.Moderates(me, p.Author))}
+		if p.File != nil {
+			view.File = fileView(view.ID, p.File)
+			view.File.Wanted = p.Wanted
+		}
 		for _, r := range p.Reactions {
 			view.Reactions = append(view.Reactions, ReactionView{Emoji: r.Emoji, Count: r.Count, Mine: r.Mine})
 		}
@@ -341,6 +347,40 @@ func (b *Bridge) DeleteInChannel(spaceID, channelID, messageID string) error {
 		target, err := target(messageID)
 		return spaces.Entry{Kind: spaces.Deleted, Target: target}, err
 	})
+}
+
+// AttachInChannel writes the file at path, of at most 100 MB, in a channel (ADR 0043).
+func (b *Bridge) AttachInChannel(spaceID, channelID, path string) error {
+	s, space, channel, err := b.channel(spaceID, channelID)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() > messages.MaxFileSize {
+		return messageRefusal(messages.ErrFileTooLarge)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	_, err = s.Attach(space, channel, filepath.Base(path), data)
+	return spaceRefusal(err)
+}
+
+// FetchInChannel asks for a file of a channel, which arrives as soon as a member holding it is reached.
+func (b *Bridge) FetchInChannel(messageID string) error {
+	s, err := b.fellowship()
+	if err != nil {
+		return spaceRefusal(err)
+	}
+	id, err := target(messageID)
+	if err != nil {
+		return spaceRefusal(err)
+	}
+	return spaceRefusal(s.Fetch(*id))
 }
 
 func target(messageID string) (*[spaces.IDSize]byte, error) {

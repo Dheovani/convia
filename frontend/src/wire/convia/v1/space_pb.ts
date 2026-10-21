@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/space.proto.
  */
 export const file_convia_v1_space: GenFile = /*@__PURE__*/
-  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwi3AEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDBIMCgR0ZXh0GAwgASgMImEKC1NwYWNlU2VjcmV0EhAKCHNwYWNlX2lkGAEgASgMEg0KBWVwb2NoGAIgASgMEg4KBmF1dGhvchgDIAEoDBIOCgZzZWNyZXQYBCABKAwSEQoJc2lnbmF0dXJlGAUgASgMIi0KCVNwYWNlU3luYxIQCghzcGFjZV9pZBgBIAEoDBIOCgZoYXNoZXMYAiADKAwiSgoMU3BhY2VIb2xkaW5nEhAKCHNwYWNlX2lkGAEgASgMEigKCGNoYW5uZWxzGAIgAygLMhYuY29udmlhLnYxLkNoYW5uZWxIZWxkIkkKC0NoYW5uZWxIZWxkEhIKCmNoYW5uZWxfaWQYASABKAwSJgoHYXV0aG9ycxgCIAMoCzIVLmNvbnZpYS52MS5BdXRob3JIZWxkIi4KCkF1dGhvckhlbGQSDgoGYXV0aG9yGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEIpIBCg9TcGFjZUludml0YXRpb24SKAoHZ2VuZXNpcxgBIAEoCzIXLmNvbnZpYS52MS5TcGFjZUdlbmVzaXMSLQoKb3BlcmF0aW9ucxgCIAMoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbhImCgZzZWNyZXQYAyABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXQigwEKDENoYW5uZWxFbnRyeRITCgt0ZXh0X3NoYTI1NhgBIAEoDBIQCghyZXBseV90bxgCIAEoDBIsCghyZWFjdGlvbhgDIAEoCzIaLmNvbnZpYS52MS5DaGFubmVsUmVhY3Rpb24SDAoEZWRpdBgEIAEoDBIQCghkZWxldGlvbhgFIAEoDCI8Cg9DaGFubmVsUmVhY3Rpb24SDgoGdGFyZ2V0GAEgASgMEg0KBWVtb2ppGAIgASgJEgoKAm9uGAMgASgIQj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM");
+  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwi3AEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDBIMCgR0ZXh0GAwgASgMImEKC1NwYWNlU2VjcmV0EhAKCHNwYWNlX2lkGAEgASgMEg0KBWVwb2NoGAIgASgMEg4KBmF1dGhvchgDIAEoDBIOCgZzZWNyZXQYBCABKAwSEQoJc2lnbmF0dXJlGAUgASgMIi0KCVNwYWNlU3luYxIQCghzcGFjZV9pZBgBIAEoDBIOCgZoYXNoZXMYAiADKAwiSgoMU3BhY2VIb2xkaW5nEhAKCHNwYWNlX2lkGAEgASgMEigKCGNoYW5uZWxzGAIgAygLMhYuY29udmlhLnYxLkNoYW5uZWxIZWxkIkkKC0NoYW5uZWxIZWxkEhIKCmNoYW5uZWxfaWQYASABKAwSJgoHYXV0aG9ycxgCIAMoCzIVLmNvbnZpYS52MS5BdXRob3JIZWxkIi4KCkF1dGhvckhlbGQSDgoGYXV0aG9yGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEIpIBCg9TcGFjZUludml0YXRpb24SKAoHZ2VuZXNpcxgBIAEoCzIXLmNvbnZpYS52MS5TcGFjZUdlbmVzaXMSLQoKb3BlcmF0aW9ucxgCIAMoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbhImCgZzZWNyZXQYAyABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXQiqQEKDENoYW5uZWxFbnRyeRITCgt0ZXh0X3NoYTI1NhgBIAEoDBIQCghyZXBseV90bxgCIAEoDBIsCghyZWFjdGlvbhgDIAEoCzIaLmNvbnZpYS52MS5DaGFubmVsUmVhY3Rpb24SDAoEZWRpdBgEIAEoDBIQCghkZWxldGlvbhgFIAEoDBIkCgRmaWxlGAYgASgLMhYuY29udmlhLnYxLkNoYW5uZWxGaWxlIk4KC0NoYW5uZWxGaWxlEgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iGQoLRmlsZU1pc3NpbmcSCgoCaWQYASABKAwiPAoPQ2hhbm5lbFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
 
 /**
  * SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
@@ -425,6 +425,13 @@ export type ChannelEntry = Message<"convia.v1.ChannelEntry"> & {
    * @generated from field: bytes deletion = 5;
    */
   deletion: Uint8Array;
+
+  /**
+   * A file, whose name is the text; its content travels on the channel for files (ADR 0043).
+   *
+   * @generated from field: convia.v1.ChannelFile file = 6;
+   */
+  file?: ChannelFile | undefined;
 };
 
 /**
@@ -433,6 +440,59 @@ export type ChannelEntry = Message<"convia.v1.ChannelEntry"> & {
  */
 export const ChannelEntrySchema: GenMessage<ChannelEntry> = /*@__PURE__*/
   messageDesc(file_convia_v1_space, 9);
+
+/**
+ * ChannelFile is what a file in a channel is, as its author signs it.
+ *
+ * @generated from message convia.v1.ChannelFile
+ */
+export type ChannelFile = Message<"convia.v1.ChannelFile"> & {
+  /**
+   * @generated from field: uint64 size = 1;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string type = 2;
+   */
+  type: string;
+
+  /**
+   * @generated from field: bytes sha256 = 3;
+   */
+  sha256: Uint8Array;
+
+  /**
+   * @generated from field: uint32 orientation = 4;
+   */
+  orientation: number;
+};
+
+/**
+ * Describes the message convia.v1.ChannelFile.
+ * Use `create(ChannelFileSchema)` to create a new message.
+ */
+export const ChannelFileSchema: GenMessage<ChannelFile> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 10);
+
+/**
+ * FileMissing says the member asked for a file of a space does not hold it whole: another is asked (ADR 0043).
+ *
+ * @generated from message convia.v1.FileMissing
+ */
+export type FileMissing = Message<"convia.v1.FileMissing"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.FileMissing.
+ * Use `create(FileMissingSchema)` to create a new message.
+ */
+export const FileMissingSchema: GenMessage<FileMissing> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 11);
 
 /**
  * ChannelReaction puts an emoji on a message, or takes it off (ADR 0035).
@@ -461,5 +521,5 @@ export type ChannelReaction = Message<"convia.v1.ChannelReaction"> & {
  * Use `create(ChannelReactionSchema)` to create a new message.
  */
 export const ChannelReactionSchema: GenMessage<ChannelReaction> = /*@__PURE__*/
-  messageDesc(file_convia_v1_space, 10);
+  messageDesc(file_convia_v1_space, 12);
 

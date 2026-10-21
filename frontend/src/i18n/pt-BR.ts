@@ -208,6 +208,7 @@ export const ptBR: Words = {
     title: (name: string) => `Nova mensagem de ${name}`,
   },
   files: {
+    fetch: "Baixar",
     attach: "Anexar um arquivo",
     save: "Salvar",
     sending: "Aguardando envio",

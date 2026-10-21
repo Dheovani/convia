@@ -21,8 +21,12 @@ type Post struct {
 	Deleted bool
 	// ByModerator is a message deleted by a moderator of its author (ADR 0041).
 	ByModerator bool
-	Reactions   []messages.Reaction
-	ReplyTo     *messages.Quote
+	// File is a file's, with how much of it this peer holds; its name is the text.
+	File *messages.File
+	// Wanted is a file asked for, which arrives as soon as a member holding it is reached.
+	Wanted    bool
+	Reactions []messages.Reaction
+	ReplyTo   *messages.Quote
 }
 
 // Moderates says whether its first member moderates its second, as a space's state says (ADR 0041).
@@ -42,9 +46,9 @@ func fold(entries []Message, me ed25519.PublicKey, moderates Moderates) []Post {
 	var out []Post
 	index := map[[IDSize]byte]int{}
 	for _, m := range entries {
-		if m.Entry.Kind == Said {
+		if m.Entry.Kind == Said || m.Entry.Kind == Attached {
 			index[m.ID] = len(out)
-			out = append(out, Post{ID: m.ID, Author: m.Author, Time: m.Time, Text: m.Entry.Text, Deleted: m.Entry.Wiped})
+			out = append(out, Post{ID: m.ID, Author: m.Author, Time: m.Time, Text: m.Entry.Text, Deleted: m.Entry.Wiped, File: m.Entry.File})
 		}
 	}
 	on := map[reacting]bool{}
@@ -60,8 +64,10 @@ func fold(entries []Message, me ed25519.PublicKey, moderates Moderates) []Post {
 		}
 		switch e.Kind {
 		case Edited:
-			// An edit wiped is followed by the one that superseded it, or by the deletion.
-			out[i].Text, out[i].Edited, out[i].Deleted = e.Text, true, false
+			// An edit wiped is followed by the one that superseded it, or by the deletion; a file's name is not edited.
+			if out[i].File == nil {
+				out[i].Text, out[i].Edited, out[i].Deleted = e.Text, true, false
+			}
 		case Deleted:
 			out[i].Deleted = true
 			out[i].ByModerator = out[i].ByModerator || !m.Author.Equal(out[i].Author)
@@ -74,7 +80,7 @@ func fold(entries []Message, me ed25519.PublicKey, moderates Moderates) []Post {
 	}
 	for i := range out {
 		if out[i].Deleted {
-			out[i].Text, out[i].Edited = "", false
+			out[i].Text, out[i].Edited, out[i].File = "", false, nil
 		}
 	}
 	for target, order := range emojis {
@@ -121,7 +127,19 @@ func (s *Store) Channel(id ID, channel ChannelID, me ed25519.PublicKey) ([]Post,
 	if err != nil {
 		return nil, err
 	}
-	return fold(held, me, state.Moderates), nil
+	posts := fold(held, me, state.Moderates)
+	for i, p := range posts {
+		if p.File == nil {
+			continue
+		}
+		f := *p.File
+		if h, err := s.heldFile(p.ID); err == nil {
+			f.Held, f.Complete = h.Held, h.Complete
+			posts[i].Wanted = h.Wanted
+		}
+		posts[i].File = &f
+	}
+	return posts, nil
 }
 
 func (s *Store) channel(id ID, channel ChannelID) ([]Message, *State, error) {
@@ -146,7 +164,7 @@ func (s *Store) allows(me ed25519.PublicKey, id ID, channel ChannelID, e Entry) 
 		if p.ID != *e.Target {
 			continue
 		}
-		if p.Deleted && e.Kind != Said {
+		if p.Deleted && e.Kind != Said || e.Kind == Edited && p.File != nil {
 			return messages.ErrNoTarget
 		}
 		if e.Kind == Edited && !p.Author.Equal(me) || e.Kind == Deleted && !p.Author.Equal(me) && !state.Moderates(me, p.Author) {
@@ -178,7 +196,7 @@ func (s *Store) compact(id ID, channel ChannelID) error {
 			continue
 		}
 		t, ok := byID[*e.Target]
-		if !ok || t.Entry.Kind != Said {
+		if !ok || t.Entry.Kind != Said && (t.Entry.Kind != Attached || e.Kind == Edited) {
 			continue
 		}
 		if !t.Author.Equal(m.Author) && !(e.Kind == Deleted && state.Moderates(m.Author, t.Author)) {
@@ -202,6 +220,11 @@ func (s *Store) compact(id ID, channel ChannelID) error {
 	}
 	for target := range deleted {
 		gone = append(gone, byID[target])
+		if byID[target].Entry.Kind == Attached {
+			if err := s.unfile(target); err != nil {
+				return err
+			}
+		}
 	}
 	for _, m := range gone {
 		if m.Entry.Wiped {

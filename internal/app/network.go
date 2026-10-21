@@ -141,7 +141,10 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 				conversations.Message(peer, message)
 				fellows.Message(peer, message)
 			},
-			File: conversations.File,
+			File: func(peer ed25519.PublicKey, data []byte) {
+				conversations.File(peer, data)
+				fellows.File(peer, data)
+			},
 			Reachable: func(id []byte) {
 				service.Reachable(id)
 				fellows.Reachable(id)

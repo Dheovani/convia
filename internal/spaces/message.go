@@ -1,6 +1,7 @@
 package spaces
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -113,5 +114,7 @@ func UnmarshalMessage(data []byte) (Message, error) {
 
 func sameEntry(a, b Entry) bool {
 	return a.Kind == b.Kind && a.Text == b.Text && a.On == b.On && a.Wiped == b.Wiped &&
-		(a.Target == nil) == (b.Target == nil) && (a.Target == nil || *a.Target == *b.Target)
+		(a.Target == nil) == (b.Target == nil) && (a.Target == nil || *a.Target == *b.Target) &&
+		(a.File == nil) == (b.File == nil) && (a.File == nil || a.File.Size == b.File.Size && a.File.Type == b.File.Type &&
+		bytes.Equal(a.File.SHA256, b.File.SHA256) && a.File.Orientation == b.File.Orientation)
 }

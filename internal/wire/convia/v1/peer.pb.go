@@ -43,6 +43,7 @@ type PeerMessage struct {
 	//	*PeerMessage_GroupMessage
 	//	*PeerMessage_SpaceSecret
 	//	*PeerMessage_SpaceInvitation
+	//	*PeerMessage_FileMissing
 	Message       isPeerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -238,6 +239,15 @@ func (x *PeerMessage) GetSpaceInvitation() *SpaceInvitation {
 	return nil
 }
 
+func (x *PeerMessage) GetFileMissing() *FileMissing {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_FileMissing); ok {
+			return x.FileMissing
+		}
+	}
+	return nil
+}
+
 type isPeerMessage_Message interface {
 	isPeerMessage_Message()
 }
@@ -310,6 +320,10 @@ type PeerMessage_SpaceInvitation struct {
 	SpaceInvitation *SpaceInvitation `protobuf:"bytes,17,opt,name=space_invitation,json=spaceInvitation,proto3,oneof"`
 }
 
+type PeerMessage_FileMissing struct {
+	FileMissing *FileMissing `protobuf:"bytes,18,opt,name=file_missing,json=fileMissing,proto3,oneof"`
+}
+
 func (*PeerMessage_Hello) isPeerMessage_Message() {}
 
 func (*PeerMessage_Challenge) isPeerMessage_Message() {}
@@ -343,6 +357,8 @@ func (*PeerMessage_GroupMessage) isPeerMessage_Message() {}
 func (*PeerMessage_SpaceSecret) isPeerMessage_Message() {}
 
 func (*PeerMessage_SpaceInvitation) isPeerMessage_Message() {}
+
+func (*PeerMessage_FileMissing) isPeerMessage_Message() {}
 
 // DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
 // 4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
@@ -1066,7 +1082,7 @@ var File_convia_v1_peer_proto protoreflect.FileDescriptor
 
 const file_convia_v1_peer_proto_rawDesc = "" +
 	"\n" +
-	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\x1a\x15convia/v1/space.proto\"\xab\b\n" +
+	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\x1a\x15convia/v1/space.proto\"\xe8\b\n" +
 	"\vPeerMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.convia.v1.HelloH\x00R\x05hello\x124\n" +
 	"\tchallenge\x18\x02 \x01(\v2\x14.convia.v1.ChallengeH\x00R\tchallenge\x12(\n" +
@@ -1086,7 +1102,8 @@ const file_convia_v1_peer_proto_rawDesc = "" +
 	"\rspace_holding\x18\x0e \x01(\v2\x17.convia.v1.SpaceHoldingH\x00R\fspaceHolding\x12>\n" +
 	"\rgroup_message\x18\x0f \x01(\v2\x17.convia.v1.GroupMessageH\x00R\fgroupMessage\x12;\n" +
 	"\fspace_secret\x18\x10 \x01(\v2\x16.convia.v1.SpaceSecretH\x00R\vspaceSecret\x12G\n" +
-	"\x10space_invitation\x18\x11 \x01(\v2\x1a.convia.v1.SpaceInvitationH\x00R\x0fspaceInvitationB\t\n" +
+	"\x10space_invitation\x18\x11 \x01(\v2\x1a.convia.v1.SpaceInvitationH\x00R\x0fspaceInvitation\x12;\n" +
+	"\ffile_missing\x18\x12 \x01(\v2\x16.convia.v1.FileMissingH\x00R\vfileMissingB\t\n" +
 	"\amessage\"\xd7\x02\n" +
 	"\rDirectMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\x1a\n" +
@@ -1174,6 +1191,7 @@ var file_convia_v1_peer_proto_goTypes = []any{
 	(*GroupMessage)(nil),     // 19: convia.v1.GroupMessage
 	(*SpaceSecret)(nil),      // 20: convia.v1.SpaceSecret
 	(*SpaceInvitation)(nil),  // 21: convia.v1.SpaceInvitation
+	(*FileMissing)(nil),      // 22: convia.v1.FileMissing
 }
 var file_convia_v1_peer_proto_depIdxs = []int32{
 	13, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
@@ -1193,14 +1211,15 @@ var file_convia_v1_peer_proto_depIdxs = []int32{
 	19, // 14: convia.v1.PeerMessage.group_message:type_name -> convia.v1.GroupMessage
 	20, // 15: convia.v1.PeerMessage.space_secret:type_name -> convia.v1.SpaceSecret
 	21, // 16: convia.v1.PeerMessage.space_invitation:type_name -> convia.v1.SpaceInvitation
-	6,  // 17: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
-	5,  // 18: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
-	2,  // 19: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
-	20, // [20:20] is the sub-list for method output_type
-	20, // [20:20] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	22, // 17: convia.v1.PeerMessage.file_missing:type_name -> convia.v1.FileMissing
+	6,  // 18: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
+	5,  // 19: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
+	2,  // 20: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
+	21, // [21:21] is the sub-list for method output_type
+	21, // [21:21] is the sub-list for method input_type
+	21, // [21:21] is the sub-list for extension type_name
+	21, // [21:21] is the sub-list for extension extendee
+	0,  // [0:21] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_peer_proto_init() }
@@ -1228,6 +1247,7 @@ func file_convia_v1_peer_proto_init() {
 		(*PeerMessage_GroupMessage)(nil),
 		(*PeerMessage_SpaceSecret)(nil),
 		(*PeerMessage_SpaceInvitation)(nil),
+		(*PeerMessage_FileMissing)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

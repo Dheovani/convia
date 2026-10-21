@@ -108,3 +108,12 @@ When an administrator adds a person ([ADR 0039](../adr/0039-a-person-joins-a-spa
 Each member announces, at the rendezvous service, its reachability identifier under the current epoch's secret, and watches every other member's, for the day before, the day and the day after ([ADR 0014](../adr/0014-members-of-a-space-share-a-secret-to-tell-who-is-online.md)). A member announced is online until its connection is lost.
 
 Each member then connects to a few of the members online ([ADR 0040](../adr/0040-members-of-a-space-connect-to-a-few-of-one-another.md)): the online members and itself are ordered by `SHA-256(epoch | identity)`, and it connects to the one before it and the one after it, and to the 2 others whose `SHA-256(SHA-256(epoch | own identity) | identity)` is lowest. A member who writes in a restricted channel also connects to the readers of that channel who are online and not connected, until they have caught up.
+
+## Files
+
+A file in a channel is an entry: a `ChannelEntry` holding `file` — its size, of 1 byte to 100 MB, its type, its SHA-256 and its orientation, as in a conversation ([peers](peers.md)) — whose text is the file's name ([ADR 0043](../adr/0043-a-spaces-files-are-served-by-whoever-holds-them.md)). It answers nothing, and an edit does not rename it; a deletion deletes it, and every member then removes what it holds of it.
+
+- **Pulled:** a picture of at most 10 MB as soon as its entry arrives; any other file only once the member asks for it.
+- **Asked for** a span of at most 1 MiB at a time, with `file_request`, of one member connected who may read the channel and has not said it does not hold it; when none is left, its author is connected to on demand. A member connected again is asked again.
+- **Served** as a conversation's file is, in `file_chunk`s on the channel for files, by any member holding it whole to any member who may read its channel. A member that does not hold it whole, or will not serve it to whoever asked, answers `file_missing`.
+- **Checked** once whole against the SHA-256 its author signed, whoever served it; a file that does not match is dropped, and asked of another.

@@ -107,6 +107,11 @@ func (s *Store) Write(me identity.Identity, id ID, channel ChannelID, e Entry) (
 	if _, err = s.keepMessage(m); err != nil {
 		return Message{}, err
 	}
+	if e.Kind == Attached {
+		if err := s.record(m); err != nil {
+			return Message{}, err
+		}
+	}
 	return m, s.compact(id, channel)
 }
 
@@ -126,6 +131,9 @@ func (s *Store) Accept(m Message) (bool, error) {
 		return false, ErrNotReader
 	}
 	fresh, err := s.keepMessage(m)
+	if err == nil && fresh && m.Entry.Kind == Attached && !m.Entry.Wiped {
+		err = s.record(m)
+	}
 	if err != nil || !fresh || m.Entry.Kind != Edited && m.Entry.Kind != Deleted {
 		return fresh, err
 	}

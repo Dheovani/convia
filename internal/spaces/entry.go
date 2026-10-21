@@ -18,6 +18,8 @@ const (
 	Reacted EntryKind = "reaction"
 	Edited  EntryKind = "edit"
 	Deleted EntryKind = "deletion"
+	// Attached is a file, named by its text (ADR 0043).
+	Attached EntryKind = "file"
 )
 
 // ErrEntry is an entry the protocol does not allow: a message of no text or too much, a reaction of no emoji.
@@ -31,14 +33,19 @@ type Entry struct {
 	On     bool
 	// Wiped is an entry whose text was wiped since (ADR 0034).
 	Wiped bool
+	// File is what a file is: its size, type, SHA-256 and orientation; what is held of it is not the entry's.
+	File *messages.File
 }
 
 // hasText says whether an entry of kind carries text: a message, an edit, or a reaction's emoji.
-func (k EntryKind) hasText() bool { return k == Said || k == Edited }
+func (k EntryKind) hasText() bool { return k == Said || k == Edited || k == Attached }
 
 // check reports whether e is an entry the protocol allows; a wiped one holds no text, so none is checked.
 func (e Entry) check() error {
-	if e.Kind != Said && e.Target == nil {
+	if e.Kind != Said && e.Kind != Attached && e.Target == nil || e.Kind == Attached && e.Target != nil {
+		return ErrEntry
+	}
+	if (e.Kind == Attached) != (e.File != nil) {
 		return ErrEntry
 	}
 	switch e.Kind {
@@ -55,6 +62,10 @@ func (e Entry) check() error {
 		}
 	case Deleted:
 		if e.On || e.Text != "" || e.Wiped {
+			return ErrEntry
+		}
+	case Attached:
+		if e.On || !e.Wiped && messages.CheckFileName(e.Text) != nil || messages.CheckFile(e.File) != nil {
 			return ErrEntry
 		}
 	default:
@@ -79,6 +90,8 @@ func (e Entry) encode() (content, text []byte) {
 		w.Edit = target
 	case Deleted:
 		w.Deletion = target
+	case Attached:
+		w.File = &conviav1.ChannelFile{Size: e.File.Size, Type: e.File.Type, Sha256: e.File.SHA256, Orientation: uint32(e.File.Orientation)}
 	}
 	if e.Kind.hasText() {
 		text = []byte(e.Text)
@@ -108,6 +121,10 @@ func decode(content, text []byte) (Entry, error) {
 	}
 	if w.Deletion != nil {
 		e.Kind, target = Deleted, w.Deletion
+		kinds++
+	}
+	if f := w.File; f != nil {
+		e.Kind, e.File = Attached, &messages.File{Size: f.Size, Type: f.Type, SHA256: f.Sha256, Orientation: int(f.Orientation)}
 		kinds++
 	}
 	if kinds == 0 {

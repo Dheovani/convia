@@ -23,6 +23,7 @@ type Connections interface {
 	Release(peer ed25519.PublicKey, reason string)
 	Reachable(peer ed25519.PublicKey)
 	Reachability(announce, watch [][]byte)
+	SendFile(peer ed25519.PublicKey, data []byte) bool
 }
 
 // pendingReason is the connection a person waits on to be told they were added to a space, or that one was declined.
@@ -53,7 +54,10 @@ type Service struct {
 	ringed map[ID]map[string]bool
 	ids    map[string]sighting
 	day    uint32
-	now    func() time.Time
+	// asks are the files being asked for, and fetching the authors reached on demand for theirs.
+	asks     map[[IDSize]byte]*asking
+	fetching map[string]bool
+	now      func() time.Time
 
 	mu      sync.Mutex
 	members map[string]bool
@@ -63,7 +67,8 @@ type Service struct {
 func NewService(store *Store, me identity.Identity, conns Connections, changed func(ID), logger *slog.Logger) *Service {
 	s := &Service{store: store, me: me, conns: conns, changed: changed, logger: logger, work: newQueue(),
 		ready: map[string]bool{}, joined: map[string]map[ID]bool{}, pending: map[string][]*conviav1.PeerMessage{}, states: map[ID]*State{},
-		online: map[ID]map[string]bool{}, ringed: map[ID]map[string]bool{}, ids: map[string]sighting{}, now: time.Now}
+		online: map[ID]map[string]bool{}, ringed: map[ID]map[string]bool{}, ids: map[string]sighting{}, now: time.Now,
+		asks: map[[IDSize]byte]*asking{}, fetching: map[string]bool{}}
 	s.refresh()
 	return s
 }
@@ -179,6 +184,11 @@ func (s *Service) Ready(peer ed25519.PublicKey) {
 		}
 		s.conns.Release(peer, channelReason)
 		s.rings()
+		// One newly connected may hold what the others did not.
+		for _, a := range s.asks {
+			delete(a.tried, string(peer))
+		}
+		s.pull()
 	})
 }
 
@@ -271,6 +281,10 @@ func (s *Service) Message(peer ed25519.PublicKey, message *conviav1.PeerMessage)
 			}
 		case *conviav1.PeerMessage_SpaceInvitation:
 			s.invited(peer, m.SpaceInvitation)
+		case *conviav1.PeerMessage_FileRequest:
+			s.serve(peer, m.FileRequest)
+		case *conviav1.PeerMessage_FileMissing:
+			s.missing(peer, m.FileMissing.GetId())
 		}
 	})
 }
@@ -413,6 +427,9 @@ func (s *Service) message(peer ed25519.PublicKey, m Message) {
 		return
 	}
 	s.spread(m, peer)
+	if m.Entry.Kind == Attached || m.Entry.Kind == Deleted {
+		s.pull()
+	}
 	s.changed(m.Space)
 }
 

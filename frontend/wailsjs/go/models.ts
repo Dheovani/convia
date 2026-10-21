@@ -50,6 +50,7 @@ export namespace app {
 	    picture: boolean;
 	    orientation: number;
 	    url?: string;
+	    wanted?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new FileView(source);
@@ -64,6 +65,7 @@ export namespace app {
 	        this.picture = source["picture"];
 	        this.orientation = source["orientation"];
 	        this.url = source["url"];
+	        this.wanted = source["wanted"];
 	    }
 	}
 	export class QuoteView {

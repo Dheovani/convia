@@ -207,6 +207,7 @@ export const en = {
     title: (name: string) => `New message from ${name}`,
   },
   files: {
+    fetch: "Download",
     attach: "Attach a file",
     save: "Save",
     sending: "Waiting to be sent",

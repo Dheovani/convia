@@ -102,6 +102,21 @@ message ChannelEntry {
   bytes edit = 4;
   // The message a deletion deletes.
   bytes deletion = 5;
+  // A file, whose name is the text; its content travels on the channel for files (ADR 0043).
+  ChannelFile file = 6;
+}
+
+// ChannelFile is what a file in a channel is, as its author signs it.
+message ChannelFile {
+  uint64 size = 1;
+  string type = 2;
+  bytes sha256 = 3;
+  uint32 orientation = 4;
+}
+
+// FileMissing says the member asked for a file of a space does not hold it whole: another is asked (ADR 0043).
+message FileMissing {
+  bytes id = 1;
 }
 
 // ChannelReaction puts an emoji on a message, or takes it off (ADR 0035).

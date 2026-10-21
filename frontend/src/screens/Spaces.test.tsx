@@ -106,9 +106,8 @@ test("a space is in the rail, its channels in the sidebar, and a channel's conve
   expect(screen.getAllByText("Bruno Silva").length).toBeGreaterThan(0);
   expect(calls.ChannelMessages).toContainEqual(["c1", "g1"]);
 
-  // Only one's own message is offered to delete, and a channel has no files and no statuses.
+  // Only one's own message is offered to delete, and a channel has no statuses.
   expect(screen.getAllByRole("button", { name: "Delete" })).toHaveLength(1);
-  expect(screen.queryByRole("button", { name: "Attach a file" })).toBeNull();
   expect(screen.queryByText("Delivered")).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: /equipe/ }));
@@ -333,4 +332,60 @@ test("a channel only some write in is read, reacted to, and said so", async () =
   await waitFor(() =>
     expect(calls.ReactInChannel).toEqual([["c1", "g1", "01", "👍", true]]),
   );
+});
+
+test("a file is attached in a channel, and one not pulled at once is downloaded when asked for", async () => {
+  answers.ChooseFile = () => Promise.resolve("C:\\docs\\plano.pdf");
+  answers.ChannelMessages = () =>
+    Promise.resolve([
+      {
+        id: "05",
+        mine: false,
+        author: "Bruno Silva",
+        text: "plano.pdf",
+        status: "delivered",
+        at: 5,
+        reactions: [],
+        file: {
+          size: 3 << 20,
+          type: "application/octet-stream",
+          held: 0,
+          complete: false,
+          picture: false,
+          orientation: 1,
+        },
+      },
+      {
+        id: "06",
+        mine: false,
+        author: "Bruno Silva",
+        text: "outro.pdf",
+        status: "delivered",
+        at: 6,
+        reactions: [],
+        file: {
+          size: 3 << 20,
+          type: "application/octet-stream",
+          held: 0,
+          complete: false,
+          picture: false,
+          orientation: 1,
+          wanted: true,
+        },
+      },
+    ]);
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa da Ana" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Attach a file" }));
+  await waitFor(() =>
+    expect(calls.AttachInChannel).toEqual([
+      ["c1", "g1", "C:\\docs\\plano.pdf"],
+    ]),
+  );
+  // Only the one not yet asked for is offered to download; the other waits.
+  const downloads = await screen.findAllByRole("button", { name: "Download" });
+  expect(downloads).toHaveLength(1);
+  expect(screen.getByText(/Waiting for/)).toBeTruthy();
+  fireEvent.click(downloads[0]);
+  await waitFor(() => expect(calls.FetchInChannel).toEqual([["05"]]));
 });

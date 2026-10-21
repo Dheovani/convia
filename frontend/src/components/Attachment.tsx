@@ -10,6 +10,7 @@ export interface FileInfo {
   picture: boolean;
   orientation: number;
   url?: string;
+  wanted?: boolean;
 }
 
 /*
@@ -34,6 +35,7 @@ export function Attachment({
   mine,
   from,
   onError,
+  onFetch,
 }: {
   id: string;
   name: string;
@@ -41,6 +43,8 @@ export function Attachment({
   mine: boolean;
   from: string;
   onError: (error: unknown) => void;
+  // onFetch asks for a file not pulled at once, where files are pulled only when asked for (ADR 0043).
+  onFetch?: () => void;
 }) {
   const words = useWords();
   const { formatting } = useLanguage();
@@ -76,7 +80,9 @@ export function Attachment({
     : mine
       ? words.files.sending
       : file.held === 0
-        ? words.files.waiting(from)
+        ? onFetch && !file.wanted
+          ? null
+          : words.files.waiting(from)
         : words.files.receiving(Math.floor((100 * file.held) / file.size));
 
   return (
@@ -102,6 +108,11 @@ export function Attachment({
       {file.complete && (
         <Button size="small" onClick={save}>
           {words.files.save}
+        </Button>
+      )}
+      {!file.complete && !mine && onFetch && !file.wanted && (
+        <Button size="small" onClick={onFetch}>
+          {words.files.fetch}
         </Button>
       )}
     </div>
