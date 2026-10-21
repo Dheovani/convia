@@ -4,8 +4,10 @@ import {
   TransportClosed,
   TransportLocal,
   TransportOpened,
+  TransportFileReceived,
   TransportReceived,
   TransportReset,
+  TransportState,
 } from "../../wailsjs/go/app/Bridge";
 import { peers } from "../../wailsjs/go/models";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
@@ -13,7 +15,14 @@ import { Connections, type Core, type Kind } from "./connections";
 
 // An order from the core, as internal/app/network.go sends it.
 export interface Order {
-  op: "open" | "describe" | "candidate" | "send" | "close" | "configure";
+  op:
+    | "open"
+    | "describe"
+    | "candidate"
+    | "send"
+    | "send-file"
+    | "close"
+    | "configure";
   id?: string;
   offerer?: boolean;
   ice?: RTCIceServer[];
@@ -52,6 +61,9 @@ export function carry(connections: Connections, order: Order) {
     case "send":
       connections.send(id, fromBase64(order.data ?? ""));
       break;
+    case "send-file":
+      connections.sendFile(id, fromBase64(order.data ?? ""));
+      break;
     case "close":
       connections.close(id);
       break;
@@ -75,12 +87,22 @@ const core: Core = {
     ),
   opened: (id) => void TransportOpened(id),
   received: (id, data) => void TransportReceived(id, toBase64(data)),
+  fileReceived: (id, data) => void TransportFileReceived(id, toBase64(data)),
   closed: (id) => void TransportClosed(id),
+  state: (id, state) => void TransportState(id, state),
 };
+
+let running: Connections | undefined;
+
+// transport is the page's connections, to which a call adds its tracks; none before startTransport.
+export function transport(): Connections | undefined {
+  return running;
+}
 
 // startTransport carries out the core's orders for as long as the page lives.
 export function startTransport() {
   const connections = new Connections(core);
+  running = connections;
   EventsOn("transport", (order: Order) => carry(connections, order));
 
   // A page that loads again has lost every connection the core thinks it holds.

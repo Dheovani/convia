@@ -31,3 +31,23 @@ A record is `NNNN-title.md`, numbered in order and never renumbered, written in 
 | [0023](0023-the-rendezvous-service-hands-out-turn-credentials.md) | The rendezvous service hands out TURN credentials |
 | [0024](0024-peers-connect-on-demand-and-reconnect-when-they-can.md) | Peers connect on demand, and reconnect when they can |
 | [0025](0025-the-transport-is-tested-in-three-layers.md) | The transport is tested in three layers |
+| [0026](0026-a-contact-needs-the-inviters-consent.md) | A contact needs the inviter's consent, and a request expires |
+| [0027](0027-a-new-key-is-a-new-person.md) | A new key is a new person |
+| [0028](0028-removing-or-blocking-a-contact-is-silent.md) | Removing or blocking a contact is silent |
+| [0029](0029-a-message-holds-at-most-4000-characters.md) | A message holds at most 4,000 characters |
+| [0030](0030-messages-are-written-in-a-subset-of-markdown.md) | Messages are written in a subset of Markdown |
+| [0031](0031-link-previews-may-come-later.md) | Link previews may come later, fetched only by their sender |
+| [0032](0032-reading-and-presence-stay-on-the-readers-machine.md) | Reading and presence stay on the reader's machine |
+| [0033](0033-a-hidden-convia-says-who-wrote-not-what.md) | A hidden Convia says who wrote, not what |
+| [0034](0034-a-message-is-edited-and-deleted-by-its-author.md) | A message is edited and deleted by its author |
+| [0035](0035-replies-and-reactions.md) | Replies and reactions |
+| [0036](0036-files-wait-with-their-sender-up-to-100-mb.md) | Files wait with their sender, up to 100 MB |
+| [0037](0037-search-reads-the-history-without-indexing-it.md) | Search reads the history without indexing it |
+| [0038](0038-a-space-has-three-ranks-and-roles-that-open-channels.md) | A space has three ranks, and roles that open channels |
+| [0039](0039-a-person-joins-a-space-when-an-administrator-adds-a-contact.md) | A person joins a space when an administrator adds a contact |
+| [0040](0040-members-of-a-space-connect-to-a-few-of-one-another.md) | Members of a space connect to a few of one another |
+| [0041](0041-moderators-mute-members-and-delete-their-messages.md) | Moderators mute members and delete their messages |
+| [0042](0042-a-channel-holds-what-a-conversation-holds-but-files.md) | A channel holds what a conversation holds, but files |
+| [0043](0043-a-spaces-files-are-served-by-whoever-holds-them.md) | A space's files are served by whoever holds them |
+| [0044](0044-a-call-rings-for-30-seconds.md) | A call rings for 30 seconds |
+| [0045](0045-a-call-log-is-kept-on-each-machine.md) | A call log is kept on each machine |

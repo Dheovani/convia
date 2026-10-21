@@ -51,6 +51,13 @@ func (d *Data) Problem() string {
 	}
 }
 
+// Store is the open database, or nil.
+func (d *Data) Store() *storage.Store {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.store
+}
+
 // Err is the error behind Problem, for the log.
 func (d *Data) Err() error {
 	d.mu.Lock()

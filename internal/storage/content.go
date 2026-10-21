@@ -37,7 +37,7 @@ func NewContent(key []byte) (*Content, error) {
 
 // Seal encrypts plaintext bound to owner, the identifier of the row it belongs to.
 func (c *Content) Seal(owner, plaintext []byte) []byte {
-	nonce := make([]byte, c.aead.NonceSize(), c.aead.NonceSize()+len(plaintext)+c.aead.Overhead())
+	nonce := make([]byte, c.aead.NonceSize())
 	rand.Read(nonce)
 	return c.aead.Seal(nonce, nonce, plaintext, owner)
 }

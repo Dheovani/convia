@@ -1,16 +1,25 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Connections, type Core } from "./connections";
+import { Connections, fullBuffer, type Core } from "./connections";
 import { carry, fromBase64, toBase64 } from "./wails";
 
 class FakeChannel {
   readyState: RTCDataChannelState = "connecting";
   binaryType = "blob";
   sent: unknown[] = [];
+  bufferedAmount = 0;
+  bufferedAmountLowThreshold = 0;
   onopen?: () => void;
   onmessage?: (event: MessageEvent) => void;
   onclose?: () => void;
+  onbufferedamountlow?: () => void;
   send(data: unknown) {
     this.sent.push(data);
+    if (data instanceof Uint8Array) this.bufferedAmount += data.length;
+  }
+  // drain plays the network carrying everything buffered away.
+  drain() {
+    this.bufferedAmount = 0;
+    this.onbufferedamountlow?.();
   }
   open() {
     this.readyState = "open";
@@ -22,33 +31,45 @@ class FakePeerConnection {
   calls: string[] = [];
   configuration: RTCConfiguration;
   channel = new FakeChannel();
+  files = new FakeChannel();
   channelOptions?: RTCDataChannelInit;
+  filesOptions?: RTCDataChannelInit;
   localDescription: RTCSessionDescriptionInit | null = null;
   remoteDescription: RTCSessionDescriptionInit | null = null;
   connectionState: RTCPeerConnectionState = "new";
+  signalingState: RTCSignalingState = "stable";
   failRemote = false;
   stats = new Map<string, Record<string, unknown>>();
   onicecandidate?: (event: { candidate: unknown }) => void;
   onconnectionstatechange?: () => void;
   onnegotiationneeded?: () => void;
+  ontrack?: (event: RTCTrackEvent) => void;
+  senders: { track: unknown }[] = [];
 
   constructor(configuration: RTCConfiguration) {
     this.configuration = configuration;
   }
   createDataChannel(label: string, options: RTCDataChannelInit) {
     this.calls.push(`channel ${label}`);
+    if (label === "convia-files") {
+      this.filesOptions = options;
+      return this.files;
+    }
     this.channelOptions = options;
     return this.channel;
   }
   setLocalDescription() {
     const type = this.remoteDescription?.type === "offer" ? "answer" : "offer";
     this.localDescription = { type, sdp: `local ${type}` };
+    this.signalingState = type === "offer" ? "have-local-offer" : "stable";
     this.calls.push(`local ${type}`);
     return Promise.resolve();
   }
   setRemoteDescription(description: RTCSessionDescriptionInit) {
     if (this.failRemote) return Promise.reject(new Error("refused"));
     this.remoteDescription = description;
+    this.signalingState =
+      description.type === "offer" ? "have-remote-offer" : "stable";
     this.calls.push(`remote ${description.type ?? ""}`);
     return Promise.resolve();
   }
@@ -58,6 +79,17 @@ class FakePeerConnection {
   }
   close() {
     this.calls.push("close");
+  }
+  addTrack(track: unknown) {
+    this.senders.push({ track });
+    this.calls.push("add track");
+  }
+  removeTrack(sender: { track: unknown }) {
+    this.senders = this.senders.filter((s) => s !== sender);
+    this.calls.push("remove track");
+  }
+  getSenders() {
+    return this.senders;
   }
   setConfiguration(configuration: RTCConfiguration) {
     this.configuration = configuration;
@@ -82,6 +114,7 @@ class FakePeerConnection {
 
 let created: FakePeerConnection[];
 let reported: string[];
+let states: string[];
 let connections: Connections;
 
 const core: Core = {
@@ -89,7 +122,9 @@ const core: Core = {
   candidate: (id, c) => reported.push(`${id} candidate ${c.candidate ?? ""}`),
   opened: (id) => reported.push(`${id} opened`),
   received: (id, data) => reported.push(`${id} received ${data.join(",")}`),
+  fileReceived: (id, data) => reported.push(`${id} file ${data.length} bytes`),
   closed: (id) => reported.push(`${id} closed`),
+  state: (id, state) => states.push(`${id} ${state}`),
 };
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -97,6 +132,7 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
   created = [];
   reported = [];
+  states = [];
   connections = new Connections(core, (configuration) => {
     const pc = new FakePeerConnection(configuration);
     created.push(pc);
@@ -132,12 +168,73 @@ describe("a connection", () => {
     await settle();
     expect(created[0].calls).toEqual([
       "channel convia",
+      "channel convia-files",
       "remote offer",
       "local answer",
       "candidate c1",
     ]);
     expect(reported).toEqual(["a local answer local answer"]);
-    expect(created[0].onnegotiationneeded).toBeUndefined();
+  });
+
+  it("offers again, once open, whichever side's tracks change", async () => {
+    connections.open("a", false, []);
+    const pc = created[0];
+    // Before it is open, the peer that answered makes no offer of its own.
+    pc.onnegotiationneeded?.();
+    await settle();
+    expect(reported).toEqual([]);
+    pc.channel.open();
+    pc.onnegotiationneeded?.();
+    await settle();
+    expect(reported).toEqual(["a opened", "a local offer local offer"]);
+  });
+
+  it("gives way, as the peer that answered, when both offer at once", async () => {
+    connections.open("a", false, []);
+    const polite = created[0];
+    polite.channel.open();
+    polite.onnegotiationneeded?.();
+    await settle();
+    expect(polite.signalingState).toBe("have-local-offer");
+    connections.describe("a", "offer", "their offer");
+    await settle();
+    expect(polite.calls.slice(-2)).toEqual(["remote offer", "local answer"]);
+  });
+
+  it("ignores the other's offer, as the peer that offered, when both offer at once", async () => {
+    connections.open("b", true, []);
+    const impolite = created[0];
+    impolite.onnegotiationneeded?.();
+    await settle();
+    connections.describe("b", "offer", "their offer");
+    connections.candidate("b", { candidate: "theirs" });
+    await settle();
+    expect(impolite.calls).not.toContain("remote offer");
+    expect(impolite.calls).not.toContain("close");
+    // An answer to no offer of its own is no reason to end the connection either.
+    connections.describe("b", "answer", "their answer");
+    connections.describe("b", "answer", "again");
+    await settle();
+    expect(impolite.calls.filter((c) => c === "remote answer")).toHaveLength(1);
+    expect(impolite.calls).not.toContain("close");
+  });
+
+  it("adds and removes the tracks of a call, and tells of the other's", () => {
+    const told: string[] = [];
+    connections.track = (id, track) => told.push(`${id} ${track.kind}`);
+    connections.open("a", true, []);
+    const pc = created[0];
+    const track = { kind: "audio" } as MediaStreamTrack;
+    connections.addTrack("a", track, {} as MediaStream);
+    connections.removeTrack("a", { kind: "video" } as MediaStreamTrack);
+    connections.removeTrack("a", track);
+    connections.addTrack("missing", track, {} as MediaStream);
+    expect(pc.calls.slice(-2)).toEqual(["add track", "remove track"]);
+    pc.ontrack?.({
+      track: { kind: "video" },
+      streams: [],
+    } as unknown as RTCTrackEvent);
+    expect(told).toEqual(["a video"]);
   });
 
   it("reports its candidates, its opening and its binary messages", () => {
@@ -185,6 +282,7 @@ describe("a connection", () => {
     connections.describe("a", "offer", "remote offer");
     await settle();
     expect(reported).toEqual(["a closed"]);
+    expect(states).toEqual(["a failed: Error"]);
   });
 
   it("restarts ICE on new servers only where it offered and is relayed", async () => {
@@ -228,6 +326,7 @@ describe("the core's orders", () => {
     carry(connections, { op: "close", id: "a" });
     expect(created[0].calls).toEqual([
       "channel convia",
+      "channel convia-files",
       "remote offer",
       "local answer",
       "candidate c1",
@@ -240,5 +339,39 @@ describe("the core's orders", () => {
     const data = Uint8Array.from({ length: 100_000 }, (_, i) => i % 256);
     expect(fromBase64(toBase64(data))).toEqual(data);
     expect(toBase64(new Uint8Array([0, 255]))).toBe("AP8=");
+  });
+});
+
+describe("the channel for files", () => {
+  it("is a second negotiated channel, beside the one for messages", () => {
+    connections.open("a", true, []);
+    expect(created[0].filesOptions).toEqual({
+      negotiated: true,
+      id: 1,
+      ordered: true,
+    });
+    created[0].files.onmessage?.(
+      new MessageEvent("message", { data: new Uint8Array(7).buffer }),
+    );
+    expect(reported).toEqual(["a file 7 bytes"]);
+  });
+
+  it("holds pieces back while its buffer is full, and sends them as it empties", () => {
+    connections.open("a", true, []);
+    const files = created[0].files;
+    const piece = new Uint8Array(1 << 20);
+    for (let i = 0; i < 10; i++) connections.sendFile("a", piece);
+    expect(files.sent).toHaveLength(0);
+
+    files.readyState = "open";
+    files.onopen?.();
+    expect(files.sent).toHaveLength(4);
+    expect(files.bufferedAmount).toBe(fullBuffer);
+
+    files.drain();
+    expect(files.sent).toHaveLength(8);
+    files.drain();
+    expect(files.sent).toHaveLength(10);
+    expect(created[0].channel.sent).toHaveLength(0);
   });
 });

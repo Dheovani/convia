@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 
 	"github.com/Dheovani/convia/internal/app"
 	"github.com/Dheovani/convia/internal/autostart"
@@ -24,6 +25,9 @@ var assets embed.FS
 
 //go:embed build/windows/icon.ico
 var trayIcon []byte
+
+//go:embed build/windows/tray-unread.ico
+var unreadIcon []byte
 
 func main() {
 	dir, err := home.Dir()
@@ -49,6 +53,7 @@ func main() {
 		autostart.Default,
 		executable,
 		trayIcon,
+		unreadIcon,
 		app.OpenData(dir, protect.DPAPI{}),
 		app.NewNetwork(os.Getenv(app.RendezvousOverride), logger),
 	)
@@ -61,6 +66,8 @@ func main() {
 		MinHeight: 500,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
+			// The pictures of the conversations, served by the core to this window alone (ADR 0036).
+			Handler: application.Files(),
 		},
 		// The theme's surface, so the window does not flash another colour before it is drawn.
 		BackgroundColour:  &options.RGBA{R: 0x17, G: 0x17, B: 0x1f, A: 0xff},
@@ -70,10 +77,13 @@ func main() {
 			UniqueId:               home.InstanceID(dir),
 			OnSecondInstanceLaunch: application.SecondInstance,
 		},
+		// The WebView's own files belong with the rest, one set per data directory (ADR 0016).
+		Windows:    &windows.Options{WebviewUserDataPath: filepath.Join(dir, "webview")},
 		OnStartup:  application.Startup,
 		OnShutdown: application.Shutdown,
 		Bind:       []any{application.Bridge},
 	})
+
 	if err != nil {
 		logger.Error("run the window", "error", err)
 		log.Fatalf("convia: %v", err)
