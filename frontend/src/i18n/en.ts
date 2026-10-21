@@ -218,17 +218,30 @@ export const en = {
     unmute: "Unmute",
     cameraOn: "Turn camera on",
     cameraOff: "Turn camera off",
-    inUse: (microphone: boolean, camera: boolean) =>
+    shareScreen: "Share screen",
+    stopSharing: "Stop sharing",
+    withSound: "With the computer's sound",
+    inUse: (
+      microphone: boolean,
+      camera: boolean,
+      screen: "" | "screen" | "sound",
+    ) =>
       [
         microphone ? "Microphone on" : "Microphone muted",
         camera ? "camera on" : "",
+        screen === "sound"
+          ? "screen and sound shared"
+          : screen
+            ? "screen shared"
+            : "",
       ]
         .filter(Boolean)
         .join(" · "),
     theirVideo: (name: string) => `${name}'s camera`,
     myVideo: "Your camera",
+    theirScreen: (name: string) => `${name}'s screen`,
     missed: "Missed call",
-    devices: { microphone: "microphone", camera: "camera" },
+    devices: { microphone: "microphone", camera: "camera", screen: "screen" },
     trouble: {
       blocked: (device: string) =>
         `Windows does not let Convia use the ${device}: allow desktop apps in Settings › Privacy & security.`,

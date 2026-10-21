@@ -71,6 +71,8 @@ type Call struct {
 	Rang     time.Time
 	Answered time.Time
 	Ended    time.Time
+	// Screen is the stream the other side's screen arrives in, while they share it (ADR 0046).
+	Screen string
 }
 
 /*
@@ -236,8 +238,38 @@ func (s *Service) Lost(peer ed25519.PublicKey) {
 	s.tell(ended)
 }
 
-// Message handles a step of a call from peer.
+// Share tells the other side of the call in progress which stream carries this person's screen, or nothing.
+func (s *Service) Share(stream string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c := s.current
+	if !s.live() || c.State != Active {
+		return ErrNoCall
+	}
+	s.conns.Send(c.Peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Screen{Screen: &conviav1.Screen{
+		Call: c.ID[:], Stream: stream}}})
+	return nil
+}
+
+func (s *Service) shown(peer ed25519.PublicKey, m *conviav1.Screen) {
+	s.mu.Lock()
+	c := s.current
+	if !s.live() || c.State != Active || !c.Peer.Equal(peer) || string(c.ID[:]) != string(m.Call) {
+		s.mu.Unlock()
+		return
+	}
+	c.Screen = m.Stream
+	made := *c
+	s.mu.Unlock()
+	s.tell(made)
+}
+
+// Message handles a step of a call from peer, or what it shares.
 func (s *Service) Message(peer ed25519.PublicKey, message *conviav1.PeerMessage) {
+	if m := message.GetScreen(); m != nil {
+		s.shown(peer, m)
+		return
+	}
 	m := message.GetCall()
 	if m == nil || len(m.Id) != 16 || !s.conns.IsContact(peer) {
 		return

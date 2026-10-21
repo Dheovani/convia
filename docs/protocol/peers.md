@@ -94,3 +94,5 @@ caller                                    callee
 ```
 
 The caller ends a call nobody answered after 30 seconds with `end`. A step about a call that is not the one in progress is ignored.
+
+While a call is in progress, either side may share a screen as one more stream of the connection, and says which with `screen`: the call it belongs to and the stream's id, or an empty stream once it stops ([ADR 0046](../adr/0046-a-shared-screen-may-carry-the-computers-sound.md)). A `screen` about another call, or from somebody else, is ignored.

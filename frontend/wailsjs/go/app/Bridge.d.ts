@@ -135,6 +135,8 @@ export function SetStartsWithWindows(arg1:boolean):Promise<void>;
 
 export function SetVerified(arg1:string,arg2:boolean):Promise<void>;
 
+export function ShareScreen(arg1:string):Promise<void>;
+
 export function SpaceInvitations():Promise<Array<app.InvitationView>>;
 
 export function SpaceMembers(arg1:string):Promise<Array<app.MemberView>>;
