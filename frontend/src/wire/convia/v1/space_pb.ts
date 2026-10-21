@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/space.proto.
  */
 export const file_convia_v1_space: GenFile = /*@__PURE__*/
-  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwizgEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDCJhCgtTcGFjZVNlY3JldBIQCghzcGFjZV9pZBgBIAEoDBINCgVlcG9jaBgCIAEoDBIOCgZhdXRob3IYAyABKAwSDgoGc2VjcmV0GAQgASgMEhEKCXNpZ25hdHVyZRgFIAEoDCItCglTcGFjZVN5bmMSEAoIc3BhY2VfaWQYASABKAwSDgoGaGFzaGVzGAIgAygMIkoKDFNwYWNlSG9sZGluZxIQCghzcGFjZV9pZBgBIAEoDBIoCghjaGFubmVscxgCIAMoCzIWLmNvbnZpYS52MS5DaGFubmVsSGVsZCJJCgtDaGFubmVsSGVsZBISCgpjaGFubmVsX2lkGAEgASgMEiYKB2F1dGhvcnMYAiADKAsyFS5jb252aWEudjEuQXV0aG9ySGVsZCIuCgpBdXRob3JIZWxkEg4KBmF1dGhvchgBIAEoDBIQCghzZXF1ZW5jZRgCIAEoBCKSAQoPU3BhY2VJbnZpdGF0aW9uEigKB2dlbmVzaXMYASABKAsyFy5jb252aWEudjEuU3BhY2VHZW5lc2lzEi0KCm9wZXJhdGlvbnMYAiADKAsyGS5jb252aWEudjEuU3BhY2VPcGVyYXRpb24SJgoGc2VjcmV0GAMgASgLMhYuY29udmlhLnYxLlNwYWNlU2VjcmV0Qj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM");
+  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwi3AEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDBIMCgR0ZXh0GAwgASgMImEKC1NwYWNlU2VjcmV0EhAKCHNwYWNlX2lkGAEgASgMEg0KBWVwb2NoGAIgASgMEg4KBmF1dGhvchgDIAEoDBIOCgZzZWNyZXQYBCABKAwSEQoJc2lnbmF0dXJlGAUgASgMIi0KCVNwYWNlU3luYxIQCghzcGFjZV9pZBgBIAEoDBIOCgZoYXNoZXMYAiADKAwiSgoMU3BhY2VIb2xkaW5nEhAKCHNwYWNlX2lkGAEgASgMEigKCGNoYW5uZWxzGAIgAygLMhYuY29udmlhLnYxLkNoYW5uZWxIZWxkIkkKC0NoYW5uZWxIZWxkEhIKCmNoYW5uZWxfaWQYASABKAwSJgoHYXV0aG9ycxgCIAMoCzIVLmNvbnZpYS52MS5BdXRob3JIZWxkIi4KCkF1dGhvckhlbGQSDgoGYXV0aG9yGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEIpIBCg9TcGFjZUludml0YXRpb24SKAoHZ2VuZXNpcxgBIAEoCzIXLmNvbnZpYS52MS5TcGFjZUdlbmVzaXMSLQoKb3BlcmF0aW9ucxgCIAMoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbhImCgZzZWNyZXQYAyABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXQiqQEKDENoYW5uZWxFbnRyeRITCgt0ZXh0X3NoYTI1NhgBIAEoDBIQCghyZXBseV90bxgCIAEoDBIsCghyZWFjdGlvbhgDIAEoCzIaLmNvbnZpYS52MS5DaGFubmVsUmVhY3Rpb24SDAoEZWRpdBgEIAEoDBIQCghkZWxldGlvbhgFIAEoDBIkCgRmaWxlGAYgASgLMhYuY29udmlhLnYxLkNoYW5uZWxGaWxlIk4KC0NoYW5uZWxGaWxlEgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iGQoLRmlsZU1pc3NpbmcSCgoCaWQYASABKAwiPAoPQ2hhbm5lbFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
 
 /**
  * SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
@@ -192,7 +192,7 @@ export type GroupMessage = Message<"convia.v1.GroupMessage"> & {
   hlcCounter: number;
 
   /**
-   * Absent once wiped; the digest still says what it was.
+   * A ChannelEntry, encoded as its author encoded it; the signature covers its digest.
    *
    * @generated from field: bytes content = 9;
    */
@@ -207,6 +207,13 @@ export type GroupMessage = Message<"convia.v1.GroupMessage"> & {
    * @generated from field: bytes signature = 11;
    */
   signature: Uint8Array;
+
+  /**
+   * The entry's text, absent once wiped; the entry says its SHA-256.
+   *
+   * @generated from field: bytes text = 12;
+   */
+  text: Uint8Array;
 };
 
 /**
@@ -379,4 +386,140 @@ export type SpaceInvitation = Message<"convia.v1.SpaceInvitation"> & {
  */
 export const SpaceInvitationSchema: GenMessage<SpaceInvitation> = /*@__PURE__*/
   messageDesc(file_convia_v1_space, 8);
+
+/**
+ * ChannelEntry is what a group message says, but its text: a message, a reaction, an edit or a deletion (ADR 0042).
+ *
+ * @generated from message convia.v1.ChannelEntry
+ */
+export type ChannelEntry = Message<"convia.v1.ChannelEntry"> & {
+  /**
+   * The SHA-256 of the text the group message carries beside it, which may be wiped since.
+   *
+   * @generated from field: bytes text_sha256 = 1;
+   */
+  textSha256: Uint8Array;
+
+  /**
+   * The message a message answers.
+   *
+   * @generated from field: bytes reply_to = 2;
+   */
+  replyTo: Uint8Array;
+
+  /**
+   * @generated from field: convia.v1.ChannelReaction reaction = 3;
+   */
+  reaction?: ChannelReaction | undefined;
+
+  /**
+   * The message an edit gives its new text to.
+   *
+   * @generated from field: bytes edit = 4;
+   */
+  edit: Uint8Array;
+
+  /**
+   * The message a deletion deletes.
+   *
+   * @generated from field: bytes deletion = 5;
+   */
+  deletion: Uint8Array;
+
+  /**
+   * A file, whose name is the text; its content travels on the channel for files (ADR 0043).
+   *
+   * @generated from field: convia.v1.ChannelFile file = 6;
+   */
+  file?: ChannelFile | undefined;
+};
+
+/**
+ * Describes the message convia.v1.ChannelEntry.
+ * Use `create(ChannelEntrySchema)` to create a new message.
+ */
+export const ChannelEntrySchema: GenMessage<ChannelEntry> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 9);
+
+/**
+ * ChannelFile is what a file in a channel is, as its author signs it.
+ *
+ * @generated from message convia.v1.ChannelFile
+ */
+export type ChannelFile = Message<"convia.v1.ChannelFile"> & {
+  /**
+   * @generated from field: uint64 size = 1;
+   */
+  size: bigint;
+
+  /**
+   * @generated from field: string type = 2;
+   */
+  type: string;
+
+  /**
+   * @generated from field: bytes sha256 = 3;
+   */
+  sha256: Uint8Array;
+
+  /**
+   * @generated from field: uint32 orientation = 4;
+   */
+  orientation: number;
+};
+
+/**
+ * Describes the message convia.v1.ChannelFile.
+ * Use `create(ChannelFileSchema)` to create a new message.
+ */
+export const ChannelFileSchema: GenMessage<ChannelFile> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 10);
+
+/**
+ * FileMissing says the member asked for a file of a space does not hold it whole: another is asked (ADR 0043).
+ *
+ * @generated from message convia.v1.FileMissing
+ */
+export type FileMissing = Message<"convia.v1.FileMissing"> & {
+  /**
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.FileMissing.
+ * Use `create(FileMissingSchema)` to create a new message.
+ */
+export const FileMissingSchema: GenMessage<FileMissing> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 11);
+
+/**
+ * ChannelReaction puts an emoji on a message, or takes it off (ADR 0035).
+ *
+ * @generated from message convia.v1.ChannelReaction
+ */
+export type ChannelReaction = Message<"convia.v1.ChannelReaction"> & {
+  /**
+   * @generated from field: bytes target = 1;
+   */
+  target: Uint8Array;
+
+  /**
+   * @generated from field: string emoji = 2;
+   */
+  emoji: string;
+
+  /**
+   * @generated from field: bool on = 3;
+   */
+  on: boolean;
+};
+
+/**
+ * Describes the message convia.v1.ChannelReaction.
+ * Use `create(ChannelReactionSchema)` to create a new message.
+ */
+export const ChannelReactionSchema: GenMessage<ChannelReaction> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 12);
 

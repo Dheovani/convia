@@ -1,7 +1,6 @@
 package spaces
 
 import (
-	"bytes"
 	"crypto/ed25519"
 	"errors"
 	"testing"
@@ -78,7 +77,7 @@ func texts(t *testing.T, m member, space ID, channel ChannelID) []string {
 	}
 	var out []string
 	for _, msg := range held {
-		out = append(out, string(msg.Content))
+		out = append(out, msg.Entry.Text)
 	}
 	return out
 }
@@ -92,7 +91,7 @@ func operate(t *testing.T, m member, space ID, c Change) {
 
 func write(t *testing.T, m member, space ID, channel ChannelID, text string) Message {
 	t.Helper()
-	msg, err := m.store.Write(m.me, space, channel, []byte(text))
+	msg, err := m.store.Write(m.me, space, channel, said(text))
 	if err != nil {
 		t.Fatalf("Write(%q) = %v", text, err)
 	}
@@ -195,11 +194,11 @@ func TestARestrictedChannelGoesOnlyToThoseWhoMayReadIt(t *testing.T) {
 	if got := texts(t, carla, g.Space, general); len(got) != 1 {
 		t.Fatalf("Carla holds %q of the open channel", got)
 	}
-	if _, err := carla.store.Write(carla.me, g.Space, secret, []byte("entrei")); !errors.Is(err, ErrNotReader) {
+	if _, err := carla.store.Write(carla.me, g.Space, secret, said("entrei")); !errors.Is(err, ErrNotReader) {
 		t.Fatalf("Carla writing in the team's channel = %v", err)
 	}
 	// Even signed and passed on by someone, it is refused.
-	forged, _ := NewMessage(carla.me, g.Space, secret, 1, hlc.Time{Wall: 1}, []byte("entrei"))
+	forged, _ := NewMessage(carla.me, g.Space, secret, 1, hlc.Time{Wall: 1}, said("entrei"))
 	if _, err := bruno.store.Accept(forged); !errors.Is(err, ErrNotReader) {
 		t.Fatalf("Accept() of Carla's message in the team's channel = %v", err)
 	}
@@ -248,7 +247,7 @@ func TestAMessageInAnotherMessagesPlaceIsRefused(t *testing.T) {
 	if _, err := bruno.store.Accept(first); err != nil {
 		t.Fatal(err)
 	}
-	other, _ := NewMessage(ana.me, g.Space, general, 1, first.Time, []byte("outro um"))
+	other, _ := NewMessage(ana.me, g.Space, general, 1, first.Time, said("outro um"))
 	if _, err := bruno.store.Accept(other); !errors.Is(err, ErrConflict) {
 		t.Fatalf("a second first message = %v", err)
 	}
@@ -268,13 +267,13 @@ func TestAMessageInAnotherMessagesPlaceIsRefused(t *testing.T) {
 	if _, err := bruno.store.Accept(tampered); !errors.Is(err, ErrMessage) {
 		t.Fatalf("a changed message = %v", err)
 	}
-	if got := texts(t, bruno, g.Space, general); len(got) != 1 || !bytes.Equal([]byte(got[0]), []byte("um")) {
+	if got := texts(t, bruno, g.Space, general); len(got) != 1 || got[0] != "um" {
 		t.Fatalf("Bruno holds %q", got)
 	}
 	if _, err := bruno.store.Accept(first); err != nil {
 		t.Fatal(err)
 	}
-	unknown, _ := NewMessage(ana.me, ID{9}, general, 1, first.Time, []byte("x"))
+	unknown, _ := NewMessage(ana.me, ID{9}, general, 1, first.Time, said("x"))
 	if _, err := bruno.store.Accept(unknown); !errors.Is(err, ErrNoSpace) {
 		t.Fatalf("a message of an unknown space = %v", err)
 	}

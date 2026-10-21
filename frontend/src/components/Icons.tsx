@@ -56,3 +56,39 @@ export function DeleteIcon() {
     </Icon>
   );
 }
+
+export function PhoneIcon() {
+  return (
+    <Icon>
+      <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" />
+    </Icon>
+  );
+}
+
+export function VideoIcon() {
+  return (
+    <Icon>
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+      <path d="m16 10 6-3v10l-6-3Z" />
+    </Icon>
+  );
+}
+
+// IncomingIcon and OutgoingIcon say which way a call went, in the call log.
+export function IncomingIcon() {
+  return (
+    <Icon>
+      <path d="M17 7 7 17" />
+      <path d="M15 17H7V9" />
+    </Icon>
+  );
+}
+
+export function OutgoingIcon() {
+  return (
+    <Icon>
+      <path d="m7 17 10-10" />
+      <path d="M9 7h8v8" />
+    </Icon>
+  );
+}

@@ -2,11 +2,13 @@
 // @generated from file convia/v1/peer.proto (package convia.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
+import type { GenEnum, GenFile, GenMessage } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Challenge, Hello, Proof } from "./handshake_pb";
 import { file_convia_v1_handshake } from "./handshake_pb";
-import type { GroupMessage, SpaceHolding, SpaceInvitation, SpaceOperation, SpaceSecret, SpaceSync } from "./space_pb";
+import type { Candidate } from "./rendezvous_pb";
+import { file_convia_v1_rendezvous } from "./rendezvous_pb";
+import type { FileMissing, GroupMessage, SpaceHolding, SpaceInvitation, SpaceOperation, SpaceSecret, SpaceSync } from "./space_pb";
 import { file_convia_v1_space } from "./space_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -14,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/peer.proto.
  */
 export const file_convia_v1_peer: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIsoGCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIABIuCgxmaWxlX3JlcXVlc3QYCyABKAsyFi5jb252aWEudjEuRmlsZVJlcXVlc3RIABIqCgpzcGFjZV9zeW5jGAwgASgLMhQuY29udmlhLnYxLlNwYWNlU3luY0gAEjQKD3NwYWNlX29wZXJhdGlvbhgNIAEoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbkgAEjAKDXNwYWNlX2hvbGRpbmcYDiABKAsyFy5jb252aWEudjEuU3BhY2VIb2xkaW5nSAASMAoNZ3JvdXBfbWVzc2FnZRgPIAEoCzIXLmNvbnZpYS52MS5Hcm91cE1lc3NhZ2VIABIuCgxzcGFjZV9zZWNyZXQYECABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXRIABI2ChBzcGFjZV9pbnZpdGF0aW9uGBEgASgLMhouY29udmlhLnYxLlNwYWNlSW52aXRhdGlvbkgAQgkKB21lc3NhZ2Ui/gEKDURpcmVjdE1lc3NhZ2USCgoCaWQYASABKAwSEAoIc2VxdWVuY2UYAiABKAQSDAoEd2FsbBgDIAEoAxIPCgdjb3VudGVyGAQgASgNEgwKBHRleHQYBSABKAkSEAoIcmVwbHlfdG8YBiABKAwSJQoIcmVhY3Rpb24YByABKAsyEy5jb252aWEudjEuUmVhY3Rpb24SHQoEZWRpdBgIIAEoCzIPLmNvbnZpYS52MS5FZGl0EhAKCGRlbGV0aW9uGAkgASgMEg0KBXdpcGVkGAogASgIEikKCmF0dGFjaG1lbnQYCyABKAsyFS5jb252aWEudjEuQXR0YWNobWVudCJNCgpBdHRhY2htZW50EgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iOQoLRmlsZVJlcXVlc3QSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEg4KBmxlbmd0aBgDIAEoBCI1CglGaWxlQ2h1bmsSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEgwKBGRhdGEYAyABKAwiJAoERWRpdBIOCgZ0YXJnZXQYASABKAwSDAoEdGV4dBgCIAEoCSI1CghSZWFjdGlvbhIOCgZ0YXJnZXQYASABKAwSDQoFZW1vamkYAiABKAkSCgoCb24YAyABKAgiHgoPQWNrbm93bGVkZ2VtZW50EgsKA2lkcxgBIAMoDCIbCgdIb2xkaW5nEhAKCHNlcXVlbmNlGAEgASgEIiwKDkNvbnRhY3RSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCItCg9Db250YWN0QWNjZXB0ZWQSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIhIKEENvbnRhY3RDb25maXJtZWQiGgoISW50ZXJlc3QSDgoGd2FudGVkGAEgASgIQj1aO2dpdGh1Yi5jb20vRGhlb3ZhbmkvY29udmlhL2ludGVybmFsL3dpcmUvY29udmlhL3YxO2NvbnZpYXYxYgZwcm90bzM", [file_convia_v1_handshake, file_convia_v1_space]);
+  fileDesc("ChRjb252aWEvdjEvcGVlci5wcm90bxIJY29udmlhLnYxIs4HCgtQZWVyTWVzc2FnZRIhCgVoZWxsbxgBIAEoCzIQLmNvbnZpYS52MS5IZWxsb0gAEikKCWNoYWxsZW5nZRgCIAEoCzIULmNvbnZpYS52MS5DaGFsbGVuZ2VIABIhCgVwcm9vZhgDIAEoCzIQLmNvbnZpYS52MS5Qcm9vZkgAEicKCGludGVyZXN0GAQgASgLMhMuY29udmlhLnYxLkludGVyZXN0SAASNAoPY29udGFjdF9yZXF1ZXN0GAUgASgLMhkuY29udmlhLnYxLkNvbnRhY3RSZXF1ZXN0SAASNgoQY29udGFjdF9hY2NlcHRlZBgGIAEoCzIaLmNvbnZpYS52MS5Db250YWN0QWNjZXB0ZWRIABI4ChFjb250YWN0X2NvbmZpcm1lZBgHIAEoCzIbLmNvbnZpYS52MS5Db250YWN0Q29uZmlybWVkSAASMgoOZGlyZWN0X21lc3NhZ2UYCCABKAsyGC5jb252aWEudjEuRGlyZWN0TWVzc2FnZUgAEjUKD2Fja25vd2xlZGdlbWVudBgJIAEoCzIaLmNvbnZpYS52MS5BY2tub3dsZWRnZW1lbnRIABIlCgdob2xkaW5nGAogASgLMhIuY29udmlhLnYxLkhvbGRpbmdIABIuCgxmaWxlX3JlcXVlc3QYCyABKAsyFi5jb252aWEudjEuRmlsZVJlcXVlc3RIABIqCgpzcGFjZV9zeW5jGAwgASgLMhQuY29udmlhLnYxLlNwYWNlU3luY0gAEjQKD3NwYWNlX29wZXJhdGlvbhgNIAEoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbkgAEjAKDXNwYWNlX2hvbGRpbmcYDiABKAsyFy5jb252aWEudjEuU3BhY2VIb2xkaW5nSAASMAoNZ3JvdXBfbWVzc2FnZRgPIAEoCzIXLmNvbnZpYS52MS5Hcm91cE1lc3NhZ2VIABIuCgxzcGFjZV9zZWNyZXQYECABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXRIABI2ChBzcGFjZV9pbnZpdGF0aW9uGBEgASgLMhouY29udmlhLnYxLlNwYWNlSW52aXRhdGlvbkgAEi4KDGZpbGVfbWlzc2luZxgSIAEoCzIWLmNvbnZpYS52MS5GaWxlTWlzc2luZ0gAEjEKDXJlbmVnb3RpYXRpb24YEyABKAsyGC5jb252aWEudjEuUmVuZWdvdGlhdGlvbkgAEh8KBGNhbGwYFCABKAsyDy5jb252aWEudjEuQ2FsbEgAQgkKB21lc3NhZ2Ui/gEKDURpcmVjdE1lc3NhZ2USCgoCaWQYASABKAwSEAoIc2VxdWVuY2UYAiABKAQSDAoEd2FsbBgDIAEoAxIPCgdjb3VudGVyGAQgASgNEgwKBHRleHQYBSABKAkSEAoIcmVwbHlfdG8YBiABKAwSJQoIcmVhY3Rpb24YByABKAsyEy5jb252aWEudjEuUmVhY3Rpb24SHQoEZWRpdBgIIAEoCzIPLmNvbnZpYS52MS5FZGl0EhAKCGRlbGV0aW9uGAkgASgMEg0KBXdpcGVkGAogASgIEikKCmF0dGFjaG1lbnQYCyABKAsyFS5jb252aWEudjEuQXR0YWNobWVudCJNCgpBdHRhY2htZW50EgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iOQoLRmlsZVJlcXVlc3QSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEg4KBmxlbmd0aBgDIAEoBCI1CglGaWxlQ2h1bmsSCgoCaWQYASABKAwSDgoGb2Zmc2V0GAIgASgEEgwKBGRhdGEYAyABKAwiJAoERWRpdBIOCgZ0YXJnZXQYASABKAwSDAoEdGV4dBgCIAEoCSI1CghSZWFjdGlvbhIOCgZ0YXJnZXQYASABKAwSDQoFZW1vamkYAiABKAkSCgoCb24YAyABKAgiHgoPQWNrbm93bGVkZ2VtZW50EgsKA2lkcxgBIAMoDCIbCgdIb2xkaW5nEhAKCHNlcXVlbmNlGAEgASgEIiwKDkNvbnRhY3RSZXF1ZXN0EgwKBG5hbWUYASABKAkSDAoEcGFydBgCIAEoDCItCg9Db250YWN0QWNjZXB0ZWQSDAoEbmFtZRgBIAEoCRIMCgRwYXJ0GAIgASgMIhIKEENvbnRhY3RDb25maXJtZWQiGgoISW50ZXJlc3QSDgoGd2FudGVkGAEgASgIImUKDVJlbmVnb3RpYXRpb24SDwoFb2ZmZXIYASABKAlIABIQCgZhbnN3ZXIYAiABKAlIABIpCgljYW5kaWRhdGUYAyABKAsyFC5jb252aWEudjEuQ2FuZGlkYXRlSABCBgoEa2luZCKyAQoEQ2FsbBIKCgJpZBgBIAEoDBIiCgRzdGVwGAIgASgOMhQuY29udmlhLnYxLkNhbGwuU3RlcBINCgV2aWRlbxgDIAEoCCJrCgRTdGVwEhQKEFNURVBfVU5TUEVDSUZJRUQQABINCglTVEVQX1JJTkcQARIPCgtTVEVQX0FDQ0VQVBACEhAKDFNURVBfREVDTElORRADEgwKCFNURVBfRU5EEAQSDQoJU1RFUF9CVVNZEAVCPVo7Z2l0aHViLmNvbS9EaGVvdmFuaS9jb252aWEvaW50ZXJuYWwvd2lyZS9jb252aWEvdjE7Y29udmlhdjFiBnByb3RvMw", [file_convia_v1_handshake, file_convia_v1_rendezvous, file_convia_v1_space]);
 
 /**
  * PeerMessage is every message on the data channel between two peers, one per data channel message.
@@ -127,6 +129,24 @@ export type PeerMessage = Message<"convia.v1.PeerMessage"> & {
      */
     value: SpaceInvitation;
     case: "spaceInvitation";
+  } | {
+    /**
+     * @generated from field: convia.v1.FileMissing file_missing = 18;
+     */
+    value: FileMissing;
+    case: "fileMissing";
+  } | {
+    /**
+     * @generated from field: convia.v1.Renegotiation renegotiation = 19;
+     */
+    value: Renegotiation;
+    case: "renegotiation";
+  } | {
+    /**
+     * @generated from field: convia.v1.Call call = 20;
+     */
+    value: Call;
+    case: "call";
   } | { case: undefined; value?: undefined };
 };
 
@@ -489,4 +509,124 @@ export type Interest = Message<"convia.v1.Interest"> & {
  */
 export const InterestSchema: GenMessage<Interest> = /*@__PURE__*/
   messageDesc(file_convia_v1_peer, 12);
+
+/**
+ *
+ * Renegotiation is a description or a candidate for a connection already proven, carried over it rather than through
+ * the rendezvous service, as when a call adds or removes a track (ADR 0015). Its fingerprint must stay the one the
+ * connection was proven with.
+ *
+ * @generated from message convia.v1.Renegotiation
+ */
+export type Renegotiation = Message<"convia.v1.Renegotiation"> & {
+  /**
+   * @generated from oneof convia.v1.Renegotiation.kind
+   */
+  kind: {
+    /**
+     * @generated from field: string offer = 1;
+     */
+    value: string;
+    case: "offer";
+  } | {
+    /**
+     * @generated from field: string answer = 2;
+     */
+    value: string;
+    case: "answer";
+  } | {
+    /**
+     * @generated from field: convia.v1.Candidate candidate = 3;
+     */
+    value: Candidate;
+    case: "candidate";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message convia.v1.Renegotiation.
+ * Use `create(RenegotiationSchema)` to create a new message.
+ */
+export const RenegotiationSchema: GenMessage<Renegotiation> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 13);
+
+/**
+ * Call is a step of a call between two people (ADR 0015, ADR 0044).
+ *
+ * @generated from message convia.v1.Call
+ */
+export type Call = Message<"convia.v1.Call"> & {
+  /**
+   * The call, chosen by the person calling: every step names it.
+   *
+   * @generated from field: bytes id = 1;
+   */
+  id: Uint8Array;
+
+  /**
+   * @generated from field: convia.v1.Call.Step step = 2;
+   */
+  step: Call_Step;
+
+  /**
+   * Whether the person calling turns their camera on.
+   *
+   * @generated from field: bool video = 3;
+   */
+  video: boolean;
+};
+
+/**
+ * Describes the message convia.v1.Call.
+ * Use `create(CallSchema)` to create a new message.
+ */
+export const CallSchema: GenMessage<Call> = /*@__PURE__*/
+  messageDesc(file_convia_v1_peer, 14);
+
+/**
+ * @generated from enum convia.v1.Call.Step
+ */
+export enum Call_Step {
+  /**
+   * @generated from enum value: STEP_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The person calling rings the other, for at most 30 seconds.
+   *
+   * @generated from enum value: STEP_RING = 1;
+   */
+  RING = 1,
+
+  /**
+   * @generated from enum value: STEP_ACCEPT = 2;
+   */
+  ACCEPT = 2,
+
+  /**
+   * @generated from enum value: STEP_DECLINE = 3;
+   */
+  DECLINE = 3,
+
+  /**
+   * Either ends the call, or the person calling stops ringing.
+   *
+   * @generated from enum value: STEP_END = 4;
+   */
+  END = 4,
+
+  /**
+   * The person called is in another call.
+   *
+   * @generated from enum value: STEP_BUSY = 5;
+   */
+  BUSY = 5,
+}
+
+/**
+ * Describes the enum convia.v1.Call.Step.
+ */
+export const Call_StepSchema: GenEnum<Call_Step> = /*@__PURE__*/
+  enumDesc(file_convia_v1_peer, 14, 0);
 

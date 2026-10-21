@@ -104,7 +104,7 @@ func (m Message) check() error {
 		if m.Wiped {
 			return nil
 		}
-		if err := checkFileName(m.Text); err != nil {
+		if err := CheckFileName(m.Text); err != nil {
 			return err
 		}
 		return m.File.check()

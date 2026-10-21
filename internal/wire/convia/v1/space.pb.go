@@ -274,10 +274,12 @@ type GroupMessage struct {
 	Id         []byte                 `protobuf:"bytes,6,opt,name=id,proto3" json:"id,omitempty"`
 	HlcWall    int64                  `protobuf:"varint,7,opt,name=hlc_wall,json=hlcWall,proto3" json:"hlc_wall,omitempty"`
 	HlcCounter uint32                 `protobuf:"varint,8,opt,name=hlc_counter,json=hlcCounter,proto3" json:"hlc_counter,omitempty"`
-	// Absent once wiped; the digest still says what it was.
-	Content       []byte `protobuf:"bytes,9,opt,name=content,proto3" json:"content,omitempty"`
-	Digest        []byte `protobuf:"bytes,10,opt,name=digest,proto3" json:"digest,omitempty"`
-	Signature     []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
+	// A ChannelEntry, encoded as its author encoded it; the signature covers its digest.
+	Content   []byte `protobuf:"bytes,9,opt,name=content,proto3" json:"content,omitempty"`
+	Digest    []byte `protobuf:"bytes,10,opt,name=digest,proto3" json:"digest,omitempty"`
+	Signature []byte `protobuf:"bytes,11,opt,name=signature,proto3" json:"signature,omitempty"`
+	// The entry's text, absent once wiped; the entry says its SHA-256.
+	Text          []byte `protobuf:"bytes,12,opt,name=text,proto3" json:"text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -385,6 +387,13 @@ func (x *GroupMessage) GetDigest() []byte {
 func (x *GroupMessage) GetSignature() []byte {
 	if x != nil {
 		return x.Signature
+	}
+	return nil
+}
+
+func (x *GroupMessage) GetText() []byte {
+	if x != nil {
+		return x.Text
 	}
 	return nil
 }
@@ -739,6 +748,271 @@ func (x *SpaceInvitation) GetSecret() *SpaceSecret {
 	return nil
 }
 
+// ChannelEntry is what a group message says, but its text: a message, a reaction, an edit or a deletion (ADR 0042).
+type ChannelEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The SHA-256 of the text the group message carries beside it, which may be wiped since.
+	TextSha256 []byte `protobuf:"bytes,1,opt,name=text_sha256,json=textSha256,proto3" json:"text_sha256,omitempty"`
+	// The message a message answers.
+	ReplyTo  []byte           `protobuf:"bytes,2,opt,name=reply_to,json=replyTo,proto3" json:"reply_to,omitempty"`
+	Reaction *ChannelReaction `protobuf:"bytes,3,opt,name=reaction,proto3" json:"reaction,omitempty"`
+	// The message an edit gives its new text to.
+	Edit []byte `protobuf:"bytes,4,opt,name=edit,proto3" json:"edit,omitempty"`
+	// The message a deletion deletes.
+	Deletion []byte `protobuf:"bytes,5,opt,name=deletion,proto3" json:"deletion,omitempty"`
+	// A file, whose name is the text; its content travels on the channel for files (ADR 0043).
+	File          *ChannelFile `protobuf:"bytes,6,opt,name=file,proto3" json:"file,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChannelEntry) Reset() {
+	*x = ChannelEntry{}
+	mi := &file_convia_v1_space_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelEntry) ProtoMessage() {}
+
+func (x *ChannelEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelEntry.ProtoReflect.Descriptor instead.
+func (*ChannelEntry) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ChannelEntry) GetTextSha256() []byte {
+	if x != nil {
+		return x.TextSha256
+	}
+	return nil
+}
+
+func (x *ChannelEntry) GetReplyTo() []byte {
+	if x != nil {
+		return x.ReplyTo
+	}
+	return nil
+}
+
+func (x *ChannelEntry) GetReaction() *ChannelReaction {
+	if x != nil {
+		return x.Reaction
+	}
+	return nil
+}
+
+func (x *ChannelEntry) GetEdit() []byte {
+	if x != nil {
+		return x.Edit
+	}
+	return nil
+}
+
+func (x *ChannelEntry) GetDeletion() []byte {
+	if x != nil {
+		return x.Deletion
+	}
+	return nil
+}
+
+func (x *ChannelEntry) GetFile() *ChannelFile {
+	if x != nil {
+		return x.File
+	}
+	return nil
+}
+
+// ChannelFile is what a file in a channel is, as its author signs it.
+type ChannelFile struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Size          uint64                 `protobuf:"varint,1,opt,name=size,proto3" json:"size,omitempty"`
+	Type          string                 `protobuf:"bytes,2,opt,name=type,proto3" json:"type,omitempty"`
+	Sha256        []byte                 `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Orientation   uint32                 `protobuf:"varint,4,opt,name=orientation,proto3" json:"orientation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChannelFile) Reset() {
+	*x = ChannelFile{}
+	mi := &file_convia_v1_space_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelFile) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelFile) ProtoMessage() {}
+
+func (x *ChannelFile) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelFile.ProtoReflect.Descriptor instead.
+func (*ChannelFile) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ChannelFile) GetSize() uint64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *ChannelFile) GetType() string {
+	if x != nil {
+		return x.Type
+	}
+	return ""
+}
+
+func (x *ChannelFile) GetSha256() []byte {
+	if x != nil {
+		return x.Sha256
+	}
+	return nil
+}
+
+func (x *ChannelFile) GetOrientation() uint32 {
+	if x != nil {
+		return x.Orientation
+	}
+	return 0
+}
+
+// FileMissing says the member asked for a file of a space does not hold it whole: another is asked (ADR 0043).
+type FileMissing struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            []byte                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FileMissing) Reset() {
+	*x = FileMissing{}
+	mi := &file_convia_v1_space_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FileMissing) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FileMissing) ProtoMessage() {}
+
+func (x *FileMissing) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FileMissing.ProtoReflect.Descriptor instead.
+func (*FileMissing) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *FileMissing) GetId() []byte {
+	if x != nil {
+		return x.Id
+	}
+	return nil
+}
+
+// ChannelReaction puts an emoji on a message, or takes it off (ADR 0035).
+type ChannelReaction struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Target        []byte                 `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
+	Emoji         string                 `protobuf:"bytes,2,opt,name=emoji,proto3" json:"emoji,omitempty"`
+	On            bool                   `protobuf:"varint,3,opt,name=on,proto3" json:"on,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChannelReaction) Reset() {
+	*x = ChannelReaction{}
+	mi := &file_convia_v1_space_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChannelReaction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChannelReaction) ProtoMessage() {}
+
+func (x *ChannelReaction) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ChannelReaction.ProtoReflect.Descriptor instead.
+func (*ChannelReaction) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ChannelReaction) GetTarget() []byte {
+	if x != nil {
+		return x.Target
+	}
+	return nil
+}
+
+func (x *ChannelReaction) GetEmoji() string {
+	if x != nil {
+		return x.Emoji
+	}
+	return ""
+}
+
+func (x *ChannelReaction) GetOn() bool {
+	if x != nil {
+		return x.On
+	}
+	return false
+}
+
 var File_convia_v1_space_proto protoreflect.FileDescriptor
 
 const file_convia_v1_space_proto_rawDesc = "" +
@@ -769,7 +1043,7 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\x06member\x18\v \x01(\fR\x06member\x12\x12\n" +
 	"\x04name\x18\f \x01(\tR\x04name\x12\x14\n" +
 	"\x05roles\x18\r \x03(\fR\x05roles\x12\x1c\n" +
-	"\tsignature\x18\x0e \x01(\fR\tsignature\"\xb2\x02\n" +
+	"\tsignature\x18\x0e \x01(\fR\tsignature\"\xc6\x02\n" +
 	"\fGroupMessage\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\rR\aversion\x12\x19\n" +
 	"\bspace_id\x18\x02 \x01(\fR\aspaceId\x12\x1d\n" +
@@ -784,7 +1058,8 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\acontent\x18\t \x01(\fR\acontent\x12\x16\n" +
 	"\x06digest\x18\n" +
 	" \x01(\fR\x06digest\x12\x1c\n" +
-	"\tsignature\x18\v \x01(\fR\tsignature\"\x8c\x01\n" +
+	"\tsignature\x18\v \x01(\fR\tsignature\x12\x12\n" +
+	"\x04text\x18\f \x01(\fR\x04text\"\x8c\x01\n" +
 	"\vSpaceSecret\x12\x19\n" +
 	"\bspace_id\x18\x01 \x01(\fR\aspaceId\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\fR\x05epoch\x12\x16\n" +
@@ -810,7 +1085,26 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\n" +
 	"operations\x18\x02 \x03(\v2\x19.convia.v1.SpaceOperationR\n" +
 	"operations\x12.\n" +
-	"\x06secret\x18\x03 \x01(\v2\x16.convia.v1.SpaceSecretR\x06secretB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"\x06secret\x18\x03 \x01(\v2\x16.convia.v1.SpaceSecretR\x06secret\"\xde\x01\n" +
+	"\fChannelEntry\x12\x1f\n" +
+	"\vtext_sha256\x18\x01 \x01(\fR\n" +
+	"textSha256\x12\x19\n" +
+	"\breply_to\x18\x02 \x01(\fR\areplyTo\x126\n" +
+	"\breaction\x18\x03 \x01(\v2\x1a.convia.v1.ChannelReactionR\breaction\x12\x12\n" +
+	"\x04edit\x18\x04 \x01(\fR\x04edit\x12\x1a\n" +
+	"\bdeletion\x18\x05 \x01(\fR\bdeletion\x12*\n" +
+	"\x04file\x18\x06 \x01(\v2\x16.convia.v1.ChannelFileR\x04file\"o\n" +
+	"\vChannelFile\x12\x12\n" +
+	"\x04size\x18\x01 \x01(\x04R\x04size\x12\x12\n" +
+	"\x04type\x18\x02 \x01(\tR\x04type\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\fR\x06sha256\x12 \n" +
+	"\vorientation\x18\x04 \x01(\rR\vorientation\"\x1d\n" +
+	"\vFileMissing\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\fR\x02id\"O\n" +
+	"\x0fChannelReaction\x12\x16\n" +
+	"\x06target\x18\x01 \x01(\fR\x06target\x12\x14\n" +
+	"\x05emoji\x18\x02 \x01(\tR\x05emoji\x12\x0e\n" +
+	"\x02on\x18\x03 \x01(\bR\x02onB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_space_proto_rawDescOnce sync.Once
@@ -824,7 +1118,7 @@ func file_convia_v1_space_proto_rawDescGZIP() []byte {
 	return file_convia_v1_space_proto_rawDescData
 }
 
-var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_convia_v1_space_proto_goTypes = []any{
 	(*SpaceGenesis)(nil),    // 0: convia.v1.SpaceGenesis
 	(*SpaceOperation)(nil),  // 1: convia.v1.SpaceOperation
@@ -835,18 +1129,24 @@ var file_convia_v1_space_proto_goTypes = []any{
 	(*ChannelHeld)(nil),     // 6: convia.v1.ChannelHeld
 	(*AuthorHeld)(nil),      // 7: convia.v1.AuthorHeld
 	(*SpaceInvitation)(nil), // 8: convia.v1.SpaceInvitation
+	(*ChannelEntry)(nil),    // 9: convia.v1.ChannelEntry
+	(*ChannelFile)(nil),     // 10: convia.v1.ChannelFile
+	(*FileMissing)(nil),     // 11: convia.v1.FileMissing
+	(*ChannelReaction)(nil), // 12: convia.v1.ChannelReaction
 }
 var file_convia_v1_space_proto_depIdxs = []int32{
-	6, // 0: convia.v1.SpaceHolding.channels:type_name -> convia.v1.ChannelHeld
-	7, // 1: convia.v1.ChannelHeld.authors:type_name -> convia.v1.AuthorHeld
-	0, // 2: convia.v1.SpaceInvitation.genesis:type_name -> convia.v1.SpaceGenesis
-	1, // 3: convia.v1.SpaceInvitation.operations:type_name -> convia.v1.SpaceOperation
-	3, // 4: convia.v1.SpaceInvitation.secret:type_name -> convia.v1.SpaceSecret
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	6,  // 0: convia.v1.SpaceHolding.channels:type_name -> convia.v1.ChannelHeld
+	7,  // 1: convia.v1.ChannelHeld.authors:type_name -> convia.v1.AuthorHeld
+	0,  // 2: convia.v1.SpaceInvitation.genesis:type_name -> convia.v1.SpaceGenesis
+	1,  // 3: convia.v1.SpaceInvitation.operations:type_name -> convia.v1.SpaceOperation
+	3,  // 4: convia.v1.SpaceInvitation.secret:type_name -> convia.v1.SpaceSecret
+	12, // 5: convia.v1.ChannelEntry.reaction:type_name -> convia.v1.ChannelReaction
+	10, // 6: convia.v1.ChannelEntry.file:type_name -> convia.v1.ChannelFile
+	7,  // [7:7] is the sub-list for method output_type
+	7,  // [7:7] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_space_proto_init() }
@@ -860,7 +1160,7 @@ func file_convia_v1_space_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_space_proto_rawDesc), len(file_convia_v1_space_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   9,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
