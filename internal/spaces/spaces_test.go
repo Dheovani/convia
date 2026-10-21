@@ -186,3 +186,5 @@ func TestAnInvalidNameCreatesNoSpace(t *testing.T) {
 		t.Fatalf("Spaces() = %+v", all)
 	}
 }
+
+func said(text string) Entry { return Say(text, nil) }

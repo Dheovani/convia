@@ -7,8 +7,10 @@ import axe from "axe-core";
 import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
 import { DeleteDialog } from "./components/DeleteDialog";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { LinkDialog } from "./components/LinkDialog";
 import { DataProblem } from "./screens/DataProblem";
+import { SpaceSettings } from "./screens/SpaceSettings";
 import { Workspace } from "./screens/Workspace";
 import { answers, reset } from "./test/bridge";
 import { resetEvents } from "./test/runtime";
@@ -239,4 +241,115 @@ test("a conversation with files", async () => {
   fireEvent.click(await screen.findByText("Ana"));
   await screen.findByText("report.pdf");
   expect(await violations(container)).toEqual([]);
+});
+
+test("a space, its channels and one of them open", async () => {
+  answers.Spaces = () =>
+    Promise.resolve([
+      {
+        id: "c1",
+        name: "Casa",
+        rank: "owner",
+        channels: [
+          {
+            id: "g1",
+            name: "geral",
+            restricted: false,
+            roles: [],
+            guarded: false,
+            writers: [],
+            writes: true,
+          },
+          {
+            id: "t1",
+            name: "equipe",
+            restricted: true,
+            roles: [],
+            guarded: false,
+            writers: [],
+            writes: true,
+          },
+        ],
+      },
+    ]);
+  answers.SpaceInvitations = () => Promise.resolve([]);
+  answers.ChannelMessages = () =>
+    Promise.resolve([
+      {
+        id: "01",
+        mine: false,
+        author: "Bruno",
+        text: "bom dia",
+        status: "delivered",
+        at: 1,
+        reactions: [{ emoji: "👍", count: 2, mine: true }],
+      },
+    ]);
+  const { container } = workspace();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa" }));
+  await screen.findByText("bom dia");
+  fireEvent.click(screen.getByRole("button", { name: "Invite a contact" }));
+  expect(await violations(container)).toEqual([]);
+});
+
+test("creating a space and answering invitations", async () => {
+  answers.Spaces = () => Promise.resolve([]);
+  answers.SpaceInvitations = () =>
+    Promise.resolve([{ id: "d1", name: "Trabalho", inviter: "Bruno" }]);
+  const { container } = workspace();
+  fireEvent.click(await screen.findByRole("button", { name: "Add a space" }));
+  await screen.findByText("Bruno invited you to Trabalho");
+  expect(await violations(container)).toEqual([]);
+});
+
+test("a space's settings, as its owner sees them", async () => {
+  answers.SpaceRoles = () => Promise.resolve([{ id: "r1", name: "Equipe" }]);
+  answers.SpaceMembers = () =>
+    Promise.resolve([
+      { publicKey: "00", name: "Eu", rank: "owner", roles: [], me: true },
+      {
+        publicKey: "bb",
+        name: "Bruno",
+        rank: "member",
+        roles: ["Equipe"],
+        me: false,
+      },
+    ]);
+  const { container } = render(
+    <SpaceSettings
+      space={{
+        id: "s1",
+        name: "Casa",
+        rank: "owner",
+        muted: false,
+        channels: [
+          {
+            id: "g1",
+            name: "geral",
+            restricted: true,
+            roles: ["r1"],
+            guarded: false,
+            writers: [],
+            writes: true,
+          },
+        ],
+      }}
+      onLeft={() => {}}
+    />,
+  );
+  await screen.findByRole("group", { name: "Bruno's roles" });
+  expect(await violations(container, false)).toEqual([]);
+});
+
+test("a confirmation", async () => {
+  const { container } = render(
+    <ConfirmDialog
+      title="Remove Bruno?"
+      explanation="He is sent nothing more."
+      confirm="Remove"
+      onConfirm={() => {}}
+      onClose={() => {}}
+    />,
+  );
+  expect(await violations(container, false)).toEqual([]);
 });

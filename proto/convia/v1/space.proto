@@ -43,10 +43,12 @@ message GroupMessage {
   bytes id = 6;
   int64 hlc_wall = 7;
   uint32 hlc_counter = 8;
-  // Absent once wiped; the digest still says what it was.
+  // A ChannelEntry, encoded as its author encoded it; the signature covers its digest.
   bytes content = 9;
   bytes digest = 10;
   bytes signature = 11;
+  // The entry's text, absent once wiped; the entry says its SHA-256.
+  bytes text = 12;
 }
 
 // SpaceSecret is a space's discovery secret for an epoch, made and signed by its owner or an administrator (ADR 0014).
@@ -87,4 +89,39 @@ message SpaceInvitation {
   repeated SpaceOperation operations = 2;
   // The current discovery secret, so that the person can find the members once they accept.
   SpaceSecret secret = 3;
+}
+
+// ChannelEntry is what a group message says, but its text: a message, a reaction, an edit or a deletion (ADR 0042).
+message ChannelEntry {
+  // The SHA-256 of the text the group message carries beside it, which may be wiped since.
+  bytes text_sha256 = 1;
+  // The message a message answers.
+  bytes reply_to = 2;
+  ChannelReaction reaction = 3;
+  // The message an edit gives its new text to.
+  bytes edit = 4;
+  // The message a deletion deletes.
+  bytes deletion = 5;
+  // A file, whose name is the text; its content travels on the channel for files (ADR 0043).
+  ChannelFile file = 6;
+}
+
+// ChannelFile is what a file in a channel is, as its author signs it.
+message ChannelFile {
+  uint64 size = 1;
+  string type = 2;
+  bytes sha256 = 3;
+  uint32 orientation = 4;
+}
+
+// FileMissing says the member asked for a file of a space does not hold it whole: another is asked (ADR 0043).
+message FileMissing {
+  bytes id = 1;
+}
+
+// ChannelReaction puts an emoji on a message, or takes it off (ADR 0035).
+message ChannelReaction {
+  bytes target = 1;
+  string emoji = 2;
+  bool on = 3;
 }

@@ -45,5 +45,8 @@ func (v via) Send(peer ed25519.PublicKey, m *conviav1.PeerMessage) bool {
 func (v via) Want(peer ed25519.PublicKey, reason string)    { v.reach.manager.Want(peer, reason) }
 func (v via) Release(peer ed25519.PublicKey, reason string) { v.reach.manager.Release(peer, reason) }
 func (v via) Reachable(peer ed25519.PublicKey)              { v.reach.manager.Reachable(peer) }
-func (v via) Disconnect(peer ed25519.PublicKey)             { v.reach.manager.Disconnect(peer) }
-func (v via) Reachability(announce, watch [][]byte)         { v.reach.set(v.part, announce, watch) }
+func (v via) SendFile(peer ed25519.PublicKey, data []byte) bool {
+	return v.reach.manager.SendFile(peer, data)
+}
+func (v via) Disconnect(peer ed25519.PublicKey)     { v.reach.manager.Disconnect(peer) }
+func (v via) Reachability(announce, watch [][]byte) { v.reach.set(v.part, announce, watch) }
