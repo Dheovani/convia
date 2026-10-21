@@ -45,6 +45,7 @@ type SpaceView struct {
 	ID       string        `json:"id"`
 	Name     string        `json:"name"`
 	Rank     string        `json:"rank"`
+	Muted    bool          `json:"muted"`
 	Channels []ChannelView `json:"channels"`
 }
 
@@ -54,6 +55,10 @@ type ChannelView struct {
 	Name       string   `json:"name"`
 	Restricted bool     `json:"restricted"`
 	Roles      []string `json:"roles"`
+	Guarded    bool     `json:"guarded"`
+	Writers    []string `json:"writers"`
+	// Writes is whether this person may write in it.
+	Writes bool `json:"writes"`
 }
 
 // InvitationView is a space this person was added to and has not answered.
@@ -68,11 +73,20 @@ var ranks = map[spaces.Rank]string{spaces.Member: "member", spaces.Administrator
 func spaceView(state *spaces.State, me ed25519.PublicKey) SpaceView {
 	g := state.Genesis
 	view := SpaceView{ID: hex.EncodeToString(g.Space[:]), Name: state.Name, Rank: ranks[state.Rank(me)], Channels: []ChannelView{}}
+	for _, p := range state.Members() {
+		if p.Key.Equal(me) {
+			view.Muted = p.Muted
+		}
+	}
 	for _, c := range state.Channels() {
 		if state.Sees(me, c.ID) {
-			channel := ChannelView{ID: hex.EncodeToString(c.ID[:]), Name: c.Name, Restricted: c.Restricted, Roles: []string{}}
+			channel := ChannelView{ID: hex.EncodeToString(c.ID[:]), Name: c.Name, Restricted: c.Restricted, Roles: []string{},
+				Guarded: c.Guarded, Writers: []string{}, Writes: state.Writes(me, c.ID)}
 			for _, r := range c.Roles {
 				channel.Roles = append(channel.Roles, hex.EncodeToString(r[:]))
+			}
+			for _, r := range c.Writers {
+				channel.Writers = append(channel.Writers, hex.EncodeToString(r[:]))
 			}
 			view.Channels = append(view.Channels, channel)
 		}
@@ -184,7 +198,7 @@ func (b *Bridge) CreateChannel(spaceID, name string) (*ChannelView, error) {
 	if _, err := s.Operate(id, spaces.Change{Kind: spaces.CreateChannel, Channel: channel, Name: name}); err != nil {
 		return nil, spaceRefusal(err)
 	}
-	return &ChannelView{ID: hex.EncodeToString(channel[:]), Name: name, Roles: []string{}}, nil
+	return &ChannelView{ID: hex.EncodeToString(channel[:]), Name: name, Roles: []string{}, Writers: []string{}, Writes: true}, nil
 }
 
 // InviteToSpace adds the contact publicKey names to the space spaceID; they are told, and accept or decline (ADR 0039).
@@ -245,7 +259,8 @@ func (b *Bridge) ChannelMessages(spaceID, channelID string) ([]MessageView, erro
 	out := []MessageView{}
 	for _, p := range posts {
 		view := MessageView{ID: hex.EncodeToString(p.ID[:]), Mine: p.Author.Equal(me), Author: called[string(p.Author)],
-			Text: p.Text, Status: "delivered", At: p.Time.Wall, Reactions: []ReactionView{}, Edited: p.Edited, Deleted: p.Deleted}
+			Text: p.Text, Status: "delivered", At: p.Time.Wall, Reactions: []ReactionView{}, Edited: p.Edited, Deleted: p.Deleted,
+			Moderated: p.ByModerator, Deletable: !p.Deleted && (p.Author.Equal(me) || state.Moderates(me, p.Author))}
 		for _, r := range p.Reactions {
 			view.Reactions = append(view.Reactions, ReactionView{Emoji: r.Emoji, Count: r.Count, Mine: r.Mine})
 		}
@@ -343,6 +358,7 @@ type MemberView struct {
 	Rank      string   `json:"rank"`
 	Roles     []string `json:"roles"`
 	Me        bool     `json:"me"`
+	Muted     bool     `json:"muted"`
 }
 
 // SpaceMembers is every member of the space spaceID, the owner first, then the administrators, then by name.
@@ -370,7 +386,7 @@ func (b *Bridge) SpaceMembers(spaceID string) ([]MemberView, error) {
 	me := b.network.me()
 	out := []MemberView{}
 	for _, p := range state.Members() {
-		view := MemberView{PublicKey: hex.EncodeToString(p.Key), Name: b.memberName(p), Rank: ranks[p.Rank], Roles: []string{}, Me: p.Key.Equal(me)}
+		view := MemberView{PublicKey: hex.EncodeToString(p.Key), Name: b.memberName(p), Rank: ranks[p.Rank], Roles: []string{}, Me: p.Key.Equal(me), Muted: p.Muted}
 		for _, r := range p.Roles {
 			view.Roles = append(view.Roles, roles[r])
 		}
@@ -517,6 +533,28 @@ func (b *Bridge) SetChannelRoles(spaceID, channelID string, roleIDs []string) er
 	})
 }
 
+// SetChannelWriters lets every reader of a channel write in it, or only the administrators and the roles roleIDs.
+func (b *Bridge) SetChannelWriters(spaceID, channelID string, everyone bool, roleIDs []string) error {
+	return b.change(spaceID, func() (spaces.Change, error) {
+		channel, err := parseChannel(channelID)
+		if err != nil {
+			return spaces.Change{}, err
+		}
+		if everyone {
+			return spaces.Change{Kind: spaces.OpenWriting, Channel: channel}, nil
+		}
+		c := spaces.Change{Kind: spaces.RestrictWriting, Channel: channel, Roles: []spaces.RoleID{}}
+		for _, r := range roleIDs {
+			role, err := parseRole(r)
+			if err != nil {
+				return spaces.Change{}, err
+			}
+			c.Roles = append(c.Roles, role)
+		}
+		return c, nil
+	})
+}
+
 // CreateRole adds a role named name to the space spaceID.
 func (b *Bridge) CreateRole(spaceID, name string) error {
 	return b.change(spaceID, func() (spaces.Change, error) {
@@ -575,6 +613,14 @@ func (b *Bridge) SetAdministrator(spaceID, publicKey string, on bool) error {
 		return b.about(spaceID, publicKey, spaces.MakeAdmin)
 	}
 	return b.about(spaceID, publicKey, spaces.UnmakeAdmin)
+}
+
+// MuteMember stops the member publicKey names writing in the space spaceID, or lets them again (ADR 0041).
+func (b *Bridge) MuteMember(spaceID, publicKey string, on bool) error {
+	if on {
+		return b.about(spaceID, publicKey, spaces.MuteMember)
+	}
+	return b.about(spaceID, publicKey, spaces.UnmuteMember)
 }
 
 // RemoveMember removes the member publicKey names from the space spaceID.

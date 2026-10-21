@@ -5,12 +5,14 @@ import {
   DeleteRole,
   DeleteSpace,
   LeaveSpace,
+  MuteMember,
   RemoveMember,
   RenameChannel,
   RenameRole,
   RenameSpace,
   SetAdministrator,
   SetChannelRoles,
+  SetChannelWriters,
   SetMemberRole,
   SpaceMembers,
   SpaceRoles,
@@ -224,6 +226,44 @@ export function SpaceSettings({
                     );
                   })}
                 </fieldset>
+                <fieldset className="flex flex-wrap items-center gap-3 px-1 text-sm">
+                  <legend className="sr-only">
+                    {words.spaces.whoWrites(c.name)}
+                  </legend>
+                  <span className="text-ink-dim">{words.spaces.writes}</span>
+                  <label className="flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={!c.guarded}
+                      onChange={() =>
+                        void attempt(() =>
+                          SetChannelWriters(space.id, c.id, c.guarded, []),
+                        )
+                      }
+                    />
+                    {words.spaces.everyReader}
+                  </label>
+                  {roles.map((r) => {
+                    const writes = c.guarded && c.writers.includes(r.id);
+                    return (
+                      <label key={r.id} className="flex items-center gap-1">
+                        <input
+                          type="checkbox"
+                          checked={writes}
+                          onChange={() => {
+                            const next = writes
+                              ? c.writers.filter((x) => x !== r.id)
+                              : [...(c.guarded ? c.writers : []), r.id];
+                            void attempt(() =>
+                              SetChannelWriters(space.id, c.id, false, next),
+                            );
+                          }}
+                        />
+                        {r.name}
+                      </label>
+                    );
+                  })}
+                </fieldset>
               </li>
             ))}
           </ul>
@@ -334,6 +374,18 @@ export function SpaceSettings({
                       }
                     >
                       {words.spaces.transferButton}
+                    </Button>
+                  )}
+                  {moderates(m) && (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        void attempt(() =>
+                          MuteMember(space.id, m.publicKey, !m.muted),
+                        )
+                      }
+                    >
+                      {m.muted ? words.spaces.unmute : words.spaces.mute}
                     </Button>
                   )}
                   {moderates(m) && (

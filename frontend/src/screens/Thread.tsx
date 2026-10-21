@@ -8,6 +8,7 @@ import {
   ReplyIcon,
 } from "../components/Icons";
 import { Button, input } from "../components/controls";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DeleteDialog } from "../components/DeleteDialog";
 import { LinkDialog } from "../components/LinkDialog";
 import { useLanguage, useWords } from "../i18n/language";
@@ -44,6 +45,9 @@ export interface Message {
   edited?: boolean;
   deleted?: boolean;
   file?: FileInfo;
+  // deletable is a channel's message this person may delete, being its author or a moderator of its author.
+  deletable?: boolean;
+  moderated?: boolean;
 }
 
 // The reactions offered at a click; any single emoji is one (ADR 0035).
@@ -74,6 +78,8 @@ export interface Source {
   attach?: () => Promise<unknown>;
   statuses: boolean;
   deleting?: string;
+  // closed says why nothing can be written here, where nothing can.
+  closed?: string;
 }
 
 // MaxCharacters is the most a message holds (ADR 0029); the core refuses more too.
@@ -287,7 +293,7 @@ export function Thread({
                         <EditIcon />
                       </button>
                     )}
-                    {(m.mine || source.forget) && (
+                    {(m.mine || source.forget || m.deletable) && (
                       <button
                         type="button"
                         className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-sm text-ink-dim hover:bg-surface-hover hover:text-danger"
@@ -365,7 +371,9 @@ export function Thread({
                   <div className="min-w-0 flex-1 text-sm break-words whitespace-pre-wrap">
                     {m.deleted ? (
                       <p className="text-ink-faint italic">
-                        {words.conversation.deleted}
+                        {m.moderated
+                          ? words.spaces.deletedByModerator
+                          : words.conversation.deleted}
                       </p>
                     ) : editing?.id === m.id ? (
                       <div className="flex flex-col gap-1">
@@ -476,70 +484,96 @@ export function Thread({
             {notice}
           </p>
         )}
-        {answering && (
-          <div className="flex items-center justify-between gap-2 rounded-sm bg-surface-raised px-3 py-1 text-[0.8rem]">
-            <span className="truncate text-ink-dim">
-              {words.conversation.replyingTo(author(answering))}{" "}
-              <span className="text-ink-faint">{plain(answering.text)}</span>
-            </span>
-            <Button size="small" onClick={() => setAnswering(null)}>
-              {words.conversation.cancelReply}
-            </Button>
-          </div>
+        {source.closed ? (
+          <p className="rounded-md bg-surface-raised px-3 py-2 text-sm text-ink-dim">
+            {source.closed}
+          </p>
+        ) : (
+          <>
+            {answering && (
+              <div className="flex items-center justify-between gap-2 rounded-sm bg-surface-raised px-3 py-1 text-[0.8rem]">
+                <span className="truncate text-ink-dim">
+                  {words.conversation.replyingTo(author(answering))}{" "}
+                  <span className="text-ink-faint">
+                    {plain(answering.text)}
+                  </span>
+                </span>
+                <Button size="small" onClick={() => setAnswering(null)}>
+                  {words.conversation.cancelReply}
+                </Button>
+              </div>
+            )}
+            <label htmlFor={fieldId} className="sr-only">
+              {source.fieldLabel}
+            </label>
+            <textarea
+              ref={field}
+              id={fieldId}
+              className={`${input} resize-none text-sm`}
+              rows={2}
+              placeholder={source.fieldLabel}
+              value={draft}
+              aria-invalid={tooLong}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape" && answering) {
+                  setAnswering(null);
+                }
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <div className="flex items-center justify-between gap-2">
+              {source.attach && (
+                <Button
+                  size="small"
+                  aria-label={words.files.attach}
+                  title={words.files.attach}
+                  onClick={() => void attach()}
+                >
+                  📎
+                </Button>
+              )}
+              <span
+                className="flex-1 text-xs text-ink-faint"
+                aria-live="polite"
+              >
+                {length >= showCounterFrom
+                  ? tooLong
+                    ? words.conversation.over(length - MaxCharacters)
+                    : words.conversation.left(MaxCharacters - length)
+                  : words.conversation.sendHint}
+              </span>
+              <Button
+                tone="primary"
+                size="small"
+                disabled={tooLong || empty}
+                onClick={() => void send()}
+              >
+                {words.conversation.send}
+              </Button>
+            </div>
+          </>
         )}
-        <label htmlFor={fieldId} className="sr-only">
-          {source.fieldLabel}
-        </label>
-        <textarea
-          ref={field}
-          id={fieldId}
-          className={`${input} resize-none text-sm`}
-          rows={2}
-          placeholder={source.fieldLabel}
-          value={draft}
-          aria-invalid={tooLong}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && answering) {
-              setAnswering(null);
-            }
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void send();
-            }
-          }}
-        />
-        <div className="flex items-center justify-between gap-2">
-          {source.attach && (
-            <Button
-              size="small"
-              aria-label={words.files.attach}
-              title={words.files.attach}
-              onClick={() => void attach()}
-            >
-              📎
-            </Button>
-          )}
-          <span className="flex-1 text-xs text-ink-faint" aria-live="polite">
-            {length >= showCounterFrom
-              ? tooLong
-                ? words.conversation.over(length - MaxCharacters)
-                : words.conversation.left(MaxCharacters - length)
-              : words.conversation.sendHint}
-          </span>
-          <Button
-            tone="primary"
-            size="small"
-            disabled={tooLong || empty}
-            onClick={() => void send()}
-          >
-            {words.conversation.send}
-          </Button>
-        </div>
       </div>
 
       {link && <LinkDialog url={link} onClose={() => setLink(null)} />}
-      {deleting && (
+      {deleting && !source.forget && (
+        <ConfirmDialog
+          title={words.deleting.title}
+          explanation={source.deleting ?? ""}
+          confirm={words.conversation.delete}
+          onConfirm={() => {
+            const id = deleting.id;
+            setDeleting(null);
+            void attempt(() => source.remove(id));
+          }}
+          onClose={() => setDeleting(null)}
+        />
+      )}
+      {deleting && source.forget && (
         <DeleteDialog
           mine={deleting.mine}
           delivered={

@@ -13,21 +13,27 @@ const excerpt = 140
 
 // Post is a message of a channel as it shows: its latest text, whether it was edited or deleted, and what is on it.
 type Post struct {
-	ID        [IDSize]byte
-	Author    ed25519.PublicKey
-	Time      hlc.Time
-	Text      string
-	Edited    bool
-	Deleted   bool
-	Reactions []messages.Reaction
-	ReplyTo   *messages.Quote
+	ID      [IDSize]byte
+	Author  ed25519.PublicKey
+	Time    hlc.Time
+	Text    string
+	Edited  bool
+	Deleted bool
+	// ByModerator is a message deleted by a moderator of its author (ADR 0041).
+	ByModerator bool
+	Reactions   []messages.Reaction
+	ReplyTo     *messages.Quote
 }
 
+// Moderates says whether its first member moderates its second, as a space's state says (ADR 0041).
+type Moderates func(moderator, member ed25519.PublicKey) bool
+
 /*
-fold turns a channel's entries, in its order, into the posts it shows (ADR 0042): only a message's author edits or
-deletes it, and for each person, emoji and message, the latest reaction decides.
+fold turns a channel's entries, in its order, into the posts it shows (ADR 0042): only a message's author edits
+it, and its author or a moderator of its author deletes it; for each person, emoji and message, the latest
+reaction decides.
 */
-func fold(entries []Message, me ed25519.PublicKey) []Post {
+func fold(entries []Message, me ed25519.PublicKey, moderates Moderates) []Post {
 	type reacting struct {
 		target [IDSize]byte
 		author string
@@ -49,7 +55,7 @@ func fold(entries []Message, me ed25519.PublicKey) []Post {
 			continue
 		}
 		i, ok := index[*e.Target]
-		if !ok || e.Kind != Reacted && !m.Author.Equal(out[i].Author) {
+		if !ok || e.Kind != Reacted && !m.Author.Equal(out[i].Author) && !(e.Kind == Deleted && moderates(m.Author, out[i].Author)) {
 			continue
 		}
 		switch e.Kind {
@@ -58,6 +64,7 @@ func fold(entries []Message, me ed25519.PublicKey) []Post {
 			out[i].Text, out[i].Edited, out[i].Deleted = e.Text, true, false
 		case Deleted:
 			out[i].Deleted = true
+			out[i].ByModerator = out[i].ByModerator || !m.Author.Equal(out[i].Author)
 		case Reacted:
 			on[reacting{*e.Target, string(m.Author), e.Text}] = e.On
 			if !slices.Contains(emojis[*e.Target], e.Text) {
@@ -110,11 +117,20 @@ func fold(entries []Message, me ed25519.PublicKey) []Post {
 
 // Channel is a channel's posts, as me sees them.
 func (s *Store) Channel(id ID, channel ChannelID, me ed25519.PublicKey) ([]Post, error) {
-	held, err := s.Messages(id, channel)
+	held, state, err := s.channel(id, channel)
 	if err != nil {
 		return nil, err
 	}
-	return fold(held, me), nil
+	return fold(held, me, state.Moderates), nil
+}
+
+func (s *Store) channel(id ID, channel ChannelID) ([]Message, *State, error) {
+	state, err := s.State(id)
+	if err != nil {
+		return nil, nil, err
+	}
+	held, err := s.Messages(id, channel)
+	return held, state, err
 }
 
 // allows reports whether me may make e in a channel: what it is about is a message there, and an edit or deletion is me's.
@@ -122,18 +138,18 @@ func (s *Store) allows(me ed25519.PublicKey, id ID, channel ChannelID, e Entry) 
 	if e.Target == nil {
 		return nil
 	}
-	held, err := s.Messages(id, channel)
+	held, state, err := s.channel(id, channel)
 	if err != nil {
 		return err
 	}
-	for _, p := range fold(held, me) {
+	for _, p := range fold(held, me, state.Moderates) {
 		if p.ID != *e.Target {
 			continue
 		}
 		if p.Deleted && e.Kind != Said {
 			return messages.ErrNoTarget
 		}
-		if (e.Kind == Edited || e.Kind == Deleted) && !p.Author.Equal(me) {
+		if e.Kind == Edited && !p.Author.Equal(me) || e.Kind == Deleted && !p.Author.Equal(me) && !state.Moderates(me, p.Author) {
 			return messages.ErrNotYours
 		}
 		return nil
@@ -146,7 +162,7 @@ compact wipes, in a channel, the text no longer shown (ADR 0034): a deleted mess
 edited message's earlier text and earlier edits. The entries stay, and still verify, without it.
 */
 func (s *Store) compact(id ID, channel ChannelID) error {
-	held, err := s.Messages(id, channel)
+	held, state, err := s.channel(id, channel)
 	if err != nil {
 		return err
 	}
@@ -162,7 +178,10 @@ func (s *Store) compact(id ID, channel ChannelID) error {
 			continue
 		}
 		t, ok := byID[*e.Target]
-		if !ok || t.Entry.Kind != Said || !t.Author.Equal(m.Author) {
+		if !ok || t.Entry.Kind != Said {
+			continue
+		}
+		if !t.Author.Equal(m.Author) && !(e.Kind == Deleted && state.Moderates(m.Author, t.Author)) {
 			continue
 		}
 		if e.Kind == Edited {

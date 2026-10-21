@@ -9,6 +9,7 @@ export interface SpaceInfo {
   id: string;
   name: string;
   rank: "owner" | "administrator" | "member";
+  muted: boolean;
   channels: ChannelInfo[];
 }
 
@@ -90,7 +91,7 @@ export function SpaceSidebar({
                 onClick={() => onOpen(c.id)}
               >
                 <span aria-hidden="true" className="text-ink-faint">
-                  {c.restricted ? "🔒" : "#"}
+                  {c.restricted ? "🔒" : c.guarded ? "📢" : "#"}
                 </span>
                 <span className="truncate">{c.name}</span>
               </button>

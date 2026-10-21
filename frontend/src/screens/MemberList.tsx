@@ -9,6 +9,7 @@ export interface Member {
   rank: "owner" | "administrator" | "member";
   roles: string[];
   me: boolean;
+  muted: boolean;
 }
 
 // MemberList is who belongs to a space, by rank, with the roles each holds (ADR 0038); it says nothing of who is online.
@@ -60,6 +61,11 @@ export function MemberList({ space }: { space: string }) {
                   {m.me && (
                     <span className="ml-1 text-[0.72rem] text-ink-faint">
                       ({words.workspace.you})
+                    </span>
+                  )}
+                  {m.muted && (
+                    <span className="ml-1 text-[0.72rem] text-ink-faint">
+                      · {words.spaces.mutedTag}
                     </span>
                   )}
                 </span>

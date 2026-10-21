@@ -21,6 +21,10 @@ type MessageView struct {
 	Edited    bool           `json:"edited"`
 	Deleted   bool           `json:"deleted"`
 	File      *FileView      `json:"file,omitempty"`
+	// Deletable is a channel's message this person may delete: their own, or one of somebody they moderate.
+	Deletable bool `json:"deletable,omitempty"`
+	// Moderated is a channel's message a moderator deleted (ADR 0041).
+	Moderated bool `json:"moderated,omitempty"`
 }
 
 // ReactionView is an emoji on a message, how many put it there, and whether this person did.

@@ -406,6 +406,7 @@ export function Workspace({
             space={space.id}
             channel={channel}
             meName={me.name}
+            muted={space.muted}
           />
         ) : space ? (
           <p className="m-auto text-sm text-ink-dim">

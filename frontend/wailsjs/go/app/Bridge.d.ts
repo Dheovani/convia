@@ -69,6 +69,8 @@ export function MaxMessageCharacters():Promise<number>;
 
 export function Me():Promise<app.MeView>;
 
+export function MuteMember(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
 export function MyInvitation():Promise<string>;
 
 export function NetworkChanged():Promise<void>;
@@ -108,6 +110,8 @@ export function SendMessage(arg1:string,arg2:string,arg3:string):Promise<app.Mes
 export function SetAdministrator(arg1:string,arg2:string,arg3:boolean):Promise<void>;
 
 export function SetChannelRoles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
+
+export function SetChannelWriters(arg1:string,arg2:string,arg3:boolean,arg4:Array<string>):Promise<void>;
 
 export function SetMemberRole(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 

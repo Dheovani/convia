@@ -20,12 +20,15 @@ import (
 type Kind string
 
 const (
-	RenameSpace       Kind = "rename-space"
-	CreateChannel     Kind = "create-channel"
-	RenameChannel     Kind = "rename-channel"
-	DeleteChannel     Kind = "delete-channel"
-	RestrictChannel   Kind = "restrict-channel"
-	OpenChannel       Kind = "open-channel"
+	RenameSpace     Kind = "rename-space"
+	CreateChannel   Kind = "create-channel"
+	RenameChannel   Kind = "rename-channel"
+	DeleteChannel   Kind = "delete-channel"
+	RestrictChannel Kind = "restrict-channel"
+	OpenChannel     Kind = "open-channel"
+	// RestrictWriting lets only some roles write in a channel every reader still reads; OpenWriting lets every reader.
+	RestrictWriting   Kind = "restrict-writing"
+	OpenWriting       Kind = "open-writing"
 	AddMember         Kind = "add-member"
 	RemoveMember      Kind = "remove-member"
 	Leave             Kind = "leave"
@@ -40,6 +43,9 @@ const (
 	DeleteSpace       Kind = "delete-space"
 	// Introduce is the name a member goes by in the space, which they give themselves.
 	Introduce Kind = "introduce"
+	// MuteMember and UnmuteMember stop a member writing, and let them again (ADR 0041).
+	MuteMember   Kind = "mute-member"
+	UnmuteMember Kind = "unmute-member"
 )
 
 // The fields each kind of change holds; every other field is empty.
@@ -58,6 +64,8 @@ var shapes = map[Kind]int{
 	DeleteChannel:     usesChannel,
 	RestrictChannel:   usesChannel | usesRoles,
 	OpenChannel:       usesChannel,
+	RestrictWriting:   usesChannel | usesRoles,
+	OpenWriting:       usesChannel,
 	AddMember:         usesMember,
 	RemoveMember:      usesMember,
 	Leave:             0,
@@ -71,6 +79,8 @@ var shapes = map[Kind]int{
 	TransferOwnership: usesMember,
 	DeleteSpace:       0,
 	Introduce:         usesName,
+	MuteMember:        usesMember,
+	UnmuteMember:      usesMember,
 }
 
 // MaxRestriction is the most roles a channel is restricted to.
@@ -117,7 +127,7 @@ func (g Genesis) Hash() Hash {
 // NewOperation is change, made by author in space at the moment at, after parents.
 func NewOperation(author identity.Identity, space ID, at hlc.Time, parents []Hash, change Change) (Operation, error) {
 	op := Operation{Version: Version, Space: space, Author: author.Public, Time: at, Parents: sortHashes(parents), Change: change}
-	if change.Kind == RestrictChannel {
+	if change.Kind == RestrictChannel || change.Kind == RestrictWriting {
 		op.Change.Roles = sortRoles(change.Roles)
 	}
 	rand.Read(op.ID[:])

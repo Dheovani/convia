@@ -1,6 +1,7 @@
 package spaces
 
 import (
+	"crypto/ed25519"
 	"crypto/sha256"
 	"errors"
 	"slices"
@@ -238,12 +239,12 @@ func TestAChannelShowsWhatItsEntriesLeave(t *testing.T) {
 	said, _ := NewMessage(ana, ID{1}, general, 1, at(1), Say("oi", nil))
 	on, _ := NewMessage(bruno, ID{1}, general, 1, at(2), Entry{Kind: Reacted, Text: "👍", Target: &said.ID, On: true})
 	off, _ := NewMessage(bruno, ID{1}, general, 2, at(3), Entry{Kind: Reacted, Text: "👍", Target: &said.ID})
-	posts := fold([]Message{said, on, off}, bruno.Public)
+	posts := fold([]Message{said, on, off}, bruno.Public, nobody)
 	if len(posts[0].Reactions) != 0 {
 		t.Fatalf("a reaction taken off shows: %+v", posts[0].Reactions)
 	}
 	gone, _ := NewMessage(ana, ID{1}, general, 2, at(4), Entry{Kind: Deleted, Target: &said.ID})
-	posts = fold([]Message{said, on, gone}, bruno.Public)
+	posts = fold([]Message{said, on, gone}, bruno.Public, nobody)
 	if !posts[0].Deleted || posts[0].Text != "" || len(posts[0].Reactions) != 0 {
 		t.Fatalf("a message deleted, not yet wiped, shows %+v", posts[0])
 	}
@@ -254,7 +255,9 @@ func TestAReplyQuotesTheBeginningOfALongMessage(t *testing.T) {
 	long := strings.Repeat("a", excerpt+10)
 	said, _ := NewMessage(ana, ID{1}, general, 1, hlc.Time{Wall: 1}, Say(long, nil))
 	reply, _ := NewMessage(ana, ID{1}, general, 2, hlc.Time{Wall: 2}, Say("isso", &said.ID))
-	if q := fold([]Message{said, reply}, ana.Public)[1].ReplyTo; q.Text != strings.Repeat("a", excerpt)+"…" {
+	if q := fold([]Message{said, reply}, ana.Public, nobody)[1].ReplyTo; q.Text != strings.Repeat("a", excerpt)+"…" {
 		t.Fatalf("the quote = %q", q.Text)
 	}
 }
+
+func nobody(moderator, member ed25519.PublicKey) bool { return false }

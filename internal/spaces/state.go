@@ -39,6 +39,9 @@ type Channel struct {
 	Name       string
 	Restricted bool
 	Roles      []RoleID
+	// Guarded is a channel only Writers write in, and the owner and administrators.
+	Guarded bool
+	Writers []RoleID
 }
 
 // Role opens channels, and does nothing else (ADR 0038).
@@ -53,6 +56,7 @@ type Person struct {
 	Name  string
 	Rank  Rank
 	Roles []RoleID
+	Muted bool
 }
 
 // Outcome is an operation in the order it was applied, and why it changed nothing if it did not.
@@ -65,12 +69,15 @@ type person struct {
 	rank  Rank
 	name  string
 	roles map[RoleID]bool
+	muted bool
 }
 
 type channel struct {
 	name       string
 	restricted bool
 	roles      map[RoleID]bool
+	guarded    bool
+	writers    map[RoleID]bool
 }
 
 // State is a space as its operations left it.
@@ -200,7 +207,7 @@ func (s *State) Owner() ed25519.PublicKey {
 func (s *State) Members() []Person {
 	var out []Person
 	for k, p := range s.members {
-		out = append(out, Person{Key: ed25519.PublicKey(k), Name: p.name, Rank: p.rank, Roles: sortedIDs(p.roles)})
+		out = append(out, Person{Key: ed25519.PublicKey(k), Name: p.name, Rank: p.rank, Roles: sortedIDs(p.roles), Muted: p.muted})
 	}
 	slices.SortFunc(out, func(a, b Person) int { return bytes.Compare(a.Key, b.Key) })
 	return out
@@ -210,7 +217,8 @@ func (s *State) Members() []Person {
 func (s *State) Channels() []Channel {
 	var out []Channel
 	for id, c := range s.channels {
-		out = append(out, Channel{ID: id, Name: c.name, Restricted: c.restricted, Roles: sortedIDs(c.roles)})
+		out = append(out, Channel{ID: id, Name: c.name, Restricted: c.restricted, Roles: sortedIDs(c.roles),
+			Guarded: c.guarded, Writers: sortedIDs(c.writers)})
 	}
 	slices.SortFunc(out, func(a, b Channel) int {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), bytes.Compare(a.ID[:], b.ID[:]))
@@ -247,6 +255,51 @@ func (s *State) Sees(key ed25519.PublicKey, id ChannelID) bool {
 	return false
 }
 
+/*
+Writes says whether key may write in the channel: one who sees it and is not muted (ADR 0041) and, in a channel
+only some roles write in, holds one of them or administers the space (ADR 0038).
+*/
+func (s *State) Writes(key ed25519.PublicKey, id ChannelID) bool {
+	if !s.Reacts(key, id) {
+		return false
+	}
+
+	p, c := s.members[string(key)], s.channels[id]
+	if !c.guarded || p.rank >= Administrator {
+		return true
+	}
+
+	for r := range c.writers {
+		if p.roles[r] {
+			return true
+		}
+	}
+
+	return false
+}
+
+/*
+Moderates says whether moderator may moderate member: the owner moderates everyone else, an administrator members,
+and both those no longer in the space.
+*/
+// Reacts says whether key may react in the channel: one who sees it and is not muted, wherever only some roles write.
+func (s *State) Reacts(key ed25519.PublicKey, id ChannelID) bool {
+	return s.Sees(key, id) && !s.members[string(key)].muted
+}
+
+// makes says whether key may make an entry of kind in the channel.
+func (s *State) makes(key ed25519.PublicKey, id ChannelID, kind EntryKind) bool {
+	if kind == Reacted {
+		return s.Reacts(key, id)
+	}
+	return s.Writes(key, id)
+}
+
+func (s *State) Moderates(moderator, member ed25519.PublicKey) bool {
+	a, b := s.Rank(moderator), s.Rank(member)
+	return a >= Administrator && a > b
+}
+
 func sortedIDs(set map[RoleID]bool) []RoleID {
 	return slices.SortedFunc(maps.Keys(set), func(a, b RoleID) int { return bytes.Compare(a[:], b[:]) })
 }
@@ -255,11 +308,12 @@ func sortedIDs(set map[RoleID]bool) []RoleID {
 var needs = map[Kind]Rank{
 	RenameSpace: Administrator, CreateChannel: Administrator, RenameChannel: Administrator,
 	DeleteChannel: Administrator, RestrictChannel: Administrator, OpenChannel: Administrator,
+	RestrictWriting: Administrator, OpenWriting: Administrator,
 	AddMember: Administrator, RemoveMember: Administrator, Leave: Member,
 	CreateRole: Administrator, RenameRole: Administrator, DeleteRole: Administrator,
 	GiveRole: Administrator, TakeRole: Administrator,
 	MakeAdmin: Owner, UnmakeAdmin: Owner, TransferOwnership: Owner, DeleteSpace: Owner,
-	Introduce: Member,
+	Introduce: Member, MuteMember: Administrator, UnmuteMember: Administrator,
 }
 
 // apply makes op's change if its author held the authority it needs in the state before it.
@@ -288,8 +342,8 @@ func (s *State) apply(op Operation) error {
 		if ch != nil || s.gone[c.Channel] {
 			return ErrExists
 		}
-		s.channels[c.Channel] = &channel{name: c.Name, roles: map[RoleID]bool{}}
-	case RenameChannel, DeleteChannel, RestrictChannel, OpenChannel:
+		s.channels[c.Channel] = &channel{name: c.Name, roles: map[RoleID]bool{}, writers: map[RoleID]bool{}}
+	case RenameChannel, DeleteChannel, RestrictChannel, OpenChannel, RestrictWriting, OpenWriting:
 		if ch == nil {
 			return ErrUnknown
 		}
@@ -299,7 +353,7 @@ func (s *State) apply(op Operation) error {
 		case DeleteChannel:
 			delete(s.channels, c.Channel)
 			s.gone[c.Channel] = true
-		case RestrictChannel:
+		case RestrictChannel, RestrictWriting:
 			roles := map[RoleID]bool{}
 			for _, r := range c.Roles {
 				if _, ok := s.roles[r]; !ok {
@@ -307,9 +361,15 @@ func (s *State) apply(op Operation) error {
 				}
 				roles[r] = true
 			}
-			ch.restricted, ch.roles = true, roles
+			if c.Kind == RestrictChannel {
+				ch.restricted, ch.roles = true, roles
+			} else {
+				ch.guarded, ch.writers = true, roles
+			}
 		case OpenChannel:
 			ch.restricted, ch.roles = false, map[RoleID]bool{}
+		case OpenWriting:
+			ch.guarded, ch.writers = false, map[RoleID]bool{}
 		}
 	case AddMember:
 		if target != nil {
@@ -352,6 +412,7 @@ func (s *State) apply(op Operation) error {
 		}
 		for _, ch := range s.channels {
 			delete(ch.roles, c.Role)
+			delete(ch.writers, c.Role)
 		}
 	case GiveRole, TakeRole:
 		if target == nil || !role {
@@ -380,6 +441,14 @@ func (s *State) apply(op Operation) error {
 		s.Deleted = true
 	case Introduce:
 		author.name = c.Name
+	case MuteMember, UnmuteMember:
+		if target == nil {
+			return ErrUnknown
+		}
+		if author.rank <= target.rank {
+			return ErrNotAllowed
+		}
+		target.muted = c.Kind == MuteMember
 	}
 	return nil
 }

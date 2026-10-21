@@ -134,6 +134,10 @@ export function Me() {
   return window['go']['app']['Bridge']['Me']();
 }
 
+export function MuteMember(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['MuteMember'](arg1, arg2, arg3);
+}
+
 export function MyInvitation() {
   return window['go']['app']['Bridge']['MyInvitation']();
 }
@@ -212,6 +216,10 @@ export function SetAdministrator(arg1, arg2, arg3) {
 
 export function SetChannelRoles(arg1, arg2, arg3) {
   return window['go']['app']['Bridge']['SetChannelRoles'](arg1, arg2, arg3);
+}
+
+export function SetChannelWriters(arg1, arg2, arg3, arg4) {
+  return window['go']['app']['Bridge']['SetChannelWriters'](arg1, arg2, arg3, arg4);
 }
 
 export function SetMemberRole(arg1, arg2, arg3, arg4) {

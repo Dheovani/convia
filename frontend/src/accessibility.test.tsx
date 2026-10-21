@@ -251,8 +251,24 @@ test("a space, its channels and one of them open", async () => {
         name: "Casa",
         rank: "owner",
         channels: [
-          { id: "g1", name: "geral", restricted: false },
-          { id: "t1", name: "equipe", restricted: true },
+          {
+            id: "g1",
+            name: "geral",
+            restricted: false,
+            roles: [],
+            guarded: false,
+            writers: [],
+            writes: true,
+          },
+          {
+            id: "t1",
+            name: "equipe",
+            restricted: true,
+            roles: [],
+            guarded: false,
+            writers: [],
+            writes: true,
+          },
         ],
       },
     ]);
@@ -305,8 +321,17 @@ test("a space's settings, as its owner sees them", async () => {
         id: "s1",
         name: "Casa",
         rank: "owner",
+        muted: false,
         channels: [
-          { id: "g1", name: "geral", restricted: true, roles: ["r1"] },
+          {
+            id: "g1",
+            name: "geral",
+            restricted: true,
+            roles: ["r1"],
+            guarded: false,
+            writers: [],
+            writes: true,
+          },
         ],
       }}
       onLeft={() => {}}

@@ -163,6 +163,16 @@ export const en = {
     leaveExplained:
       "You are sent nothing more of it, unless an administrator adds you again.",
     leaveButton: "Leave the space",
+    mute: "Mute",
+    unmute: "Unmute",
+    mutedTag: "muted",
+    youAreMuted:
+      "A moderator muted you: you read this space, and write in none of its channels.",
+    deletedByModerator: "Message deleted by a moderator.",
+    writes: "Who writes:",
+    everyReader: "Everyone who sees it",
+    whoWrites: (channel: string) => `Who writes in #${channel}`,
+    readOnly: "Only some roles write here; you read it, and may react.",
     channels: "Channels",
     noChannels: "No channel yet.",
     newChannel: "New channel",

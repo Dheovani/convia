@@ -5,6 +5,9 @@ export namespace app {
 	    name: string;
 	    restricted: boolean;
 	    roles: string[];
+	    guarded: boolean;
+	    writers: string[];
+	    writes: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelView(source);
@@ -16,6 +19,9 @@ export namespace app {
 	        this.name = source["name"];
 	        this.restricted = source["restricted"];
 	        this.roles = source["roles"];
+	        this.guarded = source["guarded"];
+	        this.writers = source["writers"];
+	        this.writes = source["writes"];
 	    }
 	}
 	export class ContactView {
@@ -110,6 +116,8 @@ export namespace app {
 	    edited: boolean;
 	    deleted: boolean;
 	    file?: FileView;
+	    deletable?: boolean;
+	    moderated?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageView(source);
@@ -128,6 +136,8 @@ export namespace app {
 	        this.edited = source["edited"];
 	        this.deleted = source["deleted"];
 	        this.file = this.convertValues(source["file"], FileView);
+	        this.deletable = source["deletable"];
+	        this.moderated = source["moderated"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -259,6 +269,7 @@ export namespace app {
 	    rank: string;
 	    roles: string[];
 	    me: boolean;
+	    muted: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new MemberView(source);
@@ -271,6 +282,7 @@ export namespace app {
 	        this.rank = source["rank"];
 	        this.roles = source["roles"];
 	        this.me = source["me"];
+	        this.muted = source["muted"];
 	    }
 	}
 	
@@ -346,6 +358,7 @@ export namespace app {
 	    id: string;
 	    name: string;
 	    rank: string;
+	    muted: boolean;
 	    channels: ChannelView[];
 	
 	    static createFrom(source: any = {}) {
@@ -357,6 +370,7 @@ export namespace app {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.rank = source["rank"];
+	        this.muted = source["muted"];
 	        this.channels = this.convertValues(source["channels"], ChannelView);
 	    }
 	

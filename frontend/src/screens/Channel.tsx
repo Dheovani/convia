@@ -16,6 +16,10 @@ export interface ChannelInfo {
   restricted: boolean;
   // roles are the roles a restricted channel is open to.
   roles: string[];
+  // guarded is a channel only its writers write in, and the administrators.
+  guarded: boolean;
+  writers: string[];
+  writes: boolean;
 }
 
 // Channel is everything said in a channel of a space, and where to say more (ADR 0042).
@@ -23,10 +27,12 @@ export function Channel({
   space,
   channel,
   meName,
+  muted,
 }: {
   space: string;
   channel: ChannelInfo;
   meName: string;
+  muted: boolean;
 }) {
   const words = useWords();
   const { id, name } = channel;
@@ -56,8 +62,13 @@ export function Channel({
       remove: (target) => DeleteInChannel(space, id, target),
       statuses: false,
       deleting: words.spaces.deleting,
+      closed: muted
+        ? words.spaces.youAreMuted
+        : channel.writes
+          ? undefined
+          : words.spaces.readOnly,
     }),
-    [space, id, name, words],
+    [space, id, name, muted, channel.writes, words],
   );
   return <Thread source={source} meName={meName} />;
 }

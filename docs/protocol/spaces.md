@@ -28,6 +28,9 @@ Every change after the genesis is a `SpaceOperation`: version 1, the space's ide
 | `make-admin`, `unmake-admin`, `transfer-ownership` | member                                          | owner         |
 | `delete-space`                                     | —                                               | owner         |
 | `introduce`                                        | name — the name its author goes by in the space | member        |
+| `restrict-writing`                                 | channel, roles — at most 100, sorted, once each | administrator |
+| `open-writing`                                     | channel                                         | administrator |
+| `mute-member`, `unmute-member`                     | member                                          | administrator |
 
 Channels and roles are named by 16 bytes their creator chooses at random; names are as a space's are.
 
@@ -50,6 +53,17 @@ One that does not is kept, with why, and changes nothing. A deleted role is take
 ## Who sees a channel
 
 The owner and the administrators see every channel. A member sees an open channel, and a restricted one when they hold one of its roles. Nobody sees a channel of a deleted space.
+
+## Who writes in a channel
+
+Whoever sees a channel reacts in it, unless muted. They write in it — messages, edits, deletions — unless muted, and, in a channel `restrict-writing` limited to roles, only if they hold one of them or are the owner or an administrator ([ADR 0038](../adr/0038-a-space-has-three-ranks-and-roles-that-open-channels.md)). `open-writing` lets every reader write again. A deleted role is taken from a channel's writers too.
+
+## Moderation
+
+A moderator is the owner, who moderates everyone else, or an administrator, who moderates members; both moderate those no longer in the space ([ADR 0041](../adr/0041-moderators-mute-members-and-delete-their-messages.md)).
+
+- **`mute-member`** is made by a moderator about one they moderate; every member refuses every entry of a member muted, reactions included, until `unmute-member`. A muted member still reads.
+- **A deletion** of another's message counts when its author moderates the message's author, as the space stands when it is read: the message shows as deleted by a moderator, and every member wipes its text. A deletion by anybody else is held, and changes nothing.
 
 ## Group messages
 

@@ -31,8 +31,24 @@ const casa = {
   name: "Casa da Ana",
   rank: "owner",
   channels: [
-    { id: "g1", name: "geral", restricted: false },
-    { id: "t1", name: "equipe", restricted: true },
+    {
+      id: "g1",
+      name: "geral",
+      restricted: false,
+      roles: [],
+      guarded: false,
+      writers: [],
+      writes: true,
+    },
+    {
+      id: "t1",
+      name: "equipe",
+      restricted: true,
+      roles: [],
+      guarded: false,
+      writers: [],
+      writes: true,
+    },
   ],
 };
 const said = [
@@ -230,4 +246,91 @@ test("a space's members are listed by rank, with their roles", async () => {
   const loads = calls.SpaceMembers.length;
   emit("spaces", "c1");
   await waitFor(() => expect(calls.SpaceMembers.length).toBeGreaterThan(loads));
+});
+
+test("a moderator deletes another's message, which shows as deleted by a moderator", async () => {
+  answers.ChannelMessages = () =>
+    Promise.resolve([
+      { ...said[0], deletable: true },
+      {
+        id: "03",
+        mine: false,
+        author: "Carla",
+        text: "",
+        status: "delivered",
+        at: 3,
+        reactions: [],
+        deleted: true,
+        moderated: true,
+      },
+    ]);
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa da Ana" }));
+  expect(
+    await screen.findByText("Message deleted by a moderator."),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  const dialog = screen.getByRole("dialog");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  await waitFor(() =>
+    expect(calls.DeleteInChannel).toEqual([["c1", "g1", "01"]]),
+  );
+});
+
+test("a muted member reads a channel, and is told why they cannot write", async () => {
+  answers.Spaces = () => Promise.resolve([{ ...casa, muted: true }]);
+  answers.SpaceMembers = () =>
+    Promise.resolve([
+      {
+        publicKey: "00",
+        name: "Eu",
+        rank: "member",
+        roles: [],
+        me: true,
+        muted: true,
+      },
+    ]);
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa da Ana" }));
+  expect(await screen.findByText("bom dia", { selector: "p" })).toBeTruthy();
+  expect(
+    screen.getByText(
+      "A moderator muted you: you read this space, and write in none of its channels.",
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByPlaceholderText("Message #geral")).toBeNull();
+  expect(await screen.findByText("· muted")).toBeTruthy();
+});
+
+test("a channel only some write in is read, reacted to, and said so", async () => {
+  answers.Spaces = () =>
+    Promise.resolve([
+      {
+        ...casa,
+        rank: "member",
+        channels: [
+          {
+            id: "g1",
+            name: "avisos",
+            restricted: false,
+            roles: [],
+            guarded: true,
+            writers: [],
+            writes: false,
+          },
+        ],
+      },
+    ]);
+  open();
+  fireEvent.click(await screen.findByRole("button", { name: "Casa da Ana" }));
+  expect(
+    await screen.findByText(
+      "Only some roles write here; you read it, and may react.",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText("📢")).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "React with 👍" })[0]);
+  await waitFor(() =>
+    expect(calls.ReactInChannel).toEqual([["c1", "g1", "01", "👍", true]]),
+  );
 });

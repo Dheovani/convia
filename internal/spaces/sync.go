@@ -85,7 +85,7 @@ func (s *Store) Write(me identity.Identity, id ID, channel ChannelID, e Entry) (
 		return Message{}, err
 	}
 
-	if !state.Sees(me.Public, channel) {
+	if !state.makes(me.Public, channel, e.Kind) {
 		return Message{}, ErrNotReader
 	}
 	if err := s.allows(me.Public, id, channel, e); err != nil {
@@ -122,7 +122,7 @@ func (s *Store) Accept(m Message) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !state.Sees(m.Author, m.Channel) {
+	if !state.makes(m.Author, m.Channel, m.Entry.Kind) {
 		return false, ErrNotReader
 	}
 	fresh, err := s.keepMessage(m)

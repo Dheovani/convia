@@ -164,6 +164,16 @@ export const ptBR: Words = {
     leaveExplained:
       "Você não recebe mais nada dele, a não ser que um administrador o adicione de novo.",
     leaveButton: "Sair do espaço",
+    mute: "Silenciar",
+    unmute: "Dessilenciar",
+    mutedTag: "silenciado",
+    youAreMuted:
+      "Um moderador silenciou você: você lê este espaço, e não escreve em nenhum canal dele.",
+    deletedByModerator: "Mensagem apagada por um moderador.",
+    writes: "Quem escreve:",
+    everyReader: "Todos que o veem",
+    whoWrites: (channel: string) => `Quem escreve em #${channel}`,
+    readOnly: "Só alguns papéis escrevem aqui; você lê, e pode reagir.",
     channels: "Canais",
     noChannels: "Nenhum canal ainda.",
     newChannel: "Novo canal",

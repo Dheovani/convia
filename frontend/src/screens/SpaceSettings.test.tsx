@@ -24,9 +24,26 @@ const space = (rank: SpaceInfo["rank"]): SpaceInfo => ({
   id: "s1",
   name: "Casa",
   rank,
+  muted: false,
   channels: [
-    { id: "g1", name: "geral", restricted: false, roles: [] },
-    { id: "t1", name: "equipe", restricted: true, roles: ["r1"] },
+    {
+      id: "g1",
+      name: "geral",
+      restricted: false,
+      roles: [],
+      guarded: false,
+      writers: [],
+      writes: true,
+    },
+    {
+      id: "t1",
+      name: "equipe",
+      restricted: true,
+      roles: ["r1"],
+      guarded: false,
+      writers: [],
+      writes: true,
+    },
   ],
 });
 
@@ -214,4 +231,73 @@ test("what the space refuses is said in the interface's words", async () => {
   expect(
     await screen.findByText("Your place in this space does not allow that."),
   ).toBeTruthy();
+});
+
+test("a moderator mutes and unmutes those they moderate", async () => {
+  answers.SpaceMembers = () =>
+    Promise.resolve([
+      {
+        publicKey: "00",
+        name: "Eu",
+        rank: "administrator",
+        roles: [],
+        me: true,
+        muted: false,
+      },
+      {
+        publicKey: "aa",
+        name: "Ana",
+        rank: "owner",
+        roles: [],
+        me: false,
+        muted: false,
+      },
+      {
+        publicKey: "bb",
+        name: "Bruno",
+        rank: "member",
+        roles: [],
+        me: false,
+        muted: false,
+      },
+      {
+        publicKey: "cc",
+        name: "Carla",
+        rank: "member",
+        roles: [],
+        me: false,
+        muted: true,
+      },
+    ]);
+  open("administrator");
+  fireEvent.click(await screen.findByRole("button", { name: "Mute" }));
+  await waitFor(() => expect(calls.MuteMember).toEqual([["s1", "bb", true]]));
+  fireEvent.click(screen.getByRole("button", { name: "Unmute" }));
+  await waitFor(() =>
+    expect(calls.MuteMember?.at(-1)).toEqual(["s1", "cc", false]),
+  );
+  expect(
+    screen.getAllByRole("button", { name: /^(Mute|Unmute)$/ }),
+  ).toHaveLength(2);
+});
+
+test("an administrator sets who writes in a channel every reader reads", async () => {
+  open("administrator");
+  const writes = await screen.findByRole("group", {
+    name: "Who writes in #geral",
+  });
+  const [everyone, equipe] = writes.querySelectorAll("input");
+  fireEvent.click(everyone);
+  await waitFor(() =>
+    expect(calls.SetChannelWriters).toEqual([["s1", "g1", false, []]]),
+  );
+  fireEvent.click(equipe);
+  await waitFor(() =>
+    expect(calls.SetChannelWriters?.at(-1)).toEqual([
+      "s1",
+      "g1",
+      false,
+      ["r1"],
+    ]),
+  );
 });
