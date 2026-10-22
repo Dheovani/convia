@@ -126,6 +126,7 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 		n.logger,
 	)
 	service.Fellow = fellows.Accept
+	fellows.Voiced = func(space spaces.ID) { emit(VoiceEvent, hex.EncodeToString(space[:])) }
 	ring := &ringing{contacts: service}
 	callers := calls.NewService(ring, func(c calls.Call) { emit(CallEvent, callView(c)) },
 		func(c calls.Call) {
@@ -134,6 +135,7 @@ func (n *Network) Start(id identity.Identity, store *storage.Store) {
 			}
 			emit(CallLogEvent)
 		}, n.logger)
+	callers.Elsewhere = func() bool { _, _, in := fellows.Seat(); return in }
 	fellows.Name = func() string { return displayName(store, id.Name) }
 	manager := peers.New(
 		id.Private,

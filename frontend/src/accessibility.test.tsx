@@ -8,6 +8,8 @@ import { beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
 import { CallLog } from "./calls/CallLog";
 import { Devices } from "./calls/Devices";
+import { VoiceBar } from "./calls/VoiceBar";
+import { VoiceRoom } from "./calls/VoiceRoom";
 import { DeleteDialog } from "./components/DeleteDialog";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { LinkDialog } from "./components/LinkDialog";
@@ -398,4 +400,45 @@ test("the call log", async () => {
   const { container } = render(<CallLog onOpen={() => {}} />);
   await screen.findByText(/Missed/);
   expect(await violations(container, false)).toEqual([]);
+});
+
+test("a voice channel, and the bar of the one this person is in", async () => {
+  answers.VoiceSeat = () => Promise.resolve({ space: "s1", channel: "v1" });
+  answers.Voice = () =>
+    Promise.resolve([
+      {
+        channel: "v1",
+        participants: [
+          {
+            publicKey: "aa",
+            name: "Ana",
+            video: false,
+            speaks: true,
+            me: true,
+          },
+          {
+            publicKey: "bb",
+            name: "Bruno",
+            video: false,
+            speaks: false,
+            me: false,
+          },
+        ],
+      },
+    ]);
+  const room = render(
+    <VoiceRoom space="s1" channel={{ id: "v1", name: "sala" }} />,
+  );
+  await screen.findByText("Ana (you)");
+  expect(await violations(room.container, false)).toEqual([]);
+  room.unmount();
+  const bar = render(
+    <VoiceBar
+      spaces={[
+        { id: "s1", name: "Casa", channels: [{ id: "v1", name: "sala" }] },
+      ]}
+    />,
+  );
+  await screen.findByText("In sala · Casa");
+  expect(await violations(bar.container, false)).toEqual([]);
 });

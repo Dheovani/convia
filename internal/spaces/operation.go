@@ -20,12 +20,14 @@ import (
 type Kind string
 
 const (
-	RenameSpace     Kind = "rename-space"
-	CreateChannel   Kind = "create-channel"
-	RenameChannel   Kind = "rename-channel"
-	DeleteChannel   Kind = "delete-channel"
-	RestrictChannel Kind = "restrict-channel"
-	OpenChannel     Kind = "open-channel"
+	RenameSpace   Kind = "rename-space"
+	CreateChannel Kind = "create-channel"
+	// CreateVoiceChannel creates a channel people talk in, joining and leaving it as they like (ADR 0047).
+	CreateVoiceChannel Kind = "create-voice-channel"
+	RenameChannel      Kind = "rename-channel"
+	DeleteChannel      Kind = "delete-channel"
+	RestrictChannel    Kind = "restrict-channel"
+	OpenChannel        Kind = "open-channel"
 	// RestrictWriting lets only some roles write in a channel every reader still reads; OpenWriting lets every reader.
 	RestrictWriting   Kind = "restrict-writing"
 	OpenWriting       Kind = "open-writing"
@@ -58,29 +60,30 @@ const (
 )
 
 var shapes = map[Kind]int{
-	RenameSpace:       usesName,
-	CreateChannel:     usesChannel | usesName,
-	RenameChannel:     usesChannel | usesName,
-	DeleteChannel:     usesChannel,
-	RestrictChannel:   usesChannel | usesRoles,
-	OpenChannel:       usesChannel,
-	RestrictWriting:   usesChannel | usesRoles,
-	OpenWriting:       usesChannel,
-	AddMember:         usesMember,
-	RemoveMember:      usesMember,
-	Leave:             0,
-	CreateRole:        usesRole | usesName,
-	RenameRole:        usesRole | usesName,
-	DeleteRole:        usesRole,
-	GiveRole:          usesRole | usesMember,
-	TakeRole:          usesRole | usesMember,
-	MakeAdmin:         usesMember,
-	UnmakeAdmin:       usesMember,
-	TransferOwnership: usesMember,
-	DeleteSpace:       0,
-	Introduce:         usesName,
-	MuteMember:        usesMember,
-	UnmuteMember:      usesMember,
+	RenameSpace:        usesName,
+	CreateChannel:      usesChannel | usesName,
+	CreateVoiceChannel: usesChannel | usesName,
+	RenameChannel:      usesChannel | usesName,
+	DeleteChannel:      usesChannel,
+	RestrictChannel:    usesChannel | usesRoles,
+	OpenChannel:        usesChannel,
+	RestrictWriting:    usesChannel | usesRoles,
+	OpenWriting:        usesChannel,
+	AddMember:          usesMember,
+	RemoveMember:       usesMember,
+	Leave:              0,
+	CreateRole:         usesRole | usesName,
+	RenameRole:         usesRole | usesName,
+	DeleteRole:         usesRole,
+	GiveRole:           usesRole | usesMember,
+	TakeRole:           usesRole | usesMember,
+	MakeAdmin:          usesMember,
+	UnmakeAdmin:        usesMember,
+	TransferOwnership:  usesMember,
+	DeleteSpace:        0,
+	Introduce:          usesName,
+	MuteMember:         usesMember,
+	UnmuteMember:       usesMember,
 }
 
 // MaxRestriction is the most roles a channel is restricted to.

@@ -171,6 +171,15 @@ test("who administers a space adds channels and invites contacts; a member does 
   });
   fireEvent.click(screen.getByRole("button", { name: "Add" }));
   await waitFor(() => expect(calls.CreateChannel).toEqual([["c1", "avisos"]]));
+  fireEvent.click(await screen.findByRole("button", { name: "New channel" }));
+  fireEvent.change(screen.getByLabelText("Channel name"), {
+    target: { value: "sala" },
+  });
+  fireEvent.click(screen.getByLabelText("Voice channel"));
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await waitFor(() =>
+    expect(calls.CreateVoiceChannel).toEqual([["c1", "sala"]]),
+  );
 
   fireEvent.click(
     await screen.findByRole("button", { name: "Invite a contact" }),

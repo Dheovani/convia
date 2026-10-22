@@ -415,3 +415,22 @@ func TestAScreenSharedIsToldOfOnlyDuringItsOwnCall(t *testing.T) {
 		t.Fatalf("Screen after sharing stopped = %q", got)
 	}
 }
+
+func TestSomebodyInAVoiceChannelIsBusy(t *testing.T) {
+	l, ana, bruno := pair(t)
+	l.connect(ana, bruno)
+	talking := true
+	bruno.s.Elsewhere = func() bool { return talking }
+	if _, err := bruno.s.Call(ana.key, false); !errors.Is(err, ErrBusy) {
+		t.Fatalf("Call() from a voice channel = %v", err)
+	}
+	ana.s.Call(bruno.key, false)
+	l.settle()
+	if got := ana.last(); got.State != Ended || got.Outcome != Busy {
+		t.Fatalf("Ana sees %+v", got)
+	}
+	talking = false
+	if _, err := bruno.s.Call(ana.key, false); err != nil {
+		t.Fatal(err)
+	}
+}

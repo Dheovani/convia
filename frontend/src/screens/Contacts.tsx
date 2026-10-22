@@ -14,6 +14,7 @@ import {
   Unblock,
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Button, input } from "../components/controls";
 import { useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
@@ -58,19 +59,34 @@ async function load(): Promise<State> {
   };
 }
 
+// SafetyCode is shown only when asked for, so that nobody near the screen reads it by chance.
 function SafetyCode({ code }: { code: string }) {
   const words = useWords();
+  const [shown, setShown] = useState(false);
   return (
     <div className="flex flex-col gap-1">
       <span className="text-[0.75rem] text-ink-faint">
         {words.contacts.safetyCode}
       </span>
-      <code className="font-mono text-sm tracking-wide break-words">
-        {code}
-      </code>
+      <div className="flex items-center gap-2 rounded-sm bg-surface-sunken px-3 py-2">
+        <code
+          className={`flex-1 font-mono text-sm tracking-wide break-words ${shown ? "" : "text-ink-faint select-none"}`}
+        >
+          {shown ? code : code.replace(/\d/g, "•")}
+        </code>
+        <Button
+          size="small"
+          aria-pressed={shown}
+          onClick={() => setShown(!shown)}
+        >
+          {shown ? words.contacts.hideCode : words.contacts.showCode}
+        </Button>
+      </div>
     </div>
   );
 }
+
+type Parting = { contact: Contact; block: boolean };
 
 const card = "flex flex-col gap-3 rounded-md bg-surface-raised p-4";
 
@@ -80,7 +96,8 @@ export function Contacts({ onOpen }: { onOpen: (contact: Contact) => void }) {
   const [state, setState] = useState<State | null>(null);
   const [code, setCode] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const [forget, setForget] = useState<Record<string, boolean>>({});
+  const [parting, setParting] = useState<Parting | null>(null);
+  const [forget, setForget] = useState(false);
 
   const refresh = useCallback(
     () =>
@@ -186,57 +203,73 @@ export function Contacts({ onOpen }: { onOpen: (contact: Contact) => void }) {
               {words.contacts.open}
             </Button>
             <SafetyCode code={c.safetyCode} />
-            <p className="text-xs text-ink-faint">
-              {words.contacts.safetyHint}
-            </p>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={c.verified}
-                onChange={(event) =>
-                  attempt(() => SetVerified(c.publicKey, event.target.checked))
-                }
-              />
-              {words.contacts.verify(c.name)}
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={forget[c.publicKey] ?? false}
-                onChange={(event) =>
-                  setForget({ ...forget, [c.publicKey]: event.target.checked })
-                }
-              />
-              {words.contacts.forget}
-            </label>
+            {!c.verified && (
+              <div className="flex flex-col items-start gap-2">
+                <p className="text-xs text-ink-faint">
+                  {words.contacts.safetyHint}
+                </p>
+                <Button
+                  size="small"
+                  onClick={() => attempt(() => SetVerified(c.publicKey, true))}
+                >
+                  {words.contacts.verify(c.name)}
+                </Button>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <Button
                 size="small"
-                onClick={() =>
-                  attempt(() =>
-                    RemoveContact(c.publicKey, forget[c.publicKey] ?? false),
-                  )
-                }
+                onClick={() => {
+                  setForget(false);
+                  setParting({ contact: c, block: false });
+                }}
               >
                 {words.contacts.remove}
               </Button>
               <Button
                 size="small"
-                onClick={() =>
-                  attempt(() =>
-                    BlockContact(c.publicKey, forget[c.publicKey] ?? false),
-                  )
-                }
+                onClick={() => {
+                  setForget(false);
+                  setParting({ contact: c, block: true });
+                }}
               >
                 {words.contacts.block}
               </Button>
-              <span className="text-xs text-ink-faint">
-                {words.contacts.removeHint}
-              </span>
             </div>
           </article>
         ))}
       </section>
+
+      {parting && (
+        <ConfirmDialog
+          title={
+            parting.block
+              ? words.contacts.blockTitle(parting.contact.name)
+              : words.contacts.removeTitle(parting.contact.name)
+          }
+          explanation={words.contacts.removeHint}
+          confirm={parting.block ? words.contacts.block : words.contacts.remove}
+          onClose={() => setParting(null)}
+          onConfirm={() => {
+            const { contact, block } = parting;
+            setParting(null);
+            void attempt(() =>
+              block
+                ? BlockContact(contact.publicKey, forget)
+                : RemoveContact(contact.publicKey, forget),
+            );
+          }}
+        >
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={forget}
+              onChange={(event) => setForget(event.target.checked)}
+            />
+            {words.contacts.forget}
+          </label>
+        </ConfirmDialog>
+      )}
 
       <section className="flex flex-col gap-3">
         <h2 className="font-display text-lg font-semibold">

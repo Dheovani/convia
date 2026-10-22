@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 import { answers, calls, reset } from "../test/bridge";
 import { emit, resetEvents } from "../test/runtime";
@@ -49,7 +55,7 @@ test("shows the contacts, the requests and the invitation", async () => {
   render(<Contacts onOpen={() => {}} />);
   expect(await screen.findByText("Bruno")).toBeTruthy();
   expect(screen.getByText("Carla")).toBeTruthy();
-  expect(screen.getByText("33333 44444")).toBeTruthy();
+  expect(screen.queryByText("33333 44444")).toBeNull();
   expect(screen.getByText("Waiting for an answer")).toBeTruthy();
   expect(screen.getByText("Not accepted")).toBeTruthy();
   expect(screen.getByText("convia1example")).toBeTruthy();
@@ -95,16 +101,33 @@ test("an invitation that does not read says why", async () => {
 
 test("a contact is verified, and removed with or without the conversation", async () => {
   render(<Contacts onOpen={() => {}} />);
+  expect(screen.queryByText("11111 22222")).toBeNull();
+  for (const b of await screen.findAllByRole("button", { name: "Show" }))
+    fireEvent.click(b);
+  expect(screen.getByText("11111 22222")).toBeTruthy();
+  for (const b of screen.getAllByRole("button", { name: "Hide" }))
+    fireEvent.click(b);
+  expect(screen.queryByText("11111 22222")).toBeNull();
+
   fireEvent.click(
-    await screen.findByLabelText("I compared this code with Bruno"),
+    screen.getByRole("button", { name: "I compared this code with Bruno" }),
   );
   await waitFor(() =>
     expect(calls.SetVerified).toEqual([[bruno.publicKey, true]]),
   );
 
+  expect(screen.queryByLabelText("Also delete our conversation")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  expect(screen.getByText("Remove Bruno?")).toBeTruthy();
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }),
+  );
+  await waitFor(() => expect(calls.RemoveContact).toHaveLength(1));
   fireEvent.click(screen.getByRole("button", { name: "Remove" }));
   fireEvent.click(screen.getByLabelText("Also delete our conversation"));
-  fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+  fireEvent.click(
+    within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }),
+  );
   await waitFor(() =>
     expect(calls.RemoveContact).toEqual([
       [bruno.publicKey, false],

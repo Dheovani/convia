@@ -42,6 +42,8 @@ type Channel struct {
 	// Guarded is a channel only Writers write in, and the owner and administrators.
 	Guarded bool
 	Writers []RoleID
+	// Voice is a channel people talk in rather than write (ADR 0047).
+	Voice bool
 }
 
 // Role opens channels, and does nothing else (ADR 0038).
@@ -78,6 +80,7 @@ type channel struct {
 	roles      map[RoleID]bool
 	guarded    bool
 	writers    map[RoleID]bool
+	voice      bool
 }
 
 // State is a space as its operations left it.
@@ -218,7 +221,7 @@ func (s *State) Channels() []Channel {
 	var out []Channel
 	for id, c := range s.channels {
 		out = append(out, Channel{ID: id, Name: c.name, Restricted: c.restricted, Roles: sortedIDs(c.roles),
-			Guarded: c.guarded, Writers: sortedIDs(c.writers)})
+			Guarded: c.guarded, Writers: sortedIDs(c.writers), Voice: c.voice})
 	}
 	slices.SortFunc(out, func(a, b Channel) int {
 		return cmp.Or(cmp.Compare(a.Name, b.Name), bytes.Compare(a.ID[:], b.ID[:]))
@@ -306,7 +309,7 @@ func sortedIDs(set map[RoleID]bool) []RoleID {
 
 // The rank each kind of change needs of its author (ADR 0038).
 var needs = map[Kind]Rank{
-	RenameSpace: Administrator, CreateChannel: Administrator, RenameChannel: Administrator,
+	RenameSpace: Administrator, CreateChannel: Administrator, CreateVoiceChannel: Administrator, RenameChannel: Administrator,
 	DeleteChannel: Administrator, RestrictChannel: Administrator, OpenChannel: Administrator,
 	RestrictWriting: Administrator, OpenWriting: Administrator,
 	AddMember: Administrator, RemoveMember: Administrator, Leave: Member,
@@ -338,11 +341,11 @@ func (s *State) apply(op Operation) error {
 	switch c.Kind {
 	case RenameSpace:
 		s.Name = c.Name
-	case CreateChannel:
+	case CreateChannel, CreateVoiceChannel:
 		if ch != nil || s.gone[c.Channel] {
 			return ErrExists
 		}
-		s.channels[c.Channel] = &channel{name: c.Name, roles: map[RoleID]bool{}, writers: map[RoleID]bool{}}
+		s.channels[c.Channel] = &channel{name: c.Name, roles: map[RoleID]bool{}, writers: map[RoleID]bool{}, voice: c.Kind == CreateVoiceChannel}
 	case RenameChannel, DeleteChannel, RestrictChannel, OpenChannel, RestrictWriting, OpenWriting:
 		if ch == nil {
 			return ErrUnknown

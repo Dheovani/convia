@@ -23,6 +23,8 @@ export interface ChannelInfo {
   guarded: boolean;
   writers: string[];
   writes: boolean;
+  // voice is a channel people talk in rather than write (ADR 0047).
+  voice?: boolean;
 }
 
 // Channel is everything said in a channel of a space, and where to say more (ADR 0042).

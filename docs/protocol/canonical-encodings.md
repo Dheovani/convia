@@ -103,6 +103,14 @@ The owner or an administrator gives each epoch of a space its discovery secret, 
 
 The epoch is the 32-byte hash that names it; the secret is 32 random bytes.
 
+A member in a voice channel says so, or that it left, and signs it ([the state of a space](spaces.md)):
+
+```text
+"convia/v1/voice-presence" | version | space identifier | channel identifier | member's identity | moment | flags
+```
+
+The moment is in milliseconds since the Unix epoch, as a 64-bit big-endian integer; the flags are a 32-bit big-endian integer, 1 when the member left and 2 when its camera or screen is on.
+
 ## Test vectors
 
 Inputs: Alice's identity is 32 bytes of `a1`, Bob's 32 bytes of `b0`; Alice's nonce is the bytes `00` to `1f`, Bob's `20` to `3f`; Alice's fingerprint is given as `SHA-256 ab:cd:ef`, Bob's as `sha-256 01:23:45`.
@@ -159,4 +167,10 @@ ba07ea0f2e073376b9ff449882e400c71002cabe4ca48082a95d80cb2496a71c
 
 ```text
 00000016636f6e7669612f76312f73706163652d736563726574000000040000000100000010000102030405060708090a0b0c0d0e0f00000020020202020202020202020202020202020202020202020202020202020202020200000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000000200303030303030303030303030303030303030303030303030303030303030303
+```
+
+**Voice presence**, version 1, in the space `00` to `0f` and its channel `20` to `2f`, by Alice at 1700000000003, with her camera on:
+
+```text
+00000018636f6e7669612f76312f766f6963652d70726573656e6365000000040000000100000010000102030405060708090a0b0c0d0e0f00000010202122232425262728292a2b2c2d2e2f00000020a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1000000080000018bcfe568030000000400000002
 ```

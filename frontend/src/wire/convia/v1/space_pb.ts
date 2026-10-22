@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file convia/v1/space.proto.
  */
 export const file_convia_v1_space: GenFile = /*@__PURE__*/
-  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwi3AEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDBIMCgR0ZXh0GAwgASgMImEKC1NwYWNlU2VjcmV0EhAKCHNwYWNlX2lkGAEgASgMEg0KBWVwb2NoGAIgASgMEg4KBmF1dGhvchgDIAEoDBIOCgZzZWNyZXQYBCABKAwSEQoJc2lnbmF0dXJlGAUgASgMIi0KCVNwYWNlU3luYxIQCghzcGFjZV9pZBgBIAEoDBIOCgZoYXNoZXMYAiADKAwiSgoMU3BhY2VIb2xkaW5nEhAKCHNwYWNlX2lkGAEgASgMEigKCGNoYW5uZWxzGAIgAygLMhYuY29udmlhLnYxLkNoYW5uZWxIZWxkIkkKC0NoYW5uZWxIZWxkEhIKCmNoYW5uZWxfaWQYASABKAwSJgoHYXV0aG9ycxgCIAMoCzIVLmNvbnZpYS52MS5BdXRob3JIZWxkIi4KCkF1dGhvckhlbGQSDgoGYXV0aG9yGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEIpIBCg9TcGFjZUludml0YXRpb24SKAoHZ2VuZXNpcxgBIAEoCzIXLmNvbnZpYS52MS5TcGFjZUdlbmVzaXMSLQoKb3BlcmF0aW9ucxgCIAMoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbhImCgZzZWNyZXQYAyABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXQiqQEKDENoYW5uZWxFbnRyeRITCgt0ZXh0X3NoYTI1NhgBIAEoDBIQCghyZXBseV90bxgCIAEoDBIsCghyZWFjdGlvbhgDIAEoCzIaLmNvbnZpYS52MS5DaGFubmVsUmVhY3Rpb24SDAoEZWRpdBgEIAEoDBIQCghkZWxldGlvbhgFIAEoDBIkCgRmaWxlGAYgASgLMhYuY29udmlhLnYxLkNoYW5uZWxGaWxlIk4KC0NoYW5uZWxGaWxlEgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iGQoLRmlsZU1pc3NpbmcSCgoCaWQYASABKAwiPAoPQ2hhbm5lbFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
+  fileDesc("ChVjb252aWEvdjEvc3BhY2UucHJvdG8SCWNvbnZpYS52MSKKAQoMU3BhY2VHZW5lc2lzEg8KB3ZlcnNpb24YASABKA0SEAoIc3BhY2VfaWQYAiABKAwSDwoHY3JlYXRvchgDIAEoDBIMCgRuYW1lGAQgASgJEhAKCGhsY193YWxsGAUgASgDEhMKC2hsY19jb3VudGVyGAYgASgNEhEKCXNpZ25hdHVyZRgHIAEoDCL0AQoOU3BhY2VPcGVyYXRpb24SDwoHdmVyc2lvbhgBIAEoDRIQCghzcGFjZV9pZBgCIAEoDBIKCgJpZBgDIAEoDBIOCgZhdXRob3IYBCABKAwSEAoIaGxjX3dhbGwYBSABKAMSEwoLaGxjX2NvdW50ZXIYBiABKA0SDwoHcGFyZW50cxgHIAMoDBIMCgRraW5kGAggASgJEg8KB2NoYW5uZWwYCSABKAwSDAoEcm9sZRgKIAEoDBIOCgZtZW1iZXIYCyABKAwSDAoEbmFtZRgMIAEoCRINCgVyb2xlcxgNIAMoDBIRCglzaWduYXR1cmUYDiABKAwi3AEKDEdyb3VwTWVzc2FnZRIPCgd2ZXJzaW9uGAEgASgNEhAKCHNwYWNlX2lkGAIgASgMEhIKCmNoYW5uZWxfaWQYAyABKAwSDgoGYXV0aG9yGAQgASgMEhAKCHNlcXVlbmNlGAUgASgEEgoKAmlkGAYgASgMEhAKCGhsY193YWxsGAcgASgDEhMKC2hsY19jb3VudGVyGAggASgNEg8KB2NvbnRlbnQYCSABKAwSDgoGZGlnZXN0GAogASgMEhEKCXNpZ25hdHVyZRgLIAEoDBIMCgR0ZXh0GAwgASgMImEKC1NwYWNlU2VjcmV0EhAKCHNwYWNlX2lkGAEgASgMEg0KBWVwb2NoGAIgASgMEg4KBmF1dGhvchgDIAEoDBIOCgZzZWNyZXQYBCABKAwSEQoJc2lnbmF0dXJlGAUgASgMIi0KCVNwYWNlU3luYxIQCghzcGFjZV9pZBgBIAEoDBIOCgZoYXNoZXMYAiADKAwiSgoMU3BhY2VIb2xkaW5nEhAKCHNwYWNlX2lkGAEgASgMEigKCGNoYW5uZWxzGAIgAygLMhYuY29udmlhLnYxLkNoYW5uZWxIZWxkIkkKC0NoYW5uZWxIZWxkEhIKCmNoYW5uZWxfaWQYASABKAwSJgoHYXV0aG9ycxgCIAMoCzIVLmNvbnZpYS52MS5BdXRob3JIZWxkIi4KCkF1dGhvckhlbGQSDgoGYXV0aG9yGAEgASgMEhAKCHNlcXVlbmNlGAIgASgEIpIBCg9TcGFjZUludml0YXRpb24SKAoHZ2VuZXNpcxgBIAEoCzIXLmNvbnZpYS52MS5TcGFjZUdlbmVzaXMSLQoKb3BlcmF0aW9ucxgCIAMoCzIZLmNvbnZpYS52MS5TcGFjZU9wZXJhdGlvbhImCgZzZWNyZXQYAyABKAsyFi5jb252aWEudjEuU3BhY2VTZWNyZXQiqQEKDENoYW5uZWxFbnRyeRITCgt0ZXh0X3NoYTI1NhgBIAEoDBIQCghyZXBseV90bxgCIAEoDBIsCghyZWFjdGlvbhgDIAEoCzIaLmNvbnZpYS52MS5DaGFubmVsUmVhY3Rpb24SDAoEZWRpdBgEIAEoDBIQCghkZWxldGlvbhgFIAEoDBIkCgRmaWxlGAYgASgLMhYuY29udmlhLnYxLkNoYW5uZWxGaWxlIk4KC0NoYW5uZWxGaWxlEgwKBHNpemUYASABKAQSDAoEdHlwZRgCIAEoCRIOCgZzaGEyNTYYAyABKAwSEwoLb3JpZW50YXRpb24YBCABKA0iGQoLRmlsZU1pc3NpbmcSCgoCaWQYASABKAwiPAoPQ2hhbm5lbFJlYWN0aW9uEg4KBnRhcmdldBgBIAEoDBINCgVlbW9qaRgCIAEoCRIKCgJvbhgDIAEoCCKEAQoNVm9pY2VQcmVzZW5jZRIQCghzcGFjZV9pZBgBIAEoDBISCgpjaGFubmVsX2lkGAIgASgMEg4KBm1lbWJlchgDIAEoDBIKCgJhdBgEIAEoAxIPCgdsZWF2aW5nGAUgASgIEg0KBXZpZGVvGAYgASgIEhEKCXNpZ25hdHVyZRgHIAEoDEI9WjtnaXRodWIuY29tL0RoZW92YW5pL2NvbnZpYS9pbnRlcm5hbC93aXJlL2NvbnZpYS92MTtjb252aWF2MWIGcHJvdG8z");
 
 /**
  * SpaceGenesis begins a space: its creator signs it, and it is the space's first owner (ADR 0013).
@@ -522,4 +522,57 @@ export type ChannelReaction = Message<"convia.v1.ChannelReaction"> & {
  */
 export const ChannelReactionSchema: GenMessage<ChannelReaction> = /*@__PURE__*/
   messageDesc(file_convia_v1_space, 12);
+
+/**
+ * VoicePresence says a member is in a voice channel of a space, or left it, signed by the member (ADR 0047).
+ *
+ * @generated from message convia.v1.VoicePresence
+ */
+export type VoicePresence = Message<"convia.v1.VoicePresence"> & {
+  /**
+   * @generated from field: bytes space_id = 1;
+   */
+  spaceId: Uint8Array;
+
+  /**
+   * @generated from field: bytes channel_id = 2;
+   */
+  channelId: Uint8Array;
+
+  /**
+   * @generated from field: bytes member = 3;
+   */
+  member: Uint8Array;
+
+  /**
+   * When the member said it, in milliseconds since the Unix epoch: the latest said is believed.
+   *
+   * @generated from field: int64 at = 4;
+   */
+  at: bigint;
+
+  /**
+   * @generated from field: bool leaving = 5;
+   */
+  leaving: boolean;
+
+  /**
+   * Whether the member's camera or screen is on.
+   *
+   * @generated from field: bool video = 6;
+   */
+  video: boolean;
+
+  /**
+   * @generated from field: bytes signature = 7;
+   */
+  signature: Uint8Array;
+};
+
+/**
+ * Describes the message convia.v1.VoicePresence.
+ * Use `create(VoicePresenceSchema)` to create a new message.
+ */
+export const VoicePresenceSchema: GenMessage<VoicePresence> = /*@__PURE__*/
+  messageDesc(file_convia_v1_space, 13);
 

@@ -125,3 +125,16 @@ message ChannelReaction {
   string emoji = 2;
   bool on = 3;
 }
+
+// VoicePresence says a member is in a voice channel of a space, or left it, signed by the member (ADR 0047).
+message VoicePresence {
+  bytes space_id = 1;
+  bytes channel_id = 2;
+  bytes member = 3;
+  // When the member said it, in milliseconds since the Unix epoch: the latest said is believed.
+  int64 at = 4;
+  bool leaving = 5;
+  // Whether the member's camera or screen is on.
+  bool video = 6;
+  bytes signature = 7;
+}

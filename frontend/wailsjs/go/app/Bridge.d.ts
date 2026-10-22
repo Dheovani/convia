@@ -41,6 +41,8 @@ export function CreateRole(arg1:string,arg2:string):Promise<void>;
 
 export function CreateSpace(arg1:string,arg2:string):Promise<app.SpaceView>;
 
+export function CreateVoiceChannel(arg1:string,arg2:string):Promise<app.ChannelView>;
+
 export function CurrentCall():Promise<app.CallView>;
 
 export function DeclineCall():Promise<app.CallView>;
@@ -79,7 +81,11 @@ export function ImportIdentity(arg1:string,arg2:string,arg3:boolean):Promise<app
 
 export function InviteToSpace(arg1:string,arg2:string):Promise<void>;
 
+export function JoinVoice(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
 export function LeaveSpace(arg1:string):Promise<void>;
+
+export function LeaveVoice():Promise<void>;
 
 export function MaxMessageCharacters():Promise<number>;
 
@@ -176,3 +182,9 @@ export function TrayWords(arg1:string,arg2:string,arg3:string):Promise<void>;
 export function Unblock(arg1:string):Promise<void>;
 
 export function Viewing(arg1:string,arg2:boolean):Promise<void>;
+
+export function Voice(arg1:string):Promise<Array<app.VoiceChannelView>>;
+
+export function VoiceSeat():Promise<app.SeatView>;
+
+export function VoiceVideo(arg1:boolean):Promise<void>;

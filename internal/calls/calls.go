@@ -87,6 +87,9 @@ type Service struct {
 	now     func() time.Time
 	ring    time.Duration
 
+	// Elsewhere says whether this person is in a voice channel, which a call waits for as for another call.
+	Elsewhere func() bool
+
 	mu      sync.Mutex
 	current *Call
 	ready   map[string]bool
@@ -123,6 +126,8 @@ func (s *Service) Current() *Call {
 
 func (s *Service) live() bool { return s.current != nil && s.current.State != Ended }
 
+func (s *Service) busy() bool { return s.live() || s.Elsewhere != nil && s.Elsewhere() }
+
 func (s *Service) step(c *Call, step conviav1.Call_Step) bool {
 	return s.conns.Send(c.Peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Call{Call: &conviav1.Call{
 		Id: c.ID[:], Step: step, Video: c.Video}}})
@@ -151,7 +156,7 @@ func (s *Service) Call(peer ed25519.PublicKey, video bool) (Call, error) {
 		return Call{}, ErrNotContact
 	}
 	s.mu.Lock()
-	if s.live() {
+	if s.busy() {
 		s.mu.Unlock()
 		return Call{}, ErrBusy
 	}
@@ -284,7 +289,7 @@ func (s *Service) Message(peer ed25519.PublicKey, message *conviav1.PeerMessage)
 		if ours {
 			break
 		}
-		if s.live() {
+		if s.busy() {
 			s.conns.Send(peer, &conviav1.PeerMessage{Message: &conviav1.PeerMessage_Call{Call: &conviav1.Call{Id: m.Id, Step: conviav1.Call_STEP_BUSY}}})
 			break
 		}
