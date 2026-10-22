@@ -58,6 +58,7 @@ export namespace app {
 	    guarded: boolean;
 	    writers: string[];
 	    writes: boolean;
+	    voice: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelView(source);
@@ -72,6 +73,7 @@ export namespace app {
 	        this.guarded = source["guarded"];
 	        this.writers = source["writers"];
 	        this.writes = source["writes"];
+	        this.voice = source["voice"];
 	    }
 	}
 	export class ContactView {
@@ -340,6 +342,28 @@ export namespace app {
 	    }
 	}
 	
+	export class ParticipantView {
+	    publicKey: string;
+	    name: string;
+	    video: boolean;
+	    speaks: boolean;
+	    me: boolean;
+	    connection?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ParticipantView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.publicKey = source["publicKey"];
+	        this.name = source["name"];
+	        this.video = source["video"];
+	        this.speaks = source["speaks"];
+	        this.me = source["me"];
+	        this.connection = source["connection"];
+	    }
+	}
 	
 	
 	export class RequestView {
@@ -408,6 +432,20 @@ export namespace app {
 	        this.name = source["name"];
 	    }
 	}
+	export class SeatView {
+	    space: string;
+	    channel: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SeatView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.space = source["space"];
+	        this.channel = source["channel"];
+	    }
+	}
 	export class SpaceView {
 	    id: string;
 	    name: string;
@@ -426,6 +464,38 @@ export namespace app {
 	        this.rank = source["rank"];
 	        this.muted = source["muted"];
 	        this.channels = this.convertValues(source["channels"], ChannelView);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class VoiceChannelView {
+	    channel: string;
+	    participants: ParticipantView[];
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceChannelView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.channel = source["channel"];
+	        this.participants = this.convertValues(source["participants"], ParticipantView);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

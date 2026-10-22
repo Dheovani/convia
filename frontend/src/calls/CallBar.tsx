@@ -13,6 +13,7 @@ import { Button } from "../components/controls";
 import { useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
 import { transport } from "../transport/wails";
+import { remote, useRemote } from "./remote";
 import {
   camera,
   microphone,
@@ -38,9 +39,6 @@ interface Someone {
   publicKey: string;
   name: string;
 }
-
-// What the other side sends, by connection and stream: it may arrive before this side's call is in progress.
-const remote = new Map<string, Map<string, MediaStream>>();
 
 // theirs is the other side's voice and camera on connection, and their screen if they share one (ADR 0046).
 function theirs(connection: string, screen: string | undefined) {
@@ -77,7 +75,7 @@ export function CallBar({ people }: { people: Someone[] }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [filming, setFilming] = useState(false);
-  const [heard, setHeard] = useState(0);
+  const heard = useRemote();
   const [now, setNow] = useState(() => Date.now());
   const [conn, setConn] = useState("");
   const [sharing, setSharing] = useState<Sharing>("");
@@ -93,22 +91,6 @@ export function CallBar({ people }: { people: Someone[] }) {
   const theirScreen = useRef<HTMLVideoElement>(null);
   const name = (key: string) =>
     people.find((p) => p.publicKey === key)?.name ?? words.home.someone;
-
-  useEffect(() => {
-    const conns = transport();
-    if (!conns) return;
-    conns.track = (id, track, streams) => {
-      const known = remote.get(id) ?? new Map<string, MediaStream>();
-      const stream = streams[0] ?? known.get("") ?? new MediaStream();
-      if (!stream.getTracks().includes(track)) stream.addTrack(track);
-      known.set(streams[0] ? stream.id : "", stream);
-      remote.set(id, known);
-      setHeard((n) => n + 1);
-    };
-    return () => {
-      conns.track = undefined;
-    };
-  }, []);
 
   useEffect(() => {
     // What a step of a call says is newer than what was asked for before it.

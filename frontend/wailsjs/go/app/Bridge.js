@@ -78,6 +78,10 @@ export function CreateSpace(arg1, arg2) {
   return window['go']['app']['Bridge']['CreateSpace'](arg1, arg2);
 }
 
+export function CreateVoiceChannel(arg1, arg2) {
+  return window['go']['app']['Bridge']['CreateVoiceChannel'](arg1, arg2);
+}
+
 export function CurrentCall() {
   return window['go']['app']['Bridge']['CurrentCall']();
 }
@@ -154,8 +158,16 @@ export function InviteToSpace(arg1, arg2) {
   return window['go']['app']['Bridge']['InviteToSpace'](arg1, arg2);
 }
 
+export function JoinVoice(arg1, arg2, arg3) {
+  return window['go']['app']['Bridge']['JoinVoice'](arg1, arg2, arg3);
+}
+
 export function LeaveSpace(arg1) {
   return window['go']['app']['Bridge']['LeaveSpace'](arg1);
+}
+
+export function LeaveVoice() {
+  return window['go']['app']['Bridge']['LeaveVoice']();
 }
 
 export function MaxMessageCharacters() {
@@ -348,4 +360,16 @@ export function Unblock(arg1) {
 
 export function Viewing(arg1, arg2) {
   return window['go']['app']['Bridge']['Viewing'](arg1, arg2);
+}
+
+export function Voice(arg1) {
+  return window['go']['app']['Bridge']['Voice'](arg1);
+}
+
+export function VoiceSeat() {
+  return window['go']['app']['Bridge']['VoiceSeat']();
+}
+
+export function VoiceVideo(arg1) {
+  return window['go']['app']['Bridge']['VoiceVideo'](arg1);
 }

@@ -1,20 +1,22 @@
-import { useEffect, useId, useRef } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 import { useWords } from "../i18n/language";
 import { Button } from "./controls";
 
-// ConfirmDialog asks before something that cannot be undone, saying what it does.
+// ConfirmDialog asks before something that cannot be undone, saying what it does, with any choice it offers.
 export function ConfirmDialog({
   title,
   explanation,
   confirm,
   onConfirm,
   onClose,
+  children,
 }: {
   title: string;
   explanation: string;
   confirm: string;
   onConfirm: () => void;
   onClose: () => void;
+  children?: ReactNode;
 }) {
   const words = useWords();
   const titleId = useId();
@@ -42,6 +44,7 @@ export function ConfirmDialog({
         {title}
       </h2>
       <p className="text-sm text-ink-dim">{explanation}</p>
+      {children}
       <div className="flex justify-end gap-2 whitespace-nowrap">
         <Button autoFocus onClick={onClose}>
           {words.spaces.cancel}

@@ -32,6 +32,7 @@ message PeerMessage {
     Renegotiation renegotiation = 19;
     Call call = 20;
     Screen screen = 21;
+    VoicePresence voice_presence = 22;
   }
 }
 

@@ -31,6 +31,9 @@ var spaceRefusals = []struct {
 	{spaces.ErrExists, "space-exists"},
 	{spaces.ErrUnknown, "no-such-space"},
 	{spaces.ErrEntry, "message-empty"},
+	{spaces.ErrNotVoice, "not-allowed"},
+	{spaces.ErrVoiceFull, "voice-full"},
+	{spaces.ErrNotInVoice, "not-in-voice"},
 }
 
 func spaceRefusal(err error) error {
@@ -59,8 +62,9 @@ type ChannelView struct {
 	Roles      []string `json:"roles"`
 	Guarded    bool     `json:"guarded"`
 	Writers    []string `json:"writers"`
-	// Writes is whether this person may write in it.
+	// Writes is whether this person may write in it, or in a voice channel, speak.
 	Writes bool `json:"writes"`
+	Voice  bool `json:"voice"`
 }
 
 // InvitationView is a space this person was added to and has not answered.
@@ -83,7 +87,7 @@ func spaceView(state *spaces.State, me ed25519.PublicKey) SpaceView {
 	for _, c := range state.Channels() {
 		if state.Sees(me, c.ID) {
 			channel := ChannelView{ID: hex.EncodeToString(c.ID[:]), Name: c.Name, Restricted: c.Restricted, Roles: []string{},
-				Guarded: c.Guarded, Writers: []string{}, Writes: state.Writes(me, c.ID)}
+				Guarded: c.Guarded, Writers: []string{}, Writes: state.Writes(me, c.ID), Voice: c.Voice}
 			for _, r := range c.Roles {
 				channel.Roles = append(channel.Roles, hex.EncodeToString(r[:]))
 			}
@@ -183,6 +187,15 @@ func (b *Bridge) CreateSpace(name, firstChannel string) (*SpaceView, error) {
 
 // CreateChannel adds a channel named name to the space spaceID.
 func (b *Bridge) CreateChannel(spaceID, name string) (*ChannelView, error) {
+	return b.createChannel(spaceID, name, spaces.CreateChannel)
+}
+
+// CreateVoiceChannel adds a voice channel named name to the space spaceID (ADR 0047).
+func (b *Bridge) CreateVoiceChannel(spaceID, name string) (*ChannelView, error) {
+	return b.createChannel(spaceID, name, spaces.CreateVoiceChannel)
+}
+
+func (b *Bridge) createChannel(spaceID, name string, kind spaces.Kind) (*ChannelView, error) {
 	s, err := b.fellowship()
 	if err != nil {
 		return nil, spaceRefusal(err)
@@ -197,10 +210,11 @@ func (b *Bridge) CreateChannel(spaceID, name string) (*ChannelView, error) {
 	if err != nil {
 		return nil, spaceRefusal(err)
 	}
-	if _, err := s.Operate(id, spaces.Change{Kind: spaces.CreateChannel, Channel: channel, Name: name}); err != nil {
+	if _, err := s.Operate(id, spaces.Change{Kind: kind, Channel: channel, Name: name}); err != nil {
 		return nil, spaceRefusal(err)
 	}
-	return &ChannelView{ID: hex.EncodeToString(channel[:]), Name: name, Roles: []string{}, Writers: []string{}, Writes: true}, nil
+	return &ChannelView{ID: hex.EncodeToString(channel[:]), Name: name, Roles: []string{}, Writers: []string{}, Writes: true,
+		Voice: kind == spaces.CreateVoiceChannel}, nil
 }
 
 // InviteToSpace adds the contact publicKey names to the space spaceID; they are told, and accept or decline (ADR 0039).

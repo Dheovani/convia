@@ -306,9 +306,9 @@ Voice, video and screen sharing over the peer connection ([ADR 0015](docs/adr/00
 
 **Depends on:** M15, M18.
 
-- [ ] **M19-001:** Decide how a call exists in a space: a call started in a channel, a voice channel people join and leave as in Discord, or both.
-- [ ] **M19-002:** Connect the participants of a call in a full mesh.
-- [ ] **M19-003:** Enforce at most six participants while video or screen sharing is on.
+- [x] **M19-001:** Decide how a call exists in a space: a call started in a channel, a voice channel people join and leave as in Discord, or both ([ADR 0047](docs/adr/0047-a-call-in-a-space-is-a-voice-channel.md)).
+- [x] **M19-002:** Connect the participants of a call in a full mesh.
+- [x] **M19-003:** Enforce at most six participants while video or screen sharing is on.
 - [ ] **M19-004:** Measure an audio-only call as participants are added, and set its limit from the measurement.
 - [ ] **M19-005:** Build the interface of a call with several people.
 

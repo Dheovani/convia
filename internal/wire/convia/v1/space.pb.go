@@ -1013,6 +1013,101 @@ func (x *ChannelReaction) GetOn() bool {
 	return false
 }
 
+// VoicePresence says a member is in a voice channel of a space, or left it, signed by the member (ADR 0047).
+type VoicePresence struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SpaceId   []byte                 `protobuf:"bytes,1,opt,name=space_id,json=spaceId,proto3" json:"space_id,omitempty"`
+	ChannelId []byte                 `protobuf:"bytes,2,opt,name=channel_id,json=channelId,proto3" json:"channel_id,omitempty"`
+	Member    []byte                 `protobuf:"bytes,3,opt,name=member,proto3" json:"member,omitempty"`
+	// When the member said it, in milliseconds since the Unix epoch: the latest said is believed.
+	At      int64 `protobuf:"varint,4,opt,name=at,proto3" json:"at,omitempty"`
+	Leaving bool  `protobuf:"varint,5,opt,name=leaving,proto3" json:"leaving,omitempty"`
+	// Whether the member's camera or screen is on.
+	Video         bool   `protobuf:"varint,6,opt,name=video,proto3" json:"video,omitempty"`
+	Signature     []byte `protobuf:"bytes,7,opt,name=signature,proto3" json:"signature,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *VoicePresence) Reset() {
+	*x = VoicePresence{}
+	mi := &file_convia_v1_space_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *VoicePresence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*VoicePresence) ProtoMessage() {}
+
+func (x *VoicePresence) ProtoReflect() protoreflect.Message {
+	mi := &file_convia_v1_space_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use VoicePresence.ProtoReflect.Descriptor instead.
+func (*VoicePresence) Descriptor() ([]byte, []int) {
+	return file_convia_v1_space_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *VoicePresence) GetSpaceId() []byte {
+	if x != nil {
+		return x.SpaceId
+	}
+	return nil
+}
+
+func (x *VoicePresence) GetChannelId() []byte {
+	if x != nil {
+		return x.ChannelId
+	}
+	return nil
+}
+
+func (x *VoicePresence) GetMember() []byte {
+	if x != nil {
+		return x.Member
+	}
+	return nil
+}
+
+func (x *VoicePresence) GetAt() int64 {
+	if x != nil {
+		return x.At
+	}
+	return 0
+}
+
+func (x *VoicePresence) GetLeaving() bool {
+	if x != nil {
+		return x.Leaving
+	}
+	return false
+}
+
+func (x *VoicePresence) GetVideo() bool {
+	if x != nil {
+		return x.Video
+	}
+	return false
+}
+
+func (x *VoicePresence) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 var File_convia_v1_space_proto protoreflect.FileDescriptor
 
 const file_convia_v1_space_proto_rawDesc = "" +
@@ -1104,7 +1199,16 @@ const file_convia_v1_space_proto_rawDesc = "" +
 	"\x0fChannelReaction\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\fR\x06target\x12\x14\n" +
 	"\x05emoji\x18\x02 \x01(\tR\x05emoji\x12\x0e\n" +
-	"\x02on\x18\x03 \x01(\bR\x02onB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
+	"\x02on\x18\x03 \x01(\bR\x02on\"\xbf\x01\n" +
+	"\rVoicePresence\x12\x19\n" +
+	"\bspace_id\x18\x01 \x01(\fR\aspaceId\x12\x1d\n" +
+	"\n" +
+	"channel_id\x18\x02 \x01(\fR\tchannelId\x12\x16\n" +
+	"\x06member\x18\x03 \x01(\fR\x06member\x12\x0e\n" +
+	"\x02at\x18\x04 \x01(\x03R\x02at\x12\x18\n" +
+	"\aleaving\x18\x05 \x01(\bR\aleaving\x12\x14\n" +
+	"\x05video\x18\x06 \x01(\bR\x05video\x12\x1c\n" +
+	"\tsignature\x18\a \x01(\fR\tsignatureB=Z;github.com/Dheovani/convia/internal/wire/convia/v1;conviav1b\x06proto3"
 
 var (
 	file_convia_v1_space_proto_rawDescOnce sync.Once
@@ -1118,7 +1222,7 @@ func file_convia_v1_space_proto_rawDescGZIP() []byte {
 	return file_convia_v1_space_proto_rawDescData
 }
 
-var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_convia_v1_space_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_convia_v1_space_proto_goTypes = []any{
 	(*SpaceGenesis)(nil),    // 0: convia.v1.SpaceGenesis
 	(*SpaceOperation)(nil),  // 1: convia.v1.SpaceOperation
@@ -1133,6 +1237,7 @@ var file_convia_v1_space_proto_goTypes = []any{
 	(*ChannelFile)(nil),     // 10: convia.v1.ChannelFile
 	(*FileMissing)(nil),     // 11: convia.v1.FileMissing
 	(*ChannelReaction)(nil), // 12: convia.v1.ChannelReaction
+	(*VoicePresence)(nil),   // 13: convia.v1.VoicePresence
 }
 var file_convia_v1_space_proto_depIdxs = []int32{
 	6,  // 0: convia.v1.SpaceHolding.channels:type_name -> convia.v1.ChannelHeld
@@ -1160,7 +1265,7 @@ func file_convia_v1_space_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_convia_v1_space_proto_rawDesc), len(file_convia_v1_space_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

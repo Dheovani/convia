@@ -9,6 +9,8 @@ import {
 } from "../../wailsjs/go/app/Bridge";
 import { EventsOn } from "../../wailsjs/runtime/runtime";
 import { CallBar } from "../calls/CallBar";
+import { VoiceBar } from "../calls/VoiceBar";
+import { VoiceRoom } from "../calls/VoiceRoom";
 import { CallLog } from "../calls/CallLog";
 import { PhoneIcon } from "../components/Icons";
 import { Mark } from "../components/Mark";
@@ -227,6 +229,26 @@ export function Workspace({
         >
           <Mark size={28} />
         </button>
+        <button
+          type="button"
+          className={`relative ${railButton(pane.kind === "new-space")}`}
+          aria-label={words.spaces.add}
+          title={words.spaces.add}
+          aria-current={pane.kind === "new-space" ? "page" : undefined}
+          onClick={() => setPane({ kind: "new-space" })}
+        >
+          <span aria-hidden="true" className="text-xl">
+            +
+          </span>
+          {invited > 0 && (
+            <span
+              className="absolute -top-1 -right-1 rounded-full bg-accent px-1.5 text-[0.72rem] text-on-accent"
+              aria-label={words.spaces.invitationsWaiting(invited)}
+            >
+              {invited}
+            </span>
+          )}
+        </button>
         <span aria-hidden="true" className="h-px w-8 bg-line" />
         <ul aria-label={words.spaces.title} className="flex flex-col gap-2">
           {spaces.map((x) => (
@@ -248,26 +270,6 @@ export function Workspace({
             </li>
           ))}
         </ul>
-        <button
-          type="button"
-          className={`relative ${railButton(pane.kind === "new-space")}`}
-          aria-label={words.spaces.add}
-          title={words.spaces.add}
-          aria-current={pane.kind === "new-space" ? "page" : undefined}
-          onClick={() => setPane({ kind: "new-space" })}
-        >
-          <span aria-hidden="true" className="text-xl">
-            +
-          </span>
-          {invited > 0 && (
-            <span
-              className="absolute -top-1 -right-1 rounded-full bg-accent px-1.5 text-[0.72rem] text-on-accent"
-              aria-label={words.spaces.invitationsWaiting(invited)}
-            >
-              {invited}
-            </span>
-          )}
-        </button>
         <button
           type="button"
           className={railButton(pane.kind === "calls")}
@@ -400,13 +402,14 @@ export function Workspace({
 
       <main className="flex min-w-0 flex-1 flex-col bg-surface">
         <CallBar people={conversations} />
+        <VoiceBar spaces={spaces} />
         {outdated && (
           <p role="alert" className="bg-surface-raised p-3 text-sm">
             {outdated}
           </p>
         )}
         {space && pane.kind === "space" && pane.settings ? (
-          <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
+          <div className="flex flex-1 overflow-y-auto px-8 py-6">
             <SpaceSettings
               key={space.id}
               space={space}
@@ -416,6 +419,12 @@ export function Workspace({
               }}
             />
           </div>
+        ) : space && channel?.voice ? (
+          <VoiceRoom
+            key={`${space.id}-${channel.id}`}
+            space={space.id}
+            channel={channel}
+          />
         ) : space && channel ? (
           <Channel
             key={`${space.id}-${channel.id}`}
@@ -429,7 +438,7 @@ export function Workspace({
             {words.spaces.noChannels}
           </p>
         ) : pane.kind === "calls" ? (
-          <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
+          <div className="flex flex-1 overflow-y-auto px-8 py-6">
             <CallLog
               onOpen={(publicKey) =>
                 setPane({ kind: "conversation", publicKey })
@@ -437,7 +446,7 @@ export function Workspace({
             />
           </div>
         ) : pane.kind === "new-space" ? (
-          <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
+          <div className="flex flex-1 overflow-y-auto px-8 py-6">
             <NewSpace
               onOpen={(id) => {
                 void loadSpaces();
@@ -453,7 +462,7 @@ export function Workspace({
             focus={pane.focus}
           />
         ) : pane.kind === "contacts" ? (
-          <div className="flex flex-1 justify-center overflow-y-auto px-8 py-8">
+          <div className="flex flex-1 overflow-y-auto px-8 py-6">
             <Contacts
               onOpen={(c) =>
                 setPane({ kind: "conversation", publicKey: c.publicKey })

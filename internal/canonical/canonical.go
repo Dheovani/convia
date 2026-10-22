@@ -18,6 +18,7 @@ const (
 	SpaceOperationDomain = "convia/v1/space-operation"
 	GroupMessageDomain   = "convia/v1/group-message"
 	SpaceSecretDomain    = "convia/v1/space-secret"
+	VoicePresenceDomain  = "convia/v1/voice-presence"
 )
 
 // Role is a peer's part in a WebRTC negotiation.
@@ -143,4 +144,18 @@ func GroupMessage(
 // SpaceSecret is what an owner or administrator signs to give a space's epoch its discovery secret (ADR 0014).
 func SpaceSecret(version uint32, space, epoch, author, secret []byte) []byte {
 	return Encode([]byte(SpaceSecretDomain), Uint32(version), space, epoch, author, secret)
+}
+
+// VoicePresence is what a member signs to say it is in a voice channel, or left it (ADR 0047).
+func VoicePresence(version uint32, space, channel, member []byte, at int64, leaving, video bool) []byte {
+	flags := uint32(0)
+	if leaving {
+		flags |= 1
+	}
+
+	if video {
+		flags |= 2
+	}
+
+	return Encode([]byte(VoicePresenceDomain), Uint32(version), space, channel, member, Uint64(uint64(at)), Uint32(flags))
 }

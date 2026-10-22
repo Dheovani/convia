@@ -1,5 +1,11 @@
 import { useId, useState } from "react";
-import { CreateChannel, InviteToSpace } from "../../wailsjs/go/app/Bridge";
+import {
+  CreateChannel,
+  CreateVoiceChannel,
+  InviteToSpace,
+} from "../../wailsjs/go/app/Bridge";
+import { inChannel, useVoice } from "../calls/voice";
+import { SpeakerIcon } from "../components/Icons";
 import { Button, input } from "../components/controls";
 import { useWords } from "../i18n/language";
 import { refused } from "../i18n/refused";
@@ -39,6 +45,8 @@ export function SpaceSidebar({
   const inviteId = useId();
   const [adding, setAdding] = useState<"channel" | "person" | null>(null);
   const [name, setName] = useState("");
+  const [voice, setVoice] = useState(false);
+  const { channels: voices } = useVoice(space.id);
   const [person, setPerson] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const administers = space.rank !== "member";
@@ -49,6 +57,7 @@ export function SpaceSidebar({
       await work();
       setAdding(null);
       setName("");
+      setVoice(false);
       setPerson("");
       onChanged();
     } catch (error) {
@@ -91,10 +100,30 @@ export function SpaceSidebar({
                 onClick={() => onOpen(c.id)}
               >
                 <span aria-hidden="true" className="text-ink-faint">
-                  {c.restricted ? "🔒" : c.guarded ? "📢" : "#"}
+                  {c.voice ? (
+                    <SpeakerIcon />
+                  ) : c.restricted ? (
+                    "🔒"
+                  ) : c.guarded ? (
+                    "📢"
+                  ) : (
+                    "#"
+                  )}
                 </span>
                 <span className="truncate">{c.name}</span>
               </button>
+              {c.voice && inChannel(voices, c.id).length > 0 && (
+                <ul
+                  aria-label={words.voice.inThere(c.name)}
+                  className="ml-7 flex flex-col text-[0.8rem] text-ink-dim"
+                >
+                  {inChannel(voices, c.id).map((p) => (
+                    <li key={p.publicKey} className="truncate">
+                      {p.name || words.home.someone}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </li>
           ))}
         </ul>
@@ -105,7 +134,11 @@ export function SpaceSidebar({
                 className="flex flex-col gap-1"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  void attempt(() => CreateChannel(space.id, name));
+                  void attempt(() =>
+                    voice
+                      ? CreateVoiceChannel(space.id, name)
+                      : CreateChannel(space.id, name),
+                  );
                 }}
               >
                 <label htmlFor={nameId} className="text-[0.75rem] text-ink-dim">
@@ -119,6 +152,14 @@ export function SpaceSidebar({
                   maxLength={100}
                   onChange={(event) => setName(event.target.value)}
                 />
+                <label className="flex items-center gap-1 text-[0.75rem] text-ink-dim">
+                  <input
+                    type="checkbox"
+                    checked={voice}
+                    onChange={(event) => setVoice(event.target.checked)}
+                  />
+                  {words.voice.channel}
+                </label>
                 <span className="flex gap-2">
                   <Button size="small" onClick={() => setAdding(null)}>
                     {words.spaces.cancel}

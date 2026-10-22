@@ -59,6 +59,15 @@ type Service struct {
 	fetching map[string]bool
 	now      func() time.Time
 
+	// Voiced is told when who is in a voice channel of a space changes.
+	Voiced func(ID)
+	voices map[ID]map[ChannelID]map[string]heard
+	// left is when each member said it left a voice channel, so that what it said before is not believed again.
+	left   map[string]*time.Time
+	sat    *seat
+	said   time.Time
+	meshed map[string]bool
+
 	mu      sync.Mutex
 	members map[string]bool
 }
@@ -68,7 +77,8 @@ func NewService(store *Store, me identity.Identity, conns Connections, changed f
 	s := &Service{store: store, me: me, conns: conns, changed: changed, logger: logger, work: newQueue(),
 		ready: map[string]bool{}, joined: map[string]map[ID]bool{}, pending: map[string][]*conviav1.PeerMessage{}, states: map[ID]*State{},
 		online: map[ID]map[string]bool{}, ringed: map[ID]map[string]bool{}, ids: map[string]sighting{}, now: time.Now,
-		asks: map[[IDSize]byte]*asking{}, fetching: map[string]bool{}}
+		asks: map[[IDSize]byte]*asking{}, fetching: map[string]bool{},
+		voices: map[ID]map[ChannelID]map[string]heard{}, left: map[string]*time.Time{}, meshed: map[string]bool{}}
 	s.refresh()
 	return s
 }
@@ -78,6 +88,8 @@ func (s *Service) Run(ctx context.Context) {
 	s.do(s.reach)
 	tick := time.NewTicker(time.Minute)
 	defer tick.Stop()
+	renew := time.NewTicker(Renew)
+	defer renew.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -88,6 +100,8 @@ func (s *Service) Run(ctx context.Context) {
 			if uint32(s.now().Unix()/int64(day/time.Second)) != s.day {
 				s.reach()
 			}
+		case <-renew.C:
+			s.renew()
 		}
 	}
 }
@@ -285,6 +299,10 @@ func (s *Service) Message(peer ed25519.PublicKey, message *conviav1.PeerMessage)
 			s.serve(peer, m.FileRequest)
 		case *conviav1.PeerMessage_FileMissing:
 			s.missing(peer, m.FileMissing.GetId())
+		case *conviav1.PeerMessage_VoicePresence:
+			if p, err := presenceFrom(m.VoicePresence); err == nil {
+				s.voice(peer, p)
+			}
 		}
 	})
 }
@@ -321,6 +339,7 @@ func (s *Service) synced(peer ed25519.PublicKey, w *conviav1.SpaceSync) {
 		s.send(peer, operationMessage(op))
 	}
 	s.share(peer, id)
+	s.presences(peer, id)
 }
 
 // removal is the operation that removed peer from the space id, which a member removed while away is told of.
@@ -417,6 +436,8 @@ func (s *Service) applied(id ID, from ed25519.PublicKey, op Operation) {
 	}
 	s.reach()
 	s.rings()
+	s.unseat()
+	s.mesh()
 	s.changed(id)
 }
 

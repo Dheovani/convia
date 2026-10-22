@@ -108,6 +108,7 @@ type PeerMessage struct {
 	//	*PeerMessage_Renegotiation
 	//	*PeerMessage_Call
 	//	*PeerMessage_Screen
+	//	*PeerMessage_VoicePresence
 	Message       isPeerMessage_Message `protobuf_oneof:"message"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -339,6 +340,15 @@ func (x *PeerMessage) GetScreen() *Screen {
 	return nil
 }
 
+func (x *PeerMessage) GetVoicePresence() *VoicePresence {
+	if x != nil {
+		if x, ok := x.Message.(*PeerMessage_VoicePresence); ok {
+			return x.VoicePresence
+		}
+	}
+	return nil
+}
+
 type isPeerMessage_Message interface {
 	isPeerMessage_Message()
 }
@@ -427,6 +437,10 @@ type PeerMessage_Screen struct {
 	Screen *Screen `protobuf:"bytes,21,opt,name=screen,proto3,oneof"`
 }
 
+type PeerMessage_VoicePresence struct {
+	VoicePresence *VoicePresence `protobuf:"bytes,22,opt,name=voice_presence,json=voicePresence,proto3,oneof"`
+}
+
 func (*PeerMessage_Hello) isPeerMessage_Message() {}
 
 func (*PeerMessage_Challenge) isPeerMessage_Message() {}
@@ -468,6 +482,8 @@ func (*PeerMessage_Renegotiation) isPeerMessage_Message() {}
 func (*PeerMessage_Call) isPeerMessage_Message() {}
 
 func (*PeerMessage_Screen) isPeerMessage_Message() {}
+
+func (*PeerMessage_VoicePresence) isPeerMessage_Message() {}
 
 // DirectMessage is one entry of a conversation between two contacts (ADR 0010): a message of at most
 // 4,000 characters (ADR 0029), which may answer another (ADR 0035); or a reaction to one, its new text,
@@ -1410,7 +1426,8 @@ var File_convia_v1_peer_proto protoreflect.FileDescriptor
 
 const file_convia_v1_peer_proto_rawDesc = "" +
 	"\n" +
-	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\x1a\x1aconvia/v1/rendezvous.proto\x1a\x15convia/v1/space.proto\"\xfe\t\n" +
+	"\x14convia/v1/peer.proto\x12\tconvia.v1\x1a\x19convia/v1/handshake.proto\x1a\x1aconvia/v1/rendezvous.proto\x1a\x15convia/v1/space.proto\"\xc1\n" +
+	"\n" +
 	"\vPeerMessage\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.convia.v1.HelloH\x00R\x05hello\x124\n" +
 	"\tchallenge\x18\x02 \x01(\v2\x14.convia.v1.ChallengeH\x00R\tchallenge\x12(\n" +
@@ -1434,7 +1451,8 @@ const file_convia_v1_peer_proto_rawDesc = "" +
 	"\ffile_missing\x18\x12 \x01(\v2\x16.convia.v1.FileMissingH\x00R\vfileMissing\x12@\n" +
 	"\rrenegotiation\x18\x13 \x01(\v2\x18.convia.v1.RenegotiationH\x00R\rrenegotiation\x12%\n" +
 	"\x04call\x18\x14 \x01(\v2\x0f.convia.v1.CallH\x00R\x04call\x12+\n" +
-	"\x06screen\x18\x15 \x01(\v2\x11.convia.v1.ScreenH\x00R\x06screenB\t\n" +
+	"\x06screen\x18\x15 \x01(\v2\x11.convia.v1.ScreenH\x00R\x06screen\x12A\n" +
+	"\x0evoice_presence\x18\x16 \x01(\v2\x18.convia.v1.VoicePresenceH\x00R\rvoicePresenceB\t\n" +
 	"\amessage\"\xd7\x02\n" +
 	"\rDirectMessage\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\fR\x02id\x12\x1a\n" +
@@ -1547,7 +1565,8 @@ var file_convia_v1_peer_proto_goTypes = []any{
 	(*SpaceSecret)(nil),      // 24: convia.v1.SpaceSecret
 	(*SpaceInvitation)(nil),  // 25: convia.v1.SpaceInvitation
 	(*FileMissing)(nil),      // 26: convia.v1.FileMissing
-	(*Candidate)(nil),        // 27: convia.v1.Candidate
+	(*VoicePresence)(nil),    // 27: convia.v1.VoicePresence
+	(*Candidate)(nil),        // 28: convia.v1.Candidate
 }
 var file_convia_v1_peer_proto_depIdxs = []int32{
 	17, // 0: convia.v1.PeerMessage.hello:type_name -> convia.v1.Hello
@@ -1571,16 +1590,17 @@ var file_convia_v1_peer_proto_depIdxs = []int32{
 	14, // 18: convia.v1.PeerMessage.renegotiation:type_name -> convia.v1.Renegotiation
 	15, // 19: convia.v1.PeerMessage.call:type_name -> convia.v1.Call
 	16, // 20: convia.v1.PeerMessage.screen:type_name -> convia.v1.Screen
-	7,  // 21: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
-	6,  // 22: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
-	3,  // 23: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
-	27, // 24: convia.v1.Renegotiation.candidate:type_name -> convia.v1.Candidate
-	0,  // 25: convia.v1.Call.step:type_name -> convia.v1.Call.Step
-	26, // [26:26] is the sub-list for method output_type
-	26, // [26:26] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	27, // 21: convia.v1.PeerMessage.voice_presence:type_name -> convia.v1.VoicePresence
+	7,  // 22: convia.v1.DirectMessage.reaction:type_name -> convia.v1.Reaction
+	6,  // 23: convia.v1.DirectMessage.edit:type_name -> convia.v1.Edit
+	3,  // 24: convia.v1.DirectMessage.attachment:type_name -> convia.v1.Attachment
+	28, // 25: convia.v1.Renegotiation.candidate:type_name -> convia.v1.Candidate
+	0,  // 26: convia.v1.Call.step:type_name -> convia.v1.Call.Step
+	27, // [27:27] is the sub-list for method output_type
+	27, // [27:27] is the sub-list for method input_type
+	27, // [27:27] is the sub-list for extension type_name
+	27, // [27:27] is the sub-list for extension extendee
+	0,  // [0:27] is the sub-list for field type_name
 }
 
 func init() { file_convia_v1_peer_proto_init() }
@@ -1613,6 +1633,7 @@ func file_convia_v1_peer_proto_init() {
 		(*PeerMessage_Renegotiation)(nil),
 		(*PeerMessage_Call)(nil),
 		(*PeerMessage_Screen)(nil),
+		(*PeerMessage_VoicePresence)(nil),
 	}
 	file_convia_v1_peer_proto_msgTypes[13].OneofWrappers = []any{
 		(*Renegotiation_Offer)(nil),

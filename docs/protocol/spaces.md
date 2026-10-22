@@ -18,6 +18,7 @@ Every change after the genesis is a `SpaceOperation`: version 1, the space's ide
 | -------------------------------------------------- | ----------------------------------------------- | ------------- |
 | `rename-space`                                     | name                                            | administrator |
 | `create-channel`, `rename-channel`                 | channel, name                                   | administrator |
+| `create-voice-channel`                             | channel, name                                   | administrator |
 | `delete-channel`, `open-channel`                   | channel                                         | administrator |
 | `restrict-channel`                                 | channel, roles — at most 100, sorted, once each | administrator |
 | `add-member`, `remove-member`                      | member                                          | administrator |
@@ -98,6 +99,17 @@ A space travels in `PeerMessage`s between members ([peers](peers.md)):
 - **`space_holding`** follows it: how far each channel is held, author by author. The other answers with each `group_message` after it.
 - **Afterwards**, a member passes on at once each operation, entry and secret new to it to every member that opened the space on its connection, but the one it came from — an entry only to those who may read its channel. What it already held it passes on to nobody, so nothing circles.
 - **A member removed** is sent the operation that removed them, and nothing more — at once if connected, or when they next open the space with a member.
+
+## Voice channels
+
+A member in a voice channel says so with `voice_presence` ([ADR 0047](../adr/0047-a-call-in-a-space-is-a-voice-channel.md)): the space, the channel, itself, the moment in milliseconds, whether it left, and whether its camera is on, signed by it ([canonical encodings](canonical-encodings.md)). It says so again every 30 seconds, and once more when it leaves.
+
+- **A presence is believed** when it comes from a member of the space connected, names a voice channel its signer may see, is signed by them, is within 90 seconds of this member's clock, and is later than the last one its signer signed. Otherwise it is dropped.
+- **A presence believed is passed on** to every member that opened the space on its connection and may see the channel, but the one it came from and its signer; a member that opens the space is sent every presence held that it may see, and the member's own.
+- **A member is taken to be in one voice channel**, the one its latest presence names, until it leaves or 90 seconds pass with no new one.
+- **A member in a voice channel connects to each other member there**, and lets go of those who left.
+
+At most 12 are in a voice channel, and at most 6 while one of them has a camera on: a member does not join, or turn its camera on, beyond it.
 
 ## Invitations
 
